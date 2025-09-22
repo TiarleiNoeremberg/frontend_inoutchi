@@ -578,71 +578,163 @@
 
         // Confirmar ação (entrada/saída) - FUNÇÃO GLOBAL
         window.confirmAction = async function() {
-            try {
-                const accessToken = localStorage.getItem('access_token');
-                
-                if (!selectedStudentId || !actionType) {
-                    throw new Error('Aluno ou ação não selecionada');
-                }
+    try {
+        const accessToken = localStorage.getItem('access_token');
+        
+        if (!selectedStudentId || !actionType) {
+            throw new Error('Aluno ou ação não selecionada');
+        }
 
-                // Verificar se temos coordenadas válidas
-                const latitude = parseFloat(document.getElementById('displayLatitude').textContent);
-                const longitude = parseFloat(document.getElementById('displayLongitude').textContent);
-                
-                if (isNaN(latitude) || isNaN(longitude)) {
-                    throw new Error('Localização não disponível. Obtenha a localização atual primeiro.');
-                }
+        // Verificar se temos coordenadas válidas
+        const latitude = parseFloat(document.getElementById('displayLatitude').textContent);
+        const longitude = parseFloat(document.getElementById('displayLongitude').textContent);
+        
+        if (isNaN(latitude) || isNaN(longitude)) {
+            throw new Error('Localização não disponível. Obtenha a localização atual primeiro.');
+        }
 
-                // Preparar dados para a requisição NO FORMATO ESPERADO PELO BACKEND
-                const requestData = {
-                    alunoId: selectedStudentId,
-                    responsavelNome: currentUser.nome,
-                    responsavelTipo: 'TUTOR',
-                    responsavelId: currentUser.id || 1,
-                    latitude: latitude,
-                    longitude: longitude
-                };
+        // OBTER O ID CORRETO DO TUTOR AUTENTICADO
+        let responsavelId = currentUser.id;
+        
+        // Se não tiver o ID do usuário, tentar obter das informações do JWT
+        if (!responsavelId) {
+            // Tentar extrair do token JWT ou usar um fallback seguro
+            const tokenData = parseJwt(accessToken);
+            if (tokenData && tokenData.user_id) {
+                responsavelId = tokenData.user_id;
+            } else {
+                // Fallback: usar o ID baseado no email ou outro identificador
+                responsavelId = await getTutorIdFromAPI(currentUser.nome);
+            }
+        }
+
+        // VALIDAÇÃO DE SEGURANÇA: garantir que o tutor está operando em seu próprio nome
+        if (!responsavelId || responsavelId <= 0) {
+            throw new Error('Não foi possível identificar o tutor autenticado. Faça login novamente.');
+        }
+
+        console.log('Tutor autenticado:', {
+            nome: currentUser.nome,
+            id: responsavelId,
+            email: currentUser.email
+        });
+
+                // Preparar dados para a requisição NO FORMATO CORRETO
+        const requestData = {
+            alunoId: selectedStudentId,
+            responsavelNome: currentUser.nome, // Nome do tutor autenticado
+            responsavelTipo: 'TUTOR',
+            responsavelId: responsavelId, // ID do tutor autenticado
+            latitude: latitude,
+            longitude: longitude
+        };
 
                 console.log('Enviando dados para o backend:', requestData);
 
-                // Usar endpoints permitidos
-                const endpoint = actionType === 'entrada' ? 'entrada' : 'saida';
-                const response = await fetch(`${BACKEND_URL}/api/presencas/${endpoint}`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(requestData)
-                });
+        // Usar endpoints permitidos
+        const endpoint = actionType === 'entrada' ? 'entrada' : 'saida';
+        const response = await fetch(`${BACKEND_URL}/api/presencas/${endpoint}`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestData)
+        });
+
+
 
                 if (response.ok) {
-                    const result = await response.json();
-                    showAlert(`${actionType === 'entrada' ? 'Entrada' : 'Saída'} registrada com sucesso!`, 'success');
-                    closeModal();
-                    
-                    // Recarregar dados
-                    await loadStudents();
-                    await loadHistory();
-                } else {
-                    const errorText = await response.text();
-                    let errorMessage = errorText || `Erro ${response.status}: ${response.statusText}`;
-                    
-                    try {
-                        const errorJson = JSON.parse(errorText);
-                        errorMessage = errorJson.mensagem || errorJson.erro || errorMessage;
-                    } catch (e) {
-                        // Manter a mensagem original se não for JSON
-                    }
-                    
-                    throw new Error(errorMessage);
-                }
-                
-            } catch (error) {
-                console.error(`Erro ao registrar ${actionType}:`, error);
-                showAlert(`Erro ao registrar ${actionType}: ${error.message}`, 'error');
+            const result = await response.json();
+            showAlert(`${actionType === 'entrada' ? 'Entrada' : 'Saída'} registrada com sucesso!`, 'success');
+            closeModal();
+            
+            // Recarregar dados
+            await loadStudents();
+            await loadHistory();
+        } else {
+            const errorText = await response.text();
+            let errorMessage = errorText || `Erro ${response.status}: ${response.statusText}`;
+            
+            try {
+                const errorJson = JSON.parse(errorText);
+                errorMessage = errorJson.mensagem || errorJson.erro || errorMessage;
+            } catch (e) {
+                // Manter a mensagem original se não for JSON
             }
-        };
+            
+            throw new Error(errorMessage);
+        }
+        
+    } catch (error) {
+        console.error(`Erro ao registrar ${actionType}:`, error);
+        showAlert(`Erro ao registrar ${actionType}: ${error.message}`, 'error');
+    }
+};
+
+        // Função para obter o ID do tutor via API
+async function getTutorIdFromAPI(tutorNome) {
+    try {
+        const accessToken = localStorage.getItem('access_token');
+        const response = await fetch(`${BACKEND_URL}/api/tutores/${encodeURIComponent(tutorNome)}`, {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (response.ok) {
+            const tutorData = await response.json();
+            return tutorData.id;
+        }
+    } catch (error) {
+        console.error('Erro ao obter ID do tutor:', error);
+    }
+    return null;
+}
+
+        // ATUALIZAR a função loadUserInfo para garantir que temos o ID do usuário
+async function loadUserInfo() {
+    try {
+        const accessToken = localStorage.getItem('access_token');
+        const response = await fetch(`${BACKEND_URL}/api/users/me`, {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (response.ok) {
+            const userData = await response.json();
+            currentUser = userData;
+            
+            console.log('Dados completos do usuário:', userData);
+            
+            // Verificar se temos o ID do usuário
+            if (!currentUser.id) {
+                console.warn('ID do usuário não encontrado na resposta /api/users/me');
+                // Tentar extrair do JWT como fallback
+                const tokenData = parseJwt(accessToken);
+                if (tokenData && tokenData.user_id) {
+                    currentUser.id = tokenData.user_id;
+                    console.log('ID obtido do JWT:', currentUser.id);
+                }
+            }
+            
+            // Atualizar UI com informações do usuário
+            userFullName.textContent = userData.nome || 'Tutor';
+            userName.textContent = userData.email || 'Usuário';
+            userAvatar.textContent = userData.nome ? userData.nome.charAt(0).toUpperCase() : 'U';
+            
+        } else {
+            console.error('Erro na resposta /api/users/me:', response.status, response.statusText);
+            throw new Error('Erro ao carregar informações do usuário');
+        }
+    } catch (error) {
+        console.error('Erro ao carregar informações do usuário:', error);
+        throw error;
+    }
+}
 
         // Fechar modal - FUNÇÃO GLOBAL
         window.closeModal = function() {
