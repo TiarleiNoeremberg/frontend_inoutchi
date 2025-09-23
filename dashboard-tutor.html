@@ -434,6 +434,30 @@
             text-align: center;
         }
 
+        /* Ajustar a tabela para 6 colunas */
+        .history-table th:nth-child(4),
+        .history-table td:nth-child(4) {
+            width: 15%;
+        }
+
+        .history-table th:nth-child(5),
+        .history-table td:nth-child(5) {
+            width: 15%;
+        }
+
+        .history-table th:nth-child(6),
+        .history-table td:nth-child(6) {
+            width: 10%;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .history-table {
+                display: block;
+                overflow-x: auto;
+            }
+        }
+
     </style>
 </head>
 <body>
@@ -501,7 +525,8 @@
                                 <th>Aluno</th>
                                 <th>Data/Hora Entrada</th>
                                 <th>Data/Hora Saída</th>
-                                <th>Responsável</th>
+                                <th>Iniciado por</th>
+                                <th>Finalizado por</th>
                                 <th>Ações</th>
                             </tr>
                         </thead>
@@ -700,11 +725,18 @@
         }, 500);
     };
 
-    // Visualizar histórico de um aluno específico - FUNÇÃO GLOBAL
+    // Função viewStudentHistory corrigida
     window.viewStudentHistory = function(studentId, studentName) {
+        selectedStudentId = studentId;
         loadHistory(studentId);
-        showAlert(`Histórico de ${studentName} carregado.`, 'success');
-        document.querySelector('.history-section').scrollIntoView({ behavior: 'smooth' });
+        showAlert(`Carregando histórico de ${studentName}...`, 'success');
+        
+        // Rolagem suave para a seção de histórico
+        setTimeout(() => {
+            document.querySelector('.history-section').scrollIntoView({ 
+                behavior: 'smooth' 
+            });
+        }, 300);
     };
 
     // Visualizar detalhes de um registro - FUNÇÃO GLOBAL
@@ -778,48 +810,66 @@
     }
 
         // ========== FUNÇÃO PRINCIPAL DE INICIALIZAÇÃO ==========
-    async function initializeDashboard() {
-        console.log('Inicializando dashboard tutor...');
-        
-        initializeDOMElements();
-        
-        const accessToken = localStorage.getItem('access_token');
-        const expiry = localStorage.getItem('token_expiry');
-
-        // Verificar autenticação
-        if (!accessToken || !expiry || new Date().getTime() > parseInt(expiry)) {
-            console.log('REDIRECIONANDO: Token inválido ou expirado');
-            alert("Sessão expirada ou inexistente. Faça login novamente.");
-            window.location.href = "index.html";
-            return;
-        }
-
-        try {
-            // Obter informações do usuário
-            await loadUserInfo();
+        async function initializeDashboard() {
+            console.log('Inicializando dashboard tutor...');
             
-            // Obter nome do tutor para usar no endpoint
-            tutorName = currentUser.nome;
-            if (!tutorName) {
-                showAlert('Não foi possível identificar o tutor. Faça login novamente.', 'error');
-                setTimeout(() => { logout(); }, 2000);
+            initializeDOMElements();
+            
+            const accessToken = localStorage.getItem('access_token');
+            const expiry = localStorage.getItem('token_expiry');
+
+            // Verificar autenticação
+            if (!accessToken || !expiry || new Date().getTime() > parseInt(expiry)) {
+                console.log('REDIRECIONANDO: Token inválido ou expirado');
+                alert("Sessão expirada ou inexistente. Faça login novamente.");
+                window.location.href = "index.html";
                 return;
             }
-            
-            // Carregar alunos vinculados ao tutor
-            await loadStudents();
-            
-            // Carregar histórico de presença
-            await loadHistory();
-            
-            // Mostrar conteúdo
-            showContent();
-            
-        } catch (error) {
-            console.error('Erro ao inicializar dashboard:', error);
-            showAlert('Erro ao carregar informações. Tente novamente.', 'error');
+
+            try {
+                // Obter informações do usuário
+                await loadUserInfo();
+                
+                // Obter nome do tutor para usar no endpoint
+                tutorName = currentUser.nome;
+                if (!tutorName) {
+                    showAlert('Não foi possível identificar o tutor. Faça login novamente.', 'error');
+                    setTimeout(() => { logout(); }, 2000);
+                    return;
+                }
+                
+                // Carregar alunos vinculados ao tutor
+                await loadStudents();
+                
+                // Configurar o botão de atualizar
+                setupUpdateButton();
+                
+                // MOSTRAR MENSAGEM INICIAL NO HISTÓRICO (não carregar histórico sem aluno selecionado)
+                renderEmptyHistory('Selecione um aluno para visualizar o histórico');
+                
+                // Mostrar conteúdo
+                showContent();
+                
+            } catch (error) {
+                console.error('Erro ao inicializar dashboard:', error);
+                showAlert('Erro ao carregar informações. Tente novamente.', 'error');
+            }
         }
-    }
+
+        // Adicionar esta função após a função initializeDashboard
+        function setupUpdateButton() {
+            const updateButton = document.querySelector('.history-section .btn-primary');
+            if (updateButton) {
+                updateButton.onclick = function() {
+                    if (selectedStudentId) {
+                        loadHistory(selectedStudentId);
+                        showAlert('Histórico atualizado!', 'success');
+                    } else {
+                        showAlert('Selecione um aluno primeiro clicando em "Histórico"', 'error');
+                    }
+                };
+            }
+        }
 
         // Carregar informações do usuário
         async function loadUserInfo() {
@@ -1011,23 +1061,28 @@ function renderStudents() {
     });
 }
 
-        // Carregar histórico de presença usando endpoint permitido
+        // Função loadHistory corrigida - versão final
         window.loadHistory = async function(studentId = null) {
             try {
                 const accessToken = localStorage.getItem('access_token');
-                let url = `${BACKEND_URL}/api/presencas/historico`;
                 
-                // Se for especificado um aluno, carregar histórico específico
-                if (studentId) {
-                    url += `/${studentId}`;
-                } else {
-                    // Para histórico geral, usar o primeiro aluno ou deixar vazio
-                    if (students.length > 0) {
-                        url += `/${students[0].id}`;
-                    }
+                // Se não for passado studentId, mostrar mensagem
+                if (!studentId) {
+                    renderEmptyHistory('Selecione um aluno para visualizar o histórico');
+                    return;
                 }
                 
-                const response = await fetch(url, {
+                // Mostrar loading
+                historyTableBody.innerHTML = `
+                    <tr>
+                        <td colspan="6" style="text-align: center; padding: 20px;">
+                            <div class="loading-spinner" style="width: 20px; height: 20px; margin: 0 auto;"></div>
+                            <p>Carregando histórico...</p>
+                        </td>
+                    </tr>
+                `;
+
+                const response = await fetch(`${BACKEND_URL}/api/presencas/historico/${studentId}`, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
@@ -1035,57 +1090,70 @@ function renderStudents() {
                 });
 
                 if (response.ok) {
-                    const historyData = await response.json();
-                    renderHistory(historyData);
+                    const result = await response.json();
+                    
+                    if (result.sucesso && result.dados && Array.isArray(result.dados)) {
+                        renderHistory(result.dados, studentId);
+                    } else {
+                        renderEmptyHistory('Nenhum registro encontrado para este aluno');
+                    }
                 } else {
-                    console.warn('Erro ao carregar histórico, usando dados de exemplo');
-                    renderExampleHistory();
+                    renderEmptyHistory('Erro ao carregar histórico');
                 }
             } catch (error) {
                 console.error('Erro ao carregar histórico:', error);
-                renderExampleHistory();
+                renderEmptyHistory('Erro de conexão ao carregar histórico');
             }
         }
 
-        // Renderizar histórico de presença
-        function renderHistory(historyData) {
+        // Função renderHistory atualizada para a nova estrutura da API
+        function renderHistory(historyData, studentId) {
             historyTableBody.innerHTML = '';
             
             if (!historyData || historyData.length === 0) {
-                historyTableBody.innerHTML = `
-                    <tr>
-                        <td colspan="5" style="text-align: center; padding: 20px; color: #666;">
-                            Nenhum registro de presença encontrado
-                        </td>
-                    </tr>
-                `;
+                renderEmptyHistory('Nenhum registro de presença encontrado para este aluno');
                 return;
             }
             
+            // Encontrar o nome do aluno para o título
+            const student = students.find(s => s.id == studentId);
+            const studentName = student ? student.nome : 'Aluno';
+            
+            // Atualizar título da seção
+            const historyTitle = document.querySelector('.history-section h3');
+            if (historyTitle) {
+                historyTitle.textContent = `Histórico de Presença - ${studentName}`;
+            }
+            
             // Ordenar por data (mais recente primeiro)
-            const sortedHistory = Array.isArray(historyData) ? 
-                historyData.sort((a, b) => 
-                    new Date(b.entradaAt || b.criadoEm) - new Date(a.entradaAt || a.criadoEm)
-                ) : [];
+            const sortedHistory = historyData.sort((a, b) => 
+                new Date(b.entradaAt) - new Date(a.entradaAt)
+            );
             
-            // Limitar a 10 registros
-            const limitedHistory = sortedHistory.slice(0, 10);
-            
-            limitedHistory.forEach(record => {
+            sortedHistory.forEach(record => {
                 const tr = document.createElement('tr');
                 
-                const entryDate = record.entradaAt ? new Date(record.entradaAt).toLocaleString('pt-BR') : '-';
-                const exitDate = record.saidaAt ? new Date(record.saidaAt).toLocaleString('pt-BR') : '-';
-                const responsavel = record.iniciadoPor || record.finalizadoPor || 'Sistema';
-                const alunoNome = record.alunoNome || record.aluno?.nome || 'Aluno';
+                // Formatar datas
+                const entryDate = record.entradaAt ? 
+                    new Date(record.entradaAt).toLocaleString('pt-BR') : '-';
+                
+                const exitDate = record.saidaAt ? 
+                    new Date(record.saidaAt).toLocaleString('pt-BR') : '-';
+                
+                // Tratar campos que podem ser null - CORREÇÃO AQUI
+                const iniciadoPor = record.iniciadoPor || 'Sistema';
+                const iniciadoPorTipo = record.iniciadoPorTipo || 'SISTEMA';
+                const finalizadoPor = record.finalizadoPor || (record.saidaAt ? 'Sistema' : '-'); // VARIÁVEL ADICIONADA
+                const finalizadoPorTipo = record.finalizadoPorTipo || (record.saidaAt ? 'SISTEMA' : 'PENDENTE');
                 
                 tr.innerHTML = `
-                    <td>${alunoNome}</td>
+                    <td>${record.alunoNome || studentName}</td>
                     <td>${entryDate}</td>
                     <td>${exitDate}</td>
-                    <td>${responsavel}</td>
+                    <td>${iniciadoPor} (${iniciadoPorTipo})</td>
+                    <td>${finalizadoPor} (${finalizadoPorTipo})</td>
                     <td>
-                        <button class="btn btn-primary" onclick="viewDetails(${record.id})">
+                        <button class="btn btn-primary">
                             <i class="fas fa-info-circle"></i> Detalhes
                         </button>
                     </td>
@@ -1093,6 +1161,17 @@ function renderStudents() {
                 
                 historyTableBody.appendChild(tr);
             });
+        }
+
+        // Função auxiliar para exibir estado vazio (corrigir colspan)
+        function renderEmptyHistory(message) {
+            historyTableBody.innerHTML = `
+                <tr>
+                    <td colspan="6" style="text-align: center; padding: 20px; color: #666;">
+                        ${message}
+                    </td>
+                </tr>
+            `;
         }
 
         function showAlert(message, type) {
