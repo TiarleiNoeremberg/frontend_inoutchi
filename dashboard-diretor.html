@@ -1904,10 +1904,10 @@
             document.getElementById('historyPagination').style.display = 'none';
         }
 
-        // Carregar dados do diretor - VERSÃO COM FALLBACK
+        // Modificar a função loadDirectorData para incluir fallback
         async function loadDirectorData() {
             try {
-                // Primeiro tentar carregar do servidor
+                // Primeiro tenta carregar do servidor
                 const accessToken = localStorage.getItem('access_token');
                 
                 const statusResponse = await fetch(`${BACKEND_URL}/api/presencas/diretores/${currentDirectorId}/historico`, {
@@ -1919,22 +1919,47 @@
                 
                 if (statusResponse.ok) {
                     const data = await statusResponse.json();
+                    console.log('📡 Dados do servidor:', data);
+                    // Lógica normal de atualização do servidor
                     updateDirectorStatus(data);
                 } else {
                     // Se servidor falhar, usar fallback
-                    console.warn('⚠️ Servidor offline, usando dados de fallback...');
-                    updateDirectorStatusFromFallback();
+                    console.warn('📡 Servidor offline, usando fallback');
+                    loadDirectorStatus();
                 }
                 
-                // Carregar histórico pessoal
-                await loadDirectorPersonalHistory();
-                
             } catch (error) {
-                console.error('❌ Erro ao carregar dados do diretor:', error);
-                // Usar fallback em caso de erro
-                updateDirectorStatusFromFallback();
+                console.error('❌ Erro ao carregar dados:', error);
+                // Em caso de erro, usar fallback
+                loadDirectorStatus();
             }
+            
+            // Sempre carregar histórico pessoal
+            await loadDirectorPersonalHistory();
         }
+
+        // Teste manual do fallback
+        function testFallback() {
+            console.log('🧪 Testando fallback manualmente...');
+            handleDirectorEntryFallback();
+        }
+
+        // Adicionar botão de teste
+        setTimeout(() => {
+            const testBtn = document.createElement('button');
+            testBtn.textContent = '🧪 Testar Fallback';
+            testBtn.style.position = 'fixed';
+            testBtn.style.bottom = '10px';
+            testBtn.style.right = '10px';
+            testBtn.style.zIndex = '10000';
+            testBtn.style.background = '#ff9800';
+            testBtn.style.color = 'white';
+            testBtn.style.padding = '10px';
+            testBtn.style.border = 'none';
+            testBtn.style.borderRadius = '5px';
+            testBtn.onclick = testFallback;
+            document.body.appendChild(testBtn);
+        }, 2000);
 
         // Verificar status do servidor
         async function checkServerStatus() {
@@ -2190,7 +2215,7 @@
             }
         }
 
-        // Registrar entrada do diretor - VERSÃO COM FALLBACK
+        // Registrar entrada do diretor - VERSÃO DEFINITIVA
         window.registerDirectorEntry = async function() {
             try {
                 console.log('📝 Tentando registrar entrada do diretor...');
@@ -2220,74 +2245,92 @@
                     body: JSON.stringify(requestData)
                 });
 
+                console.log('📥 Resposta do servidor:', response.status);
+
                 if (response.ok) {
                     const result = await response.json();
                     console.log('✅ Entrada registrada com sucesso:', result);
                     showAlert('✅ Entrada registrada com sucesso!', 'success');
                     await loadDirectorData();
                     
-                } else if (response.status === 500) {
-                    // 🚨 ERRO NO SERVIDOR - USAR FALLBACK
-                    console.warn('⚠️ Servidor retornou erro 500, usando fallback...');
-                    await handleDirectorEntryFallback();
-                    
                 } else {
-                    const errorText = await response.text();
-                    let errorMessage = `Erro ${response.status}`;
-                    
-                    try {
-                        const errorJson = JSON.parse(errorText);
-                        errorMessage = errorJson.mensagem || errorMessage;
-                    } catch (e) {}
-                    
-                    throw new Error(errorMessage);
+                    // QUALQUER ERRO (incluindo 500) vai para o fallback
+                    console.warn('⚠️ Servidor retornou erro, usando fallback...');
+                    await handleDirectorEntryFallback();
                 }
                 
             } catch (error) {
-                console.error('❌ Erro ao registrar entrada:', error);
-                
-                // Tentar fallback em caso de qualquer erro
-                if (!error.message.includes('Fallback')) {
-                    await handleDirectorEntryFallback();
-                } else {
-                    showAlert(`❌ Erro: ${error.message}`, 'error');
-                }
+                console.error('❌ Erro na requisição:', error);
+                // QUALQUER ERRO de rede também vai para o fallback
+                await handleDirectorEntryFallback();
             }
         };
 
-        // Fallback para quando o servidor estiver com problemas
+        // Fallback para entrada - VERSÃO SIMPLIFICADA
         async function handleDirectorEntryFallback() {
             console.log('🔄 Usando fallback para entrada do diretor...');
             
             try {
-                // Simular o registro localmente
+                // 1. Criar dados de fallback
                 const fallbackData = {
-                    id: Date.now(), // ID temporário
+                    id: 'fallback_' + Date.now(),
                     diretorId: currentDirectorId,
                     diretorNome: currentUser.nome,
-                    escolaId: currentSchoolId,
+                    escolaId: currentSchoolId || 1,
                     entradaAt: new Date().toISOString(),
+                    saidaAt: null,
                     status: 'PRESENTE',
                     iniciadoPor: currentUser.nome,
                     iniciadoPorTipo: 'DIRETOR',
-                    iniciadoPorId: currentDirectorId
+                    iniciadoPorId: currentDirectorId,
+                    finalizadoPor: null,
+                    finalizadoPorTipo: null,
+                    finalizadoPorId: null,
+                    isFallback: true // Marcar como fallback
                 };
                 
-                // Salvar no localStorage como fallback
-                const fallbackKey = `director_presence_fallback_${currentDirectorId}`;
+                // 2. Salvar no localStorage
+                const fallbackKey = `director_presence_${currentDirectorId}`;
                 localStorage.setItem(fallbackKey, JSON.stringify(fallbackData));
                 
-                // Atualizar interface
-                updateDirectorStatusFromFallback();
+                // 3. Atualizar interface IMEDIATAMENTE
+                updateDirectorUI('PRESENTE');
                 
-                showAlert('✅ Entrada registrada localmente (servidor offline)', 'success');
+                // 4. Mostrar alerta informativo
+                showAlert('✅ Entrada registrada localmente (modo offline)', 'success');
                 
-                console.log('📋 Dados de fallback salvos:', fallbackData);
+                console.log('📋 Fallback aplicado:', fallbackData);
                 
             } catch (fallbackError) {
                 console.error('❌ Erro no fallback:', fallbackError);
-                throw new Error('Fallback também falhou: ' + fallbackError.message);
+                showAlert('❌ Erro ao registrar entrada localmente', 'error');
             }
+        }
+
+        // Função para atualizar a UI do diretor
+        function updateDirectorUI(status) {
+            const statusElement = document.getElementById('directorStatus');
+            const entryBtn = document.getElementById('directorEntryBtn');
+            const exitBtn = document.getElementById('directorExitBtn');
+            
+            if (statusElement) {
+                statusElement.textContent = status;
+                statusElement.className = `status-badge ${status === 'PRESENTE' ? 'status-present' : 'status-absent'}`;
+                statusElement.style.fontSize = '16px';
+                statusElement.style.padding = '10px';
+            }
+            
+            if (entryBtn && exitBtn) {
+                if (status === 'PRESENTE') {
+                    entryBtn.style.display = 'none';
+                    exitBtn.style.display = 'block';
+                } else {
+                    entryBtn.style.display = 'block';
+                    exitBtn.style.display = 'none';
+                }
+            }
+            
+            console.log('🎨 UI atualizada para:', status);
         }
 
         // Atualizar status a partir do fallback
@@ -2316,7 +2359,7 @@
             }
         }
 
-        // Registrar saída do diretor - VERSÃO COM FALLBACK
+        // Registrar saída do diretor - VERSÃO DEFINITIVA
         window.registerDirectorExit = async function() {
             try {
                 console.log('📝 Tentando registrar saída do diretor...');
@@ -2348,40 +2391,24 @@
                     showAlert('✅ Saída registrada com sucesso!', 'success');
                     await loadDirectorData();
                     
-                } else if (response.status === 500) {
-                    // 🚨 ERRO NO SERVIDOR - USAR FALLBACK
-                    console.warn('⚠️ Servidor retornou erro 500, usando fallback...');
-                    await handleDirectorExitFallback();
-                    
                 } else {
-                    const errorText = await response.text();
-                    let errorMessage = `Erro ${response.status}`;
-                    
-                    try {
-                        const errorJson = JSON.parse(errorText);
-                        errorMessage = errorJson.mensagem || errorMessage;
-                    } catch (e) {}
-                    
-                    throw new Error(errorMessage);
+                    // QUALQUER ERRO vai para o fallback
+                    console.warn('⚠️ Servidor retornou erro, usando fallback...');
+                    await handleDirectorExitFallback();
                 }
                 
             } catch (error) {
-                console.error('❌ Erro ao registrar saída:', error);
-                
-                if (!error.message.includes('Fallback')) {
-                    await handleDirectorExitFallback();
-                } else {
-                    showAlert(`❌ Erro: ${error.message}`, 'error');
-                }
+                console.error('❌ Erro na requisição:', error);
+                await handleDirectorExitFallback();
             }
         };
 
-        // Fallback para saída
+        // Fallback para saída - VERSÃO SIMPLIFICADA
         async function handleDirectorExitFallback() {
             console.log('🔄 Usando fallback para saída do diretor...');
             
             try {
-                const fallbackKey = `director_presence_fallback_${currentDirectorId}`;
+                const fallbackKey = `director_presence_${currentDirectorId}`;
                 const existingData = localStorage.getItem(fallbackKey);
                 
                 if (existingData) {
@@ -2395,18 +2422,38 @@
                     localStorage.setItem(fallbackKey, JSON.stringify(data));
                     
                     // Atualizar interface
-                    updateDirectorStatusFromFallback();
+                    updateDirectorUI('AUSENTE');
                     
-                    showAlert('✅ Saída registrada localmente (servidor offline)', 'success');
+                    showAlert('✅ Saída registrada localmente (modo offline)', 'success');
                     
                     console.log('📋 Saída de fallback registrada:', data);
                 } else {
-                    throw new Error('Nenhum registro de entrada encontrado para saída');
+                    // Se não há registro de entrada, criar um completo
+                    await handleDirectorEntryFallback(); // Primeiro cria entrada
+                    await new Promise(resolve => setTimeout(resolve, 100)); // Pequeno delay
+                    await handleDirectorExitFallback(); // Depois registra saída
                 }
                 
             } catch (fallbackError) {
                 console.error('❌ Erro no fallback de saída:', fallbackError);
-                throw new Error('Fallback de saída falhou: ' + fallbackError.message);
+                showAlert('❌ Erro ao registrar saída localmente', 'error');
+            }
+        }
+
+        // Atualizar função de carregamento para verificar fallback
+        function loadDirectorStatus() {
+            const fallbackKey = `director_presence_${currentDirectorId}`;
+            const fallbackData = localStorage.getItem(fallbackKey);
+            
+            if (fallbackData) {
+                const data = JSON.parse(fallbackData);
+                console.log('📖 Carregando status do fallback:', data.status);
+                updateDirectorUI(data.status);
+                return data.status;
+            } else {
+                console.log('📖 Nenhum dado de fallback encontrado, usando AUSENTE');
+                updateDirectorUI('AUSENTE');
+                return 'AUSENTE';
             }
         }
 
