@@ -1490,8 +1490,8 @@
             const nextPageBtn = document.getElementById('studentHistoryNextPageBtn');
             const lastPageBtn = document.getElementById('studentHistoryLastPageBtn');
             
-            if (currentStudentHistoryTotalElements === 0) {
-                pagination.style.display = 'none';
+            if (!pagination || currentStudentHistoryTotalElements === 0) {
+                if (pagination) pagination.style.display = 'none';
                 return;
             }
             
@@ -1502,20 +1502,20 @@
             const endRecord = Math.min((currentStudentHistoryPage + 1) * studentHistoryPageSize, currentStudentHistoryTotalElements);
             
             // Atualizar informações
-            paginationInfo.textContent = `Mostrando ${startRecord}-${endRecord} de ${currentStudentHistoryTotalElements} registros`;
-            pageInfo.textContent = `Página ${currentStudentHistoryPage + 1} de ${currentStudentHistoryTotalPages}`;
+            if (paginationInfo) paginationInfo.textContent = `Mostrando ${startRecord}-${endRecord} de ${currentStudentHistoryTotalElements} registros`;
+            if (pageInfo) pageInfo.textContent = `Página ${currentStudentHistoryPage + 1} de ${currentStudentHistoryTotalPages}`;
             
             // Atualizar estado dos botões
-            firstPageBtn.disabled = currentStudentHistoryPage === 0;
-            prevPageBtn.disabled = currentStudentHistoryPage === 0;
-            nextPageBtn.disabled = currentStudentHistoryPage >= currentStudentHistoryTotalPages - 1;
-            lastPageBtn.disabled = currentStudentHistoryPage >= currentStudentHistoryTotalPages - 1;
+            if (firstPageBtn) firstPageBtn.disabled = currentStudentHistoryPage === 0;
+            if (prevPageBtn) prevPageBtn.disabled = currentStudentHistoryPage === 0;
+            if (nextPageBtn) nextPageBtn.disabled = currentStudentHistoryPage >= currentStudentHistoryTotalPages - 1;
+            if (lastPageBtn) lastPageBtn.disabled = currentStudentHistoryPage >= currentStudentHistoryTotalPages - 1;
             
             // Configurar eventos
-            firstPageBtn.onclick = () => loadStudentHistoryPage(0);
-            prevPageBtn.onclick = () => loadStudentHistoryPage(currentStudentHistoryPage - 1);
-            nextPageBtn.onclick = () => loadStudentHistoryPage(currentStudentHistoryPage + 1);
-            lastPageBtn.onclick = () => loadStudentHistoryPage(currentStudentHistoryTotalPages - 1);
+            if (firstPageBtn) firstPageBtn.onclick = () => loadStudentHistoryPage(0);
+            if (prevPageBtn) prevPageBtn.onclick = () => loadStudentHistoryPage(currentStudentHistoryPage - 1);
+            if (nextPageBtn) nextPageBtn.onclick = () => loadStudentHistoryPage(currentStudentHistoryPage + 1);
+            if (lastPageBtn) lastPageBtn.onclick = () => loadStudentHistoryPage(currentStudentHistoryTotalPages - 1);
         }
 
         // Função auxiliar para carregar página específica
@@ -2314,15 +2314,61 @@
                     paginationControls.style.display = 'none';
                 }
                 
-                // 5. CORREÇÃO: Atualizar título de forma segura
+                // 5. Atualizar título
                 const historyTitle = document.querySelector('#history-tab .section-title h3');
                 if (historyTitle) {
                     historyTitle.textContent = `Histórico de Presença - ${studentName}`;
-                    // REMOVER a linha problemática que tenta acessar style
                 }
                 
-                // 6. Fazer a requisição
-                await loadRealStudentHistory(studentId, studentName, page);
+                // 6. AGORA A REQUISIÇÃO REAL ESTÁ AQUI MESMO
+                console.log('🔍 Fazendo requisição para histórico...');
+                
+                const accessToken = localStorage.getItem('access_token');
+                const response = await fetch(`${BACKEND_URL}/api/presencas/historico/${studentId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                console.log('📡 Resposta da API:', response.status);
+
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('📊 Dados recebidos:', result);
+                    
+                    if (result.sucesso && result.dados && Array.isArray(result.dados)) {
+                        // Ordenar por data (mais recente primeiro)
+                        const allRecords = result.dados.sort((a, b) => 
+                            new Date(b.entradaAt) - new Date(a.entradaAt)
+                        );
+                        
+                        currentStudentHistoryData = allRecords;
+                        currentStudentHistoryTotalElements = allRecords.length;
+                        currentStudentHistoryTotalPages = Math.ceil(allRecords.length / studentHistoryPageSize);
+                        currentStudentHistoryPage = page;
+                        
+                        if (allRecords.length === 0) {
+                            renderStudentHistory([], studentName);
+                            if (paginationControls) paginationControls.style.display = 'none';
+                            showAlert(`Nenhum registro encontrado para ${studentName}`, 'info');
+                        } else {
+                            // Calcular dados da página atual
+                            const startIndex = page * studentHistoryPageSize;
+                            const endIndex = startIndex + studentHistoryPageSize;
+                            const pageData = allRecords.slice(startIndex, endIndex);
+                            
+                            renderStudentHistory(pageData, studentName);
+                            setupStudentHistoryPagination();
+                        }
+                    } else {
+                        renderStudentHistory([], studentName);
+                        if (paginationControls) paginationControls.style.display = 'none';
+                        showAlert(`Nenhum registro encontrado para ${studentName}`, 'info');
+                    }
+                } else {
+                    throw new Error(`Erro ${response.status}: ${response.statusText}`);
+                }
                 
             } catch (error) {
                 console.error('❌ Erro em viewStudentHistory:', error);
