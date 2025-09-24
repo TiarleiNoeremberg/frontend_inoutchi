@@ -1418,7 +1418,14 @@
 
         // Renderizar histórico do aluno
         function renderStudentHistory(historyData, studentName) {
+            console.log('🎨 Renderizando histórico para:', studentName);
+            
             const tbody = document.getElementById('historyTableBody');
+            if (!tbody) {
+                console.error('❌ tbody não encontrado!');
+                return;
+            }
+            
             tbody.innerHTML = '';
             
             if (!historyData || historyData.length === 0) {
@@ -1432,12 +1439,17 @@
                 return;
             }
             
-            // Atualizar título
+            // CORREÇÃO: Verificar se o elemento existe antes de acessá-lo
             const historyTitle = document.querySelector('#history-tab .section-title h3');
             if (historyTitle) {
                 historyTitle.textContent = `Histórico de Presença - ${studentName}`;
+                // REMOVER ou CORRIGIR esta linha problemática:
+                // historyTitle.style.color = 'var(--primary-color)'; // ← Esta linha causa o erro
+            } else {
+                console.warn('⚠️ Título da seção de histórico não encontrado');
             }
             
+            // Renderizar os dados
             historyData.forEach(record => {
                 const tr = document.createElement('tr');
                 
@@ -1464,6 +1476,8 @@
                 
                 tbody.appendChild(tr);
             });
+            
+            console.log('✅ Histórico renderizado com sucesso!');
         }
 
         // Configurar paginação do histórico do aluno
@@ -2242,117 +2256,93 @@
         // Função auxiliar para mudar para a aba de histórico - VERSÃO CORRIGIDA
         // Abordagem alternativa - usar o sistema de abas existente
         function switchToHistoryTab() {
-            console.log('🔄 Alternativa: procurando aba Histórico...');
+            console.log('🔄 Mudando para aba Histórico...');
             
-            // Encontrar a aba pelo texto
-            const allTabs = document.querySelectorAll('.tab');
-            let historyTab = null;
+            // Encontrar a aba de histórico
+            const historyTab = document.querySelector('.tab[data-tab="history"]');
+            const historyContent = document.getElementById('history-tab');
             
-            allTabs.forEach(tab => {
-                if (tab.textContent.includes('Histórico') || tab.textContent.includes('History')) {
-                    historyTab = tab;
-                }
-            });
-            
-            if (historyTab) {
-                console.log('✅ Encontrada aba pelo texto:', historyTab.textContent);
-                // Simular clique na aba
-                historyTab.click();
-            } else {
-                console.error('❌ Não encontrei nenhuma aba com "Histórico" ou "History"');
+            if (historyTab && historyContent) {
+                // Remover active de todas as abas
+                document.querySelectorAll('.tab').forEach(tab => {
+                    tab.classList.remove('active');
+                });
                 
-                // Último recurso: mostrar manualmente
-                const historyContent = document.getElementById('history-tab');
-                if (historyContent) {
-                    // Esconder todos os conteúdos
-                    document.querySelectorAll('.tab-content').forEach(content => {
-                        content.style.display = 'none';
-                    });
-                    // Mostrar histórico
-                    historyContent.style.display = 'block';
-                    console.log('✅ Conteúdo de histórico mostrado manualmente');
-                }
+                // Esconder todos os conteúdos
+                document.querySelectorAll('.tab-content').forEach(content => {
+                    content.classList.remove('active');
+                });
+                
+                // Ativar histórico
+                historyTab.classList.add('active');
+                historyContent.classList.add('active');
+                
+                console.log('✅ Aba de histórico ativada!');
+            } else {
+                console.error('❌ Aba de histórico não encontrada!');
             }
         }
 
         // Visualizar histórico de um aluno
-        window.viewStudentHistory = async function(studentId, studentName, page = 1) {
-            console.log('=== viewStudentHistory CHAMADA ===');
-            console.log('studentId:', studentId);
-            console.log('studentName:', studentName);
-            console.log('page:', page);
+        window.viewStudentHistory = async function(studentId, studentName, page = 0) {
+            console.log('🎯 viewStudentHistory CHAMADA para:', studentName);
+            
             try {
-                currentStudentId = studentId;
-                const accessToken = localStorage.getItem('access_token');
+                // 1. Mostrar alerta visual
+                showAlert(`Carregando histórico de ${studentName}...`, 'success');
                 
-                // Mostrar loading
+                // 2. Mudar para a aba de histórico 
+                switchToHistoryTab();
+                
+                // 3. Mostrar loading imediatamente
                 const historyTableBody = document.getElementById('historyTableBody');
-                historyTableBody.innerHTML = `
-                    <tr>
-                        <td colspan="7" style="text-align: center; padding: 20px;">
-                            <div class="loading-spinner" style="width: 20px; height: 20px; margin: 0 auto;"></div>
-                            <p>Carregando histórico de ${studentName}...</p>
-                        </td>
-                    </tr>
-                `;
-
-                // Mostrar controles de paginação
-                const paginationControls = document.getElementById('studentHistoryPagination');
-                paginationControls.style.display = 'flex';
-
-                const response = await fetch(`${BACKEND_URL}/api/presencas/historico/${studentId}`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-
-                if (response.ok) {
-                    const result = await response.json();
-                    
-                    if (result.sucesso && result.dados && Array.isArray(result.dados)) {
-                        // Ordenar por data (mais recente primeiro)
-                        const allRecords = result.dados.sort((a, b) => 
-                            new Date(b.entradaAt) - new Date(a.entradaAt)
-                        );
-                        
-                        currentStudentHistoryData = allRecords;
-                        currentStudentHistoryTotalElements = allRecords.length;
-                        currentStudentHistoryTotalPages = Math.ceil(allRecords.length / studentHistoryPageSize);
-                        currentStudentHistoryPage = page;
-                        
-                        if (allRecords.length === 0) {
-                            renderStudentHistory([], studentName);
-                            paginationControls.style.display = 'none';
-                            showAlert(`Nenhum registro encontrado para ${studentName}`, 'info');
-                        } else {
-                            // Calcular dados da página atual
-                            const startIndex = page * studentHistoryPageSize;
-                            const endIndex = startIndex + studentHistoryPageSize;
-                            const pageData = allRecords.slice(startIndex, endIndex);
-                            
-                            renderStudentHistory(pageData, studentName);
-                            setupStudentHistoryPagination();
-                        }
-                    } else {
-                        renderStudentHistory([], studentName);
-                        paginationControls.style.display = 'none';
-                        showAlert(`Nenhum registro encontrado para ${studentName}`, 'info');
-                    }
-                } else {
-                    throw new Error(`Erro ${response.status}: ${response.statusText}`);
+                if (historyTableBody) {
+                    historyTableBody.innerHTML = `
+                        <tr>
+                            <td colspan="7" style="text-align: center; padding: 40px;">
+                                <div class="loading-spinner" style="width: 30px; height: 30px; margin: 0 auto;"></div>
+                                <h3 style="margin-top: 20px; color: var(--primary-color);">Carregando histórico de ${studentName}</h3>
+                                <p>Por favor, aguarde...</p>
+                            </td>
+                        </tr>
+                    `;
                 }
+                
+                // 4. Ocultar paginação durante o carregamento
+                const paginationControls = document.getElementById('studentHistoryPagination');
+                if (paginationControls) {
+                    paginationControls.style.display = 'none';
+                }
+                
+                // 5. CORREÇÃO: Atualizar título de forma segura
+                const historyTitle = document.querySelector('#history-tab .section-title h3');
+                if (historyTitle) {
+                    historyTitle.textContent = `Histórico de Presença - ${studentName}`;
+                    // REMOVER a linha problemática que tenta acessar style
+                }
+                
+                // 6. Fazer a requisição
+                await loadRealStudentHistory(studentId, studentName, page);
+                
             } catch (error) {
-                console.error('Erro ao carregar histórico do aluno:', error);
+                console.error('❌ Erro em viewStudentHistory:', error);
+                showAlert(`Erro ao carregar histórico: ${error.message}`, 'error');
+                
+                // Mostrar mensagem de erro na tabela
                 const historyTableBody = document.getElementById('historyTableBody');
-                historyTableBody.innerHTML = `
-                    <tr>
-                        <td colspan="7" style="text-align: center; padding: 20px; color: #666;">
-                            Erro ao carregar histórico: ${error.message}
-                        </td>
-                    </tr>
-                `;
-                document.getElementById('studentHistoryPagination').style.display = 'none';
+                if (historyTableBody) {
+                    historyTableBody.innerHTML = `
+                        <tr>
+                            <td colspan="7" style="text-align: center; padding: 40px; color: var(--danger-color);">
+                                <h3>Erro ao carregar histórico</h3>
+                                <p>${error.message}</p>
+                                <button class="btn btn-primary" onclick="viewStudentHistory(${studentId}, '${studentName}', 0)" style="margin-top: 10px;">
+                                    <i class="fas fa-redo"></i> Tentar Novamente
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                }
             }
         };
 
