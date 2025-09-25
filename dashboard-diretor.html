@@ -1339,8 +1339,84 @@
             }
         }
 
-        // Carregar histórico do diretor (para visão geral)
+        // Carregar histórico do diretor - FUNÇÃO CORRIGIDA
         async function loadDirectorHistory() {
+            try {
+                console.log('📋 Carregando histórico do diretor...');
+                
+                const accessToken = localStorage.getItem('access_token');
+                const response = await fetch(`${BACKEND_URL}/api/presencas/diretores/${currentDirectorId}/historico`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('📊 Histórico recebido:', data);
+                    
+                    // Atualizar a interface do histórico
+                    updateDirectorHistoryUI(data);
+                    
+                } else {
+                    console.warn('⚠️ Não foi possível carregar o histórico');
+                }
+            } catch (error) {
+                console.error('❌ Erro ao carregar histórico:', error);
+            }
+        }
+
+        // Atualizar a UI do histórico do diretor
+        function updateDirectorHistoryUI(data) {
+            const historyContainer = document.getElementById('directorPersonalHistory');
+            if (!historyContainer) {
+                console.error('❌ Container do histórico não encontrado');
+                return;
+            }
+
+            if (data.sucesso && data.dados && data.dados.registros && data.dados.registros.length > 0) {
+                let html = '<ul class="student-list">';
+                
+                // Ordenar por data (mais recente primeiro)
+                const registrosOrdenados = data.dados.registros.sort((a, b) => 
+                    new Date(b.entradaAt) - new Date(a.entradaAt)
+                );
+                
+                registrosOrdenados.slice(0, 10).forEach(record => {
+                    const entryDate = new Date(record.entradaAt).toLocaleString('pt-BR');
+                    const exitDate = record.saidaAt ? new Date(record.saidaAt).toLocaleString('pt-BR') : 'Pendente';
+                    const status = record.status === 'PRESENTE' ? 'Presente' : 'Ausente';
+                    
+                    html += `
+                        <li class="student-item">
+                            <div class="student-info">
+                                <span class="student-name">Entrada: ${entryDate}</span>
+                                <span class="student-class">Saída: ${exitDate}</span>
+                            </div>
+                            <span class="status-badge ${record.status === 'PRESENTE' ? 'status-present' : 'status-absent'}">
+                                ${status}
+                            </span>
+                        </li>
+                    `;
+                });
+                
+                html += '</ul>';
+                historyContainer.innerHTML = html;
+                
+                console.log('✅ Histórico atualizado na UI');
+                
+            } else {
+                historyContainer.innerHTML = `
+                    <p style="padding: 15px; text-align: center; color: #666;">
+                        ${data.mensagem || 'Nenhum registro de presença encontrado'}
+                    </p>
+                `;
+            }
+        }
+
+        // Também atualizar a aba de Histórico geral
+        async function loadGeneralHistory() {
             try {
                 const accessToken = localStorage.getItem('access_token');
                 const response = await fetch(`${BACKEND_URL}/api/presencas/diretores/${currentDirectorId}/historico`, {
@@ -1349,40 +1425,48 @@
                         'Content-Type': 'application/json'
                     }
                 });
-                
+
                 if (response.ok) {
                     const data = await response.json();
-                    const directorHistory = document.getElementById('directorHistory');
-                    
-                    if (data.sucesso) {
-                        if (data.dados && data.dados.registros && data.dados.registros.length > 0) {
-                            let html = '<ul class="student-list">';
-                            data.dados.registros.slice(0, 5).forEach(record => {
-                                const entryDate = new Date(record.entradaAt).toLocaleString('pt-BR');
-                                const exitDate = record.saidaAt ? new Date(record.saidaAt).toLocaleString('pt-BR') : 'Pendente';
-                                const status = record.status === 'PRESENTE' ? 'Presente' : 'Ausente';
-                                
-                                html += `
-                                    <li class="student-item">
-                                        <div class="student-info">
-                                            <span class="student-name">${entryDate} - ${exitDate}</span>
-                                            <span class="student-class">Status: ${status}</span>
-                                        </div>
-                                        <span class="status-badge ${record.status === 'PRESENTE' ? 'status-present' : 'status-absent'}">${status}</span>
-                                    </li>
-                                `;
-                            });
-                            html += '</ul>';
-                            directorHistory.innerHTML = html;
-                        } else {
-                            directorHistory.innerHTML = '<p style="padding: 15px; text-align: center; color: #666;">Nenhum registro de presença encontrado</p>';
-                        }
-                    } else {
-                        directorHistory.innerHTML = `<p style="padding: 15px; text-align: center; color: #666;">${data.mensagem}</p>`;
-                    }
+                    renderGeneralHistoryTable(data);
                 }
             } catch (error) {
-                console.error('Erro ao carregar histórico do diretor:', error);
+                console.error('❌ Erro ao carregar histórico geral:', error);
+            }
+        }
+
+        // Renderizar tabela de histórico geral
+        function renderGeneralHistoryTable(data) {
+            const tbody = document.getElementById('historyTableBody');
+            if (!tbody) return;
+
+            tbody.innerHTML = '';
+
+            if (data.sucesso && data.dados && data.dados.registros && data.dados.registros.length > 0) {
+                data.dados.registros.forEach(record => {
+                    const tr = document.createElement('tr');
+                    const entryDate = new Date(record.entradaAt).toLocaleString('pt-BR');
+                    const exitDate = record.saidaAt ? new Date(record.saidaAt).toLocaleString('pt-BR') : '-';
+                    
+                    tr.innerHTML = `
+                        <td>${record.diretorNome}</td>
+                        <td>Diretor</td>
+                        <td>${entryDate}</td>
+                        <td>${exitDate}</td>
+                        <td>${record.iniciadoPor} (${record.iniciadoPorTipo})</td>
+                        <td>${record.finalizadoPor || '-'} (${record.finalizadoPorTipo || '-'})</td>
+                        <td><span class="status-badge ${record.status === 'PRESENTE' ? 'status-present' : 'status-absent'}">${record.status}</span></td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } else {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7" style="text-align: center; padding: 20px; color: #666;">
+                            ${data.mensagem || 'Nenhum registro encontrado'}
+                        </td>
+                    </tr>
+                `;
             }
         }
 
@@ -1925,12 +2009,12 @@
             // historyTitle.style.color = 'var(--primary-color)'; // ← ESTA LINHA CAUSA O ERRO
         }
 
-        // Modificar a função loadDirectorData para incluir fallback
+        // Carregar dados do diretor - VERSÃO COMPLETA
         async function loadDirectorData() {
             try {
-                // Primeiro tenta carregar do servidor
                 const accessToken = localStorage.getItem('access_token');
                 
+                // 1. Carregar status atual
                 const statusResponse = await fetch(`${BACKEND_URL}/api/presencas/diretores/${currentDirectorId}/historico`, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
@@ -1940,23 +2024,20 @@
                 
                 if (statusResponse.ok) {
                     const data = await statusResponse.json();
-                    console.log('📡 Dados do servidor:', data);
-                    // Lógica normal de atualização do servidor
                     updateDirectorStatus(data);
-                } else {
-                    // Se servidor falhar, usar fallback
-                    console.warn('📡 Servidor offline, usando fallback');
-                    loadDirectorStatus();
+                }
+                
+                // 2. Carregar histórico pessoal (AGORA ATUALIZADO)
+                await loadDirectorHistory();
+                
+                // 3. Se estiver na aba de histórico, carregar também a tabela geral
+                if (document.getElementById('history-tab')?.classList.contains('active')) {
+                    await loadGeneralHistory();
                 }
                 
             } catch (error) {
-                console.error('❌ Erro ao carregar dados:', error);
-                // Em caso de erro, usar fallback
-                loadDirectorStatus();
+                console.error('❌ Erro ao carregar dados do diretor:', error);
             }
-            
-            // Sempre carregar histórico pessoal
-            await loadDirectorPersonalHistory();
         }
 
         // Teste manual do fallback
@@ -2236,11 +2317,20 @@
             }
         }
 
-        // Registrar entrada do diretor - VERSÃO FINAL LIMPA
+        // Registrar entrada do diretor - VERSÃO COM ATUALIZAÇÃO DE TOKEN
         window.registerDirectorEntry = async function() {
             try {
-                const accessToken = localStorage.getItem('access_token');
+                let accessToken = localStorage.getItem('access_token');
                 
+                // Verificar se o token é válido
+                if (!await validateToken(accessToken)) {
+                    console.log('🔄 Token inválido, tentando renovar...');
+                    accessToken = await renewToken();
+                    if (!accessToken) {
+                        throw new Error('Falha na autenticação. Faça login novamente.');
+                    }
+                }
+
                 if (!currentDirectorId || !currentUser?.nome) {
                     throw new Error('Informações do diretor não disponíveis.');
                 }
@@ -2251,6 +2341,8 @@
                     responsavelTipo: 'DIRETOR'
                 };
 
+                console.log('📤 Enviando para servidor:', requestData);
+
                 const response = await fetch(`${BACKEND_URL}/api/presencas/diretores/entrada`, {
                     method: 'POST',
                     headers: {
@@ -2260,18 +2352,98 @@
                     body: JSON.stringify(requestData)
                 });
 
+                console.log('📥 Resposta:', response.status);
+
                 if (response.ok) {
                     const result = await response.json();
-                    showAlert('✅ Entrada registrada com sucesso!', 'success');
+                    console.log('✅ Sucesso no servidor:', result);
+                    showAlert('✅ Entrada registrada no banco de dados!', 'success');
+                    
+                    // AGORA ATUALIZAR O HISTÓRICO
                     await loadDirectorData();
+                    await loadDirectorHistory(); // ← NOVO: Carregar histórico atualizado
+                    
+                } else if (response.status === 401) {
+                    // Token inválido - tentar renovar e refazer a requisição
+                    console.log('🔄 Token 401, renovando...');
+                    accessToken = await renewToken();
+                    
+                    if (accessToken) {
+                        // Refazer a requisição com novo token
+                        const retryResponse = await fetch(`${BACKEND_URL}/api/presencas/diretores/entrada`, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${accessToken}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(requestData)
+                        });
+                        
+                        if (retryResponse.ok) {
+                            const result = await retryResponse.json();
+                            console.log('✅ Sucesso após renovação:', result);
+                            showAlert('✅ Entrada registrada no banco de dados!', 'success');
+                            await loadDirectorData();
+                            await loadDirectorHistory();
+                        } else {
+                            throw new Error(`Erro ${retryResponse.status} após renovação`);
+                        }
+                    } else {
+                        throw new Error('Não foi possível renovar o token');
+                    }
                 } else {
-                    await handleDirectorEntryFallback();
+                    throw new Error(`Erro ${response.status}: ${response.statusText}`);
                 }
                 
             } catch (error) {
-                await handleDirectorEntryFallback();
+                console.error('❌ Erro ao registrar entrada:', error);
+                showAlert(`❌ Falha: ${error.message}`, 'error');
             }
         };
+
+        // Função para validar token
+        async function validateToken(token) {
+            if (!token) return false;
+            
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/users/me`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                return response.ok;
+            } catch (error) {
+                return false;
+            }
+        }
+
+        // Função para renovar token
+        async function renewToken() {
+            try {
+                const refreshToken = localStorage.getItem('refresh_token');
+                if (!refreshToken) return null;
+                
+                const response = await fetch(`${BACKEND_URL}/api/auth/refresh`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ refreshToken })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    localStorage.setItem('access_token', data.access_token);
+                    localStorage.setItem('refresh_token', data.refresh_token);
+                    console.log('✅ Token renovado com sucesso');
+                    return data.access_token;
+                }
+            } catch (error) {
+                console.error('❌ Erro ao renovar token:', error);
+            }
+            return null;
+        }
 
         // Fallback para entrada - VERSÃO LIMPA
         async function handleDirectorEntryFallback() {
