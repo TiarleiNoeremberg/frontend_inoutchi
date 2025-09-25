@@ -2317,82 +2317,138 @@
             }
         }
 
-        // Registrar entrada do diretor - VERSÃO COM ATUALIZAÇÃO DE TOKEN
+        // Função para explorar a API de diretores
+        async function explorarAPI() {
+            try {
+                const accessToken = localStorage.getItem('access_token');
+                
+                console.log('🔍 Explorando API de diretores...');
+                
+                // Testar OPTIONS para ver métodos disponíveis
+                const optionsResponse = await fetch(`${BACKEND_URL}/api/presencas/diretores/entrada`, {
+                    method: 'OPTIONS'
+                });
+                console.log('🔧 OPTIONS response:', optionsResponse.headers);
+                
+                // Testar GET para ver se retorna alguma informação sobre a estrutura esperada
+                try {
+                    const getResponse = await fetch(`${BACKEND_URL}/api/presencas/diretores/entrada`, {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`
+                        }
+                    });
+                    console.log('🔧 GET response:', getResponse.status, await getResponse.text());
+                } catch (e) {
+                    console.log('🔧 GET não suportado ou erro');
+                }
+                
+            } catch (error) {
+                console.error('❌ Erro ao explorar API:', error);
+            }
+        }
+
+        // Executar exploração
+        explorarAPI();
+
+        // Registrar entrada do diretor - VERSÃO COM DEBUG AVANÇADO
         window.registerDirectorEntry = async function() {
             try {
-                let accessToken = localStorage.getItem('access_token');
+                const accessToken = localStorage.getItem('access_token');
                 
-                // Verificar se o token é válido
-                if (!await validateToken(accessToken)) {
-                    console.log('🔄 Token inválido, tentando renovar...');
-                    accessToken = await renewToken();
-                    if (!accessToken) {
-                        throw new Error('Falha na autenticação. Faça login novamente.');
-                    }
-                }
-
                 if (!currentDirectorId || !currentUser?.nome) {
                     throw new Error('Informações do diretor não disponíveis.');
                 }
 
-                const requestData = {
-                    responsavelId: currentDirectorId,
-                    responsavelNome: currentUser.nome,
-                    responsavelTipo: 'DIRETOR'
-                };
-
-                console.log('📤 Enviando para servidor:', requestData);
-
-                const response = await fetch(`${BACKEND_URL}/api/presencas/diretores/entrada`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
+                // TESTAR DIFERENTES ESTRUTURAS DE DADOS
+                const estruturasTeste = [
+                    // Estrutura 1: Atual (pode estar errada)
+                    {
+                        responsavelId: currentDirectorId,
+                        responsavelNome: currentUser.nome,
+                        responsavelTipo: 'DIRETOR'
                     },
-                    body: JSON.stringify(requestData)
-                });
+                    // Estrutura 2: Igual ao dos alunos
+                    {
+                        alunoId: null,
+                        responsavelId: currentDirectorId,
+                        responsavelNome: currentUser.nome,
+                        responsavelTipo: 'DIRETOR',
+                        latitude: -23.5505,
+                        longitude: -46.6333
+                    },
+                    // Estrutura 3: Campos mínimos
+                    {
+                        diretorId: currentDirectorId,
+                        diretorNome: currentUser.nome
+                    },
+                    // Estrutura 4: Com escolaId
+                    {
+                        responsavelId: currentDirectorId,
+                        responsavelNome: currentUser.nome,
+                        responsavelTipo: 'DIRETOR',
+                        escolaId: currentSchoolId || 1
+                    },
+                    // Estrutura 5: Campos diferentes
+                    {
+                        id: currentDirectorId,
+                        nome: currentUser.nome,
+                        tipo: 'DIRETOR',
+                        escolaId: currentSchoolId || 1
+                    }
+                ];
 
-                console.log('📥 Resposta:', response.status);
+                let sucesso = false;
+                let respostaDetalhada = '';
 
-                if (response.ok) {
-                    const result = await response.json();
-                    console.log('✅ Sucesso no servidor:', result);
-                    showAlert('✅ Entrada registrada no banco de dados!', 'success');
-                    
-                    // AGORA ATUALIZAR O HISTÓRICO
-                    await loadDirectorData();
-                    await loadDirectorHistory(); // ← NOVO: Carregar histórico atualizado
-                    
-                } else if (response.status === 401) {
-                    // Token inválido - tentar renovar e refazer a requisição
-                    console.log('🔄 Token 401, renovando...');
-                    accessToken = await renewToken();
-                    
-                    if (accessToken) {
-                        // Refazer a requisição com novo token
-                        const retryResponse = await fetch(`${BACKEND_URL}/api/presencas/diretores/entrada`, {
+                for (let i = 0; i < estruturasTeste.length; i++) {
+                    try {
+                        console.log(`🧪 Testando estrutura ${i + 1}:`, estruturasTeste[i]);
+                        
+                        const response = await fetch(`${BACKEND_URL}/api/presencas/diretores/entrada`, {
                             method: 'POST',
                             headers: {
                                 'Authorization': `Bearer ${accessToken}`,
                                 'Content-Type': 'application/json'
                             },
-                            body: JSON.stringify(requestData)
+                            body: JSON.stringify(estruturasTeste[i])
                         });
+
+                        console.log(`📥 Resposta estrutura ${i + 1}:`, response.status);
                         
-                        if (retryResponse.ok) {
-                            const result = await retryResponse.json();
-                            console.log('✅ Sucesso após renovação:', result);
+                        // Obter detalhes do erro 400
+                        const responseText = await response.text();
+                        console.log(`📄 Corpo da resposta ${i + 1}:`, responseText);
+                        
+                        if (response.ok) {
+                            const result = JSON.parse(responseText);
+                            console.log('✅ Sucesso com estrutura', i + 1, result);
                             showAlert('✅ Entrada registrada no banco de dados!', 'success');
+                            
                             await loadDirectorData();
                             await loadDirectorHistory();
+                            
+                            sucesso = true;
+                            break;
                         } else {
-                            throw new Error(`Erro ${retryResponse.status} após renovação`);
+                            respostaDetalhada = `Estrutura ${i + 1}: ${response.status} - ${responseText}`;
+                            
+                            // Tentar parsear o erro para mais detalhes
+                            try {
+                                const errorJson = JSON.parse(responseText);
+                                console.log(`❌ Erro detalhado ${i + 1}:`, errorJson);
+                            } catch (e) {
+                                console.log(`❌ Erro texto ${i + 1}:`, responseText);
+                            }
                         }
-                    } else {
-                        throw new Error('Não foi possível renovar o token');
+                    } catch (error) {
+                        respostaDetalhada = `Estrutura ${i + 1}: ${error.message}`;
+                        console.log(`❌ Erro de rede ${i + 1}:`, error);
                     }
-                } else {
-                    throw new Error(`Erro ${response.status}: ${response.statusText}`);
+                }
+
+                if (!sucesso) {
+                    throw new Error(`Todas as estruturas falharam. Detalhes: ${respostaDetalhada}`);
                 }
                 
             } catch (error) {
