@@ -928,13 +928,52 @@
         return matches ? parseInt(matches[0]) : null;
     }
 
-    // ========== FUNÇÃO PARA VERIFICAR STATUS DOS ALUNOS ==========
-    async function checkAllStudentsStatus() {
+    // ========== FUNÇÃO PARA VERIFICAR STATUS DOS ALUNOS - CORRIGIDA PARA TUTOR ==========
+    async function checkAllStudentsStatus(alunosBase) {
         try {
+            // Se não há alunos, retorna array vazio
+            if (!alunosBase || alunosBase.length === 0) {
+                return alunosBase || [];
+            }
+            
+            console.log('🔍 Verificando status para', alunosBase.length, 'alunos (modo tutor)');
+            
             const accessToken = localStorage.getItem('access_token');
             
-            // Buscar lista de alunos presentes da escola
-            const response = await fetch(`${BACKEND_URL}/api/alunos/${currentUser.escolaId || 1}/presentes?size=1000`, {
+            // MÉTODO ESPECÍFICO PARA TUTOR: Verificar status individual via histórico
+            console.log('🔄 Verificando status via histórico (acessível para tutor)...');
+            
+            const alunosComStatus = await Promise.all(
+                alunosBase.map(async (aluno) => {
+                    try {
+                        // Verificar se o aluno está presente pelo histórico
+                        const isPresent = await checkStudentPresence(aluno.id, accessToken);
+                        return {
+                            ...aluno,
+                            status: isPresent ? 'PRESENTE' : 'AUSENTE'
+                        };
+                    } catch (error) {
+                        console.log(`❌ Erro ao verificar aluno ${aluno.id}:`, error.message);
+                        // Em caso de erro, manter status original
+                        return aluno;
+                    }
+                })
+            );
+            
+            console.log('✅ Status verificado para', alunosComStatus.length, 'alunos');
+            return alunosComStatus;
+            
+        } catch (error) {
+            console.error('❌ Erro geral ao verificar status:', error);
+            return alunosBase || [];
+        }
+    }
+
+    // Função auxiliar para verificar presença de um aluno específico
+    async function checkStudentPresence(studentId, accessToken) {
+        try {
+            // Buscar histórico recente do aluno
+            const response = await fetch(`${BACKEND_URL}/api/presencas/historico/${studentId}?size=5`, {
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                     'Content-Type': 'application/json'
@@ -942,27 +981,23 @@
             });
 
             if (response.ok) {
-                const data = await response.json();
-                const alunosPresentesIds = new Set();
+                const historico = await response.json();
                 
-                if (data.content && Array.isArray(data.content)) {
-                    data.content.forEach(aluno => alunosPresentesIds.add(aluno.id));
+                if (historico.sucesso && historico.dados && Array.isArray(historico.dados)) {
+                    // Encontrar o registro mais recente
+                    const registroMaisRecente = historico.dados[0];
+                    if (registroMaisRecente) {
+                        // Se tem entrada mas não tem saída, está presente
+                        return registroMaisRecente.entradaAt && !registroMaisRecente.saidaAt;
+                    }
                 }
-                
-                // Atualizar status de cada aluno do tutor
-                const alunosAtualizados = students.map(aluno => ({
-                    ...aluno,
-                    status: alunosPresentesIds.has(aluno.id) ? 'PRESENTE' : 'AUSENTE'
-                }));
-                
-                return alunosAtualizados;
             }
             
-            return students; // Retorna os alunos sem alteração em caso de erro
+            return false; // Por padrão, assume como ausente
             
         } catch (error) {
-            console.error('❌ Erro ao verificar status dos alunos:', error);
-            return students;
+            console.error('Erro ao verificar presença do aluno:', error);
+            return false;
         }
     }
 
