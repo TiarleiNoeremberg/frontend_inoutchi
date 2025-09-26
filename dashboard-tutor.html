@@ -1263,7 +1263,7 @@
             }
         }
 
-        // Carregar alunos vinculados ao tutor - VERSÃO OTIMIZADA
+        // Carregar alunos vinculados ao tutor - VERSÃO CORRIGIDA
         async function loadStudents() {
             try {
                 const accessToken = localStorage.getItem('access_token');
@@ -1282,62 +1282,115 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
                 const data = await response.json();
-                debugDataStructure(data);
-                console.log('✅ Resposta do endpoint de alunos:', data);
+                console.log('✅ Resposta completa da API:', data);
                 
-                // EXTRAIR ALUNOS - ESTRUTURA FLEXÍVEL
+                // DEBUG: Verificar estrutura completa
+                console.log('🔍 Estrutura da resposta:');
+                console.log('- Tipo:', typeof data);
+                console.log('- É array?', Array.isArray(data));
+                console.log('- Keys do objeto:', data ? Object.keys(data) : 'N/A');
+                
+                // EXTRAIR ALUNOS CORRETAMENTE
                 let alunosData = [];
                 
+                // CASO 1: Se a resposta tem propriedade 'alunos' que é um array
                 if (data.alunos && Array.isArray(data.alunos)) {
+                    console.log('📁 Encontrado data.alunos com', data.alunos.length, 'alunos');
                     alunosData = data.alunos;
-                } else if (Array.isArray(data)) {
+                }
+                // CASO 2: Se a resposta é um array diretamente
+                else if (Array.isArray(data)) {
+                    console.log('📁 Resposta é array com', data.length, 'itens');
                     alunosData = data;
-                } else if (data.content && Array.isArray(data.content)) {
+                }
+                // CASO 3: Se a resposta tem propriedade 'content' (paginação)
+                else if (data.content && Array.isArray(data.content)) {
+                    console.log('📁 Encontrado data.content com', data.content.length, 'alunos');
                     alunosData = data.content;
-                } else {
-                    // Tentar encontrar qualquer array com alunos
+                }
+                // CASO 4: Se a resposta é um objeto de tutor com alunos aninhados
+                else if (data.alunosVinculados && Array.isArray(data.alunosVinculados)) {
+                    console.log('📁 Encontrado data.alunosVinculados com', data.alunosVinculados.length, 'alunos');
+                    alunosData = data.alunosVinculados;
+                }
+                // CASO 5: Buscar em qualquer propriedade array que contenha objetos com 'nome'
+                else {
+                    console.log('🔍 Procurando alunos em outras propriedades...');
                     for (let key in data) {
-                        if (Array.isArray(data[key]) && data[key].length > 0 && data[key][0].nome) {
-                            alunosData = data[key];
-                            break;
+                        if (Array.isArray(data[key])) {
+                            console.log(`- Propriedade "${key}":`, data[key].length, 'itens');
+                            if (data[key].length > 0 && data[key][0].nome) {
+                                console.log(`✅ Encontrado alunos em "${key}"`);
+                                alunosData = data[key];
+                                break;
+                            }
                         }
                     }
                 }
                 
+                // SE NENHUM ALUNO FOI ENCONTRADO, TENTAR ESTRUTURAS ALTERNATIVAS
+                if (alunosData.length === 0) {
+                    console.log('🔍 Nenhum array de alunos encontrado, verificando estruturas alternativas...');
+                    
+                    // Tentar estrutura onde os alunos estão em propriedades individuais
+                    if (data.aluno1 || data.aluno2) {
+                        console.log('📁 Encontrado alunos em propriedades individuais');
+                        for (let key in data) {
+                            if (key.startsWith('aluno') && data[key] && data[key].nome) {
+                                alunosData.push(data[key]);
+                            }
+                        }
+                    }
+                    
+                    // Tentar estrutura com um único aluno diretamente no objeto
+                    if (data.nome && data.id) {
+                        console.log('📁 Resposta parece ser um único aluno');
+                        alunosData = [data]; // Tratar como array com um aluno
+                    }
+                }
+                
+                console.log(`📊 Total de alunos extraídos: ${alunosData.length}`);
+                
                 if (alunosData.length === 0) {
                     console.warn('⚠️ Nenhum aluno encontrado na resposta');
+                    console.log('📋 Estrutura completa disponível para debug:', JSON.stringify(data, null, 2));
+                    
                     students = [];
                     renderStudents();
                     updatePresenceSummary();
-                    showAlert('Nenhum aluno vinculado encontrado.', 'info');
+                    showAlert('Nenhum aluno vinculado encontrado na resposta.', 'info');
                     return;
                 }
                 
-                // PROCESSAR ALUNOS
-                const alunosBase = alunosData.map(aluno => ({
-                    id: aluno.id || 0,
-                    nome: aluno.nome || 'Aluno sem nome',
-                    salaNome: aluno.salaNome || aluno.sala || 'Sala não informada',
-                    status: aluno.status || 'AUSENTE'
-                }));
+                // PROCESSAR CADA ALUNO
+                const alunosBase = alunosData.map((aluno, index) => {
+                    console.log(`👤 Aluno ${index + 1}:`, aluno);
+                    
+                    return {
+                        id: aluno.id || index + 1,
+                        nome: aluno.nome || `Aluno ${index + 1}`,
+                        salaNome: aluno.salaNome || aluno.sala || aluno.turma || 'Sala não informada',
+                        status: aluno.status || 'AUSENTE'
+                    };
+                });
                 
-                console.log(`📊 ${alunosBase.length} alunos encontrados`);
+                console.log(`🎯 ${alunosBase.length} alunos processados:`, alunosBase);
                 
-                // VERIFICAR STATUS (MÉTODO LEVE)
+                // VERIFICAR STATUS
                 students = await checkAllStudentsStatus(alunosBase);
                 
-                console.log('🎯 Alunos processados:', students);
+                console.log('✅ Alunos finais:', students);
                 
                 renderStudents();
                 updatePresenceSummary();
                 
             } catch (error) {
                 console.error('❌ Erro ao carregar alunos:', error);
-                showAlert('Erro ao carregar lista de alunos.', 'error');
+                showAlert('Erro ao carregar lista de alunos: ' + error.message, 'error');
             }
         }
 
