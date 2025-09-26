@@ -3313,11 +3313,13 @@
             }
         };
 
-        // Função para verificar status real do aluno (igual à do diretor)
+        // Função para verificar status real do aluno - VERSÃO CORRIGIDA
         async function checkStudentStatus(studentId) {
             try {
                 const accessToken = localStorage.getItem('access_token');
-                const response = await fetch(`${BACKEND_URL}/api/presencas/alunos/${studentId}/status`, {
+                
+                // OPÇÃO 1: Buscar sessões ativas do aluno
+                const response = await fetch(`${BACKEND_URL}/api/presencas/alunos/${studentId}/sessoes-ativas`, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
@@ -3325,10 +3327,34 @@
                 });
 
                 if (response.ok) {
-                    const status = await response.json();
-                    return status === 'PRESENTE'; // Retorna true se presente, false se ausente
+                    const sessoes = await response.json();
+                    // Se há sessões ativas (array não vazio), aluno está presente
+                    return sessoes && Array.isArray(sessoes) && sessoes.length > 0;
                 }
+                
+                // OPÇÃO 2: Se o endpoint acima não existir, usar histórico e verificar a última sessão
+                const historicoResponse = await fetch(`${BACKEND_URL}/api/presencas/historico/${studentId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (historicoResponse.ok) {
+                    const historico = await historicoResponse.json();
+                    if (historico.sucesso && historico.dados && Array.isArray(historico.dados)) {
+                        // Encontrar a última sessão do aluno
+                        const ultimaSessao = historico.dados
+                            .filter(sessao => sessao.alunoId === studentId)
+                            .sort((a, b) => new Date(b.entradaAt) - new Date(a.entradaAt))[0];
+                        
+                        // Se a última sessão não tem data de saída, aluno está presente
+                        return ultimaSessao && ultimaSessao.entradaAt && !ultimaSessao.saidaAt;
+                    }
+                }
+                
                 return false; // Em caso de erro, assume como ausente
+                
             } catch (error) {
                 console.error('❌ Erro ao verificar status do aluno:', error);
                 return false;
