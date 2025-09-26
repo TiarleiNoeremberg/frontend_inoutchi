@@ -733,7 +733,7 @@
                 <div class="section-title">
                     <h3>Gerenciar Alunos</h3>
                     <div>
-                        <button class="btn btn-primary" onclick="loadAllStudents()">
+                        <button class="btn btn-primary" onclick="refreshStudents()">
                             <i class="fas fa-sync-alt"></i> Atualizar
                         </button>
                     </div>
@@ -1148,6 +1148,10 @@
                 console.log('🔐 Login realizado, verificando status do diretor...');
                 await loadDirectorData();
                 
+                // VERIFICAR STATUS DOS ALUNOS IMEDIATAMENTE APÓS LOGIN
+                console.log('🔐 Login realizado, verificando status dos alunos...');
+                await loadAllStudents();
+                
                 // Configurar abas
                 setupTabs();
                 
@@ -1216,11 +1220,14 @@
             }
         }
 
-        // Configurar abas
+        // Configurar abas - VERSÃO COM CONTROLE DE ATUALIZAÇÃO AUTOMÁTICA
         function setupTabs() {
             const tabs = document.querySelectorAll('.tab');
             tabs.forEach(tab => {
                 tab.addEventListener('click', function() {
+                    // Parar atualização automática atual
+                    stopStudentsAutoRefresh();
+                    
                     // Remover classe active de todas as abas
                     tabs.forEach(t => t.classList.remove('active'));
                     // Adicionar classe active à aba clicada
@@ -1241,10 +1248,12 @@
                             loadOverviewData();
                             break;
                         case 'students':
-                            loadAllStudents();
+                            // Carregar alunos e iniciar atualização automática
+                            loadAllStudents(currentStudentsPage, document.getElementById('studentSearch').value);
+                            startStudentsAutoRefresh(); // INICIAR ATUALIZAÇÃO AUTOMÁTICA
                             break;
                         case 'tutors':
-                            loadAllTutors();
+                            loadAllTutors(currentTutorsPage, document.getElementById('tutorSearch').value);
                             break;
                         case 'classrooms':
                             loadClassrooms();
@@ -1267,20 +1276,22 @@
             await loadDirectorData();
         }
 
-        // Carregar dados da visão geral
+        // Carregar dados da visão geral - ATUALIZADA
         async function loadOverviewData() {
             try {
-                // Carregar estatísticas
+                console.log('📊 Carregando dados da visão geral com status atualizado...');
+                
+                // Carregar estatísticas (já usa verificação de status)
                 await loadStatistics();
                 
-                // Carregar alunos presentes
+                // Carregar alunos presentes (com status verificado)
                 await loadPresentStudents();
                 
                 // Carregar histórico do diretor
                 await loadDirectorHistory();
                 
             } catch (error) {
-                console.error('Erro ao carregar dados da visão geral:', error);
+                console.error('❌ Erro ao carregar dados da visão geral:', error);
                 showAlert('Erro ao carregar dados da visão geral.', 'error');
             }
         }
@@ -1339,7 +1350,7 @@
             }
         }
 
-        // Carregar alunos presentes
+        // Carregar alunos presentes - ATUALIZADA
         async function loadPresentStudents() {
             try {
                 const accessToken = localStorage.getItem('access_token');
@@ -1356,24 +1367,44 @@
                     presentStudentsList.innerHTML = '';
                     
                     if (data.content && data.content.length > 0) {
-                        data.content.forEach(student => {
-                            const li = document.createElement('li');
-                            li.className = 'student-item';
-                            li.innerHTML = `
-                                <div class="student-info">
-                                    <span class="student-name">${student.nome}</span>
-                                    <span class="student-class">${student.salaNome}</span>
-                                </div>
-                                <span class="status-badge status-present">Presente</span>
-                            `;
-                            presentStudentsList.appendChild(li);
-                        });
+                        // VERIFICAR STATUS REAL DE CADA ALUNO PRESENTE
+                        const alunosComStatusVerificado = await Promise.all(
+                            data.content.map(async (student) => {
+                                const statusReal = await checkStudentStatus(student.id);
+                                return {
+                                    ...student,
+                                    status: statusReal ? 'PRESENTE' : 'AUSENTE'
+                                };
+                            })
+                        );
+                        
+                        // Filtrar apenas os que realmente estão presentes
+                        const alunosRealmentePresentes = alunosComStatusVerificado.filter(student => 
+                            student.status === 'PRESENTE'
+                        );
+                        
+                        if (alunosRealmentePresentes.length > 0) {
+                            alunosRealmentePresentes.forEach(student => {
+                                const li = document.createElement('li');
+                                li.className = 'student-item';
+                                li.innerHTML = `
+                                    <div class="student-info">
+                                        <span class="student-name">${student.nome}</span>
+                                        <span class="student-class">${student.salaNome}</span>
+                                    </div>
+                                    <span class="status-badge status-present">Presente</span>
+                                `;
+                                presentStudentsList.appendChild(li);
+                            });
+                        } else {
+                            presentStudentsList.innerHTML = '<li style="padding: 15px; text-align: center; color: #666;">Nenhum aluno presente no momento</li>';
+                        }
                     } else {
                         presentStudentsList.innerHTML = '<li style="padding: 15px; text-align: center; color: #666;">Nenhum aluno presente no momento</li>';
                     }
                 }
             } catch (error) {
-                console.error('Erro ao carregar alunos presentes:', error);
+                console.error('❌ Erro ao carregar alunos presentes:', error);
             }
         }
 
@@ -1508,9 +1539,42 @@
             }
         }
 
-        // Carregar todos os alunos
+        // Variáveis para controle de atualização automática
+        let studentsAutoRefreshInterval = null;
+        const STUDENTS_REFRESH_INTERVAL = 30000; // 30 segundos
+
+        // Iniciar atualização automática da aba Alunos
+        function startStudentsAutoRefresh() {
+            // Parar intervalo anterior se existir
+            if (studentsAutoRefreshInterval) {
+                clearInterval(studentsAutoRefreshInterval);
+            }
+            
+            // Iniciar novo intervalo
+            studentsAutoRefreshInterval = setInterval(() => {
+                if (document.getElementById('students-tab').classList.contains('active')) {
+                    console.log('🔄 Atualização automática da aba Alunos...');
+                    loadAllStudents(currentStudentsPage, document.getElementById('studentSearch').value);
+                }
+            }, STUDENTS_REFRESH_INTERVAL);
+            
+            console.log('✅ Atualização automática da aba Alunos iniciada (30s)');
+        }
+
+        // Parar atualização automática
+        function stopStudentsAutoRefresh() {
+            if (studentsAutoRefreshInterval) {
+                clearInterval(studentsAutoRefreshInterval);
+                studentsAutoRefreshInterval = null;
+                console.log('⏹️ Atualização automática da aba Alunos parada');
+            }
+        }
+
+        // Carregar todos os alunos - VERSÃO COM VERIFICAÇÃO DE STATUS
         async function loadAllStudents(page = 0, searchTerm = '') {
             try {
+                console.log('🎯 Carregando lista de alunos com verificação de status...');
+                
                 const accessToken = localStorage.getItem('access_token');
                 let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=${page}&size=${pageSize}`;
                 
@@ -1527,13 +1591,38 @@
                 
                 if (response.ok) {
                     const data = await response.json();
+                    
+                    // VERIFICAR STATUS REAL DE CADA ALUNO
+                    if (data.content && data.content.length > 0) {
+                        console.log('🔍 Verificando status individual de cada aluno...');
+                        
+                        const alunosComStatusAtualizado = await Promise.all(
+                            data.content.map(async (aluno) => {
+                                try {
+                                    const statusReal = await checkStudentStatus(aluno.id);
+                                    return {
+                                        ...aluno,
+                                        status: statusReal ? 'PRESENTE' : 'AUSENTE'
+                                    };
+                                } catch (error) {
+                                    console.error(`❌ Erro ao verificar status do aluno ${aluno.nome}:`, error);
+                                    return aluno; // Mantém status original em caso de erro
+                                }
+                            })
+                        );
+                        
+                        // Atualizar dados com status correto
+                        data.content = alunosComStatusAtualizado;
+                    }
+                    
                     renderStudentsTable(data);
                     setupStudentsPagination(data);
+                    
                 } else {
                     throw new Error(`Erro ${response.status}: ${response.statusText}`);
                 }
             } catch (error) {
-                console.error('Erro ao carregar alunos:', error);
+                console.error('❌ Erro ao carregar alunos:', error);
                 showAlert('Erro ao carregar lista de alunos.', 'error');
             }
         }
@@ -1765,6 +1854,13 @@
                 loadAllStudents(currentStudentsPage, document.getElementById('studentSearch').value);
             };
         }
+
+        // Função para atualização manual dos alunos
+        window.refreshStudents = function() {
+            console.log('🔄 Atualização manual da lista de alunos...');
+            showAlert('Atualizando lista de alunos...', 'success');
+            loadAllStudents(currentStudentsPage, document.getElementById('studentSearch').value);
+        };
 
         // Buscar alunos
         window.searchStudents = function() {
@@ -3216,6 +3312,28 @@
                 showAlert('Erro ao carregar informações do tutor.', 'error');
             }
         };
+
+        // Função para verificar status real do aluno (igual à do diretor)
+        async function checkStudentStatus(studentId) {
+            try {
+                const accessToken = localStorage.getItem('access_token');
+                const response = await fetch(`${BACKEND_URL}/api/presencas/alunos/${studentId}/status`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const status = await response.json();
+                    return status === 'PRESENTE'; // Retorna true se presente, false se ausente
+                }
+                return false; // Em caso de erro, assume como ausente
+            } catch (error) {
+                console.error('❌ Erro ao verificar status do aluno:', error);
+                return false;
+            }
+        }
 
         // Visualizar alunos de um tutor
         window.viewTutorStudents = async function(tutorName) {
