@@ -1350,7 +1350,53 @@
             }
         }
 
-        // Carregar alunos presentes - ATUALIZADA
+        // Função para testar endpoints disponíveis
+        async function testStudentEndpoints() {
+            try {
+                const accessToken = localStorage.getItem('access_token');
+                const testStudentId = 1; // ID de teste
+                
+                console.log('🔍 Testando endpoints de alunos...');
+                
+                // Testar endpoint de sessões ativas
+                try {
+                    const response1 = await fetch(`${BACKEND_URL}/api/presencas/alunos/${testStudentId}/sessoes-ativas`, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                    });
+                    console.log('✅ Endpoint sessoes-ativas:', response1.status);
+                } catch (e) {
+                    console.log('❌ Endpoint sessoes-ativas não disponível');
+                }
+                
+                // Testar endpoint de histórico
+                try {
+                    const response2 = await fetch(`${BACKEND_URL}/api/presencas/historico/${testStudentId}`, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                    });
+                    console.log('✅ Endpoint historico:', response2.status);
+                } catch (e) {
+                    console.log('❌ Endpoint historico não disponível');
+                }
+                
+                // Testar endpoint de presentes
+                try {
+                    const response3 = await fetch(`${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes`, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                    });
+                    console.log('✅ Endpoint presentes:', response3.status);
+                } catch (e) {
+                    console.log('❌ Endpoint presentes não disponível');
+                }
+                
+            } catch (error) {
+                console.error('Erro no teste de endpoints:', error);
+            }
+        }
+
+        // Executar teste uma vez
+        testStudentEndpoints();
+
+        // Carregar alunos presentes - VERSÃO SIMPLIFICADA
         async function loadPresentStudents() {
             try {
                 const accessToken = localStorage.getItem('access_token');
@@ -1367,38 +1413,18 @@
                     presentStudentsList.innerHTML = '';
                     
                     if (data.content && data.content.length > 0) {
-                        // VERIFICAR STATUS REAL DE CADA ALUNO PRESENTE
-                        const alunosComStatusVerificado = await Promise.all(
-                            data.content.map(async (student) => {
-                                const statusReal = await checkStudentStatus(student.id);
-                                return {
-                                    ...student,
-                                    status: statusReal ? 'PRESENTE' : 'AUSENTE'
-                                };
-                            })
-                        );
-                        
-                        // Filtrar apenas os que realmente estão presentes
-                        const alunosRealmentePresentes = alunosComStatusVerificado.filter(student => 
-                            student.status === 'PRESENTE'
-                        );
-                        
-                        if (alunosRealmentePresentes.length > 0) {
-                            alunosRealmentePresentes.forEach(student => {
-                                const li = document.createElement('li');
-                                li.className = 'student-item';
-                                li.innerHTML = `
-                                    <div class="student-info">
-                                        <span class="student-name">${student.nome}</span>
-                                        <span class="student-class">${student.salaNome}</span>
-                                    </div>
-                                    <span class="status-badge status-present">Presente</span>
-                                `;
-                                presentStudentsList.appendChild(li);
-                            });
-                        } else {
-                            presentStudentsList.innerHTML = '<li style="padding: 15px; text-align: center; color: #666;">Nenhum aluno presente no momento</li>';
-                        }
+                        data.content.forEach(student => {
+                            const li = document.createElement('li');
+                            li.className = 'student-item';
+                            li.innerHTML = `
+                                <div class="student-info">
+                                    <span class="student-name">${student.nome}</span>
+                                    <span class="student-class">${student.salaNome}</span>
+                                </div>
+                                <span class="status-badge status-present">Presente</span>
+                            `;
+                            presentStudentsList.appendChild(li);
+                        });
                     } else {
                         presentStudentsList.innerHTML = '<li style="padding: 15px; text-align: center; color: #666;">Nenhum aluno presente no momento</li>';
                     }
@@ -1570,10 +1596,10 @@
             }
         }
 
-        // Carregar todos os alunos - VERSÃO COM VERIFICAÇÃO DE STATUS
+        // Carregar todos os alunos - VERSÃO OTIMIZADA
         async function loadAllStudents(page = 0, searchTerm = '') {
             try {
-                console.log('🎯 Carregando lista de alunos com verificação de status...');
+                console.log('🎯 Carregando lista de alunos...');
                 
                 const accessToken = localStorage.getItem('access_token');
                 let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=${page}&size=${pageSize}`;
@@ -1592,27 +1618,10 @@
                 if (response.ok) {
                     const data = await response.json();
                     
-                    // VERIFICAR STATUS REAL DE CADA ALUNO
+                    // VERIFICAR STATUS EM LOTE (MAIS EFICIENTE)
                     if (data.content && data.content.length > 0) {
-                        console.log('🔍 Verificando status individual de cada aluno...');
-                        
-                        const alunosComStatusAtualizado = await Promise.all(
-                            data.content.map(async (aluno) => {
-                                try {
-                                    const statusReal = await checkStudentStatus(aluno.id);
-                                    return {
-                                        ...aluno,
-                                        status: statusReal ? 'PRESENTE' : 'AUSENTE'
-                                    };
-                                } catch (error) {
-                                    console.error(`❌ Erro ao verificar status do aluno ${aluno.nome}:`, error);
-                                    return aluno; // Mantém status original em caso de erro
-                                }
-                            })
-                        );
-                        
-                        // Atualizar dados com status correto
-                        data.content = alunosComStatusAtualizado;
+                        console.log('🔍 Verificando status dos alunos em lote...');
+                        data.content = await checkAllStudentsStatus(data.content);
                     }
                     
                     renderStudentsTable(data);
@@ -3312,6 +3321,43 @@
                 showAlert('Erro ao carregar informações do tutor.', 'error');
             }
         };
+
+        // Função otimizada para verificar status de todos os alunos de uma vez
+        async function checkAllStudentsStatus(alunos) {
+            try {
+                const accessToken = localStorage.getItem('access_token');
+                
+                // Buscar lista de todos os alunos presentes
+                const response = await fetch(`${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?size=1000`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const alunosPresentesIds = new Set();
+                    
+                    if (data.content && Array.isArray(data.content)) {
+                        data.content.forEach(aluno => alunosPresentesIds.add(aluno.id));
+                    }
+                    
+                    // Atualizar status de cada aluno
+                    return alunos.map(aluno => ({
+                        ...aluno,
+                        status: alunosPresentesIds.has(aluno.id) ? 'PRESENTE' : 'AUSENTE'
+                    }));
+                }
+                
+                // Se der erro, retorna os alunos com status original
+                return alunos;
+                
+            } catch (error) {
+                console.error('❌ Erro ao verificar status dos alunos:', error);
+                return alunos; // Retorna os alunos sem alteração
+            }
+        }
 
         // Função alternativa para verificar status do aluno
         async function checkStudentStatus(studentId) {
