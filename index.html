@@ -84,8 +84,8 @@
 
         .toggle-password {
             position: absolute;
-            right: 10px;
-            top: 70%;
+            right: 15px;
+            top: 50%;
             transform: translateY(-50%);
             cursor: pointer;
             width: 20px;
@@ -193,8 +193,10 @@
 
             <div class="form-group">
                 <label for="password">Senha</label>
-                <input type="password" id="password" name="password" required autocomplete="current-password">
-                <img src="img/eye-closed.png" alt="Mostrar senha" class="toggle-password" id="togglePassword">
+                <div style="position: relative;">
+                    <input type="password" id="password" name="password" required autocomplete="current-password">
+                    <img src="img/eye-closed.png" alt="Mostrar senha" class="toggle-password" id="togglePassword">
+                </div>
             </div>
 
             <button type="submit" class="btn" id="loginBtn">Entrar</button>
@@ -206,8 +208,8 @@
         </div>
 
         <div class="debug-info">
-            <p>Backend: <strong>https://inoutchi-cd92743c8443.herokuapp.com</strong></p>
-            <p>Client ID: <strong>myclientid</strong></p>
+            <p>Backend: <strong id="backendUrl"></strong></p>
+            <p>Client ID: <strong id="clientId"></strong></p>
             <p>Modo diagnóstico ativo - Verifique o console (F12)</p>
         </div>
     </div>
@@ -221,9 +223,54 @@
             const passwordInput = document.getElementById('password');
             const togglePassword = document.getElementById('togglePassword');
 
+            // --- Configurações ---
+            // ATENÇÃO: Client Secret não deve ser exposto no frontend em produção.
             const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
             const CLIENT_ID = 'myclientid';
             const CLIENT_SECRET = 'myclientsecret';
+            
+            // Popular informações de debug
+            document.getElementById('backendUrl').textContent = BACKEND_URL;
+            document.getElementById('clientId').textContent = CLIENT_ID;
+
+            // --- Funções Auxiliares ---
+            function showAlert(message, type = 'error') {
+                alertBox.textContent = message;
+                alertBox.className = `alert alert-${type}`;
+                alertBox.style.display = 'block';
+            }
+
+            async function getUserRole(token) {
+                // Em uma aplicação real, você faria uma chamada a um endpoint /me ou /userinfo.
+                // Por simplicidade, estamos decodificando o JWT (se for um) para obter as roles.
+                try {
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    return payload.authorities || []; // Assumindo que as roles estão no campo 'authorities'.
+                } catch (e) {
+                    console.error("Não foi possível decodificar o token para obter a role:", e);
+                    // Como fallback, pode-se retornar um array vazio ou chamar um endpoint específico.
+                    return [];
+                }
+            }
+
+            function redirectToDashboard(userRole) {
+                if (userRole.includes('ROLE_TUTOR')) {
+                    showAlert('Login realizado. Redirecionando para a área do Tutor...', 'success');
+                    setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
+                } else if (userRole.includes('ROLE_DIRETOR')) {
+                    showAlert('Login realizado. Redirecionando para a área do Diretor...', 'success');
+                    setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
+                } else if (userRole.includes('ROLE_ESCOLA')) {
+                    showAlert('Login realizado. Redirecionando para a área da Escola...', 'success');
+                    setTimeout(() => { window.location.href = 'dashboard-escola.html'; }, 1500);
+                } else {
+                    showAlert('Login realizado. Redirecionando...', 'success');
+                    // Fallback para um dashboard genérico, se houver.
+                    setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
+                }
+            }
+            
+            // --- Event Listeners ---
 
             // Alternar visibilidade da senha
             togglePassword.addEventListener('click', () => {
@@ -231,43 +278,31 @@
                 
                 if (isPasswordVisible) {
                     passwordInput.setAttribute('type', 'password');
-                    togglePassword.src = 'img/eye-closed.svg';
+                    togglePassword.src = 'img/eye-closed.png'; // CORRIGIDO
                     togglePassword.alt = 'Mostrar senha';
                 } else {
                     passwordInput.setAttribute('type', 'text');
-                    togglePassword.src = 'img/eye-open.svg';
+                    togglePassword.src = 'img/eye-open.png'; // CORRIGIDO
                     togglePassword.alt = 'Ocultar senha';
                 }
             });
 
-            // Verificar token existente
+            // Verificar token existente ao carregar a página
             const token = localStorage.getItem('access_token');
             const tokenExpiry = localStorage.getItem('token_expiry');
-            if (token && tokenExpiry && new Date().getTime() < parseInt(tokenExpiry)) {
-                // Se já tem token, verificar o ROLE para redirecionar corretamente
+            
+            if (token && tokenExpiry && new Date().getTime() < parseInt(tokenExpiry, 10)) {
                 getUserRole(token)
                     .then(userRole => {
-                        if (userRole.includes('ROLE_TUTOR')) {
-                            showAlert('Login automático realizado. Redirecionando para área do Tutor...', 'success');
-                            setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
-                        } else if (userRole.includes('ROLE_DIRETOR')) {
-                            showAlert('Login automático realizado. Redirecionando para área do Diretor...', 'success');
-                            setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
-                        } else if (userRole.includes('ROLE_ESCOLA')) {
-                            showAlert('Login automático realizado. Redirecionando para área da Escola...', 'success');
-                            setTimeout(() => { window.location.href = 'dashboard-escola.html'; }, 1500);
-                        } else {
-                            showAlert('Login automático realizado. Redirecionando...', 'success');
-                            setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
-                        }
+                        redirectToDashboard(userRole);
                     })
                     .catch(error => {
-                        console.error('Erro ao verificar ROLE:', error);
-                        showAlert('Login automático realizado. Redirecionando...', 'success');
-                        setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
+                        console.error('Erro ao verificar ROLE para login automático:', error);
+                        localStorage.clear(); // Limpa token inválido
                     });
             }
 
+            // Submissão do formulário de login
             loginForm.addEventListener('submit', async function(e) {
                 e.preventDefault();
 
@@ -281,124 +316,43 @@
 
                 loading.style.display = 'block';
                 loginBtn.disabled = true;
+                alertBox.style.display = 'none';
 
                 try {
-                    console.group('Tentativa de Login');
-                    console.log('URL:', BACKEND_URL + '/oauth2/token');
-                    console.log('Email:', email);
-
-                    let response = await fetch(`${BACKEND_URL}/oauth2/token`, {
+                    const response = await fetch(`${BACKEND_URL}/oauth/token`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/x-www-form-urlencoded',
-                            'Authorization': 'Basic ' + btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)
+                            'Authorization': 'Basic ' + btoa(CLIENT_ID + ':' + CLIENT_SECRET)
                         },
                         body: new URLSearchParams({
                             'grant_type': 'password',
                             'username': email,
-                            'password': password,
-                            'scope': 'read write'
+                            'password': password
                         })
                     });
 
+                    const data = await response.json();
+
                     if (!response.ok) {
-                        response = await fetch(`${BACKEND_URL}/oauth2/token`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                            body: new URLSearchParams({
-                                'grant_type': 'password',
-                                'username': email,
-                                'password': password,
-                                'scope': 'read write',
-                                'client_id': CLIENT_ID,
-                                'client_secret': CLIENT_SECRET
-                            })
-                        });
+                        throw new Error(data.error_description || 'Credenciais inválidas.');
                     }
 
-                    const responseText = await response.text();
-                    let data;
-                    try { data = JSON.parse(responseText); } catch(e) { throw new Error('Resposta inválida do servidor'); }
+                    const expiryTime = new Date().getTime() + (data.expires_in * 1000);
+                    localStorage.setItem('access_token', data.access_token);
+                    localStorage.setItem('refresh_token', data.refresh_token);
+                    localStorage.setItem('token_expiry', expiryTime);
 
-                    if (response.ok) {
-                        const expiresIn = data.expires_in * 1000;
-                        const expiryTime = new Date().getTime() + expiresIn;
+                    const userRole = await getUserRole(data.access_token);
+                    redirectToDashboard(userRole);
 
-                        localStorage.setItem('access_token', data.access_token);
-                        localStorage.setItem('token_expiry', expiryTime.toString());
-                        
-                        const refreshToken = data.refresh_token || 'no-refresh-token';
-                        localStorage.setItem('refresh_token', refreshToken);
-                        
-                        console.log('Refresh token salvo:', refreshToken);
-                        
-                        // Verificar o ROLE do usuário após login bem-sucedido
-                        try {
-                            const userRole = await getUserRole(data.access_token);
-                            
-                            // Redirecionar com base no ROLE
-                            if (userRole.includes('ROLE_TUTOR')) {
-                                showAlert('Login realizado com sucesso! Redirecionando para área do Tutor...', 'success');
-                                setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
-                            } else if (userRole.includes('ROLE_DIRETOR')) {
-                                showAlert('Login realizado com sucesso! Redirecionando para área do Diretor...', 'success');
-                                setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
-                            } else if (userRole.includes('ROLE_ESCOLA')) {
-                                showAlert('Login realizado com sucesso! Redirecionando para área da Escola...', 'success');
-                                setTimeout(() => { window.location.href = 'dashboard-escola.html'; }, 1500);
-                            } else {
-                                // ROLE não reconhecido, usar dashboard padrão
-                                showAlert('Login realizado com sucesso! Redirecionando...', 'success');
-                                setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
-                            }
-                        } catch (error) {
-                            console.error('Erro ao obter ROLE:', error);
-                            // Em caso de erro, redirecionar para dashboard padrão
-                            showAlert('Login realizado com sucesso! Redirecionando...', 'success');
-                            setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
-                        }
-                    } else {
-                        const errorMsg = data.error_description || `Erro ${response.status}: ${response.statusText}`;
-                        showAlert(errorMsg, 'error');
-                    }
-                    console.groupEnd();
                 } catch (error) {
-                    console.error('Erro completo:', error);
-                    showAlert('Erro de conexão: ' + error.message, 'error');
-                } finally {
+                    console.error('Erro no login:', error);
+                    showAlert(error.message || 'Erro de conexão. Tente novamente.', 'error');
                     loading.style.display = 'none';
                     loginBtn.disabled = false;
                 }
             });
-
-            // Função para obter o ROLE do usuário
-            async function getUserRole(accessToken) {
-                try {
-                    const response = await fetch(`${BACKEND_URL}/api/users/me`, {
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json'
-                        }
-                    });
-
-                    if (response.ok) {
-                        const userData = await response.json();
-                        return userData.roles || [];
-                    } else {
-                        throw new Error('Erro ao obter informações do usuário');
-                    }
-                } catch (error) {
-                    console.error('Erro ao obter ROLE:', error);
-                    throw error;
-                }
-            }
-
-            function showAlert(message, type) {
-                alertBox.textContent = message;
-                alertBox.className = type === 'error' ? 'alert alert-error' : 'alert alert-success';
-                alertBox.style.display = 'block';
-                setTimeout(() => { alertBox.style.display = 'none'; }, 5000);
-            }
         });
     </script>
 </body>
