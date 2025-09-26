@@ -928,21 +928,61 @@
         return matches ? parseInt(matches[0]) : null;
     }
 
-    // ========== VERSÃO SIMPLIFICADA - USA STATUS DA PRÓPRIA API ==========
+    // ========== FUNÇÃO DEFINITIVA - COM FALLBACK INTELIGENTE ==========
     async function checkAllStudentsStatus(alunosBase) {
         try {
-            console.log('🔍 Usando status fornecido pela API...');
+            if (!alunosBase || alunosBase.length === 0) {
+                return [];
+            }
             
-            // Se a API já envia o status, confiamos nele
-            // Isso evita múltiplas requisições desnecessárias
-            return alunosBase.map(aluno => ({
+            console.log('🔍 Verificando status de', alunosBase.length, 'alunos');
+            
+            // MÉTODO 1: Confiar no status da API (mais eficiente)
+            console.log('🔄 Método 1: Usando status da resposta da API');
+            const alunosComStatusAPI = alunosBase.map(aluno => ({
                 ...aluno,
-                status: aluno.status || 'AUSENTE' // Garante que sempre tenha status
+                status: aluno.status || 'AUSENTE'
             }));
             
+            // Verificar se os status parecem corretos
+            const alunosPresentes = alunosComStatusAPI.filter(a => a.status === 'PRESENTE').length;
+            console.log(`✅ Status da API: ${alunosPresentes} presentes, ${alunosComStatusAPI.length - alunosPresentes} ausentes`);
+            
+            // Se há alunos presentes, provavelmente os dados estão corretos
+            if (alunosPresentes > 0) {
+                return alunosComStatusAPI;
+            }
+            
+            // MÉTODO 2: Verificar via histórico (apenas se necessário)
+            console.log('🔄 Método 2: Verificando via histórico');
+            const accessToken = localStorage.getItem('accessToken');
+            
+            const alunosComStatusDetalhado = await Promise.all(
+                alunosComStatusAPI.map(async (aluno) => {
+                    try {
+                        const isPresent = await checkStudentPresence(aluno.id, accessToken);
+                        return {
+                            ...aluno,
+                            status: isPresent ? 'PRESENTE' : 'AUSENTE'
+                        };
+                    } catch (error) {
+                        return aluno; // Mantém status original em caso de erro
+                    }
+                })
+            );
+            
+            const alunosPresentesDetalhado = alunosComStatusDetalhado.filter(a => a.status === 'PRESENTE').length;
+            console.log(`✅ Status detalhado: ${alunosPresentesDetalhado} presentes`);
+            
+            return alunosComStatusDetalhado;
+            
         } catch (error) {
-            console.error('❌ Erro ao processar status:', error);
-            return alunosBase || [];
+            console.error('❌ Erro na verificação de status:', error);
+            // Fallback: usar status básico
+            return alunosBase.map(aluno => ({
+                ...aluno,
+                status: aluno.status || 'AUSENTE'
+            }));
         }
     }
 
