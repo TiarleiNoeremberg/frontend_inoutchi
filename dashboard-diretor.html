@@ -1613,10 +1613,10 @@
             }
         }
 
-        // Carregar todos os alunos - VERSÃO OTIMIZADA
+        // Carregar todos os alunos - VERSÃO COM TUTORES
         async function loadAllStudents(page = 0, searchTerm = '') {
             try {
-                console.log('🎯 Carregando lista de alunos...');
+                console.log('🎯 Carregando lista de alunos com tutores...');
                 
                 const accessToken = localStorage.getItem('access_token');
                 let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=${page}&size=${pageSize}`;
@@ -1635,10 +1635,28 @@
                 if (response.ok) {
                     const data = await response.json();
                     
-                    // VERIFICAR STATUS EM LOTE (MAIS EFICIENTE)
+                    // VERIFICAR STATUS REAL DE CADA ALUNO
                     if (data.content && data.content.length > 0) {
-                        console.log('🔍 Verificando status dos alunos em lote...');
-                        data.content = await checkAllStudentsStatus(data.content);
+                        console.log('🔍 Verificando status individual de cada aluno...');
+                        
+                        const alunosComStatusAtualizado = await Promise.all(
+                            data.content.map(async (aluno) => {
+                                try {
+                                    const statusReal = await checkStudentStatus(aluno.id);
+                                    return {
+                                        ...aluno,
+                                        status: statusReal ? 'PRESENTE' : 'AUSENTE'
+                                    };
+                                } catch (error) {
+                                    console.error(`❌ Erro ao verificar status do aluno ${aluno.nome}:`, error);
+                                    return aluno;
+                                }
+                            })
+                        );
+                        
+                        // CARREGAR TUTORES PARA CADA ALUNO
+                        console.log('👥 Carregando tutores dos alunos...');
+                        data.content = await loadTutorsForAllStudents(alunosComStatusAtualizado);
                     }
                     
                     renderStudentsTable(data);
@@ -1767,6 +1785,55 @@
                 }
                 
                 viewStudentHistory(currentStudentId, studentName, page);
+            }
+        }
+
+        // Função para buscar tutores de um aluno específico
+        async function fetchStudentTutors(studentId) {
+            try {
+                const accessToken = localStorage.getItem('access_token');
+                const response = await fetch(`${BACKEND_URL}/api/alunos/${studentId}/tutores`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    return data;
+                }
+                return null;
+            } catch (error) {
+                console.error('❌ Erro ao buscar tutores do aluno:', error);
+                return null;
+            }
+        }
+
+        // Função para carregar tutores para todos os alunos
+        async function loadTutorsForAllStudents(alunos) {
+            try {
+                console.log('🔍 Carregando tutores para todos os alunos...');
+                
+                const alunosComTutores = await Promise.all(
+                    alunos.map(async (aluno) => {
+                        try {
+                            const tutores = await fetchStudentTutors(aluno.id);
+                            return {
+                                ...aluno,
+                                tutores: tutores || []
+                            };
+                        } catch (error) {
+                            console.error(`Erro ao carregar tutores do aluno ${aluno.id}:`, error);
+                            return aluno;
+                        }
+                    })
+                );
+                
+                return alunosComTutores;
+            } catch (error) {
+                console.error('❌ Erro ao carregar tutores:', error);
+                return alunos;
             }
         }
 
