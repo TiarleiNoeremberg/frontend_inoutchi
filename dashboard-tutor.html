@@ -1263,7 +1263,7 @@
             }
         }
 
-        // Carregar alunos vinculados ao tutor - VERSÃO COM VERIFICAÇÃO DE STATUS
+        // Carregar alunos vinculados ao tutor - VERSÃO OTIMIZADA
         async function loadStudents() {
             try {
                 const accessToken = localStorage.getItem('access_token');
@@ -1281,52 +1281,62 @@
                     }
                 });
 
-                if (response.ok) {
-                    const data = await response.json();
-                    console.log('✅ Resposta do endpoint de alunos:', data);
-                    
-                    if (data.alunos && Array.isArray(data.alunos)) {
-                        // Carregar alunos básicos
-                        let alunosBase = data.alunos.map(aluno => ({
-                            id: aluno.id,
-                            nome: aluno.nome,
-                            salaNome: aluno.salaNome || 'Sala não informada',
-                            status: aluno.status || 'AUSENTE'
-                        }));
-                        
-                        console.log('🔍 Verificando status atual dos alunos...');
-                        
-                        // VERIFICAR STATUS REAL EM TEMPO REAL
-                        alunosBase = await checkAllStudentsStatus();
-                        
-                        students = alunosBase;
-                        console.log('🎯 Alunos com status atualizado:', students);
-                        
-                        renderStudents();
-                        updatePresenceSummary();
-                        
-                    } else {
-                        console.error('Estrutura de resposta inesperada:', data);
-                        students = [];
-                        showAlert('Estrutura de dados inesperada.', 'error');
-                    }
-                    
-                } else if (response.status === 404) {
-                    console.warn('Endpoint não encontrado (404)');
-                    showAlert('Endpoint de alunos não disponível no momento.', 'error');
-                    
-                } else if (response.status === 403) {
-                    console.warn('Acesso negado (403)');
-                    showAlert('Acesso não autorizado ao endpoint de alunos.', 'error');
-                    
-                } else {
-                    console.error('Erro HTTP:', response.status, response.statusText);
-                    showAlert(`Erro ao carregar alunos: ${response.status}`, 'error');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
                 }
+
+                const data = await response.json();
+                console.log('✅ Resposta do endpoint de alunos:', data);
+                
+                // EXTRAIR ALUNOS - ESTRUTURA FLEXÍVEL
+                let alunosData = [];
+                
+                if (data.alunos && Array.isArray(data.alunos)) {
+                    alunosData = data.alunos;
+                } else if (Array.isArray(data)) {
+                    alunosData = data;
+                } else if (data.content && Array.isArray(data.content)) {
+                    alunosData = data.content;
+                } else {
+                    // Tentar encontrar qualquer array com alunos
+                    for (let key in data) {
+                        if (Array.isArray(data[key]) && data[key].length > 0 && data[key][0].nome) {
+                            alunosData = data[key];
+                            break;
+                        }
+                    }
+                }
+                
+                if (alunosData.length === 0) {
+                    console.warn('⚠️ Nenhum aluno encontrado na resposta');
+                    students = [];
+                    renderStudents();
+                    updatePresenceSummary();
+                    showAlert('Nenhum aluno vinculado encontrado.', 'info');
+                    return;
+                }
+                
+                // PROCESSAR ALUNOS
+                const alunosBase = alunosData.map(aluno => ({
+                    id: aluno.id || 0,
+                    nome: aluno.nome || 'Aluno sem nome',
+                    salaNome: aluno.salaNome || aluno.sala || 'Sala não informada',
+                    status: aluno.status || 'AUSENTE'
+                }));
+                
+                console.log(`📊 ${alunosBase.length} alunos encontrados`);
+                
+                // VERIFICAR STATUS (MÉTODO LEVE)
+                students = await checkAllStudentsStatus(alunosBase);
+                
+                console.log('🎯 Alunos processados:', students);
+                
+                renderStudents();
+                updatePresenceSummary();
                 
             } catch (error) {
                 console.error('❌ Erro ao carregar alunos:', error);
-                showAlert('Erro de conexão ao carregar alunos.', 'error');
+                showAlert('Erro ao carregar lista de alunos.', 'error');
             }
         }
 
