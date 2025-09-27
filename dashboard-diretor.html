@@ -1128,6 +1128,91 @@
             detailsModal = document.getElementById('detailsModal');
         }
 
+        // NOVA FUNÇÃO: Extrair tutores de forma robusta
+        function extractTutorsFromStudent(student) {
+            console.log('🔍 Estrutura completa do aluno para debug:', student);
+            
+            // MÚLTIPLAS TENTATIVAS PARA ENCONTRAR OS TUTORES
+            let tutores = [];
+            
+            // TENTATIVA 1: Tutores como array direto
+            if (student.tutores && Array.isArray(student.tutores)) {
+                console.log('✅ Tutores encontrados em student.tutores');
+                tutores = student.tutores;
+            }
+            // TENTATIVA 2: Tutor único como objeto
+            else if (student.tutor && typeof student.tutor === 'object') {
+                console.log('✅ Tutor único encontrado em student.tutor');
+                tutores = [student.tutor];
+            }
+            // TENTATIVA 3: Tutores em propriedades aninhadas
+            else if (student.dados && student.dados.tutores && Array.isArray(student.dados.tutores)) {
+                console.log('✅ Tutores encontrados em student.dados.tutores');
+                tutores = student.dados.tutores;
+            }
+            // TENTATIVA 4: Verificar todas as propriedades do objeto
+            else {
+                console.log('🔍 Procurando tutores em outras propriedades...');
+                for (let key in student) {
+                    if (Array.isArray(student[key]) && student[key].length > 0) {
+                        // Verificar se o primeiro item tem propriedades de tutor
+                        const firstItem = student[key][0];
+                        if (firstItem && (firstItem.nome || firstItem.nomeCompleto || firstItem.email)) {
+                            console.log(`✅ Tutores encontrados em student.${key}`);
+                            tutores = student[key];
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // Formatar os tutores para exibição
+            if (tutores.length > 0) {
+                return tutores.map(tutor => {
+                    // Extrair nome do tutor (diferentes possibilidades)
+                    const tutorNome = tutor.nome || tutor.nomeCompleto || tutor.nomeTutor || 'Tutor';
+                    
+                    // Extrair parentesco/tipo (diferentes possibilidades)
+                    const parentesco = tutor.parentesco || tutor.relation || tutor.tipo || tutor.funcao || 'Responsável';
+                    
+                    // Extrair telefone se disponível
+                    const telefone = tutor.telefone || tutor.fone || tutor.phone || '';
+                    
+                    return telefone ? 
+                        `${tutorNome} (${parentesco}) - ${telefone}` : 
+                        `${tutorNome} (${parentesco})`;
+                }).join(', ');
+            }
+            
+            return 'Sem tutores vinculados';
+        }
+
+        // NOVA FUNÇÃO: Debug detalhado da estrutura do aluno
+        function debugStudentStructure(student, index) {
+            console.log(`🔍 DEBUG Aluno ${index + 1}:`, {
+                id: student.id,
+                nome: student.nome,
+                todasAsChaves: Object.keys(student),
+                temTutoresProp: !!student.tutores,
+                temTutorProp: !!student.tutor,
+                estruturaTutores: student.tutores,
+                estruturaTutor: student.tutor,
+                estruturaCompleta: student
+            });
+            
+            // Verificar propriedades que podem conter arrays
+            const arrayProperties = Object.keys(student).filter(key => 
+                Array.isArray(student[key])
+            );
+            
+            if (arrayProperties.length > 0) {
+                console.log(`📊 Propriedades array encontradas: ${arrayProperties.join(', ')}`);
+                arrayProperties.forEach(prop => {
+                    console.log(`   ${prop}:`, student[prop]);
+                });
+            }
+        }
+
         // ATUALIZAR a função initializeDashboard para verificar status ao logar
         async function initializeDashboard() {
             console.log('Inicializando dashboard diretor...');
@@ -1902,40 +1987,37 @@
             }
         }
 
-        // ATUALIZAR a função renderStudentsTable para incluir data attributes
+        // ATUALIZAR a função renderStudentsTable com a nova extração de tutores
         function renderStudentsTable(data) {
-            console.log('🎯 Renderizando tabela de alunos com status em tempo real...');
+            console.log('🎯 Renderizando tabela de alunos com tutores...');
+            
+            // DEBUG: Verificar estrutura dos dados recebidos
+            console.log('📊 Estrutura completa dos dados recebidos:', data);
             
             const tbody = document.getElementById('studentsTableBody');
             tbody.innerHTML = '';
             
             if (data.content && data.content.length > 0) {
-                data.content.forEach(student => {
+                data.content.forEach((student, index) => {
+                    // DEBUG: Analisar estrutura de cada aluno
+                    debugStudentStructure(student, index);
+                    
                     const tr = document.createElement('tr');
-                    // ADICIONAR DATA ATTRIBUTE PARA IDENTIFICAÇÃO
                     tr.setAttribute('data-student-id', student.id);
                     
                     const statusClass = student.status === 'PRESENTE' ? 'status-present' : 'status-absent';
                     const statusText = student.status === 'PRESENTE' ? 'Presente' : 'Ausente';
                     
-                    // CORREÇÃO: Exibir tutores corretamente
-                    let tutoresHtml = 'Sem tutores';
+                    // USAR A NOVA FUNÇÃO PARA EXTRAIR TUTORES
+                    const tutoresHtml = extractTutorsFromStudent(student);
                     
-                    if (student.tutores && Array.isArray(student.tutores) && student.tutores.length > 0) {
-                        tutoresHtml = student.tutores.map(tutor => {
-                            const tutorNome = tutor.nome || tutor.nomeCompleto || tutor.nomeTutor || 'Tutor';
-                            const parentesco = tutor.parentesco || tutor.relation || tutor.tipo || 'Responsável';
-                            return `${tutorNome} (${parentesco})`;
-                        }).join(', ');
-                    }
-                    
-                    const safeStudentName = student.nome.replace(/'/g, "\\'");
+                    const safeStudentName = student.nome ? student.nome.replace(/'/g, "\\'") : 'Aluno';
                     
                     tr.innerHTML = `
-                        <td>${student.nome}</td>
-                        <td>${student.salaNome}</td>
+                        <td>${student.nome || 'Nome não informado'}</td>
+                        <td>${student.salaNome || student.turma || student.sala || 'Sala não informada'}</td>
                         <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-                        <td>${tutoresHtml}</td>
+                        <td style="max-width: 250px; word-wrap: break-word;">${tutoresHtml}</td>
                         <td>
                             <div class="action-buttons">
                                 ${student.status !== 'PRESENTE' ? 
@@ -1955,7 +2037,7 @@
                     tbody.appendChild(tr);
                 });
                 
-                console.log(`✅ ${data.content.length} alunos renderizados com status atual`);
+                console.log(`✅ ${data.content.length} alunos renderizados com informações de tutores`);
                 
             } else {
                 tbody.innerHTML = `
