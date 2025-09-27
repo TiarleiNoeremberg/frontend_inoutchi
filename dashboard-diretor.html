@@ -1187,28 +1187,35 @@
             return 'Sem tutores vinculados';
         }
 
-        // NOVA FUNÇÃO: Debug detalhado da estrutura do aluno
+        // DEBUG DETALHADO DA ESTRUTURA DOS ALUNOS
         function debugStudentStructure(student, index) {
-            console.log(`🔍 DEBUG Aluno ${index + 1}:`, {
-                id: student.id,
-                nome: student.nome,
-                todasAsChaves: Object.keys(student),
-                temTutoresProp: !!student.tutores,
-                temTutorProp: !!student.tutor,
-                estruturaTutores: student.tutores,
-                estruturaTutor: student.tutor,
-                estruturaCompleta: student
-            });
+            console.log(`🔍 ALUNO ${index + 1} - ESTRUTURA COMPLETA:`, JSON.parse(JSON.stringify(student)));
             
-            // Verificar propriedades que podem conter arrays
-            const arrayProperties = Object.keys(student).filter(key => 
-                Array.isArray(student[key])
+            // Listar todas as chaves disponíveis
+            const allKeys = Object.keys(student);
+            console.log(`📋 CHAVES DISPONÍVEIS (${allKeys.length}):`, allKeys);
+            
+            // Mostrar valores das chaves mais promissoras
+            const promisingKeys = allKeys.filter(key => 
+                key.toLowerCase().includes('tutor') || 
+                key.toLowerCase().includes('responsavel') ||
+                key.toLowerCase().includes('parente') ||
+                key.toLowerCase().includes('vinculo')
             );
             
-            if (arrayProperties.length > 0) {
-                console.log(`📊 Propriedades array encontradas: ${arrayProperties.join(', ')}`);
-                arrayProperties.forEach(prop => {
-                    console.log(`   ${prop}:`, student[prop]);
+            if (promisingKeys.length > 0) {
+                console.log('🎯 CHAVES PROMISSORAS PARA TUTORES:', promisingKeys);
+                promisingKeys.forEach(key => {
+                    console.log(`   ${key}:`, student[key]);
+                });
+            }
+            
+            // Verificar se há arrays no objeto
+            const arrayKeys = allKeys.filter(key => Array.isArray(student[key]));
+            if (arrayKeys.length > 0) {
+                console.log('📊 PROPRIEDADES ARRAY:', arrayKeys);
+                arrayKeys.forEach(key => {
+                    console.log(`   ${key} (${student[key].length} itens):`, student[key]);
                 });
             }
         }
@@ -1801,6 +1808,96 @@
             tutorsCache.set(studentId, tutors);
             
             return tutors;
+        }
+
+        // RENDERIZAÇÃO ASSÍNCRONA COM FEEDBACK VISUAL
+        async function renderStudentsTable(data) {
+            console.log('🎯 Renderizando tabela de alunos com busca assíncrona de tutores...');
+            
+            const tbody = document.getElementById('studentsTableBody');
+            
+            // Mostrar loading inicial
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="5" style="text-align: center; padding: 40px;">
+                        <div class="loading-spinner" style="width: 30px; height: 30px; margin: 0 auto;"></div>
+                        <p>Carregando alunos e tutores...</p>
+                    </td>
+                </tr>
+            `;
+            
+            if (data.content && data.content.length > 0) {
+                // Renderizar primeiramente os dados básicos
+                let initialHTML = '';
+                
+                data.content.forEach((student, index) => {
+                    const statusClass = student.status === 'PRESENTE' ? 'status-present' : 'status-absent';
+                    const statusText = student.status === 'PRESENTE' ? 'Presente' : 'Ausente';
+                    const safeStudentName = student.nome ? student.nome.replace(/'/g, "\\'") : 'Aluno';
+                    
+                    initialHTML += `
+                        <tr data-student-id="${student.id}">
+                            <td>${student.nome || 'Nome não informado'}</td>
+                            <td>${student.salaNome || student.turma || student.sala || 'Sala não informada'}</td>
+                            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                            <td id="tutors-cell-${student.id}" style="max-width: 250px; word-wrap: break-word;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <div class="loading-spinner" style="width: 16px; height: 16px;"></div>
+                                    <span style="font-size: 12px; color: #666;">Carregando tutores...</span>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="action-buttons">
+                                    ${student.status !== 'PRESENTE' ? 
+                                        `<button class="btn btn-success" onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')">
+                                            <i class="fas fa-sign-in-alt"></i> Entrada
+                                        </button>` : 
+                                        `<button class="btn btn-danger" onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')">
+                                            <i class="fas fa-sign-out-alt"></i> Saída
+                                        </button>`
+                                    }
+                                    <button class="btn btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}', 0)">
+                                        <i class="fas fa-history"></i> Histórico
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                });
+                
+                tbody.innerHTML = initialHTML;
+                
+                // Buscar tutores de forma assíncrona para cada aluno
+                data.content.forEach(async (student, index) => {
+                    try {
+                        const tutorsHtml = await getStudentTutors(student.id, student.nome);
+                        
+                        // Atualizar a célula específica
+                        const tutorsCell = document.getElementById(`tutors-cell-${student.id}`);
+                        if (tutorsCell) {
+                            tutorsCell.innerHTML = tutorsHtml;
+                        }
+                        
+                    } catch (error) {
+                        console.error(`❌ Erro ao carregar tutores do aluno ${student.nome}:`, error);
+                        const tutorsCell = document.getElementById(`tutors-cell-${student.id}`);
+                        if (tutorsCell) {
+                            tutorsCell.innerHTML = '<span style="color: #666;">Erro ao carregar tutores</span>';
+                        }
+                    }
+                });
+                
+                console.log(`✅ ${data.content.length} alunos renderizados, buscando tutores...`);
+                
+            } else {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="5" style="text-align: center; padding: 20px; color: #666;">
+                            Nenhum aluno encontrado
+                        </td>
+                    </tr>
+                `;
+            }
         }
 
         // LIMPAR CACHE quando necessário
