@@ -1809,7 +1809,7 @@
                 if (response.ok) {
                     const data = await response.json();
                     window.lastStudentsData = data; // Guardar para debug
-                    
+
                     // VERIFICAR STATUS DOS ALUNOS IMEDIATAMENTE
                     if (data.content && data.content.length > 0) {
                         console.log('🔍 Verificando status dos alunos em tempo real...');
@@ -1837,6 +1837,133 @@
                 console.error('❌ Erro ao carregar alunos:', error);
                 showAlert('Erro ao carregar lista de alunos.', 'error');
             }
+        }
+
+        // NOVA FUNÇÃO: Buscar tutores do aluno via API
+        async function fetchStudentTutors(studentId, studentName) {
+            try {
+                console.log(`🔍 Buscando tutores para: ${studentName} (ID: ${studentId})`);
+                
+                const accessToken = localStorage.getItem('access_token');
+                
+                // Tentar diferentes endpoints possíveis para buscar tutores do aluno
+                const endpoints = [
+                    `${BACKEND_URL}/api/alunos/${studentId}/tutores`,
+                    `${BACKEND_URL}/api/diretores/alunos/${studentId}/tutores`,
+                    `${BACKEND_URL}/api/tutores/aluno/${studentId}`,
+                    `${BACKEND_URL}/api/alunos/${studentId}/responsaveis`
+                ];
+                
+                for (let endpoint of endpoints) {
+                    try {
+                        const response = await fetch(endpoint, {
+                            headers: {
+                                'Authorization': `Bearer ${accessToken}`,
+                                'Content-Type': 'application/json'
+                            }
+                        });
+                        
+                        if (response.ok) {
+                            const tutorsData = await response.json();
+                            console.log(`✅ Tutores encontrados via ${endpoint}:`, tutorsData);
+                            return formatTutorsForDisplay(tutorsData);
+                        } else {
+                            console.log(`⚠️ Endpoint ${endpoint} retornou status: ${response.status}`);
+                        }
+                    } catch (error) {
+                        console.log(`❌ Endpoint ${endpoint} não disponível:`, error.message);
+                        continue;
+                    }
+                }
+                
+                // Se nenhum endpoint funcionou, tentar buscar todos os tutores e filtrar
+                return await fetchAllTutorsAndFilter(studentId, studentName);
+                
+            } catch (error) {
+                console.error('❌ Erro ao buscar tutores do aluno:', error);
+                return 'Erro ao carregar tutores';
+            }
+        }
+
+        // FUNÇÃO ALTERNATIVA: Buscar todos os tutores e filtrar por aluno
+        async function fetchAllTutorsAndFilter(studentId, studentName) {
+            try {
+                console.log(`🔍 Buscando todos os tutores para filtrar por aluno: ${studentName}`);
+                
+                const accessToken = localStorage.getItem('access_token');
+                const response = await fetch(`${BACKEND_URL}/api/diretores/tutores?size=1000`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    const allTutorsData = await response.json();
+                    
+                    if (allTutorsData.content && Array.isArray(allTutorsData.content)) {
+                        // Filtrar tutores que têm este aluno vinculado
+                        const studentTutors = allTutorsData.content.filter(tutor => {
+                            return tutor.alunos && tutor.alunos.some(aluno => aluno.id === studentId);
+                        });
+                        
+                        if (studentTutors.length > 0) {
+                            return formatTutorsForDisplay(studentTutors);
+                        }
+                    }
+                }
+                
+                return 'Sem tutores vinculados';
+                
+            } catch (error) {
+                console.error('❌ Erro ao buscar todos os tutores:', error);
+                return 'Sem tutores vinculados';
+            }
+        }
+
+        // FUNÇÃO PARA FORMATAR TUTORES
+        function formatTutorsForDisplay(tutorsData) {
+            if (!tutorsData) return 'Sem tutores vinculados';
+            
+            let tutores = [];
+            
+            // Diferentes estruturas possíveis da resposta
+            if (Array.isArray(tutorsData)) {
+                tutores = tutorsData;
+            } else if (tutorsData.tutores && Array.isArray(tutorsData.tutores)) {
+                tutores = tutorsData.tutores;
+            } else if (tutorsData.content && Array.isArray(tutorsData.content)) {
+                tutores = tutorsData.content;
+            } else if (tutorsData.dados && Array.isArray(tutorsData.dados)) {
+                tutores = tutorsData.dados;
+            } else if (typeof tutorsData === 'object') {
+                tutores = [tutorsData]; // Tutor único
+            }
+            
+            if (tutors.length > 0) {
+                return tutores.map(tutor => {
+                    // Extrair nome do tutor (diferentes possibilidades)
+                    const tutorNome = tutor.nome || tutor.nomeCompleto || tutor.nomeTutor || 
+                                    tutor.nomeResponsavel || 'Tutor';
+                    
+                    // Extrair parentesco/tipo (diferentes possibilidades)
+                    const parentesco = tutor.parentesco || tutor.relation || tutor.tipo || 
+                                    tutor.funcao || tutor.vinculo || 'Responsável';
+                    
+                    // Extrair telefone se disponível
+                    const telefone = tutor.telefone || tutor.fone || tutor.phone || 
+                                tutor.telefoneContato || '';
+                    
+                    // Formatar a exibição
+                    if (telefone) {
+                        return `${tutorNome} (${parentesco}) - ${telefone}`;
+                    } else {
+                        return `${tutorNome} (${parentesco})`;
+                    }
+                }).join(', ');
+            }
+            
+            return 'Sem tutores vinculados';
         }
 
         // Renderizar histórico do aluno
