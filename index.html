@@ -5,33 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>INOUTCHI - Login</title>
     <style>
-        :root {
-            --primary-color: #4a6fa5;
-            --secondary-color: #166088;
-            --text-color: #333;
-            --error-color: #d93025;
-            --success-color: #1e8e3e;
-        }
-        * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-        body { background-color: #f5f5f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; margin: 0; }
-        .login-container { background-color: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); width: 100%; max-width: 400px; padding: 35px; }
-        .logo { text-align: center; margin-bottom: 25px; }
-        .logo h1 { color: var(--primary-color); font-size: 30px; font-weight: 700; }
-        .form-group { margin-bottom: 20px; position: relative; }
-        .form-group label { display: block; margin-bottom: 8px; color: var(--text-color); font-weight: 500; font-size: 14px; }
-        .input-wrapper { position: relative; }
-        .form-group input { width: 100%; padding: 12px 45px 12px 15px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; transition: border-color 0.2s; }
-        .form-group input:focus { border-color: var(--primary-color); outline: none; box-shadow: 0 0 0 2px rgba(74, 107, 165, 0.2); }
-        .toggle-password { position: absolute; right: 15px; top: 70%; transform: translateY(-50%); cursor: pointer; width: 18px; height: 15px; user-select: none; opacity: 0.6; }
-        .btn { width: 100%; padding: 13px; background-color: var(--primary-color); color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: background-color 0.2s; }
-        .btn:hover:not(:disabled) { background-color: var(--secondary-color); }
-        .btn:disabled { background-color: #ccc; cursor: not-allowed; }
-        .alert { padding: 12px 15px; border-radius: 8px; margin-bottom: 20px; display: none; font-size: 14px; border: 1px solid transparent; }
-        .alert-error { background-color: #fdeded; color: var(--error-color); border-color: #f5c6cb; }
-        .alert-success { background-color: #e6f4ea; color: var(--success-color); border-color: #c3e6cb; }
-        .loading { display: none; text-align: center; margin-top: 20px; }
-        .loading-spinner { border: 3px solid #f3f3f3; border-top: 3px solid var(--primary-color); border-radius: 50%; width: 24px; height: 24px; animation: spin 0.8s linear infinite; margin: 0 auto; }
-        @keyframes spin { to { transform: rotate(360deg); } }
+        /* Mantenha seus estilos atuais */
     </style>
 </head>
 <body>
@@ -57,9 +31,8 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            // Configurações
             const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
-            const CLIENT_ID = 'frontend-spa'; // Novo client_id público
+            const CLIENT_ID = 'frontend-spa';
             const REDIRECT_URI = window.location.origin + '/callback.html';
 
             // Elementos DOM
@@ -77,6 +50,10 @@
                 alertBox.style.display = 'block';
             }
 
+            function hideAlert() {
+                alertBox.style.display = 'none';
+            }
+
             togglePassword.addEventListener('click', () => {
                 const isPasswordVisible = passwordInput.type === 'text';
                 passwordInput.type = isPasswordVisible ? 'password' : 'text';
@@ -84,18 +61,18 @@
                 togglePassword.alt = isPasswordVisible ? 'Mostrar senha' : 'Ocultar senha';
             });
 
-            // Geração PKCE
+            // Geração PKCE simplificada
             async function generatePkceChallenge() {
-                const randomBytes = new Uint8Array(32);
-                crypto.getRandomValues(randomBytes);
-                const codeVerifier = Array.from(randomBytes)
-                    .map(b => b.toString(16).padStart(2, '0'))
-                    .join('');
+                const array = new Uint8Array(32);
+                window.crypto.getRandomValues(array);
+                const codeVerifier = btoa(String.fromCharCode(...array))
+                    .replace(/\+/g, '-')
+                    .replace(/\//g, '_')
+                    .replace(/=+$/, '');
                 
                 const encoder = new TextEncoder();
                 const data = encoder.encode(codeVerifier);
-                const digest = await crypto.subtle.digest('SHA-256', data);
-                
+                const digest = await window.crypto.subtle.digest('SHA-256', data);
                 const codeChallenge = btoa(String.fromCharCode(...new Uint8Array(digest)))
                     .replace(/\+/g, '-')
                     .replace(/\//g, '_')
@@ -117,16 +94,17 @@
 
                 loading.style.display = 'block';
                 loginBtn.disabled = true;
-                alertBox.style.display = 'none';
+                hideAlert();
 
                 try {
+                    console.log('Iniciando fluxo PKCE...');
                     const { codeVerifier, codeChallenge } = await generatePkceChallenge();
                     
-                    // Armazena temporariamente
                     sessionStorage.setItem('pkce_verifier', codeVerifier);
                     sessionStorage.setItem('pkce_email', email);
 
-                    const authParams = new URLSearchParams({
+                    const authUrl = new URL(`${BACKEND_URL}/oauth2/authorize`);
+                    const params = new URLSearchParams({
                         response_type: 'code',
                         client_id: CLIENT_ID,
                         redirect_uri: REDIRECT_URI,
@@ -136,8 +114,9 @@
                         state: btoa(email).replace(/=+$/, '')
                     });
 
-                    window.location.href = `${BACKEND_URL}/oauth2/authorize?${authParams.toString()}`;
-                    
+                    console.log('Redirecionando para:', `${authUrl}?${params.toString()}`);
+                    window.location.href = `${authUrl}?${params.toString()}`;
+
                 } catch (error) {
                     console.error('Erro no login:', error);
                     showAlert('Erro ao iniciar o login. Tente novamente.', 'error');
@@ -145,36 +124,6 @@
                     loginBtn.disabled = false;
                 }
             });
-
-            // Auto-login se já autenticado
-            const token = localStorage.getItem('access_token');
-            const tokenExpiry = localStorage.getItem('token_expiry');
-            
-            if (token && tokenExpiry && Date.now() < parseInt(tokenExpiry)) {
-                loading.style.display = 'block';
-                getUserRole(token).then(roles => {
-                    redirectToDashboard(roles);
-                }).catch(() => {
-                    localStorage.removeItem('access_token');
-                    localStorage.removeItem('token_expiry');
-                });
-            }
-
-            async function getUserRole(token) {
-                const response = await fetch(`${BACKEND_URL}/api/users/me`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (!response.ok) throw new Error('Failed to get user role');
-                const data = await response.json();
-                return data.roles || [];
-            }
-
-            function redirectToDashboard(roles) {
-                if (roles.includes('ROLE_TUTOR')) window.location.href = 'dashboard-tutor.html';
-                else if (roles.includes('ROLE_DIRETOR')) window.location.href = 'dashboard-diretor.html';
-                else if (roles.includes('ROLE_ESCOLA')) window.location.href = 'dashboard-escola.html';
-                else window.location.href = 'dashboard.html';
-            }
         });
     </script>
 </body>

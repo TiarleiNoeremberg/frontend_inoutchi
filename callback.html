@@ -3,46 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Processando Login - INOUTCHI</title>
+    <title>Processando Login</title>
     <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
-            background-color: #f5f5f5;
-        }
-        .container {
-            text-align: center;
-            background: white;
-            padding: 2rem;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            max-width: 500px;
-            width: 90%;
-        }
-        .spinner {
-            border: 4px solid rgba(0, 0, 0, 0.1);
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            border-left-color: #4a6fa5;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 1rem;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .error {
-            color: #d93025;
-            margin-top: 1rem;
-            padding: 0.5rem;
-            background: #fdeded;
-            border-radius: 4px;
-        }
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .container { text-align: center; }
+        .spinner { border: 4px solid rgba(0,0,0,0.1); width: 36px; height: 36px; border-radius: 50%; border-left-color: #4a6fa5; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .error { color: #d93025; margin-top: 20px; }
     </style>
 </head>
 <body>
@@ -55,15 +22,12 @@
     <script>
         document.addEventListener('DOMContentLoaded', async function() {
             const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
-            const CLIENT_ID = 'frontend-spa';
-            const REDIRECT_URI = window.location.origin + '/callback.html';
             const errorElement = document.getElementById('error');
 
             try {
                 const params = new URLSearchParams(window.location.search);
                 const code = params.get('code');
                 const error = params.get('error');
-                const state = params.get('state');
 
                 if (error) {
                     throw new Error(params.get('error_description') || 'Erro no servidor de autorização');
@@ -78,38 +42,31 @@
                     throw new Error('Sessão expirada. Por favor, faça login novamente.');
                 }
 
-                // Troca o código pelo token
+                console.log('Trocando código por token...');
                 const response = await fetch(`${BACKEND_URL}/oauth2/token`, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded'
+                        'Content-Type': 'application/x-www-form-urlencoded',
                     },
                     body: new URLSearchParams({
                         grant_type: 'authorization_code',
-                        client_id: CLIENT_ID,
+                        client_id: 'frontend-spa',
                         code: code,
-                        redirect_uri: REDIRECT_URI,
+                        redirect_uri: window.location.href.split('?')[0],
                         code_verifier: codeVerifier
                     })
                 });
 
-                const data = await response.json();
-
                 if (!response.ok) {
-                    throw new Error(data.error_description || 'Erro ao obter token de acesso');
+                    const errorData = await response.json();
+                    throw new Error(errorData.error_description || 'Erro ao obter token');
                 }
 
-                // Salva os tokens
-                localStorage.setItem('access_token', data.access_token);
-                localStorage.setItem('refresh_token', data.refresh_token || '');
-                localStorage.setItem('token_expiry', (Date.now() + (data.expires_in * 1000)).toString());
-
-                // Limpa o verifier
-                sessionStorage.removeItem('pkce_verifier');
-
-                // Redireciona
-                const userRole = await getUserRole(data.access_token);
-                redirectToDashboard(userRole);
+                const tokenData = await response.json();
+                console.log('Token recebido:', tokenData);
+                
+                // Redireciona para a página principal
+                window.location.href = 'dashboard.html';
 
             } catch (error) {
                 console.error('Erro no callback:', error);
@@ -118,22 +75,6 @@
                 setTimeout(() => {
                     window.location.href = 'index.html';
                 }, 3000);
-            }
-
-            async function getUserRole(token) {
-                const response = await fetch(`${BACKEND_URL}/api/users/me`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (!response.ok) throw new Error('Failed to get user role');
-                const data = await response.json();
-                return data.roles || [];
-            }
-
-            function redirectToDashboard(roles) {
-                if (roles.includes('ROLE_TUTOR')) window.location.href = 'dashboard-tutor.html';
-                else if (roles.includes('ROLE_DIRETOR')) window.location.href = 'dashboard-diretor.html';
-                else if (roles.includes('ROLE_ESCOLA')) window.location.href = 'dashboard-escola.html';
-                else window.location.href = 'dashboard.html';
             }
         });
     </script>
