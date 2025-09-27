@@ -1350,6 +1350,41 @@
                             loadAllStudents(currentStudentsPage, document.getElementById('studentSearch').value);
                             startAutomaticStatusCheck(); // NOVA LINHA
                             startStudentsAutoRefresh();
+                            // TESTE RÁPIDO DOS ENDPOINTS DE TUTORES
+                            async function testTutorsEndpoints() {
+                                console.log('🧪 TESTANDO ENDPOINTS DE TUTORES...');
+                                
+                                const accessToken = localStorage.getItem('access_token');
+                                const testStudentId = 1; // Usar o primeiro aluno como teste
+                                
+                                const endpoints = [
+                                    `${BACKEND_URL}/api/alunos/${testStudentId}/tutores`,
+                                    `${BACKEND_URL}/api/diretores/alunos/${testStudentId}/tutores`,
+                                    `${BACKEND_URL}/api/tutores/aluno/${testStudentId}`,
+                                    `${BACKEND_URL}/api/alunos/${testStudentId}/responsaveis`
+                                ];
+                                
+                                for (let endpoint of endpoints) {
+                                    try {
+                                        const response = await fetch(endpoint, {
+                                            headers: {
+                                                'Authorization': `Bearer ${accessToken}`,
+                                                'Content-Type': 'application/json'
+                                            }
+                                        });
+                                        
+                                        console.log(`🔗 ${endpoint}: ${response.status}`);
+                                        
+                                        if (response.ok) {
+                                            const data = await response.json();
+                                            console.log(`✅ FUNCIONOU! Estrutura:`, data);
+                                            break;
+                                        }
+                                    } catch (error) {
+                                        console.log(`❌ ${endpoint}: ${error.message}`);
+                                    }
+                                }
+                            }
                             break;
                         case 'tutors':
                             loadAllTutors(currentTutorsPage, document.getElementById('tutorSearch').value);
@@ -1909,7 +1944,7 @@
         // MODIFICAR a função loadAllStudents para incluir verificação de status
         async function loadAllStudents(page = 0, searchTerm = '') {
             try {
-                console.log('🎯 Carregando lista de alunos com verificação de status...');
+                console.log('🎯 Carregando lista de alunos...');
                 
                 const accessToken = localStorage.getItem('access_token');
                 let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=${page}&size=${pageSize}`;
@@ -1927,11 +1962,13 @@
                 
                 if (response.ok) {
                     const data = await response.json();
-                    window.lastStudentsData = data; // Guardar para debug
-
-                    // VERIFICAR STATUS DOS ALUNOS IMEDIATAMENTE
+                    
+                    // LIMPAR CACHE ao carregar nova lista
+                    clearTutorsCache();
+                    
+                    // VERIFICAR STATUS DOS ALUNOS
                     if (data.content && data.content.length > 0) {
-                        console.log('🔍 Verificando status dos alunos em tempo real...');
+                        console.log('🔍 Verificando status dos alunos...');
                         const presentStudentsIds = await verifyAllStudentsStatus();
                         
                         // Atualizar dados com status correto
@@ -1941,13 +1978,8 @@
                         }));
                     }
                     
-                    renderStudentsTable(data);
-                    setupStudentsPagination(data);
-                    
-                    // INICIAR VERIFICAÇÃO AUTOMÁTICA SE ESTIVER NA ABA ALUNOS
-                    if (document.getElementById('students-tab').classList.contains('active')) {
-                        startAutomaticStatusCheck();
-                    }
+                    // RENDERIZAR COM BUSCA ASSÍNCRONA DE TUTORES
+                    await renderStudentsTable(data);
                     
                 } else {
                     throw new Error(`Erro ${response.status}: ${response.statusText}`);
