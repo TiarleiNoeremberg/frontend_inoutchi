@@ -551,6 +551,7 @@
                     <div class="card-header">
                         <i class="fas fa-users"></i>
                         <h3>Alunos Vinculados</h3>
+                        <span id="lastUpdateIndicator" style="font-size: 12px; color: #666; margin-left: auto;"></span>
                     </div>
                     <ul class="student-list" id="studentList">
                         <!-- Alunos serão carregados via JavaScript -->
@@ -676,6 +677,12 @@
     let actionType = null;
     let tutorName = null;
 
+    // ========== VARIÁVEIS DE ATUALIZAÇÃO AUTOMÁTICA ==========
+    let studentsAutoRefreshInterval = null;
+    const STUDENTS_REFRESH_INTERVAL = 30000; // 30 segundos
+    let lastStudentsUpdate = 0;
+    const MIN_UPDATE_INTERVAL = 5000; // 5 segundos entre atualizações
+
     // ========== VARIÁVEIS DE PAGINAÇÃO ==========
     let currentPage = 1;
     const recordsPerPage = 10;
@@ -690,7 +697,7 @@
 
     // ========== FUNÇÕES GLOBAIS ==========
 
-    // Confirmar ação (entrada/saída) - FUNÇÃO GLOBAL CORRIGIDA
+    // Confirmar ação (entrada/saída) - ATUALIZADA
     window.confirmAction = async function() {
         try {
             const accessToken = localStorage.getItem('access_token');
@@ -742,9 +749,18 @@
                 showAlert(`${actionType === 'entrada' ? 'Entrada' : 'Saída'} registrada com sucesso!`, 'success');
                 closeModal();
                 
-                // Recarregar dados
-                await loadStudents();
-                await loadHistory();
+                // ATUALIZAÇÃO IMEDIATA APÓS AÇÃO
+                console.log('🔄 Atualizando dados após ação...');
+                await refreshStudentsData();
+
+                // NOVO: Atualizar status real imediatamente
+                await updateStudentsStatusFromHistory();
+                
+                // Se há um aluno selecionado, atualizar também o histórico
+                if (selectedStudentId) {
+                    await loadHistory(selectedStudentId);
+                }
+                
             } else {
                 const errorText = await response.text();
                 let errorMessage = errorText || `Erro ${response.status}: ${response.statusText}`;
@@ -915,7 +931,169 @@
         return matches ? parseInt(matches[0]) : null;
     }
 
+    // ========== FUNÇÃO DEFINITIVA - COM FALLBACK INTELIGENTE ==========
+    async function checkAllStudentsStatus(alunosBase) {
+        try {
+            if (!alunosBase || alunosBase.length === 0) {
+                return [];
+            }
+            
+            console.log('🔍 Verificando status de', alunosBase.length, 'alunos');
+            
+            // MÉTODO 1: Confiar no status da API (mais eficiente)
+            console.log('🔄 Método 1: Usando status da resposta da API');
+            const alunosComStatusAPI = alunosBase.map(aluno => ({
+                ...aluno,
+                status: aluno.status || 'AUSENTE'
+            }));
+            
+            // Verificar se os status parecem corretos
+            const alunosPresentes = alunosComStatusAPI.filter(a => a.status === 'PRESENTE').length;
+            console.log(`✅ Status da API: ${alunosPresentes} presentes, ${alunosComStatusAPI.length - alunosPresentes} ausentes`);
+            
+            // Se há alunos presentes, provavelmente os dados estão corretos
+            if (alunosPresentes > 0) {
+                return alunosComStatusAPI;
+            }
+            
+            // MÉTODO 2: Verificar via histórico (apenas se necessário)
+            console.log('🔄 Método 2: Verificando via histórico');
+            const accessToken = localStorage.getItem('accessToken');
+            
+            const alunosComStatusDetalhado = await Promise.all(
+                alunosComStatusAPI.map(async (aluno) => {
+                    try {
+                        const isPresent = await checkStudentPresence(aluno.id, accessToken);
+                        return {
+                            ...aluno,
+                            status: isPresent ? 'PRESENTE' : 'AUSENTE'
+                        };
+                    } catch (error) {
+                        return aluno; // Mantém status original em caso de erro
+                    }
+                })
+            );
+            
+            const alunosPresentesDetalhado = alunosComStatusDetalhado.filter(a => a.status === 'PRESENTE').length;
+            console.log(`✅ Status detalhado: ${alunosPresentesDetalhado} presentes`);
+            
+            return alunosComStatusDetalhado;
+            
+        } catch (error) {
+            console.error('❌ Erro na verificação de status:', error);
+            // Fallback: usar status básico
+            return alunosBase.map(aluno => ({
+                ...aluno,
+                status: aluno.status || 'AUSENTE'
+            }));
+        }
+    }
 
+    // Função auxiliar para verificar presença de um aluno específico
+    async function checkStudentPresence(studentId, accessToken) {
+        try {
+            // Buscar histórico recente do aluno
+            const response = await fetch(`${BACKEND_URL}/api/presencas/historico/${studentId}?size=5`, {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                const historico = await response.json();
+                
+                if (historico.sucesso && historico.dados && Array.isArray(historico.dados)) {
+                    // Encontrar o registro mais recente
+                    const registroMaisRecente = historico.dados[0];
+                    if (registroMaisRecente) {
+                        // Se tem entrada mas não tem saída, está presente
+                        return registroMaisRecente.entradaAt && !registroMaisRecente.saidaAt;
+                    }
+                }
+            }
+            
+            return false; // Por padrão, assume como ausente
+            
+        } catch (error) {
+            console.error('Erro ao verificar presença do aluno:', error);
+            return false;
+        }
+    }
+
+    // ========== NOVA FUNÇÃO - VERIFICAR STATUS REAL DOS ALUNOS ==========
+    async function updateStudentsStatusFromHistory() {
+        try {
+            const accessToken = localStorage.getItem('access_token');
+            
+            if (!students || students.length === 0) {
+                return;
+            }
+            
+            console.log('🔄 Verificando status real dos alunos...');
+            
+            // Para cada aluno, buscar o histórico mais recente
+            const updatedStudents = await Promise.all(
+                students.map(async (student) => {
+                    try {
+                        const response = await fetch(`${BACKEND_URL}/api/presencas/historico/${student.id}?size=1`, {
+                            headers: {
+                                'Authorization': `Bearer ${accessToken}`,
+                                'Content-Type': 'application/json'
+                            }
+                        });
+                        
+                        if (response.ok) {
+                            const result = await response.json();
+                            
+                            if (result.sucesso && result.dados && result.dados.length > 0) {
+                                const ultimoRegistro = result.dados[0];
+                                
+                                // Se tem entrada mas NÃO tem saída = PRESENTE
+                                if (ultimoRegistro.entradaAt && !ultimoRegistro.saidaAt) {
+                                    return { ...student, status: 'PRESENTE' };
+                                } else {
+                                    return { ...student, status: 'AUSENTE' };
+                                }
+                            }
+                        }
+                        
+                        // Se não há histórico, considera AUSENTE
+                        return { ...student, status: 'AUSENTE' };
+                        
+                    } catch (error) {
+                        console.error(`Erro ao verificar status do aluno ${student.id}:`, error);
+                        return student; // Mantém o status atual em caso de erro
+                    }
+                })
+            );
+            
+            // Atualizar lista de alunos
+            students = updatedStudents;
+            renderStudents();
+            updatePresenceSummary();
+            updateLastUpdateIndicator();
+            
+            console.log('✅ Status dos alunos atualizado');
+            
+        } catch (error) {
+            console.error('❌ Erro ao atualizar status dos alunos:', error);
+        }
+    }
+
+    // Atualizar indicador de última atualização
+    function updateLastUpdateIndicator() {
+        const indicator = document.getElementById('lastUpdateIndicator');
+        if (indicator) {
+            indicator.textContent = `Atualizado: ${new Date().toLocaleTimeString()}`;
+            
+            // Animação sutil
+            indicator.style.opacity = '0.7';
+            setTimeout(() => {
+                indicator.style.opacity = '1';
+            }, 300);
+        }
+    }
 
     // Função para obter ID do tutor pelo nome
     async function getTutorIdByName(tutorNome) {
@@ -974,11 +1152,6 @@
         getLocationBtn = document.getElementById('getLocationBtn');
     }
 
-
-
-
-
-
         // ========== FUNÇÃO PRINCIPAL DE INICIALIZAÇÃO ==========
         async function initializeDashboard() {
             console.log('Inicializando dashboard tutor...');
@@ -1010,11 +1183,20 @@
                 
                 // Carregar alunos vinculados ao tutor
                 await loadStudents();
+
+                // Verificar status real dos alunos após carregar
+                await updateStudentsStatusFromHistory();
+
+                // Configurar atualização automática a cada 30 segundos
+                setInterval(updateStudentsStatusFromHistory, 30000);
+                
+                // INICIAR ATUALIZAÇÃO AUTOMÁTICA
+                startStudentsAutoRefresh();
                 
                 // Configurar o botão de atualizar
                 setupUpdateButton();
                 
-                // Configurar os botões de paginação - NOVO
+                // Configurar os botões de paginação
                 setupPaginationButtons();
                 
                 // MOSTRAR MENSAGEM INICIAL NO HISTÓRICO
@@ -1023,6 +1205,8 @@
                 
                 // Mostrar conteúdo
                 showContent();
+                
+                console.log('✅ Dashboard tutor inicializado com sucesso!');
                 
             } catch (error) {
                 console.error('Erro ao inicializar dashboard:', error);
@@ -1034,17 +1218,88 @@
         function setupUpdateButton() {
             const updateButton = document.getElementById('updateHistoryBtn');
             if (updateButton) {
-                updateButton.onclick = function() {
+                updateButton.onclick = async function() {
                     if (selectedStudentId) {
-                        loadHistory(selectedStudentId);
+                        // Atualizar histórico específico
+                        await loadHistory(selectedStudentId);
                         showAlert('Histórico atualizado!', 'success');
                     } else {
-                        showAlert('Selecione um aluno primeiro clicando em "Histórico"', 'error');
+                        // Atualizar toda a lista de alunos
+                        showAlert('Atualizando lista de alunos...', 'success');
+                        await refreshStudentsData();
                     }
                 };
+                
+                // Adicionar tooltip
+                updateButton.title = "Clique para atualizar a lista de alunos e históricos";
             }
         }
 
+        // ========== FUNÇÕES DE ATUALIZAÇÃO AUTOMÁTICA ==========
+
+        // Iniciar atualização automática dos alunos
+        function startStudentsAutoRefresh() {
+            // Parar intervalo anterior se existir
+            if (studentsAutoRefreshInterval) {
+                clearInterval(studentsAutoRefreshInterval);
+            }
+            
+            // Iniciar novo intervalo (a cada 30 segundos)
+            studentsAutoRefreshInterval = setInterval(() => {
+                const now = Date.now();
+                
+                // Evitar atualizações muito frequentes
+                if (now - lastStudentsUpdate > MIN_UPDATE_INTERVAL) {
+                    console.log('🔄 Atualização automática dos alunos...');
+                    refreshStudentsData();
+                }
+            }, STUDENTS_REFRESH_INTERVAL);
+            
+            console.log('✅ Atualização automática dos alunos iniciada (30s)');
+        }
+
+        // Parar atualização automática
+        function stopStudentsAutoRefresh() {
+            if (studentsAutoRefreshInterval) {
+                clearInterval(studentsAutoRefreshInterval);
+                studentsAutoRefreshInterval = null;
+                console.log('⏹️ Atualização automática dos alunos parada');
+            }
+        }
+
+        // Atualizar dados dos alunos (com controle de frequência)
+        async function refreshStudentsData() {
+            try {
+                const now = Date.now();
+                
+                // Evitar múltiplas atualizações simultâneas
+                if (now - lastStudentsUpdate < MIN_UPDATE_INTERVAL) {
+                    console.log('⏭️ Atualização ignorada (muito recente)');
+                    return;
+                }
+                
+                lastStudentsUpdate = now;
+                
+                console.log('🔄 Atualizando dados dos alunos...');
+                
+                // Manter o aluno selecionado se houver
+                const previouslySelectedStudent = selectedStudentId;
+                
+                // Recarregar alunos
+                await loadStudents();
+                
+                // Restaurar seleção se ainda existir
+                if (previouslySelectedStudent && students.some(s => s.id === previouslySelectedStudent)) {
+                    selectedStudentId = previouslySelectedStudent;
+                }
+                
+                console.log('✅ Dados dos alunos atualizados');
+                
+            } catch (error) {
+                console.error('❌ Erro na atualização automática:', error);
+            }
+        }
+        
         // Carregar informações do usuário
         async function loadUserInfo() {
             try {
@@ -1077,7 +1332,7 @@
             }
         }
 
-        // Carregar alunos vinculados ao tutor
+        // Carregar alunos vinculados ao tutor - VERSÃO CORRIGIDA
         async function loadStudents() {
             try {
                 const accessToken = localStorage.getItem('access_token');
@@ -1086,7 +1341,7 @@
                     throw new Error('Nome do tutor não disponível');
                 }
                 
-                console.log('Carregando alunos do tutor:', tutorName);
+                console.log('📋 Carregando alunos do tutor:', tutorName);
                 
                 const response = await fetch(`${BACKEND_URL}/api/tutores/${encodeURIComponent(tutorName)}/alunos`, {
                     headers: {
@@ -1094,146 +1349,244 @@
                         'Content-Type': 'application/json'
                     }
                 });
-        
-        if (response.ok) {
-                    const data = await response.json();
-                    console.log('Resposta do endpoint de alunos:', data);
-                    
-                    if (data.alunos && Array.isArray(data.alunos)) {
-                        students = data.alunos.map(aluno => ({
-                            id: aluno.id,
-                            nome: aluno.nome,
-                            salaNome: aluno.salaNome || 'Sala não informada',
-                            status: aluno.status || 'AUSENTE'
-                        }));
-                        
-                        console.log('Alunos processados:', students);
-                        renderStudents();
-                        updatePresenceSummary();
-                        
-                    } else {
-                        console.error('Estrutura de resposta inesperada:', data);
-                        students = [];
-                        showAlert('Estrutura de dados inesperada. Verifique o console.', 'error');
-                        loadExampleStudents();
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                console.log('✅ Resposta completa da API:', data);
+                
+                // DEBUG: Verificar estrutura completa
+                console.log('🔍 Estrutura da resposta:');
+                console.log('- Tipo:', typeof data);
+                console.log('- É array?', Array.isArray(data));
+                console.log('- Keys do objeto:', data ? Object.keys(data) : 'N/A');
+                
+                // EXTRAIR ALUNOS CORRETAMENTE
+                let alunosData = [];
+                
+                // CASO 1: Se a resposta tem propriedade 'alunos' que é um array
+                if (data.alunos && Array.isArray(data.alunos)) {
+                    console.log('📁 Encontrado data.alunos com', data.alunos.length, 'alunos');
+                    alunosData = data.alunos;
+                }
+                // CASO 2: Se a resposta é um array diretamente
+                else if (Array.isArray(data)) {
+                    console.log('📁 Resposta é array com', data.length, 'itens');
+                    alunosData = data;
+                }
+                // CASO 3: Se a resposta tem propriedade 'content' (paginação)
+                else if (data.content && Array.isArray(data.content)) {
+                    console.log('📁 Encontrado data.content com', data.content.length, 'alunos');
+                    alunosData = data.content;
+                }
+                // CASO 4: Se a resposta é um objeto de tutor com alunos aninhados
+                else if (data.alunosVinculados && Array.isArray(data.alunosVinculados)) {
+                    console.log('📁 Encontrado data.alunosVinculados com', data.alunosVinculados.length, 'alunos');
+                    alunosData = data.alunosVinculados;
+                }
+                // CASO 5: Buscar em qualquer propriedade array que contenha objetos com 'nome'
+                else {
+                    console.log('🔍 Procurando alunos em outras propriedades...');
+                    for (let key in data) {
+                        if (Array.isArray(data[key])) {
+                            console.log(`- Propriedade "${key}":`, data[key].length, 'itens');
+                            if (data[key].length > 0 && data[key][0].nome) {
+                                console.log(`✅ Encontrado alunos em "${key}"`);
+                                alunosData = data[key];
+                                break;
+                            }
+                        }
                     }
-                    
-                } else if (response.status === 404) {
-                    console.warn('Endpoint não encontrado (404)');
-                    showAlert('Endpoint de alunos não disponível no momento.', 'error');
-                    loadExampleStudents();
-                    
-                } else if (response.status === 403) {
-                    console.warn('Acesso negado (403)');
-                    showAlert('Acesso não autorizado ao endpoint de alunos.', 'error');
-                    loadExampleStudents();
-                    
-                } else {
-                    console.error('Erro HTTP:', response.status, response.statusText);
-                    showAlert(`Erro ao carregar alunos: ${response.status} ${response.statusText}`, 'error');
-                    loadExampleStudents();
                 }
                 
+                // SE NENHUM ALUNO FOI ENCONTRADO, TENTAR ESTRUTURAS ALTERNATIVAS
+                if (alunosData.length === 0) {
+                    console.log('🔍 Nenhum array de alunos encontrado, verificando estruturas alternativas...');
+                    
+                    // Tentar estrutura onde os alunos estão em propriedades individuais
+                    if (data.aluno1 || data.aluno2) {
+                        console.log('📁 Encontrado alunos em propriedades individuais');
+                        for (let key in data) {
+                            if (key.startsWith('aluno') && data[key] && data[key].nome) {
+                                alunosData.push(data[key]);
+                            }
+                        }
+                    }
+                    
+                    // Tentar estrutura com um único aluno diretamente no objeto
+                    if (data.nome && data.id) {
+                        console.log('📁 Resposta parece ser um único aluno');
+                        alunosData = [data]; // Tratar como array com um aluno
+                    }
+                }
+                
+                console.log(`📊 Total de alunos extraídos: ${alunosData.length}`);
+                
+                if (alunosData.length === 0) {
+                    console.warn('⚠️ Nenhum aluno encontrado na resposta');
+                    console.log('📋 Estrutura completa disponível para debug:', JSON.stringify(data, null, 2));
+                    
+                    students = [];
+                    renderStudents();
+                    updatePresenceSummary();
+                    showAlert('Nenhum aluno vinculado encontrado na resposta.', 'info');
+                    return;
+                }
+                
+                // PROCESSAR CADA ALUNO
+                const alunosBase = alunosData.map((aluno, index) => {
+                    console.log(`👤 Aluno ${index + 1}:`, aluno);
+                    
+                    return {
+                        id: aluno.id || index + 1,
+                        nome: aluno.nome || `Aluno ${index + 1}`,
+                        salaNome: aluno.salaNome || aluno.sala || aluno.turma || 'Sala não informada',
+                        status: aluno.status || 'AUSENTE'
+                    };
+                });
+                
+                console.log(`🎯 ${alunosBase.length} alunos processados:`, alunosBase);
+                
+                // VERIFICAR STATUS
+                students = await checkAllStudentsStatus(alunosBase);
+                
+                console.log('✅ Alunos finais:', students);
+                
+                renderStudents();
+                updatePresenceSummary();
+                
             } catch (error) {
-                console.error('Erro ao carregar alunos:', error);
-                showAlert('Erro de conexão ao carregar alunos.', 'error');
-                loadExampleStudents();
+                console.error('❌ Erro ao carregar alunos:', error);
+                showAlert('Erro ao carregar lista de alunos: ' + error.message, 'error');
+            }
+        }
+
+        // Função de debug para ver a estrutura exata
+        function debugDataStructure(data) {
+            console.log('🔍 DEBUG - Estrutura completa da resposta:');
+            console.log('Tipo:', typeof data);
+            console.log('É array?', Array.isArray(data));
+            
+            if (data && typeof data === 'object') {
+                console.log('Keys:', Object.keys(data));
+                
+                // Verificar se há array de alunos em alguma propriedade
+                Object.keys(data).forEach(key => {
+                    if (Array.isArray(data[key])) {
+                        console.log(`Array encontrado em "${key}":`, data[key].length, 'itens');
+                        if (data[key].length > 0) {
+                            console.log('Primeiro item:', data[key][0]);
+                        }
+                    }
+                });
             }
         }
 
         // Atualizar resumo de presença
-function updatePresenceSummary() {
-    if (students.length === 0) {
-        presenceSummary.innerHTML = '<p>Nenhum aluno vinculado</p>';
-        return;
-    }
-    
-    const presentCount = students.filter(s => s.status === 'PRESENTE').length;
-    const absentCount = students.length - presentCount;
-    const presencePercentage = students.length > 0 ? Math.round((presentCount / students.length) * 100) : 0;
-    
-    presenceSummary.innerHTML = `
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
-            <div style="text-align: center; padding: 10px; background-color: rgba(46, 204, 113, 0.1); border-radius: 5px;">
-                <div style="font-size: 24px; font-weight: bold; color: var(--success-color);">${presentCount}</div>
-                <div>Presentes</div>
-            </div>
-            <div style="text-align: center; padding: 10px; background-color: rgba(231, 76, 60, 0.1); border-radius: 5px;">
-                <div style="font-size: 24px; font-weight: bold; color: var(--danger-color);">${absentCount}</div>
-                <div>Ausentes</div>
-            </div>
-        </div>
-        <div style="background-color: #f8f9fa; padding: 10px; border-radius: 5px; text-align: center;">
-            <div style="font-size: 14px; color: #666; margin-bottom: 5px;">Taxa de Presença</div>
-            <div style="font-size: 18px; font-weight: bold; color: var(--primary-color);">
-                ${presencePercentage}%
-            </div>
-            <div style="background-color: #e9ecef; height: 8px; border-radius: 4px; margin-top: 5px; overflow: hidden;">
-                <div style="background-color: var(--success-color); height: 100%; width: ${presencePercentage}%;"></div>
-            </div>
-        </div>
-        <div style="margin-top: 10px; text-align: center; font-size: 12px; color: #666;">
-            Total de alunos: ${students.length}
-        </div>
-    `;
-}
-
-// Carregar dados de exemplo (fallback)
-function loadExampleStudents() {
-    students = [
-        { id: 1, nome: 'João Silva', salaNome: '1º Ano A', status: 'PRESENTE' },
-        { id: 2, nome: 'Maria Santos', salaNome: '1º Ano A', status: 'AUSENTE' },
-        { id: 3, nome: 'Pedro Costa', salaNome: '2º Ano B', status: 'PRESENTE' },
-        { id: 4, nome: 'Ana Oliveira', salaNome: '1º Ano A', status: 'AUSENTE' },
-        { id: 5, nome: 'Carlos Souza', salaNome: '2º Ano B', status: 'PRESENTE' }
-    ];
-    renderStudents();
-    updatePresenceSummary();
-    showAlert('Usando dados de exemplo devido a erro no servidor.', 'error');
-}
-
-        // Renderizar lista de alunos
-function renderStudents() {
-    studentList.innerHTML = '';
-    
-    if (students.length === 0) {
-        studentList.innerHTML = '<li style="padding: 15px; text-align: center; color: #666;">Nenhum aluno vinculado</li>';
-        return;
-    }
-    
-    students.forEach(student => {
-        const li = document.createElement('li');
-        li.className = 'student-item';
-        
-        const statusClass = student.status === 'PRESENTE' ? 'status-present' : 'status-absent';
-        const statusText = student.status === 'PRESENTE' ? 'Presente' : 'Ausente';
-        
-        li.innerHTML = `
-            <div class="student-info">
-                <span class="student-name">${student.nome || 'Aluno'}</span>
-                <span class="student-class">${student.salaNome || 'Sala não informada'}</span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <span class="status-badge ${statusClass}">${statusText}</span>
-                <div class="action-buttons">
-                    ${student.status !== 'PRESENTE' ? 
-                        `<button class="btn btn-success" onclick="openActionModal(${student.id}, 'entrada', '${student.nome}')">
-                            <i class="fas fa-sign-in-alt"></i> Entrada
-                        </button>` : 
-                        `<button class="btn btn-danger" onclick="openActionModal(${student.id}, 'saida', '${student.nome}')">
-                            <i class="fas fa-sign-out-alt"></i> Saída
-                        </button>`
-                    }
-                    <button class="btn btn-primary" onclick="viewStudentHistory(${student.id}, '${student.nome}')">
-                        <i class="fas fa-history"></i> Histórico
-                    </button>
+        function updatePresenceSummary() {
+            if (students.length === 0) {
+                presenceSummary.innerHTML = '<p>Nenhum aluno vinculado</p>';
+                return;
+            }
+            
+            const presentCount = students.filter(s => s.status === 'PRESENTE').length;
+            const absentCount = students.length - presentCount;
+            const presencePercentage = students.length > 0 ? Math.round((presentCount / students.length) * 100) : 0;
+            
+            presenceSummary.innerHTML = `
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+                    <div style="text-align: center; padding: 10px; background-color: rgba(46, 204, 113, 0.1); border-radius: 5px;">
+                        <div style="font-size: 24px; font-weight: bold; color: var(--success-color);">${presentCount}</div>
+                        <div>Presentes</div>
+                    </div>
+                    <div style="text-align: center; padding: 10px; background-color: rgba(231, 76, 60, 0.1); border-radius: 5px;">
+                        <div style="font-size: 24px; font-weight: bold; color: var(--danger-color);">${absentCount}</div>
+                        <div>Ausentes</div>
+                    </div>
                 </div>
-            </div>
-        `;
-        
-        studentList.appendChild(li);
-    });
-}
+                <div style="background-color: #f8f9fa; padding: 10px; border-radius: 5px; text-align: center;">
+                    <div style="font-size: 14px; color: #666; margin-bottom: 5px;">Taxa de Presença</div>
+                    <div style="font-size: 18px; font-weight: bold; color: var(--primary-color);">
+                        ${presencePercentage}%
+                    </div>
+                    <div style="background-color: #e9ecef; height: 8px; border-radius: 4px; margin-top: 5px; overflow: hidden;">
+                        <div style="background-color: var(--success-color); height: 100%; width: ${presencePercentage}%;"></div>
+                    </div>
+                </div>
+                <div style="margin-top: 10px; text-align: center; font-size: 12px; color: #666;">
+                    Total de alunos: ${students.length}
+                </div>
+            `;
+        }
+
+        // Carregar dados de exemplo (fallback)
+        function loadExampleStudents() {
+            students = [
+                { id: 1, nome: 'João Silva', salaNome: '1º Ano A', status: 'PRESENTE' },
+                { id: 2, nome: 'Maria Santos', salaNome: '1º Ano A', status: 'AUSENTE' },
+                { id: 3, nome: 'Pedro Costa', salaNome: '2º Ano B', status: 'PRESENTE' },
+                { id: 4, nome: 'Ana Oliveira', salaNome: '1º Ano A', status: 'AUSENTE' },
+                { id: 5, nome: 'Carlos Souza', salaNome: '2º Ano B', status: 'PRESENTE' }
+            ];
+            renderStudents();
+            updatePresenceSummary();
+            showAlert('Usando dados de exemplo devido a erro no servidor.', 'error');
+        }
+
+        // Renderizar lista de alunos - VERSÃO MELHORADA
+        function renderStudents() {
+            studentList.innerHTML = '';
+            
+            if (students.length === 0) {
+                studentList.innerHTML = '<li style="padding: 15px; text-align: center; color: #666;">Nenhum aluno vinculado</li>';
+                return;
+            }
+            
+            students.forEach(student => {
+                const li = document.createElement('li');
+                li.className = 'student-item';
+                
+                const statusClass = student.status === 'PRESENTE' ? 'status-present' : 'status-absent';
+                const statusText = student.status === 'PRESENTE' ? 'Presente' : 'Ausente';
+                
+                // Destacar se é o aluno selecionado
+                const isSelected = student.id === selectedStudentId;
+                if (isSelected) {
+                    li.style.backgroundColor = '#f8f9fa';
+                    li.style.borderLeft = `4px solid ${student.status === 'PRESENTE' ? 'var(--success-color)' : 'var(--primary-color)'}`;
+                }
+                
+                li.innerHTML = `
+                    <div class="student-info">
+                        <span class="student-name">${student.nome || 'Aluno'} ${isSelected ? '👁️' : ''}</span>
+                        <span class="student-class">${student.salaNome || 'Sala não informada'}</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span class="status-badge ${statusClass}">${statusText}</span>
+                        <div class="action-buttons">
+                            ${student.status !== 'PRESENTE' ? 
+                                `<button class="btn btn-success" onclick="openActionModal(${student.id}, 'entrada', '${student.nome}')">
+                                    <i class="fas fa-sign-in-alt"></i> Entrada
+                                </button>` : 
+                                `<button class="btn btn-danger" onclick="openActionModal(${student.id}, 'saida', '${student.nome}')">
+                                    <i class="fas fa-sign-out-alt"></i> Saída
+                                </button>`
+                            }
+                            <button class="btn btn-primary" onclick="viewStudentHistory(${student.id}, '${student.nome}')">
+                                <i class="fas fa-history"></i> Histórico
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                studentList.appendChild(li);
+            });
+            
+            // Mostrar timestamp da última atualização
+            console.log('🕒 Lista de alunos renderizada:', new Date().toLocaleTimeString());
+        }
 
 
 
@@ -1536,6 +1889,20 @@ function renderStudents() {
             // Initialize dashboard
             initializeDashboard();
         });
+
+        // Otimizar atualização quando a página está visível
+        function setupPageVisibilityHandler() {
+            document.addEventListener('visibilitychange', function() {
+                if (document.visibilityState === 'visible') {
+                    // Página voltou a ser visível - atualizar dados
+                    console.log('📄 Página visível, atualizando dados...');
+                    refreshStudentsData();
+                } else {
+                    // Página não está visível - reduzir atualizações
+                    console.log('📄 Página oculta, reduzindo atualizações...');
+                }
+            });
+        }
 
     </script>
 </body>
