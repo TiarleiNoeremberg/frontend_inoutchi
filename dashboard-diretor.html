@@ -1797,11 +1797,12 @@
         // CACHE para tutores (evita múltiplas requisições para o mesmo aluno)
         const tutorsCache = new Map();
 
-        // FUNÇÃO PRINCIPAL COM CACHE
+        // FUNÇÃO COM CACHE: Buscar tutores com cache
         async function getStudentTutors(studentId, studentName) {
             // Verificar cache primeiro
             const cacheKey = `${studentId}-${studentName}`;
             if (tutorsCache.has(cacheKey)) {
+                console.log(`📦 Usando cache para: ${studentName}`);
                 return tutorsCache.get(cacheKey);
             }
             
@@ -1810,17 +1811,15 @@
             
             // Armazenar no cache (expira após 5 minutos)
             tutorsCache.set(cacheKey, tutors);
-            setTimeout(() => tutorsCache.delete(cacheKey), 300000);
+            setTimeout(() => {
+                tutorsCache.delete(cacheKey);
+                console.log(`🧹 Cache expirado para: ${studentName}`);
+            }, 300000);
             
             return tutors;
         }
 
-        // Limpar cache quando necessário
-        function clearTutorsCache() {
-            tutorsCache.clear();
-            console.log('🧹 Cache de tutores limpo');
-        }
-
+        // ========== FUNÇÃO DE RENDERIZAÇÃO ATUALIZADA ==========
         // FUNÇÃO ATUALIZADA: Renderizar tabela com busca assíncrona de tutores
         async function renderStudentsTable(data) {
             console.log('🎯 Renderizando tabela de alunos com busca de tutores...');
@@ -1848,7 +1847,7 @@
                     
                     initialHTML += `
                         <tr data-student-id="${student.id}">
-                            <td>${student.nome || 'Nome não informado'}</td>
+                            <td><strong>${student.nome || 'Nome não informado'}</strong></td>
                             <td>${student.salaNome || student.turma || student.sala || 'Sala não informada'}</td>
                             <td><span class="status-badge ${statusClass}">${statusText}</span></td>
                             <td id="tutors-cell-${student.id}" style="max-width: 250px; word-wrap: break-word;">
@@ -1881,7 +1880,7 @@
                 // Buscar tutores de forma assíncrona para cada aluno
                 data.content.forEach(async (student, index) => {
                     try {
-                        const tutorsHtml = await fetchStudentTutors(student.id, student.nome);
+                        const tutorsHtml = await getStudentTutors(student.id, student.nome);
                         
                         // Atualizar a célula específica
                         const tutorsCell = document.getElementById(`tutors-cell-${student.id}`);
@@ -1920,10 +1919,10 @@
             }
         }
 
-        // LIMPAR CACHE quando necessário
+        // FUNÇÃO: Limpar cache
         function clearTutorsCache() {
             tutorsCache.clear();
-            console.log('🧹 Cache de tutores limpo');
+            console.log('🧹 Cache de tutores limpo completamente');
         }
 
         // ATUALIZAR a função loadAllStudents para usar o cache
@@ -1936,6 +1935,8 @@
                 
                 if (searchTerm) {
                     url += `&nome=${encodeURIComponent(searchTerm)}`;
+                    // Limpar cache ao fazer nova busca
+                    clearTutorsCache();
                 }
                 
                 const response = await fetch(url, {
@@ -1948,8 +1949,8 @@
                 if (response.ok) {
                     const data = await response.json();
                     
-                    // LIMPAR CACHE ao carregar nova lista ou fazer busca
-                    if (searchTerm || page === 0) {
+                    // Limpar cache apenas na primeira página ou busca nova
+                    if (page === 0) {
                         clearTutorsCache();
                     }
                     
@@ -1977,7 +1978,7 @@
             }
         }
 
-        // NOVA FUNÇÃO: Buscar tutores do aluno via endpoint específico
+        // FUNÇÃO PRINCIPAL: Buscar tutores do aluno via endpoint específico
         async function fetchStudentTutors(studentId, studentName) {
             try {
                 console.log(`🔍 Buscando tutores para: ${studentName} (ID: ${studentId})`);
@@ -2045,7 +2046,7 @@
             }
         }
 
-        // FUNÇÃO ATUALIZADA: Formatar tutores baseado na nova estrutura
+        // FUNÇÃO: Formatar tutores baseado na nova estrutura
         function formatTutorsForDisplay(tutores) {
             if (!tutores || !Array.isArray(tutores) || tutores.length === 0) {
                 return 'Sem tutores vinculados';
@@ -2343,13 +2344,18 @@
             loadAllStudents(currentStudentsPage, searchTerm);
         };
 
-        // FUNÇÃO PARA RECARREGAR TUTORES MANUALMENTE
+        // FUNÇÃO: Recarregar tutores manualmente
         window.reloadTutors = function() {
-            console.log('🔄 Recarregando tutores...');
+            console.log('🔄 Recarregando tutores manualmente...');
             clearTutorsCache();
             
-            // Recarregar apenas os tutores (mantém os alunos)
+            // Mostrar loading em todas as células de tutores
             const studentRows = document.querySelectorAll('#studentsTableBody tr[data-student-id]');
+            
+            if (studentRows.length === 0) {
+                showAlert('Nenhum aluno encontrado para atualizar.', 'info');
+                return;
+            }
             
             studentRows.forEach(row => {
                 const studentId = row.getAttribute('data-student-id');
@@ -2363,32 +2369,46 @@
                             <span style="font-size: 12px; color: #666;">Atualizando...</span>
                         </div>
                     `;
-                    
-                    // Buscar tutores novamente
-                    setTimeout(async () => {
-                        try {
-                            const tutorsHtml = await getStudentTutors(studentId, studentName);
-                            tutorsCell.innerHTML = tutorsHtml;
-                        } catch (error) {
-                            tutorsCell.innerHTML = '<span style="color: #666;">Erro ao atualizar</span>';
-                        }
-                    }, 100);
                 }
             });
             
-            showAlert('Tutores atualizados!', 'success');
+            showAlert(`Atualizando tutores de ${studentRows.length} alunos...`, 'success');
+            
+            // Buscar tutores novamente para cada aluno
+            studentRows.forEach(async (row) => {
+                const studentId = row.getAttribute('data-student-id');
+                const studentName = row.querySelector('td:first-child').textContent;
+                const tutorsCell = document.getElementById(`tutors-cell-${studentId}`);
+                
+                if (tutorsCell) {
+                    try {
+                        const tutorsHtml = await getStudentTutors(studentId, studentName);
+                        tutorsCell.innerHTML = tutorsHtml;
+                        
+                        // Animação suave
+                        tutorsCell.style.opacity = '0';
+                        setTimeout(() => {
+                            tutorsCell.style.transition = 'opacity 0.3s ease';
+                            tutorsCell.style.opacity = '1';
+                        }, 50);
+                        
+                    } catch (error) {
+                        console.error(`❌ Erro ao atualizar tutores de ${studentName}:`, error);
+                        tutorsCell.innerHTML = '<span style="color: #666; font-style: italic;">Erro ao carregar</span>';
+                    }
+                }
+            });
         };
 
-        // ATUALIZAR o cabeçalho da seção para incluir botão de atualização
-        // Modificar no HTML ou via JavaScript:
+        // FUNÇÃO: Atualizar cabeçalho da seção
         function updateStudentsSectionHeader() {
             const sectionTitle = document.querySelector('#students-tab .section-title');
             if (sectionTitle) {
                 sectionTitle.innerHTML = `
                     <h3>Gerenciar Alunos</h3>
-                    <div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
                         <button class="btn btn-primary" onclick="reloadTutors()" title="Recarregar apenas os tutores">
-                            <i class="fas fa-sync-alt"></i> Atualizar Tutores
+                            <i class="fas fa-user-refresh"></i> Atualizar Tutores
                         </button>
                         <button class="btn btn-primary" onclick="refreshStudents()">
                             <i class="fas fa-sync-alt"></i> Atualizar Tudo
