@@ -1229,10 +1229,26 @@
             const accessToken = localStorage.getItem('access_token');
             const expiry = localStorage.getItem('token_expiry');
 
-            // Verificar autenticação
+            // Verificar autenticação - CORREÇÃO REFORÇADA
             if (!accessToken || !expiry || new Date().getTime() > parseInt(expiry)) {
                 console.log('REDIRECIONANDO: Token inválido ou expirado');
-                alert("Sessão expirada ou inexistente. Faça login novamente.");
+                alert("Sessão expirada. Faça login novamente.");
+                window.location.href = "index.html";
+                return;
+            }
+
+            // TESTAR O TOKEN ANTES DE CONTINUAR - NOVA VERIFICAÇÃO
+            try {
+                const authValid = await testarAutenticacao();
+                if (!authValid) {
+                    console.log('REDIRECIONANDO: Token inválido no servidor');
+                    alert("Sessão expirada no servidor. Faça login novamente.");
+                    window.location.href = "index.html";
+                    return;
+                }
+            } catch (error) {
+                console.log('REDIRECIONANDO: Erro ao validar token');
+                alert("Erro de autenticação. Faça login novamente.");
                 window.location.href = "index.html";
                 return;
             }
@@ -1247,7 +1263,7 @@
                 
                 // VERIFICAR STATUS DOS ALUNOS IMEDIATAMENTE APÓS LOGIN
                 console.log('🔐 Login realizado, verificando status dos alunos...');
-                await verifyAllStudentsStatus(); // NOVA LINHA
+                await loadAllStudents();
                 
                 // Configurar abas
                 setupTabs();
@@ -1265,7 +1281,16 @@
                 
             } catch (error) {
                 console.error('Erro ao inicializar dashboard:', error);
-                showAlert('Erro ao carregar informações. Tente novamente.', 'error');
+                
+                // SE DER ERRO 401, REDIRECIONAR PARA LOGIN
+                if (error.message.includes('401') || error.message.includes('Unauthorized')) {
+                    showAlert('Sessão expirada. Redirecionando para login...', 'error');
+                    setTimeout(() => {
+                        window.location.href = "index.html";
+                    }, 2000);
+                } else {
+                    showAlert('Erro ao carregar informações. Tente novamente.', 'error');
+                }
             }
         }
 
@@ -1298,7 +1323,7 @@
                     
                     console.log('Dados do usuário:', userData);
                     
-                    // Extrair ID da escola e do diretor (assumindo que está no JWT ou userData)
+                    // Extrair ID da escola e do diretor
                     currentSchoolId = userData.escolaId || 1;
                     currentDirectorId = userData.id || 1;
                     
@@ -1309,10 +1334,18 @@
                     
                 } else {
                     console.error('Erro na resposta /api/users/me:', response.status, response.statusText);
-                    throw new Error('Erro ao carregar informações do usuário');
+                    
+                    // Se for 401, lançar erro específico
+                    if (response.status === 401) {
+                        throw new Error('TOKEN_EXPIRED');
+                    } else {
+                        throw new Error(`Erro ${response.status}: ${response.statusText}`);
+                    }
                 }
             } catch (error) {
                 console.error('Erro ao carregar informações do usuário:', error);
+                
+                // Propagrar o erro para ser tratado no initializeDashboard
                 throw error;
             }
         }
@@ -3624,6 +3657,45 @@
             return accessToken;
         }
 
+        // FUNÇÃO PARA RENOVAR TOKEN
+        async function renovarToken() {
+            try {
+                const refreshToken = localStorage.getItem('refresh_token');
+                if (!refreshToken) {
+                    console.log('❌ Não há refresh token disponível');
+                    return false;
+                }
+                
+                console.log('🔄 Renovando token...');
+                const response = await fetch(`${BACKEND_URL}/api/auth/refresh`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ refreshToken })
+                });
+                
+                if (response.ok) {
+                    const tokenData = await response.json();
+                    localStorage.setItem('access_token', tokenData.access_token);
+                    localStorage.setItem('refresh_token', tokenData.refresh_token);
+                    
+                    // Calcular novo expiry (assumindo 1 hora de validade)
+                    const expiry = new Date().getTime() + (60 * 60 * 1000);
+                    localStorage.setItem('token_expiry', expiry.toString());
+                    
+                    console.log('✅ Token renovado com sucesso!');
+                    return true;
+                } else {
+                    console.log('❌ Falha ao renovar token:', response.status);
+                    return false;
+                }
+            } catch (error) {
+                console.error('❌ Erro ao renovar token:', error);
+                return false;
+            }
+        }
+
         // Testar se a autenticação está funcionando
         async function testarAutenticacao() {
             try {
@@ -3647,7 +3719,15 @@
                     console.log('✅ Autenticação OK! Usuário:', userData.nome);
                     return true;
                 } else {
-                    console.log('❌ Autenticação FALHOU!');
+                    console.log('❌ Autenticação FALHOU! Status:', testResponse.status);
+                    
+                    // Tentar renovar o token se for 401
+                    if (testResponse.status === 401) {
+                        console.log('🔄 Tentando renovar token...');
+                        const renewed = await renovarToken();
+                        return renewed;
+                    }
+                    
                     return false;
                 }
                 
