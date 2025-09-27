@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>INOUTCHI - Processando Login</title>
+    <style>
+        :root {
+            --primary-color: #4a6fa5;
+            --secondary-color: #166088;
+            --text-color: #333;
+            --error-color: #d93025;
+            --success-color: #1e8e3e;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            text-align: center;
+            max-width: 500px;
+            padding: 30px;
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-radius: 50%;
+            border-top: 4px solid var(--primary-color);
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .alert {
+            padding: 12px;
+            border-radius: 6px;
+            margin-top: 20px;
+        }
+        .alert-error {
+            background-color: #fdeded;
+            color: var(--error-color);
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="loading-spinner"></div>
+        <h2>Processando seu login...</h2>
+        <div id="alertBox" class="alert" style="display: none;"></div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async function() {
+            const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
+            const CLIENT_ID = 'frontend-spa';
+            const REDIRECT_URI = window.location.origin + '/callback.html';
+            const alertBox = document.getElementById('alertBox');
+
+            function showAlert(message, type = 'error') {
+                alertBox.textContent = message;
+                alertBox.className = `alert alert-${type}`;
+                alertBox.style.display = 'block';
+            }
+
+            try {
+                // Extrai o código de autorização da URL
+                const params = new URLSearchParams(window.location.search);
+                const code = params.get('code');
+                const error = params.get('error');
+
+                if (error) {
+                    throw new Error(params.get('error_description') || 'Erro no servidor de autenticação');
+                }
+
+                if (!code) {
+                    throw new Error('Código de autorização não encontrado na URL');
+                }
+
+                // Recupera o code_verifier e credenciais salvas
+                const codeVerifier = sessionStorage.getItem('pkce_verifier');
+                const email = sessionStorage.getItem('pkce_email');
+                const password = sessionStorage.getItem('pkce_password');
+
+                if (!codeVerifier) {
+                    throw new Error('Sessão expirada. Por favor, faça login novamente.');
+                }
+
+                // Troca o código pelo token
+                const body = new URLSearchParams({
+                    grant_type: 'authorization_code',
+                    client_id: CLIENT_ID,
+                    code: code,
+                    redirect_uri: REDIRECT_URI,
+                    code_verifier: codeVerifier
+                });
+
+                const response = await fetch(`${BACKEND_URL}/oauth2/token`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: body
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error_description || 'Erro ao obter token de acesso');
+                }
+
+                // Salva os tokens
+                localStorage.setItem('access_token', data.access_token);
+                localStorage.setItem('refresh_token', data.refresh_token);
+                localStorage.setItem('token_expiry', (Date.now() + (data.expires_in * 1000)).toString());
+
+                // Limpa os dados temporários
+                sessionStorage.removeItem('pkce_verifier');
+                sessionStorage.removeItem('pkce_email');
+                sessionStorage.removeItem('pkce_password');
+
+                // Redireciona para a página apropriada
+                const userRole = await getUserRole(data.access_token);
+                redirectToDashboard(userRole);
+
+            } catch (error) {
+                console.error('Erro no callback:', error);
+                showAlert(error.message || 'Erro ao processar login');
+                setTimeout(() => {
+                    window.location.href = 'index.html';
+                }, 3000);
+            }
+
+            async function getUserRole(accessToken) {
+                try {
+                    const response = await fetch(`${BACKEND_URL}/api/users/me`, { 
+                        headers: { 'Authorization': `Bearer ${accessToken}` } 
+                    });
+                    if (!response.ok) throw new Error('Falha ao buscar perfil do usuário.');
+                    const userData = await response.json();
+                    return userData.roles || [];
+                } catch (error) {
+                    console.error('Erro ao obter ROLE:', error);
+                    return [];
+                }
+            }
+
+            function redirectToDashboard(userRole) {
+                if (userRole.includes('ROLE_TUTOR')) window.location.href = 'dashboard-tutor.html';
+                else if (userRole.includes('ROLE_DIRETOR')) window.location.href = 'dashboard-diretor.html';
+                else if (userRole.includes('ROLE_ESCOLA')) window.location.href = 'dashboard-escola.html';
+                else window.location.href = 'dashboard.html';
+            }
+        });
+    </script>
+</body>
+</html>
