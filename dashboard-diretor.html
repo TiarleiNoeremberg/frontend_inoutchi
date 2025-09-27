@@ -1829,6 +1829,7 @@
 
         // CACHE para tutores (evita múltiplas requisições para o mesmo aluno)
         const tutorsCache = new Map();
+        const CACHE_DURATION = 5 * 60 * 1000;
 
         // FUNÇÃO COM CACHE: Buscar tutores com cache
         async function getStudentTutors(studentId, studentName) {
@@ -1994,8 +1995,6 @@
                 
                 if (searchTerm) {
                     url += `&nome=${encodeURIComponent(searchTerm)}`;
-                    // Limpar cache ao fazer nova busca
-                    clearTutorsCache();
                 }
                 
                 const response = await fetch(url, {
@@ -2008,64 +2007,27 @@
                 if (response.ok) {
                     const data = await response.json();
                     
-                    // Limpar cache apenas na primeira página ou busca nova
-                    if (page === 0) {
-                        clearTutorsCache();
-                    }
-                    
-                    // VERIFICAR STATUS DOS ALUNOS
+                    // VERIFICAR STATUS EM LOTE (já existente)
                     if (data.content && data.content.length > 0) {
-                        console.log('🔍 Verificando status dos alunos...');
-                        const presentStudentsIds = await verifyAllStudentsStatus();
+                        console.log('🔍 Verificando status dos alunos em lote...');
+                        data.content = await checkAllStudentsStatus(data.content);
                         
-                        // Atualizar dados com status correto
-                        data.content = data.content.map(student => ({
-                            ...student,
-                            status: presentStudentsIds.has(student.id) ? 'PRESENTE' : 'AUSENTE'
-                        }));
+                        // ===== ADICIONAR ESTA LINHA =====
+                        // Buscar tutores para todos os alunos
+                        console.log('👥 Enriquecendo dados com informações de tutores...');
+                        data.content = await enrichStudentsWithTutors(data.content);
+                        // =================================
                     }
                     
-                    // RENDERIZAR COM BUSCA ASSÍNCRONA DE TUTORES
-                    await renderStudentsTable(data);
+                    renderStudentsTable(data);
+                    setupStudentsPagination(data);
                     
                 } else {
                     throw new Error(`Erro ${response.status}: ${response.statusText}`);
                 }
             } catch (error) {
-                console.error('❌ Erro ao carregar alunos:', error);
+                console.error('Erro ao carregar alunos:', error);
                 showAlert('Erro ao carregar lista de alunos.', 'error');
-            }
-        }
-
-        // FUNÇÃO PRINCIPAL: Buscar tutores do aluno via endpoint específico
-        async function fetchStudentTutors(studentId, studentName) {
-            try {
-                console.log(`🔍 Buscando tutores para: ${studentName} (ID: ${studentId})`);
-                
-                const accessToken = localStorage.getItem('access_token');
-                
-                // Usar o novo endpoint: /api/alunos/{nome}/tutores
-                const response = await fetch(`${BACKEND_URL}/api/alunos/${encodeURIComponent(studentName)}/tutores`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-                
-                if (response.ok) {
-                    const alunoData = await response.json();
-                    console.log(`✅ Dados do aluno recebidos:`, alunoData);
-                    
-                    // Formatar os tutores para exibição
-                    return formatTutorsForDisplay(alunoData.tutores);
-                } else {
-                    console.log(`⚠️ Endpoint retornou status: ${response.status}`);
-                    return 'Sem tutores vinculados';
-                }
-                
-            } catch (error) {
-                console.error('❌ Erro ao buscar tutores do aluno:', error);
-                return 'Erro ao carregar tutores';
             }
         }
 
@@ -2270,46 +2232,85 @@
 
         // ATUALIZAR a função renderStudentsTable com a nova extração de tutores
         function renderStudentsTable(data) {
-            console.log('🎯 Renderizando tabela de alunos com tutores...');
-            
-            // DEBUG: Verificar estrutura dos dados recebidos
-            console.log('📊 Estrutura completa dos dados recebidos:', data);
+            console.log('🎯 Renderizando tabela de alunos...');
             
             const tbody = document.getElementById('studentsTableBody');
             tbody.innerHTML = '';
             
             if (data.content && data.content.length > 0) {
-                data.content.forEach((student, index) => {
-                    // DEBUG: Analisar estrutura de cada aluno
-                    debugStudentStructure(student, index);
-                    
+                data.content.forEach(student => {
                     const tr = document.createElement('tr');
-                    tr.setAttribute('data-student-id', student.id);
-                    
                     const statusClass = student.status === 'PRESENTE' ? 'status-present' : 'status-absent';
                     const statusText = student.status === 'PRESENTE' ? 'Presente' : 'Ausente';
                     
-                    // USAR A NOVA FUNÇÃO PARA EXTRAIR TUTORES
-                    const tutoresHtml = extractTutorsFromStudent(student);
+                    // ===== SUBSTITUIR A SEÇÃO DE TUTORES =====
+                    let tutoresHtml = '<span style="color: #999;">Sem tutores</span>';
                     
-                    const safeStudentName = student.nome ? student.nome.replace(/'/g, "\\'") : 'Aluno';
+                    if (student.tutores && Array.isArray(student.tutores) && student.tutores.length > 0) {
+                        // Mapear os tutores formatando nome e parentesco
+                        tutoresHtml = student.tutores.map(tutor => {
+                            const nome = tutor.nome || 'Tutor';
+                            const parentesco = tutor.parentesco || '';
+                            
+                            // Formatar parentesco
+                            let parentescoFormatado = '';
+                            switch(parentesco.toUpperCase()) {
+                                case 'MAE':
+                                case 'MÃE':
+                                    parentescoFormatado = 'Mãe';
+                                    break;
+                                case 'PAI':
+                                    parentescoFormatado = 'Pai';
+                                    break;
+                                case 'AVO':
+                                case 'AVÔ':
+                                    parentescoFormatado = 'Avô';
+                                    break;
+                                case 'AVÓ':
+                                    parentescoFormatado = 'Avó';
+                                    break;
+                                case 'TIO':
+                                    parentescoFormatado = 'Tio';
+                                    break;
+                                case 'TIA':
+                                    parentescoFormatado = 'Tia';
+                                    break;
+                                case 'RESPONSAVEL':
+                                case 'RESPONSÁVEL':
+                                    parentescoFormatado = 'Responsável';
+                                    break;
+                                default:
+                                    parentescoFormatado = parentesco;
+                            }
+                            
+                            // Retornar HTML formatado
+                            return `<div style="margin: 2px 0;">
+                                <strong>${nome}</strong>
+                                ${parentescoFormatado ? `<span style="color: #666; font-size: 0.9em;"> (${parentescoFormatado})</span>` : ''}
+                            </div>`;
+                        }).join('');
+                    }
+                    // ==========================================
+                    
+                    // Sanitizar o nome do aluno para evitar problemas com aspas
+                    const safeStudentName = student.nome.replace(/'/g, "\\'");
                     
                     tr.innerHTML = `
-                        <td>${student.nome || 'Nome não informado'}</td>
-                        <td>${student.salaNome || student.turma || student.sala || 'Sala não informada'}</td>
+                        <td>${student.nome}</td>
+                        <td>${student.salaNome}</td>
                         <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-                        <td style="max-width: 250px; word-wrap: break-word;">${tutoresHtml}</td>
+                        <td>${tutoresHtml}</td>
                         <td>
                             <div class="action-buttons">
                                 ${student.status !== 'PRESENTE' ? 
                                     `<button class="btn btn-success" onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')">
                                         <i class="fas fa-sign-in-alt"></i> Entrada
-                                    </button>` : 
+                                    </button>` :
                                     `<button class="btn btn-danger" onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')">
                                         <i class="fas fa-sign-out-alt"></i> Saída
                                     </button>`
                                 }
-                                <button class="btn btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}', 0)">
+                                <button class="btn btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}')">
                                     <i class="fas fa-history"></i> Histórico
                                 </button>
                             </div>
@@ -2317,17 +2318,8 @@
                     `;
                     tbody.appendChild(tr);
                 });
-                
-                console.log(`✅ ${data.content.length} alunos renderizados com informações de tutores`);
-                
             } else {
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="5" style="text-align: center; padding: 20px; color: #666;">
-                            Nenhum aluno encontrado
-                        </td>
-                    </tr>
-                `;
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Nenhum aluno encontrado</td></tr>';
             }
         }
 
@@ -4051,6 +4043,78 @@
                 console.error('❌ Erro ao verificar status dos alunos:', error);
                 return alunos; // Retorna os alunos sem alteração
             }
+        }
+
+        // Modificar a função fetchStudentTutors para usar cache
+        async function fetchStudentTutors(studentName) {
+            try {
+                // Verificar cache primeiro
+                const cacheKey = `tutors_${studentName}`;
+                const cached = tutorsCache.get(cacheKey);
+                
+                if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
+                    console.log(`📦 Usando cache para tutores de ${studentName}`);
+                    return cached.data;
+                }
+                
+                // Se não tem cache ou expirou, buscar do backend
+                const accessToken = localStorage.getItem('access_token');
+                const response = await fetch(`${BACKEND_URL}/api/alunos/${encodeURIComponent(studentName)}/tutores`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.tutores && Array.isArray(data.tutores)) {
+                        // Armazenar no cache
+                        tutorsCache.set(cacheKey, {
+                            data: data.tutores,
+                            timestamp: Date.now()
+                        });
+                        return data.tutores;
+                    }
+                }
+                return [];
+            } catch (error) {
+                console.error(`Erro ao buscar tutores de ${studentName}:`, error);
+                return [];
+            }
+        }
+
+        // NOVA FUNÇÃO: Buscar tutores para todos os alunos de forma otimizada
+        async function enrichStudentsWithTutors(students) {
+            console.log('👥 Buscando informações de tutores...');
+            
+            // Mostrar indicador de carregamento
+            showAlert('Carregando informações de tutores...', 'info');
+            
+            // Processar em lotes para não sobrecarregar
+            const batchSize = 5;
+            const enrichedStudents = [];
+            
+            for (let i = 0; i < students.length; i += batchSize) {
+                const batch = students.slice(i, i + batchSize);
+                const batchPromises = batch.map(async (student) => {
+                    const tutores = await fetchStudentTutors(student.nome);
+                    return {
+                        ...student,
+                        tutores: tutores
+                    };
+                });
+                
+                const batchResults = await Promise.all(batchPromises);
+                enrichedStudents.push(...batchResults);
+                
+                // Atualizar progresso
+                const progress = Math.min(100, Math.round(((i + batchSize) / students.length) * 100));
+                console.log(`📊 Progresso: ${progress}%`);
+            }
+            
+            console.log(`✅ Tutores carregados para ${enrichedStudents.length} alunos`);
+            return enrichedStudents;
         }
 
         // Função alternativa para verificar status do aluno
