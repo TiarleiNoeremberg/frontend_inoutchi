@@ -3562,28 +3562,41 @@
         // Registrar entrada do diretor
         window.registerDirectorEntry = async function() {
             try {
-                console.log('🎯 Registrando entrada do diretor...');
+                console.log('🎯 Registrando entrada do diretor com geolocalização...');
                 
-                const accessToken = localStorage.getItem('access_token');
+                const accessToken = await garantirAutenticacao();
+                if (!accessToken) return;
                 
                 if (!currentDirectorId || !currentUser?.nome) {
                     throw new Error('Informações do diretor não disponíveis.');
                 }
 
-                // Obter localização
-                showAlert('Obtendo localização...', 'info');
-                const location = await getCurrentLocation();
+                // PASSO 1: Obter localização atual
+                showAlert('📍 Obtendo sua localização...', 'info');
                 
-                if (!location || !location.latitude || !location.longitude) {
-                    throw new Error('Localização não disponível. Por favor, permita o acesso à localização.');
+                const coords = await getCurrentLocation();
+                if (!coords) {
+                    showAlert('❌ Localização é obrigatória para registrar entrada', 'error');
+                    return;
+                }
+                
+                const { latitude, longitude } = coords;
+                console.log('📍 Localização obtida:', { latitude, longitude });
+                
+                // PASSO 2: Validar geofence (OPCIONAL - pode comentar se não tiver endpoint)
+                const dentroDaEscola = await validateGeofence(latitude, longitude);
+                if (!dentroDaEscola) {
+                    showAlert('⚠️ Você precisa estar dentro da escola para registrar entrada', 'warning');
+                    return;
                 }
 
+                // PASSO 3: Registrar entrada com localização
                 const requestData = {
                     responsavelId: currentDirectorId,
                     responsavelNome: currentUser.nome,
                     responsavelTipo: 'DIRETOR',
-                    latitude: location.latitude,
-                    longitude: location.longitude
+                    latitude: latitude,
+                    longitude: longitude
                 };
 
                 console.log('📤 Dados enviados:', requestData);
@@ -3623,9 +3636,10 @@
                     
                     throw new Error(errorMessage);
                 }
+                
             } catch (error) {
-                console.error('❌ Erro:', error);
-                showAlert(`❌ Falha: ${error.message}`, 'error');
+                console.error('❌ Erro ao registrar entrada do diretor:', error);
+                showAlert(`Erro ao registrar entrada: ${error.message}`, 'error');
             }
         };
 
@@ -3728,28 +3742,41 @@
         // Registrar saída do diretor
         window.registerDirectorExit = async function() {
             try {
-                console.log('📤 Tentando registrar saída do diretor...');
+                console.log('📤 Tentando registrar saída do diretor com geolocalização...');
                 
-                const accessToken = localStorage.getItem('access_token');
+                const accessToken = await garantirAutenticacao();
+                if (!accessToken) return;
                 
                 if (!currentDirectorId || !currentUser?.nome) {
                     throw new Error('Informações do diretor não disponíveis.');
                 }
 
-                // Obter localização
-                showAlert('Obtendo localização...', 'info');
-                const location = await getCurrentLocation();
+                // PASSO 1: Obter localização atual
+                showAlert('📍 Obtendo sua localização...', 'info');
                 
-                if (!location || !location.latitude || !location.longitude) {
-                    throw new Error('Localização não disponível. Por favor, permita o acesso à localização.');
+                const coords = await getCurrentLocation();
+                if (!coords) {
+                    showAlert('❌ Localização é obrigatória para registrar saída', 'error');
+                    return;
+                }
+                
+                const { latitude, longitude } = coords;
+                console.log('📍 Localização obtida:', { latitude, longitude });
+                
+                // PASSO 2: Validar geofence (OPCIONAL - pode comentar se não tiver endpoint)
+                const dentroDaEscola = await validateGeofence(latitude, longitude);
+                if (!dentroDaEscola) {
+                    showAlert('⚠️ Você precisa estar dentro da escola para registrar saída', 'warning');
+                    return;
                 }
 
+                // PASSO 3: Registrar saída com localização
                 const requestData = {
                     responsavelId: currentDirectorId,
                     responsavelNome: currentUser.nome,
                     responsavelTipo: 'DIRETOR',
-                    latitude: location.latitude,
-                    longitude: location.longitude
+                    latitude: latitude,
+                    longitude: longitude
                 };
 
                 console.log('📤 Dados enviados:', requestData);
@@ -3789,9 +3816,10 @@
                     
                     throw new Error(errorMessage);
                 }
+                
             } catch (error) {
                 console.error('❌ Erro ao registrar saída:', error);
-                showAlert(`❌ Falha: ${error.message}`, 'error');
+                showAlert(`Erro ao registrar saída: ${error.message}`, 'error');
             }
         };
 
@@ -4469,6 +4497,41 @@
                     }
                 );
             });
+        }
+
+        // Função para validar se está dentro da geofence da escola
+        async function validateGeofence(latitude, longitude) {
+            try {
+                console.log('🗺️ Validando geofence...', { latitude, longitude });
+                
+                const accessToken = localStorage.getItem('access_token');
+                
+                // Fazer a validação no backend
+                const response = await fetch(`${BACKEND_URL}/api/geofence/validate`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        latitude: latitude,
+                        longitude: longitude,
+                        escolaId: currentSchoolId
+                    })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('✅ Resultado da validação de geofence:', result);
+                    return result.dentroGeofence || result.isValid || result.valid || false;
+                } else {
+                    console.warn('⚠️ Erro na validação de geofence, permitindo por padrão');
+                    return true; // Em caso de erro, permite a ação (para não bloquear)
+                }
+            } catch (error) {
+                console.error('❌ Erro ao validar geofence:', error);
+                return true; // Em caso de erro, permite a ação
+            }
         }
 
         // Mostrar carregamento da localização
