@@ -1082,6 +1082,12 @@
         let studentsStatusInterval = null;
         const STATUS_CHECK_INTERVAL = 30000; // 30 segundos
 
+        // ========== VARIÁVEIS GLOBAIS PARA LOCALIZAÇÃO DO DIRETOR ==========
+        let directorLocationData = {
+            latitude: null,
+            longitude: null,
+            isValid: false
+        };
 
         // Debug: Verificar se todos os elementos estão carregados
         function debugModalElements() {
@@ -1120,12 +1126,19 @@
             window.location.href = 'index.html';
         };
 
-        // Fechar modal de ação
+        // Função auxiliar para fechar modal e limpar estado
         window.closeModal = function() {
+            const actionModal = document.getElementById('actionModal');
             if (actionModal) {
                 actionModal.style.display = 'none';
             }
-            resetLocationState();
+            
+            // Resetar dados de localização do diretor
+            directorLocationData = {
+                latitude: null,
+                longitude: null,
+                isValid: false
+            };
         };
 
         // Fechar modal de detalhes
@@ -1903,6 +1916,111 @@
         // CACHE para tutores (evita múltiplas requisições para o mesmo aluno)
         const tutorsCache = new Map();
         const CACHE_DURATION = 5 * 60 * 1000;
+
+        // ========== MODAL E LOCALIZAÇÃO DO DIRETOR - VERSÃO CORRIGIDA ==========
+
+        // Função para abrir modal de ação do diretor
+        window.openDirectorActionModal = function(action) {
+            console.log('🎭 Abrindo modal de ação do diretor:', action);
+            
+            // Resetar dados de localização
+            directorLocationData = {
+                latitude: null,
+                longitude: null,
+                isValid: false
+            };
+            
+            const actionModal = document.getElementById('actionModal');
+            const modalTitle = document.getElementById('modalTitle');
+            const modalMessage = document.getElementById('modalMessage');
+            const confirmBtn = document.getElementById('confirmActionBtn');
+            
+            if (!actionModal || !modalTitle || !modalMessage || !confirmBtn) {
+                console.error('❌ Elementos do modal não encontrados');
+                return;
+            }
+            
+            // Configurar título
+            modalTitle.textContent = action === 'entrada' ? 
+                'Registrar Entrada do Diretor' : 
+                'Registrar Saída do Diretor';
+            
+            // Criar conteúdo do modal com elementos de localização
+            modalMessage.innerHTML = `
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <i class="fas fa-user-tie" style="font-size: 48px; color: ${action === 'entrada' ? '#4CAF50' : '#f44336'}; margin-bottom: 15px;"></i>
+                    <p style="font-size: 18px; font-weight: bold;">
+                        Confirmar ${action === 'entrada' ? 'ENTRADA' : 'SAÍDA'} do diretor
+                    </p>
+                    <p style="font-size: 16px; color: #333; margin-top: 10px;">
+                        <strong>${currentUser?.nome || 'Diretor'}</strong>
+                    </p>
+                </div>
+                
+                <!-- Área de localização -->
+                <div class="form-group" style="margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 8px;">
+                    <label style="display: block; margin-bottom: 15px; font-weight: 600; color: #333;">
+                        <i class="fas fa-map-marker-alt"></i> Localização Atual
+                    </label>
+                    
+                    <!-- Status da localização -->
+                    <div id="directorLocationStatus" style="display: none; padding: 10px; margin-bottom: 10px; border-radius: 5px;">
+                        <i class="fas fa-spinner fa-spin"></i> Obtendo localização...
+                    </div>
+                    
+                    <!-- Display das coordenadas -->
+                    <div id="directorCoordinatesDisplay" style="display: none; padding: 10px; background: white; border-radius: 5px; margin-bottom: 10px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                            <span style="font-weight: 500;">Latitude:</span>
+                            <span id="directorDisplayLatitude" style="color: #2196F3;">-</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="font-weight: 500;">Longitude:</span>
+                            <span id="directorDisplayLongitude" style="color: #2196F3;">-</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Botão para obter localização -->
+                    <button class="btn btn-primary" id="directorGetLocationBtn" style="width: 100%;">
+                        <i class="fas fa-location-arrow"></i> Obter Localização
+                    </button>
+                </div>
+            `;
+            
+            // Configurar botão de confirmação
+            confirmBtn.disabled = true;
+            confirmBtn.innerHTML = '<i class="fas fa-check"></i> Confirmar';
+            
+            // Remover listeners antigos
+            const newConfirmBtn = confirmBtn.cloneNode(true);
+            confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+            
+            // Adicionar novo listener
+            newConfirmBtn.addEventListener('click', function() {
+                confirmDirectorAction(action);
+            });
+            
+            // Mostrar modal
+            actionModal.style.display = 'flex';
+            
+            // Configurar botão de localização após o modal estar visível
+            setTimeout(() => {
+                const locationBtn = document.getElementById('directorGetLocationBtn');
+                if (locationBtn) {
+                    // Remover listeners antigos
+                    const newLocationBtn = locationBtn.cloneNode(true);
+                    locationBtn.parentNode.replaceChild(newLocationBtn, locationBtn);
+                    
+                    // Adicionar novo listener
+                    newLocationBtn.addEventListener('click', async function() {
+                        await getDirectorLocation();
+                    });
+                    
+                    // Obter localização automaticamente
+                    getDirectorLocation();
+                }
+            }, 100);
+        };
 
         // FUNÇÃO COM CACHE: Buscar tutores com cache
         async function getStudentTutors(studentId, studentName) {
@@ -3331,42 +3449,129 @@
             }
         }
 
-        // Função específica para obter localização do diretor
+        // Função para confirmar ação do diretor
+        async function confirmDirectorAction(action) {
+            console.log('✅ Confirmando ação do diretor:', action);
+            
+            try {
+                // Verificar se temos localização válida
+                if (!directorLocationData.isValid || !directorLocationData.latitude || !directorLocationData.longitude) {
+                    throw new Error('Por favor, obtenha a localização primeiro.');
+                }
+                
+                console.log('📍 Usando coordenadas armazenadas:', directorLocationData);
+                
+                const accessToken = localStorage.getItem('access_token');
+                
+                if (!currentDirectorId || !currentUser?.nome) {
+                    throw new Error('Informações do diretor não disponíveis.');
+                }
+                
+                // Preparar dados da requisição
+                const requestData = {
+                    responsavelId: currentDirectorId,
+                    responsavelNome: currentUser.nome,
+                    responsavelTipo: 'DIRETOR',
+                    latitude: directorLocationData.latitude,
+                    longitude: directorLocationData.longitude
+                };
+                
+                console.log('📤 Enviando dados:', requestData);
+                
+                // Determinar endpoint
+                const endpoint = action === 'entrada' ? 
+                    '/api/presencas/diretores/entrada' : 
+                    '/api/presencas/diretores/saida';
+                
+                const response = await fetch(`${BACKEND_URL}${endpoint}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestData)
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('✅ Ação registrada com sucesso:', result);
+                    
+                    showAlert(`✅ ${action === 'entrada' ? 'Entrada' : 'Saída'} registrada com sucesso!`, 'success');
+                    
+                    // Fechar modal
+                    closeModal();
+                    
+                    // Resetar dados de localização
+                    directorLocationData = {
+                        latitude: null,
+                        longitude: null,
+                        isValid: false
+                    };
+                    
+                    // Atualizar UI
+                    const newStatus = action === 'entrada' ? 'PRESENTE' : 'AUSENTE';
+                    updateDirectorUI(newStatus, action === 'entrada');
+                    
+                    // Recarregar dados
+                    setTimeout(() => {
+                        loadDirectorData();
+                    }, 1000);
+                    
+                } else {
+                    const errorText = await response.text();
+                    let errorMessage = `Erro ${response.status}`;
+                    
+                    try {
+                        const errorJson = JSON.parse(errorText);
+                        errorMessage = errorJson.mensagem || errorJson.erro || errorMessage;
+                    } catch (e) {
+                        errorMessage = errorText || errorMessage;
+                    }
+                    
+                    throw new Error(errorMessage);
+                }
+                
+            } catch (error) {
+                console.error('❌ Erro ao confirmar ação do diretor:', error);
+                showAlert(`Erro: ${error.message}`, 'error');
+            }
+        }
+
+        // Função para obter localização do diretor
         async function getDirectorLocation() {
             console.log('📍 Obtendo localização do diretor...');
             
-            const locationStatus = document.getElementById('locationStatus');
-            const coordinatesDisplay = document.getElementById('coordinatesDisplay');
-            const displayLatitude = document.getElementById('displayLatitude');
-            const displayLongitude = document.getElementById('displayLongitude');
+            const locationStatus = document.getElementById('directorLocationStatus');
+            const coordinatesDisplay = document.getElementById('directorCoordinatesDisplay');
+            const displayLatitude = document.getElementById('directorDisplayLatitude');
+            const displayLongitude = document.getElementById('directorDisplayLongitude');
             const confirmBtn = document.getElementById('confirmActionBtn');
-            const getLocationBtn = document.getElementById('getLocationBtn');
+            const locationBtn = document.getElementById('directorGetLocationBtn');
             
-            if (!locationStatus || !coordinatesDisplay || !displayLatitude || !displayLongitude) {
-                console.error('❌ Elementos de localização não encontrados');
-                showAlert('Erro ao obter localização', 'error');
-                return;
-            }
+            // Resetar estado
+            directorLocationData.isValid = false;
             
             // Mostrar status de carregamento
-            locationStatus.className = 'location-status location-loading';
-            locationStatus.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo sua localização...';
-            locationStatus.style.display = 'block';
-            coordinatesDisplay.style.display = 'none';
-            
-            // Desabilitar botão durante a busca
-            if (getLocationBtn) {
-                getLocationBtn.disabled = true;
-                getLocationBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo...';
+            if (locationStatus) {
+                locationStatus.style.display = 'block';
+                locationStatus.className = 'location-status location-loading';
+                locationStatus.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo sua localização...';
+                locationStatus.style.backgroundColor = '#fff3cd';
+                locationStatus.style.color = '#856404';
             }
             
-            // Desabilitar confirmação
-            if (confirmBtn) {
-                confirmBtn.disabled = true;
+            if (locationBtn) {
+                locationBtn.disabled = true;
+                locationBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo...';
             }
             
             try {
-                // Obter posição atual
+                // Verificar suporte
+                if (!navigator.geolocation) {
+                    throw new Error('Geolocalização não suportada neste navegador');
+                }
+                
+                // Obter posição
                 const position = await new Promise((resolve, reject) => {
                     navigator.geolocation.getCurrentPosition(
                         resolve,
@@ -3379,96 +3584,80 @@
                     );
                 });
                 
-                const latitude = position.coords.latitude;
-                const longitude = position.coords.longitude;
+                const { latitude, longitude } = position.coords;
                 
-                console.log('✅ Localização do diretor obtida:', { latitude, longitude });
+                console.log('✅ Localização obtida:', { latitude, longitude });
                 
-                // Atualizar UI com sucesso
-                locationStatus.className = 'location-status location-success';
-                locationStatus.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida com sucesso!';
+                // Armazenar coordenadas
+                directorLocationData = {
+                    latitude: latitude,
+                    longitude: longitude,
+                    isValid: true
+                };
                 
-                // IMPORTANTE: Exibir as coordenadas para o diretor ver
-                displayLatitude.textContent = latitude.toFixed(7);
-                displayLongitude.textContent = longitude.toFixed(7);
-                coordinatesDisplay.style.display = 'block';
+                // Atualizar UI
+                if (locationStatus) {
+                    locationStatus.className = 'location-status location-success';
+                    locationStatus.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida com sucesso';
+                    locationStatus.style.backgroundColor = '#d4edda';
+                    locationStatus.style.color = '#155724';
+                }
                 
-                // Adicionar um destaque visual nas coordenadas
-                coordinatesDisplay.style.backgroundColor = '#e8f5e9';
-                coordinatesDisplay.style.border = '2px solid #4caf50';
-                coordinatesDisplay.style.borderRadius = '8px';
-                coordinatesDisplay.style.padding = '15px';
-                coordinatesDisplay.style.marginTop = '15px';
-                coordinatesDisplay.innerHTML = `
-                    <div style="text-align: center;">
-                        <i class="fas fa-map-marker-alt" style="color: #4caf50; font-size: 24px; margin-bottom: 10px;"></i>
-                        <h4 style="margin: 5px 0; color: #2e7d32;">Sua Localização Atual</h4>
-                        <div style="display: flex; justify-content: space-around; margin-top: 10px;">
-                            <div style="flex: 1;">
-                                <strong style="color: #666;">Latitude:</strong>
-                                <div style="font-size: 18px; color: #2e7d32; font-weight: bold;">${latitude.toFixed(7)}</div>
-                            </div>
-                            <div style="flex: 1;">
-                                <strong style="color: #666;">Longitude:</strong>
-                                <div style="font-size: 18px; color: #2e7d32; font-weight: bold;">${longitude.toFixed(7)}</div>
-                            </div>
-                        </div>
-                        <div style="margin-top: 10px; font-size: 12px; color: #666;">
-                            <i class="fas fa-info-circle"></i> Confirme se esta é sua localização atual
-                        </div>
-                    </div>
-                `;
+                if (displayLatitude && displayLongitude) {
+                    displayLatitude.textContent = latitude.toFixed(6);
+                    displayLongitude.textContent = longitude.toFixed(6);
+                }
                 
-                // Salvar coordenadas nos elementos hidden para uso posterior
-                if (displayLatitude) displayLatitude.textContent = latitude;
-                if (displayLongitude) displayLongitude.textContent = longitude;
+                if (coordinatesDisplay) {
+                    coordinatesDisplay.style.display = 'block';
+                }
                 
-                // Habilitar botão de confirmação
                 if (confirmBtn) {
                     confirmBtn.disabled = false;
-                    confirmBtn.className = 'btn btn-primary pulse';
-                    confirmBtn.innerHTML = '<i class="fas fa-check"></i> Confirmar Localização';
+                    confirmBtn.innerHTML = '<i class="fas fa-check"></i> Confirmar';
+                    confirmBtn.style.backgroundColor = '#28a745';
                 }
                 
-                // Atualizar botão de localização
-                if (getLocationBtn) {
-                    getLocationBtn.disabled = false;
-                    getLocationBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Atualizar Localização';
+                if (locationBtn) {
+                    locationBtn.disabled = false;
+                    locationBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Atualizar Localização';
                 }
                 
-                // Retornar coordenadas
                 return { latitude, longitude };
                 
             } catch (error) {
-                console.error('❌ Erro ao obter localização do diretor:', error);
+                console.error('❌ Erro ao obter localização:', error);
                 
-                // Mostrar erro
-                locationStatus.className = 'location-status location-error';
+                directorLocationData.isValid = false;
                 
-                let errorMessage = 'Erro ao obter localização';
+                let errorMsg = 'Erro ao obter localização';
+                
                 if (error.code === 1) {
-                    errorMessage = 'Permissão negada. Por favor, permita o acesso à localização.';
+                    errorMsg = 'Permissão negada. Permita o acesso à localização nas configurações do navegador.';
                 } else if (error.code === 2) {
-                    errorMessage = 'Localização indisponível. Verifique suas configurações.';
+                    errorMsg = 'Localização indisponível. Verifique se o GPS está ativo.';
                 } else if (error.code === 3) {
-                    errorMessage = 'Tempo esgotado. Tente novamente.';
+                    errorMsg = 'Tempo esgotado. Tente novamente.';
                 }
                 
-                locationStatus.innerHTML = `<i class="fas fa-exclamation-circle"></i> ${errorMessage}`;
-                coordinatesDisplay.style.display = 'none';
+                if (locationStatus) {
+                    locationStatus.className = 'location-status location-error';
+                    locationStatus.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${errorMsg}`;
+                    locationStatus.style.backgroundColor = '#f8d7da';
+                    locationStatus.style.color = '#721c24';
+                }
                 
-                // Manter botão de confirmação desabilitado
                 if (confirmBtn) {
                     confirmBtn.disabled = true;
+                    confirmBtn.innerHTML = '<i class="fas fa-check"></i> Confirmar';
                 }
                 
-                // Habilitar botão para tentar novamente
-                if (getLocationBtn) {
-                    getLocationBtn.disabled = false;
-                    getLocationBtn.innerHTML = '<i class="fas fa-redo"></i> Tentar Novamente';
+                if (locationBtn) {
+                    locationBtn.disabled = false;
+                    locationBtn.innerHTML = '<i class="fas fa-redo"></i> Tentar Novamente';
                 }
                 
-                showAlert(errorMessage, 'error');
+                showAlert(errorMsg, 'error');
                 return null;
             }
         }
