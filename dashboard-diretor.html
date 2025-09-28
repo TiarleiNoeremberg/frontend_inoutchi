@@ -2895,49 +2895,30 @@
         }
 
         // Visualizar histórico completo do diretor - VERSÃO CORRIGIDA
-        window.viewDirectorHistory = async function(page = 0) {
+        window.viewDirectorHistory = async function() {
             try {
-                console.log('📋 Solicitando histórico completo do diretor...');
+                console.log('📋 Iniciando viewDirectorHistory...');
                 
                 const accessToken = localStorage.getItem('access_token');
                 const directorName = currentUser?.nome || 'Diretor';
                 
-                // Mostrar loading
-                showAlert(`Carregando histórico de ${directorName}...`, 'info');
-                
-                // Mudar para a aba de histórico
-                console.log('🔄 Mudando para aba de histórico...');
+                // Usar a função switchToHistoryTab que já existe (não criar nova)
                 switchToHistoryTab('diretor');
                 
-                // Atualizar título da aba de histórico
-                const historyTitle = document.querySelector('#history-tab .section-title h3');
-                if (historyTitle) {
-                    historyTitle.textContent = `Histórico de Presença - ${directorName} (Diretor)`;
-                }
-                
                 // Mostrar loading na tabela
-                const historyTableBody = document.getElementById('historyTableBody');
-                if (historyTableBody) {
-                    historyTableBody.innerHTML = `
+                const tbody = document.getElementById('historyTableBody');
+                if (tbody) {
+                    tbody.innerHTML = `
                         <tr>
                             <td colspan="7" style="text-align: center; padding: 40px;">
                                 <div class="loading-spinner" style="width: 30px; height: 30px; margin: 0 auto;"></div>
-                                <h3 style="margin-top: 20px; color: var(--primary-color);">Carregando histórico de ${directorName}</h3>
-                                <p>Por favor, aguarde...</p>
+                                <p>Carregando histórico...</p>
                             </td>
                         </tr>
                     `;
                 }
                 
-                // Ocultar paginação durante o carregamento
-                const paginationControls = document.getElementById('studentHistoryPagination');
-                if (paginationControls) {
-                    paginationControls.style.display = 'none';
-                }
-                
-                console.log('📡 Fazendo requisição para histórico do diretor...');
-                
-                // FAZER A REQUISIÇÃO DIRETA AQUI
+                // Fazer a requisição
                 const response = await fetch(`${BACKEND_URL}/api/presencas/diretores/${currentDirectorId}/historico`, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
@@ -2945,117 +2926,66 @@
                     }
                 });
 
-                console.log('📡 Resposta da API (histórico diretor):', response.status);
-
                 if (response.ok) {
                     const result = await response.json();
-                    console.log('📊 Histórico do diretor recebido:', result);
                     
-                    // RENDERIZAR O HISTÓRICO DIRETAMENTE
-                    if (result.sucesso && result.dados) {
-                        // Verificar a estrutura dos dados
-                        let registros = [];
-                        
-                        // Pode vir como array direto ou dentro de um objeto
-                        if (Array.isArray(result.dados)) {
-                            registros = result.dados;
-                        } else if (result.dados.registros && Array.isArray(result.dados.registros)) {
-                            registros = result.dados.registros;
-                        }
-                        
-                        console.log(`📊 Total de registros encontrados: ${registros.length}`);
-                        
-                        // RENDERIZAR A TABELA
-                        if (historyTableBody) {
-                            historyTableBody.innerHTML = '';
+                    // Chamar a função renderDirectorHistory que já existe no código
+                    if (typeof renderDirectorHistory === 'function') {
+                        renderDirectorHistory(result);
+                    } else {
+                        // Se a função não existir, renderizar diretamente
+                        const tbody = document.getElementById('historyTableBody');
+                        if (tbody && result.sucesso && result.dados) {
+                            const registros = result.dados.registros || result.dados || [];
                             
                             if (registros.length > 0) {
-                                // Ordenar por data (mais recente primeiro)
-                                const registrosOrdenados = registros.sort((a, b) => 
-                                    new Date(b.entradaAt || b.dataEntrada || 0) - new Date(a.entradaAt || a.dataEntrada || 0)
-                                );
-                                
-                                registrosOrdenados.forEach((record, index) => {
+                                tbody.innerHTML = '';
+                                registros.forEach(record => {
                                     const tr = document.createElement('tr');
-                                    
-                                    // Formatar datas
-                                    const entryDate = (record.entradaAt || record.dataEntrada) ? 
-                                        new Date(record.entradaAt || record.dataEntrada).toLocaleString('pt-BR') : '-';
-                                    
-                                    const exitDate = (record.saidaAt || record.dataSaida) ? 
-                                        new Date(record.saidaAt || record.dataSaida).toLocaleString('pt-BR') : 
-                                        '<span style="color: var(--warning-color); font-style: italic;">Em andamento</span>';
-                                    
-                                    // Determinar status
-                                    const status = (record.saidaAt || record.dataSaida) ? 'Finalizado' : 'Presente';
-                                    const statusClass = (record.saidaAt || record.dataSaida) ? 'status-absent' : 'status-present';
+                                    const entryDate = new Date(record.entradaAt).toLocaleString('pt-BR');
+                                    const exitDate = record.saidaAt ? 
+                                        new Date(record.saidaAt).toLocaleString('pt-BR') : 
+                                        'Em andamento';
                                     
                                     tr.innerHTML = `
-                                        <td><strong>${record.diretorNome || directorName}</strong></td>
+                                        <td>${directorName}</td>
                                         <td>Diretor</td>
                                         <td>${entryDate}</td>
                                         <td>${exitDate}</td>
-                                        <td>${record.iniciadoPor || directorName} (${record.iniciadoPorTipo || 'DIRETOR'})</td>
-                                        <td>${record.finalizadoPor || '-'} (${record.finalizadoPorTipo || '-'})</td>
-                                        <td><span class="status-badge ${statusClass}">${status}</span></td>
+                                        <td>${record.iniciadoPor || '-'}</td>
+                                        <td>${record.finalizadoPor || '-'}</td>
+                                        <td><span class="status-badge">${record.status || 'PRESENTE'}</span></td>
                                     `;
-                                    
                                     tbody.appendChild(tr);
                                 });
-                                
-                                showAlert(`✅ Histórico carregado! ${registros.length} registros encontrados.`, 'success');
-                                
                             } else {
-                                // Nenhum registro encontrado
-                                historyTableBody.innerHTML = `
+                                tbody.innerHTML = `
                                     <tr>
-                                        <td colspan="7" style="text-align: center; padding: 40px; color: #666;">
-                                            <i class="fas fa-history" style="font-size: 48px; margin-bottom: 15px; opacity: 0.5;"></i>
-                                            <h3>Nenhum registro encontrado</h3>
-                                            <p>Não há registros de presença para ${directorName}</p>
+                                        <td colspan="7" style="text-align: center; padding: 40px;">
+                                            Nenhum registro encontrado
                                         </td>
                                     </tr>
                                 `;
-                                showAlert('Nenhum registro encontrado no histórico', 'info');
                             }
                         }
-                        
-                    } else {
-                        // Estrutura de dados inválida
-                        throw new Error('Estrutura de dados inválida no histórico');
                     }
+                    
+                    showAlert('Histórico carregado com sucesso!', 'success');
                     
                 } else {
-                    // Erro na requisição
-                    const errorText = await response.text();
-                    let errorMessage = `Erro ${response.status}: ${response.statusText}`;
-                    
-                    try {
-                        const errorJson = JSON.parse(errorText);
-                        errorMessage = errorJson.mensagem || errorJson.erro || errorMessage;
-                    } catch (e) {
-                        // Manter mensagem original se não for JSON
-                    }
-                    
-                    throw new Error(errorMessage);
+                    throw new Error(`Erro ${response.status}`);
                 }
                 
             } catch (error) {
-                console.error('❌ Erro ao carregar histórico do diretor:', error);
-                showAlert(`Erro ao carregar histórico: ${error.message}`, 'error');
+                console.error('Erro ao carregar histórico:', error);
+                showAlert('Erro ao carregar histórico', 'error');
                 
-                // Mostrar mensagem de erro na tabela
-                const historyTableBody = document.getElementById('historyTableBody');
-                if (historyTableBody) {
-                    historyTableBody.innerHTML = `
+                const tbody = document.getElementById('historyTableBody');
+                if (tbody) {
+                    tbody.innerHTML = `
                         <tr>
-                            <td colspan="7" style="text-align: center; padding: 40px; color: var(--danger-color);">
-                                <i class="fas fa-exclamation-triangle" style="font-size: 48px; margin-bottom: 15px;"></i>
-                                <h3>Erro ao carregar histórico</h3>
-                                <p>${error.message}</p>
-                                <button class="btn btn-primary" onclick="viewDirectorHistory(0)" style="margin-top: 10px;">
-                                    <i class="fas fa-redo"></i> Tentar Novamente
-                                </button>
+                            <td colspan="7" style="text-align: center; color: red;">
+                                Erro ao carregar histórico
                             </td>
                         </tr>
                     `;
@@ -3681,6 +3611,7 @@
             }
         }
 
+        /*
         // Ver histórico completo do diretor
         window.viewDirectorHistory = function() {
             console.log('📋 Visualizando histórico completo do diretor...');
@@ -3691,7 +3622,8 @@
             // Carregar histórico específico do diretor
             loadDirectorFullHistory();
         };
-        
+        */
+
         // Registrar saída do diretor
         window.registerDirectorExit = async function() {
             try {
