@@ -1634,7 +1634,7 @@
         async function loadPresentStudents() {
             try {
                 const accessToken = localStorage.getItem('access_token');
-                const response = await fetch(`${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?page=0&size=10`, {
+                const response = await fetch(`${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?page=0&size=100`, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
@@ -1647,34 +1647,58 @@
                     presentStudentsList.innerHTML = '';
                     
                     if (data.content && data.content.length > 0) {
-                        // ========== ADICIONAR ORDENAÇÃO POR DATA ==========
-                        // Ordenar por data de entrada (mais recente primeiro)
-                        const sortedStudents = data.content.sort((a, b) => {
-                            // Tentar diferentes campos de data que podem existir
-                            const dateA = new Date(a.entradaAt || a.ultimaEntrada || a.dataEntrada || 0);
-                            const dateB = new Date(b.entradaAt || b.ultimaEntrada || b.dataEntrada || 0);
-                            return dateB - dateA; // Ordem decrescente (mais recente primeiro)
+                        // ========== ORDENAÇÃO COM BUSCA DE HISTÓRICO ==========
+                        // Buscar última entrada de cada aluno
+                        const studentsWithTime = await Promise.all(
+                            data.content.map(async (student) => {
+                                try {
+                                    // Buscar histórico recente do aluno
+                                    const histResponse = await fetch(
+                                        `${BACKEND_URL}/api/presencas/historico/${student.id}?size=1`, 
+                                        {
+                                            headers: {
+                                                'Authorization': `Bearer ${accessToken}`,
+                                                'Content-Type': 'application/json'
+                                            }
+                                        }
+                                    );
+                                    
+                                    if (histResponse.ok) {
+                                        const histData = await histResponse.json();
+                                        if (histData.sucesso && histData.dados && histData.dados[0]) {
+                                            student.ultimaEntrada = histData.dados[0].entradaAt;
+                                        }
+                                    }
+                                } catch (e) {
+                                    console.log('Erro ao buscar histórico de', student.nome);
+                                }
+                                return student;
+                            })
+                        );
+                        
+                        // Ordenar por data de entrada mais recente
+                        const sortedStudents = studentsWithTime.sort((a, b) => {
+                            const dateA = new Date(a.ultimaEntrada || 0);
+                            const dateB = new Date(b.ultimaEntrada || 0);
+                            return dateB - dateA;
                         });
                         
-                        // Limitar a 10 alunos mais recentes
-                        const recentStudents = sortedStudents.slice(0, 10);
-                        
-                        recentStudents.forEach((student, index) => {
+                        // Mostrar os 10 mais recentes
+                        sortedStudents.slice(0, 10).forEach((student, index) => {
                             const li = document.createElement('li');
                             li.className = 'student-item';
                             
-                            // Adicionar número da ordem e horário se disponível
-                            const entryTime = student.entradaAt || student.ultimaEntrada || student.dataEntrada;
-                            const timeString = entryTime ? new Date(entryTime).toLocaleTimeString('pt-BR', {
-                                hour: '2-digit',
-                                minute: '2-digit'
-                            }) : '';
+                            const timeString = student.ultimaEntrada ? 
+                                new Date(student.ultimaEntrada).toLocaleTimeString('pt-BR', {
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                }) : '';
                             
                             li.innerHTML = `
                                 <div class="student-info">
                                     <span class="student-name">
-                                        ${index + 1}º - ${student.nome}
-                                        ${timeString ? `<small style="color: #666; margin-left: 5px;">(${timeString})</small>` : ''}
+                                        ${student.nome}
+                                        ${timeString ? `<small style="color: #888; font-size: 12px;"> - Entrada: ${timeString}</small>` : ''}
                                     </span>
                                     <span class="student-class">${student.salaNome}</span>
                                 </div>
@@ -1682,7 +1706,7 @@
                             `;
                             presentStudentsList.appendChild(li);
                         });
-                        // ====================================================
+                        // ========================================================
                         
                     } else {
                         presentStudentsList.innerHTML = '<li style="padding: 15px; text-align: center; color: #666;">Nenhum aluno presente no momento</li>';
