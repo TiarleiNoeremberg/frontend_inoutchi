@@ -1934,14 +1934,16 @@
 
         // ========== MODAL E LOCALIZAÇÃO DO DIRETOR - VERSÃO CORRIGIDA ==========
 
-        // ========== MODAL DO DIRETOR - VERSÃO CORRIGIDA ==========
+        // 4. MANTER A FUNÇÃO DO DIRETOR FUNCIONANDO
         window.openDirectorActionModal = function(action) {
             console.log('🎭 Abrindo modal de ação do diretor:', action);
             
+            // RESETAR VARIÁVEIS PARA O DIRETOR
             currentModalType = 'director';
             currentActionType = action;
+            currentStudentId = null;
+            currentStudentName = null;
             
-            // Resetar estado
             resetLocationState();
             
             const actionModal = document.getElementById('actionModal');
@@ -1955,11 +1957,12 @@
                 return;
             }
             
-            // Configurar título e mensagem
+            // Configurar título
             modalTitle.textContent = action === 'entrada' ? 
                 'Registrar Entrada - Diretor' : 
                 'Registrar Saída - Diretor';
             
+            // Configurar mensagem para o diretor
             modalMessage.innerHTML = `
                 <div style="text-align: center; padding: 20px 0;">
                     <i class="fas fa-user-tie" style="font-size: 48px; color: ${action === 'entrada' ? '#4CAF50' : '#f44336'}; margin-bottom: 15px;"></i>
@@ -1974,15 +1977,13 @@
             
             // Configurar botão de confirmação
             confirmBtn.disabled = true;
-            confirmBtn.innerHTML = action === 'entrada' ?
-                '<i class="fas fa-sign-in-alt"></i> Confirmar Entrada' :
-                '<i class="fas fa-sign-out-alt"></i> Confirmar Saída';
             
             // Remover listeners antigos e adicionar novo
             const newConfirmBtn = confirmBtn.cloneNode(true);
             confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
             
             newConfirmBtn.addEventListener('click', function() {
+                console.log('🔵 Botão confirmar clicado para diretor');
                 confirmDirectorAction();
             });
             
@@ -3915,11 +3916,21 @@
             }
         }
 
-        // ========== CONFIRMAR AÇÃO DO ALUNO ==========
+        // 3. CORRIGIR CONFIRMAÇÃO DO ALUNO
         async function confirmStudentAction() {
-            console.log('✅ Confirmando ação do aluno:', currentStudentName, currentActionType);
+            // USAR AS VARIÁVEIS GLOBAIS
+            console.log('✅ Confirmando ação do aluno:', {
+                studentId: currentStudentId,
+                type: currentActionType,
+                studentName: currentStudentName
+            });
             
             try {
+                // Verificar se temos as variáveis necessárias
+                if (!currentStudentId) {
+                    throw new Error('ID do aluno não encontrado');
+                }
+                
                 // Verificar localização
                 if (!locationData.isValid || !locationData.latitude || !locationData.longitude) {
                     throw new Error('Por favor, obtenha a localização primeiro.');
@@ -3928,7 +3939,7 @@
                 const accessToken = localStorage.getItem('access_token');
                 
                 const requestData = {
-                    alunoId: currentStudentId,
+                    alunoId: currentStudentId, // USAR VARIÁVEL GLOBAL
                     responsavelNome: currentUser.nome,
                     responsavelTipo: 'DIRETOR',
                     responsavelId: currentDirectorId,
@@ -3936,9 +3947,9 @@
                     longitude: locationData.longitude
                 };
                 
-                console.log('📤 Enviando dados do aluno:', requestData);
+                console.log('📤 Enviando dados do aluno (CORRIGIDO):', requestData);
                 
-                const endpoint = currentActionType === 'entrada' ? 'entrada' : 'saida';
+                const endpoint = currentActionType === 'entrada' ? 'entrada' : 'saida'; // USAR VARIÁVEL GLOBAL
                 const response = await fetch(`${BACKEND_URL}/api/presencas/${endpoint}`, {
                     method: 'POST',
                     headers: {
@@ -3948,18 +3959,22 @@
                     body: JSON.stringify(requestData)
                 });
                 
+                console.log('📥 Resposta:', response.status);
+                
                 if (response.ok) {
                     const result = await response.json();
                     console.log('✅ Ação do aluno registrada com sucesso:', result);
                     
-                    showAlert(`✅ ${currentActionType === 'entrada' ? 'Entrada' : 'Saída'} do aluno registrada!`, 'success');
+                    showAlert(`✅ ${currentActionType === 'entrada' ? 'Entrada' : 'Saída'} do aluno ${currentStudentName} registrada!`, 'success');
                     
                     closeModal();
                     
-                    // Atualizar dados
-                    await loadAllStudents(currentStudentsPage, document.getElementById('studentSearch')?.value);
+                    // Atualizar lista de alunos
+                    const searchValue = document.getElementById('studentSearch')?.value || '';
+                    await loadAllStudents(currentStudentsPage, searchValue);
                     
-                    if (document.getElementById('overview-tab').classList.contains('active')) {
+                    // Atualizar visão geral se estiver ativa
+                    if (document.getElementById('overview-tab')?.classList.contains('active')) {
                         await loadOverviewData();
                     }
                     
@@ -3978,7 +3993,7 @@
                 }
                 
             } catch (error) {
-                console.error('❌ Erro ao confirmar ação do aluno:', error);
+                console.error('❌ Erro ao registrar ação do aluno:', error);
                 showAlert(`Erro: ${error.message}`, 'error');
             }
         }
@@ -4057,7 +4072,7 @@
             }
         }
 
-        // ========== FUNÇÃO UNIFICADA PARA OBTER LOCALIZAÇÃO ==========
+        // 1. CORRIGIR EXIBIÇÃO DAS COORDENADAS PARA O DIRETOR
         async function getLocation() {
             console.log('📍 Obtendo localização...');
             
@@ -4087,12 +4102,10 @@
             }
             
             try {
-                // Verificar suporte
                 if (!navigator.geolocation) {
-                    throw new Error('Geolocalização não suportada neste navegador');
+                    throw new Error('Geolocalização não suportada');
                 }
                 
-                // Obter posição
                 const position = await new Promise((resolve, reject) => {
                     navigator.geolocation.getCurrentPosition(
                         resolve,
@@ -4116,10 +4129,15 @@
                     isValid: true
                 };
                 
-                // Atualizar UI
+                // CORREÇÃO 1: GARANTIR QUE AS COORDENADAS SEJAM EXIBIDAS
                 locationStatus.className = 'location-status location-success';
                 locationStatus.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida com sucesso';
+                locationStatus.style.backgroundColor = '#d4edda';
+                locationStatus.style.color = '#155724';
+                locationStatus.style.padding = '10px';
+                locationStatus.style.borderRadius = '5px';
                 
+                // FORÇAR EXIBIÇÃO DAS COORDENADAS
                 if (displayLatitude && displayLongitude) {
                     displayLatitude.textContent = latitude.toFixed(6);
                     displayLongitude.textContent = longitude.toFixed(6);
@@ -4127,6 +4145,10 @@
                 
                 if (coordinatesDisplay) {
                     coordinatesDisplay.style.display = 'block';
+                    coordinatesDisplay.style.backgroundColor = '#f8f9fa';
+                    coordinatesDisplay.style.padding = '10px';
+                    coordinatesDisplay.style.borderRadius = '5px';
+                    coordinatesDisplay.style.marginTop = '10px';
                 }
                 
                 if (confirmBtn) {
@@ -4150,13 +4172,17 @@
                 if (error.code === 1) {
                     errorMsg = 'Permissão negada. Permita o acesso à localização.';
                 } else if (error.code === 2) {
-                    errorMsg = 'Localização indisponível. Verifique se o GPS está ativo.';
+                    errorMsg = 'Localização indisponível. Verifique o GPS.';
                 } else if (error.code === 3) {
                     errorMsg = 'Tempo esgotado. Tente novamente.';
                 }
                 
                 locationStatus.className = 'location-status location-error';
                 locationStatus.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${errorMsg}`;
+                locationStatus.style.backgroundColor = '#f8d7da';
+                locationStatus.style.color = '#721c24';
+                locationStatus.style.padding = '10px';
+                locationStatus.style.borderRadius = '5px';
                 
                 if (confirmBtn) {
                     confirmBtn.disabled = true;
@@ -4174,10 +4200,11 @@
 
         // ========== FUNÇÕES DE AÇÃO ==========
 
-        // ========== MODAL DO ALUNO - VERSÃO CORRIGIDA ==========
+        // 2. CORRIGIR ABERTURA DO MODAL DO ALUNO - MANTENDO AS VARIÁVEIS
         window.openStudentActionModal = function(studentId, type, studentName) {
             console.log('🎭 Abrindo modal para aluno:', studentName, 'Ação:', type);
             
+            // ARMAZENAR AS VARIÁVEIS GLOBALMENTE
             currentModalType = 'student';
             currentStudentId = studentId;
             currentStudentName = studentName;
@@ -4189,6 +4216,7 @@
             const actionModal = document.getElementById('actionModal');
             const modalTitle = document.getElementById('modalTitle');
             const modalMessage = document.getElementById('modalMessage');
+            const modalStudentNameSpan = document.getElementById('modalStudentName');
             const confirmBtn = document.getElementById('confirmActionBtn');
             const getLocationBtn = document.getElementById('getLocationBtn');
             
@@ -4197,34 +4225,23 @@
                 return;
             }
             
-            // Configurar título e mensagem
+            // Configurar título
             modalTitle.textContent = type === 'entrada' ? 
-                'Registrar Entrada - Aluno' : 
-                'Registrar Saída - Aluno';
+                'Registrar Entrada do Aluno' : 
+                'Registrar Saída do Aluno';
             
-            modalMessage.innerHTML = `
-                <div style="text-align: center; padding: 20px 0;">
-                    <i class="fas fa-user-graduate" style="font-size: 48px; color: ${type === 'entrada' ? '#4CAF50' : '#f44336'}; margin-bottom: 15px;"></i>
-                    <p style="font-size: 18px; font-weight: bold; margin-bottom: 10px;">
-                        Confirmar ${type === 'entrada' ? 'ENTRADA' : 'SAÍDA'} do Aluno
-                    </p>
-                    <p style="font-size: 16px; color: #333;">
-                        <strong>${studentName}</strong>
-                    </p>
-                </div>
-            `;
+            // Configurar mensagem mantendo a estrutura original
+            modalMessage.innerHTML = `Deseja registrar ${type === 'entrada' ? 'a entrada' : 'a saída'} do aluno <span id="modalStudentName">${studentName}</span>?`;
             
             // Configurar botão de confirmação
             confirmBtn.disabled = true;
-            confirmBtn.innerHTML = type === 'entrada' ?
-                '<i class="fas fa-sign-in-alt"></i> Confirmar Entrada' :
-                '<i class="fas fa-sign-out-alt"></i> Confirmar Saída';
             
-            // Remover listeners antigos e adicionar novo
+            // IMPORTANTE: Criar novo listener para o botão confirmar
             const newConfirmBtn = confirmBtn.cloneNode(true);
             confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
             
             newConfirmBtn.addEventListener('click', function() {
+                console.log('🔵 Botão confirmar clicado para aluno');
                 confirmStudentAction();
             });
             
