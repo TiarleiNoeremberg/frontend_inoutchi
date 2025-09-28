@@ -645,6 +645,41 @@
             }
         }
 
+        .status-badge {
+            display: inline-block;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        #directorPersonalHistory .student-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        #directorPersonalHistory .student-item {
+            padding: 10px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        #directorPersonalHistory .student-item:last-child {
+            border-bottom: none;
+        }
+
+        #directorPersonalHistory .student-item .student-info {
+            margin-bottom: 5px;
+        }
+
+        #directorPersonalHistory .student-item .student-name {
+            font-size: 0.9em;
+            color: #333;
+        }
+
+        #directorPersonalHistory .student-item .student-class {
+            font-size: 0.85em;
+            color: #666;
+        }
+
     </style>
 </head>
 <body>
@@ -681,7 +716,6 @@
                 <div class="tab" data-tab="tutors">Tutores</div>
                 <div class="tab" data-tab="classrooms">Salas</div>
                 <div class="tab" data-tab="history">Histórico</div>
-                <div class="tab" data-tab="director">Meu Controle</div>
             </div>
 
             <!-- Conteúdo da aba Visão Geral -->
@@ -920,53 +954,6 @@
                 </div>
             </div>
 
-            <!-- Conteúdo da aba Meu Controle -->
-            <div class="tab-content" id="director-tab">
-                <div class="section-title">
-                    <h3>Meu Controle de Presença</h3>
-                </div>
-
-                <div class="dashboard-cards">
-                    <div class="card">
-                        <div class="card-header">
-                            <i class="fas fa-user-clock"></i>
-                            <h3>Meu Status Atual</h3>
-                        </div>
-                        <div style="padding: 15px; text-align: center;">
-                            <div id="directorStatus" class="status-badge" style="font-size: 16px; padding: 10px; margin-bottom: 15px;">
-                                Carregando...
-                            </div>
-                            
-                            <!-- Botões de Entrada/Saída -->
-                            <div class="action-buttons" style="justify-content: center; gap: 10px; margin-bottom: 15px;">
-                                <button class="btn btn-success" id="directorEntryBtn" onclick="registerDirectorEntry()" style="display: none;">
-                                    <i class="fas fa-sign-in-alt"></i> Registrar Entrada
-                                </button>
-                                <button class="btn btn-danger" id="directorExitBtn" onclick="registerDirectorExit()" style="display: none;">
-                                    <i class="fas fa-sign-out-alt"></i> Registrar Saída
-                                </button>
-                            </div>
-                            
-                            <!-- BOTÃO HISTÓRICO ADICIONADO -->
-                            <div class="action-buttons" style="justify-content: center;">
-                                <button class="btn btn-primary" onclick="viewDirectorHistory()">
-                                    <i class="fas fa-history"></i> Ver Meu Histórico Completo
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-header">
-                            <i class="fas fa-history"></i>
-                            <h3>Meu Histórico Recente</h3>
-                        </div>
-                        <div id="directorPersonalHistory">
-                            <!-- Histórico pessoal do diretor será carregado via JavaScript -->
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
     </main>
 
@@ -1353,39 +1340,32 @@
         // MODIFICAR a função setupTabs para gerenciar a verificação automática
         function setupTabs() {
             const tabs = document.querySelectorAll('.tab');
+            const tabContents = document.querySelectorAll('.tab-content');
+            
             tabs.forEach(tab => {
-                tab.addEventListener('click', function() {
-                    // Parar verificação automática atual
-                    stopAutomaticStatusCheck();
-                    stopStudentsAutoRefresh();
-                    
-                    // Remover classe active de todas as abas
+                tab.addEventListener('click', () => {
+                    // Remover active de todas as abas
                     tabs.forEach(t => t.classList.remove('active'));
-                    // Adicionar classe active à aba clicada
-                    this.classList.add('active');
+                    tabContents.forEach(tc => tc.classList.remove('active'));
                     
-                    // Esconder todos os conteúdos
-                    document.querySelectorAll('.tab-content').forEach(content => {
-                        content.classList.remove('active');
-                    });
+                    // Adicionar active na aba clicada
+                    tab.classList.add('active');
+                    const tabName = tab.getAttribute('data-tab');
+                    const content = document.getElementById(`${tabName}-tab`);
+                    if (content) {
+                        content.classList.add('active');
+                    }
                     
-                    // Mostrar conteúdo correspondente
-                    const tabId = this.getAttribute('data-tab');
-                    document.getElementById(`${tabId}-tab`).classList.add('active');
-                    
-                    // Carregar dados específicos da aba
-                    switch(tabId) {
+                    // Carregar dados específicos de cada aba
+                    switch (tabName) {
                         case 'overview':
                             loadOverviewData();
                             break;
                         case 'students':
-                            loadAllStudents(currentStudentsPage, document.getElementById('studentSearch').value);
-                            startAutomaticStatusCheck();
-                            startStudentsAutoRefresh();
-                            updateStudentsSectionHeader(); // ✅ NOVA LINHA
+                            loadAllStudents(currentStudentsPage);
                             break;
                         case 'tutors':
-                            loadAllTutors(currentTutorsPage, document.getElementById('tutorSearch').value);
+                            loadAllTutors(currentTutorsPage);
                             break;
                         case 'classrooms':
                             loadClassrooms();
@@ -1393,9 +1373,7 @@
                         case 'history':
                             loadHistory();
                             break;
-                        case 'director':
-                            loadDirectorData();
-                            break;
+                        // REMOVER O CASE 'director'
                     }
                 });
             });
@@ -1409,21 +1387,23 @@
 
         // Carregar dados da visão geral - ATUALIZADA
         async function loadOverviewData() {
+            console.log('📊 Carregando dados da visão geral...');
+            
             try {
-                console.log('📊 Carregando dados da visão geral com status atualizado...');
-                
-                // Carregar estatísticas (já usa verificação de status)
+                // Carregar estatísticas
                 await loadStatistics();
                 
-                // Carregar alunos presentes (com status verificado)
+                // Carregar alunos presentes
                 await loadPresentStudents();
                 
-                // Carregar histórico do diretor
-                await loadDirectorHistory();
+                // ===== ADICIONAR ESTAS LINHAS =====
+                // Carregar status e histórico do diretor
+                await loadDirectorData();
+                // ===================================
                 
             } catch (error) {
-                console.error('❌ Erro ao carregar dados da visão geral:', error);
-                showAlert('Erro ao carregar dados da visão geral.', 'error');
+                console.error('Erro ao carregar dados da visão geral:', error);
+                showAlert('Erro ao carregar dados. Tente recarregar a página.', 'error');
             }
         }
 
@@ -3571,6 +3551,11 @@
                 // AUSENTE: Mostrar apenas botão de Entrada
                 entryBtn.style.display = 'inline-block';
                 exitBtn.style.display = 'none';
+            }
+
+            const updateTime = new Date().toLocaleTimeString('pt-BR');
+            if (statusElement) {
+                statusElement.setAttribute('title', `Última atualização: ${updateTime}`);
             }
             
             // Forçar reflow para garantir que as mudanças sejam aplicadas
