@@ -3259,75 +3259,189 @@
                 const actionModal = document.getElementById('actionModal');
                 const modalTitle = document.getElementById('modalTitle');
                 const modalMessage = document.getElementById('modalMessage');
-                const modalStudentName = document.getElementById('modalStudentName'); // Este é o elemento problemático
+                const modalStudentName = document.getElementById('modalStudentName');
                 const confirmBtn = document.getElementById('confirmActionBtn');
-                
-                // Verificar se o modal principal existe
-                if (!actionModal) {
-                    throw new Error('Modal principal não encontrado');
-                }
+                const getLocationBtn = document.getElementById('getLocationBtn');
                 
                 // Verificar elementos críticos
-                if (!modalTitle || !modalMessage || !confirmBtn) {
-                    throw new Error('Elementos críticos do modal não encontrados');
+                if (!actionModal || !modalTitle || !modalMessage || !confirmBtn) {
+                    throw new Error('Elementos do modal não encontrados');
                 }
                 
-                // Configurar conteúdo do modal - abordagem mais segura
+                // Configurar conteúdo do modal
                 modalTitle.textContent = type === 'entrada' ? 'Registrar Entrada do Aluno' : 'Registrar Saída do Aluno';
                 
-                // Abordagem segura para modalStudentName - se não existir, modificar o modalMessage diretamente
                 if (modalStudentName) {
                     modalStudentName.textContent = studentName;
-                    modalMessage.textContent = `Deseja registrar ${type === 'entrada' ? 'a entrada' : 'a saída'} do aluno `;
-                    // Nota: O restante da mensagem está no HTML como "[Nome]"
+                    modalMessage.innerHTML = `Deseja registrar ${type === 'entrada' ? 'a entrada' : 'a saída'} do aluno <span id="modalStudentName">${studentName}</span>?`;
                 } else {
-                    // Fallback: se modalStudentName não existir, modificar o modalMessage completamente
-                    console.warn('Elemento modalStudentName não encontrado, usando fallback');
                     modalMessage.textContent = `Deseja registrar ${type === 'entrada' ? 'a entrada' : 'a saída'} do aluno ${studentName}?`;
                 }
                 
-                // Configurar botão de confirmação
-                confirmBtn.onclick = () => {
-                    console.log('Confirmando ação para aluno:', studentId);
-                    confirmStudentAction(studentId, type);
-                };
+                // Resetar estado do modal
+                const locationStatus = document.getElementById('locationStatus');
+                const coordinatesDisplay = document.getElementById('coordinatesDisplay');
+                const displayLatitude = document.getElementById('displayLatitude');
+                const displayLongitude = document.getElementById('displayLongitude');
                 
-                confirmBtn.innerHTML = type === 'entrada' 
-                    ? '<i class="fas fa-sign-in-alt"></i> Confirmar Entrada' 
-                    : '<i class="fas fa-sign-out-alt"></i> Confirmar Saída';
+                if (locationStatus) locationStatus.style.display = 'none';
+                if (coordinatesDisplay) coordinatesDisplay.style.display = 'none';
+                if (displayLatitude) displayLatitude.textContent = '-';
+                if (displayLongitude) displayLongitude.textContent = '-';
+                
+                // IMPORTANTE: Desabilitar botão confirmar inicialmente
                 confirmBtn.disabled = true;
                 
-                // Resetar estado da localização
-                resetLocationState();
+                // Configurar botão de localização
+                if (getLocationBtn) {
+                    getLocationBtn.disabled = false;
+                    getLocationBtn.innerHTML = '<i class="fas fa-location-arrow"></i> Obter Localização Atual';
+                    
+                    // Remover listeners antigos e adicionar novo
+                    const newGetLocationBtn = getLocationBtn.cloneNode(true);
+                    getLocationBtn.parentNode.replaceChild(newGetLocationBtn, getLocationBtn);
+                    
+                    newGetLocationBtn.addEventListener('click', async function() {
+                        await obterLocalizacaoParaModal();
+                    });
+                }
+                
+                // Configurar botão de confirmação
+                const newConfirmBtn = confirmBtn.cloneNode(true);
+                confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+                
+                newConfirmBtn.addEventListener('click', async function() {
+                    await confirmStudentAction(studentId, type, studentName);
+                });
                 
                 // Mostrar modal
-                actionModal.style.display = 'flex';
+                actionModal.style.display = 'block';
                 
-                // Tentar obter localização automaticamente
-                setTimeout(() => {
-                    getCurrentLocation();
-                }, 300);
+                // Obter localização automaticamente ao abrir o modal
+                setTimeout(async () => {
+                    await obterLocalizacaoParaModal();
+                }, 500);
                 
             } catch (error) {
                 console.error('Erro ao abrir modal:', error);
-                showAlert(`Erro ao abrir modal: ${error.message}. Recarregue a página.`, 'error');
+                showAlert('Erro ao abrir modal de ação', 'error');
             }
         };
 
+        // Função auxiliar para obter localização - ADICIONAR ESTA FUNÇÃO
+        async function obterLocalizacaoParaModal() {
+            console.log('📍 Obtendo localização para o modal...');
+            
+            const locationStatus = document.getElementById('locationStatus');
+            const coordinatesDisplay = document.getElementById('coordinatesDisplay');
+            const displayLatitude = document.getElementById('displayLatitude');
+            const displayLongitude = document.getElementById('displayLongitude');
+            const confirmBtn = document.getElementById('confirmActionBtn');
+            const getLocationBtn = document.getElementById('getLocationBtn');
+            
+            if (!locationStatus || !coordinatesDisplay || !displayLatitude || !displayLongitude) {
+                console.error('Elementos de localização não encontrados');
+                return;
+            }
+            
+            // Mostrar status de carregamento
+            locationStatus.className = 'location-status location-loading';
+            locationStatus.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo localização...';
+            locationStatus.style.display = 'block';
+            coordinatesDisplay.style.display = 'none';
+            
+            if (getLocationBtn) {
+                getLocationBtn.disabled = true;
+                getLocationBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo...';
+            }
+            
+            try {
+                const position = await new Promise((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(
+                        resolve,
+                        reject,
+                        {
+                            enableHighAccuracy: true,
+                            timeout: 10000,
+                            maximumAge: 0
+                        }
+                    );
+                });
+                
+                const { latitude, longitude } = position.coords;
+                console.log('✅ Localização obtida:', { latitude, longitude });
+                
+                // Atualizar UI com sucesso
+                locationStatus.className = 'location-status location-success';
+                locationStatus.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida com sucesso';
+                
+                // Mostrar coordenadas
+                displayLatitude.textContent = latitude.toFixed(6);
+                displayLongitude.textContent = longitude.toFixed(6);
+                coordinatesDisplay.style.display = 'block';
+                
+                // IMPORTANTE: Habilitar botão de confirmação
+                if (confirmBtn) {
+                    confirmBtn.disabled = false;
+                }
+                
+                if (getLocationBtn) {
+                    getLocationBtn.disabled = false;
+                    getLocationBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Atualizar Localização';
+                }
+                
+                return { latitude, longitude };
+                
+            } catch (error) {
+                console.error('❌ Erro ao obter localização:', error);
+                
+                // Mostrar erro
+                locationStatus.className = 'location-status location-error';
+                let errorMessage = 'Erro ao obter localização';
+                
+                if (error.code === 1) {
+                    errorMessage = 'Permissão negada. Permita o acesso à localização.';
+                } else if (error.code === 2) {
+                    errorMessage = 'Localização indisponível. Verifique suas configurações.';
+                } else if (error.code === 3) {
+                    errorMessage = 'Tempo esgotado. Tente novamente.';
+                }
+                
+                locationStatus.innerHTML = `<i class="fas fa-exclamation-circle"></i> ${errorMessage}`;
+                coordinatesDisplay.style.display = 'none';
+                
+                // Manter botão desabilitado
+                if (confirmBtn) {
+                    confirmBtn.disabled = true;
+                }
+                
+                if (getLocationBtn) {
+                    getLocationBtn.disabled = false;
+                    getLocationBtn.innerHTML = '<i class="fas fa-redo"></i> Tentar Novamente';
+                }
+                
+                showAlert(errorMessage, 'error');
+                return null;
+            }
+        }
+
         // Confirmar ação do aluno
-        async function confirmStudentAction(studentId, type) {
+        // Função auxiliar para confirmar ação - ADICIONAR ESTA FUNÇÃO
+        async function confirmStudentAction(studentId, type, studentName) {
+            console.log('✅ Confirmando ação:', { studentId, type, studentName });
+            
             try {
                 const accessToken = localStorage.getItem('access_token');
                 
-                // Verificar se temos coordenadas válidas
+                // Obter coordenadas dos elementos
                 const latitude = parseFloat(document.getElementById('displayLatitude').textContent);
                 const longitude = parseFloat(document.getElementById('displayLongitude').textContent);
                 
                 if (isNaN(latitude) || isNaN(longitude)) {
-                    throw new Error('Localização não disponível. Obtenha a localização atual primeiro.');
+                    throw new Error('Localização não disponível. Obtenha a localização primeiro.');
                 }
                 
-                // Preparar dados para a requisição
+                // Preparar dados
                 const requestData = {
                     alunoId: studentId,
                     responsavelNome: currentUser.nome,
@@ -3337,7 +3451,9 @@
                     longitude: longitude
                 };
                 
-                // Usar endpoints permitidos
+                console.log('📤 Enviando dados:', requestData);
+                
+                // Fazer requisição
                 const endpoint = type === 'entrada' ? 'entrada' : 'saida';
                 const response = await fetch(`${BACKEND_URL}/api/presencas/${endpoint}`, {
                     method: 'POST',
@@ -3350,32 +3466,35 @@
                 
                 if (response.ok) {
                     const result = await response.json();
+                    console.log('✅ Ação registrada com sucesso:', result);
+                    
                     showAlert(`${type === 'entrada' ? 'Entrada' : 'Saída'} registrada com sucesso!`, 'success');
                     closeModal();
                     
-                    // Recarregar dados relevantes
+                    // Atualizar dados
+                    await loadAllStudents(currentStudentsPage, document.getElementById('studentSearch')?.value);
+                    
+                    // Se estiver na aba de visão geral, atualizar também
                     if (document.getElementById('overview-tab').classList.contains('active')) {
                         await loadOverviewData();
                     }
-                    if (document.getElementById('students-tab').classList.contains('active')) {
-                        await loadAllStudents(currentStudentsPage, document.getElementById('studentSearch').value);
-                    }
+                    
                 } else {
                     const errorText = await response.text();
-                    let errorMessage = errorText || `Erro ${response.status}: ${response.statusText}`;
+                    let errorMessage = `Erro ${response.status}: ${response.statusText}`;
                     
                     try {
                         const errorJson = JSON.parse(errorText);
                         errorMessage = errorJson.mensagem || errorJson.erro || errorMessage;
                     } catch (e) {
-                        // Manter a mensagem original se não for JSON
+                        // Manter mensagem original
                     }
                     
                     throw new Error(errorMessage);
                 }
                 
             } catch (error) {
-                console.error(`Erro ao registrar ${type}:`, error);
+                console.error('❌ Erro ao registrar ação:', error);
                 showAlert(`Erro ao registrar ${type}: ${error.message}`, 'error');
             }
         }
