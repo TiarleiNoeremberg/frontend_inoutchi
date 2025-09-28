@@ -2861,6 +2861,39 @@
             }
         }
 
+        // Função auxiliar para mudar para aba de histórico (se ainda não existir)
+        function switchToHistoryTab(context = '') {
+            console.log(`🔄 Mudando para aba Histórico (contexto: ${context})...`);
+            
+            // Encontrar a aba e o conteúdo do histórico
+            const historyTab = document.querySelector('[data-tab="history"]');
+            const historyContent = document.getElementById('history-tab');
+            
+            if (!historyTab || !historyContent) {
+                console.error('❌ Aba de histórico não encontrada!');
+                return false;
+            }
+            
+            // Remover active de todas as abas
+            document.querySelectorAll('.tab').forEach(t => {
+                t.classList.remove('active');
+            });
+            
+            // Remover active de todos os conteúdos
+            document.querySelectorAll('.tab-content').forEach(tc => {
+                tc.classList.remove('active');
+                tc.style.display = 'none';
+            });
+            
+            // Adicionar active na aba de histórico
+            historyTab.classList.add('active');
+            historyContent.classList.add('active');
+            historyContent.style.display = 'block';
+            
+            console.log('✅ Aba de histórico ativada!');
+            return true;
+        }
+
         // Visualizar histórico completo do diretor - VERSÃO CORRIGIDA
         window.viewDirectorHistory = async function(page = 0) {
             try {
@@ -2870,21 +2903,11 @@
                 const directorName = currentUser?.nome || 'Diretor';
                 
                 // Mostrar loading
-                showAlert(`Carregando histórico de ${directorName}...`, 'success');
+                showAlert(`Carregando histórico de ${directorName}...`, 'info');
                 
                 // Mudar para a aba de histórico
-                const historyTab = document.querySelector('[data-tab="history"]');
-                const historyContent = document.getElementById('history-tab');
-                
-                if (historyTab && historyContent) {
-                    // Remover active de todas as abas
-                    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                    document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
-                    
-                    // Adicionar active na aba de histórico
-                    historyTab.classList.add('active');
-                    historyContent.classList.add('active');
-                }
+                console.log('🔄 Mudando para aba de histórico...');
+                switchToHistoryTab('diretor');
                 
                 // Atualizar título da aba de histórico
                 const historyTitle = document.querySelector('#history-tab .section-title h3');
@@ -2899,13 +2922,22 @@
                         <tr>
                             <td colspan="7" style="text-align: center; padding: 40px;">
                                 <div class="loading-spinner" style="width: 30px; height: 30px; margin: 0 auto;"></div>
-                                <h3 style="margin-top: 20px;">Carregando histórico de ${directorName}</h3>
+                                <h3 style="margin-top: 20px; color: var(--primary-color);">Carregando histórico de ${directorName}</h3>
+                                <p>Por favor, aguarde...</p>
                             </td>
                         </tr>
                     `;
                 }
                 
-                // Fazer requisição para o histórico do diretor
+                // Ocultar paginação durante o carregamento
+                const paginationControls = document.getElementById('studentHistoryPagination');
+                if (paginationControls) {
+                    paginationControls.style.display = 'none';
+                }
+                
+                console.log('📡 Fazendo requisição para histórico do diretor...');
+                
+                // FAZER A REQUISIÇÃO DIRETA AQUI
                 const response = await fetch(`${BACKEND_URL}/api/presencas/diretores/${currentDirectorId}/historico`, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
@@ -2919,28 +2951,115 @@
                     const result = await response.json();
                     console.log('📊 Histórico do diretor recebido:', result);
                     
+                    // RENDERIZAR O HISTÓRICO DIRETAMENTE
                     if (result.sucesso && result.dados) {
-                        const registros = Array.isArray(result.dados) ? result.dados :
-                                        (result.dados.registros && Array.isArray(result.dados.registros) ? result.dados.registros : []);
+                        // Verificar a estrutura dos dados
+                        let registros = [];
                         
-                        if (registros.length > 0) {
-                            renderDirectorHistoryTable(registros, directorName);
-                            showAlert(`Histórico de ${directorName} carregado com sucesso!`, 'success');
-                        } else {
-                            renderDirectorHistoryTable([], directorName);
-                            showAlert('Nenhum registro encontrado no histórico', 'info');
+                        // Pode vir como array direto ou dentro de um objeto
+                        if (Array.isArray(result.dados)) {
+                            registros = result.dados;
+                        } else if (result.dados.registros && Array.isArray(result.dados.registros)) {
+                            registros = result.dados.registros;
                         }
+                        
+                        console.log(`📊 Total de registros encontrados: ${registros.length}`);
+                        
+                        // RENDERIZAR A TABELA
+                        if (historyTableBody) {
+                            historyTableBody.innerHTML = '';
+                            
+                            if (registros.length > 0) {
+                                // Ordenar por data (mais recente primeiro)
+                                const registrosOrdenados = registros.sort((a, b) => 
+                                    new Date(b.entradaAt || b.dataEntrada || 0) - new Date(a.entradaAt || a.dataEntrada || 0)
+                                );
+                                
+                                registrosOrdenados.forEach((record, index) => {
+                                    const tr = document.createElement('tr');
+                                    
+                                    // Formatar datas
+                                    const entryDate = (record.entradaAt || record.dataEntrada) ? 
+                                        new Date(record.entradaAt || record.dataEntrada).toLocaleString('pt-BR') : '-';
+                                    
+                                    const exitDate = (record.saidaAt || record.dataSaida) ? 
+                                        new Date(record.saidaAt || record.dataSaida).toLocaleString('pt-BR') : 
+                                        '<span style="color: var(--warning-color); font-style: italic;">Em andamento</span>';
+                                    
+                                    // Determinar status
+                                    const status = (record.saidaAt || record.dataSaida) ? 'Finalizado' : 'Presente';
+                                    const statusClass = (record.saidaAt || record.dataSaida) ? 'status-absent' : 'status-present';
+                                    
+                                    tr.innerHTML = `
+                                        <td><strong>${record.diretorNome || directorName}</strong></td>
+                                        <td>Diretor</td>
+                                        <td>${entryDate}</td>
+                                        <td>${exitDate}</td>
+                                        <td>${record.iniciadoPor || directorName} (${record.iniciadoPorTipo || 'DIRETOR'})</td>
+                                        <td>${record.finalizadoPor || '-'} (${record.finalizadoPorTipo || '-'})</td>
+                                        <td><span class="status-badge ${statusClass}">${status}</span></td>
+                                    `;
+                                    
+                                    tbody.appendChild(tr);
+                                });
+                                
+                                showAlert(`✅ Histórico carregado! ${registros.length} registros encontrados.`, 'success');
+                                
+                            } else {
+                                // Nenhum registro encontrado
+                                historyTableBody.innerHTML = `
+                                    <tr>
+                                        <td colspan="7" style="text-align: center; padding: 40px; color: #666;">
+                                            <i class="fas fa-history" style="font-size: 48px; margin-bottom: 15px; opacity: 0.5;"></i>
+                                            <h3>Nenhum registro encontrado</h3>
+                                            <p>Não há registros de presença para ${directorName}</p>
+                                        </td>
+                                    </tr>
+                                `;
+                                showAlert('Nenhum registro encontrado no histórico', 'info');
+                            }
+                        }
+                        
                     } else {
-                        renderDirectorHistoryTable([], directorName);
-                        showAlert('Estrutura de dados inválida no histórico', 'warning');
+                        // Estrutura de dados inválida
+                        throw new Error('Estrutura de dados inválida no histórico');
                     }
+                    
                 } else {
-                    throw new Error(`Erro ${response.status}: ${response.statusText}`);
+                    // Erro na requisição
+                    const errorText = await response.text();
+                    let errorMessage = `Erro ${response.status}: ${response.statusText}`;
+                    
+                    try {
+                        const errorJson = JSON.parse(errorText);
+                        errorMessage = errorJson.mensagem || errorJson.erro || errorMessage;
+                    } catch (e) {
+                        // Manter mensagem original se não for JSON
+                    }
+                    
+                    throw new Error(errorMessage);
                 }
                 
             } catch (error) {
                 console.error('❌ Erro ao carregar histórico do diretor:', error);
                 showAlert(`Erro ao carregar histórico: ${error.message}`, 'error');
+                
+                // Mostrar mensagem de erro na tabela
+                const historyTableBody = document.getElementById('historyTableBody');
+                if (historyTableBody) {
+                    historyTableBody.innerHTML = `
+                        <tr>
+                            <td colspan="7" style="text-align: center; padding: 40px; color: var(--danger-color);">
+                                <i class="fas fa-exclamation-triangle" style="font-size: 48px; margin-bottom: 15px;"></i>
+                                <h3>Erro ao carregar histórico</h3>
+                                <p>${error.message}</p>
+                                <button class="btn btn-primary" onclick="viewDirectorHistory(0)" style="margin-top: 10px;">
+                                    <i class="fas fa-redo"></i> Tentar Novamente
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                }
             }
         };
 
