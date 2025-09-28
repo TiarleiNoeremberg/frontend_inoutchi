@@ -701,6 +701,12 @@
             transition: all 0.3s ease;
         }
 
+        #presentStudentsList {
+            min-height: 200px; /* Altura mínima fixa para evitar pulos */
+            max-height: 400px; /* Altura máxima para scroll */
+            overflow-y: auto;
+        }
+
     </style>
 </head>
 <body>
@@ -1088,6 +1094,9 @@
             longitude: null,
             isValid: false
         };
+
+        let lastPresentStudentsData = null; // Para comparar mudanças
+
 
         // Debug: Verificar se todos os elementos estão carregados
         function debugModalElements() {
@@ -1669,9 +1678,11 @@
 
         // Carregar alunos presentes - VERSÃO SIMPLIFICADA
         async function loadPresentStudents() {
+            console.log('📋 Verificando alunos presentes...');
+            
             try {
                 const accessToken = localStorage.getItem('access_token');
-                const response = await fetch(`${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?page=0&size=100`, {
+                const response = await fetch(`${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos/presentes`, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
@@ -1680,77 +1691,55 @@
                 
                 if (response.ok) {
                     const data = await response.json();
-                    const presentStudentsList = document.getElementById('presentStudentsList');
-                    presentStudentsList.innerHTML = '';
                     
-                    if (data.content && data.content.length > 0) {
-                        // ========== ORDENAÇÃO COM BUSCA DE HISTÓRICO ==========
-                        // Buscar última entrada de cada aluno
-                        const studentsWithTime = await Promise.all(
-                            data.content.map(async (student) => {
-                                try {
-                                    // Buscar histórico recente do aluno
-                                    const histResponse = await fetch(
-                                        `${BACKEND_URL}/api/presencas/historico/${student.id}?size=1`, 
-                                        {
-                                            headers: {
-                                                'Authorization': `Bearer ${accessToken}`,
-                                                'Content-Type': 'application/json'
-                                            }
-                                        }
-                                    );
-                                    
-                                    if (histResponse.ok) {
-                                        const histData = await histResponse.json();
-                                        if (histData.sucesso && histData.dados && histData.dados[0]) {
-                                            student.ultimaEntrada = histData.dados[0].entradaAt;
-                                        }
-                                    }
-                                } catch (e) {
-                                    console.log('Erro ao buscar histórico de', student.nome);
-                                }
-                                return student;
-                            })
-                        );
+                    // VERIFICAR SE HOUVE MUDANÇA REAL
+                    const currentDataStr = JSON.stringify(data.content || data);
+                    const lastDataStr = JSON.stringify(lastPresentStudentsData);
+                    
+                    // SÓ ATUALIZAR SE HOUVER MUDANÇA
+                    if (currentDataStr !== lastDataStr) {
+                        console.log('✅ Mudança detectada, atualizando lista...');
+                        lastPresentStudentsData = data.content || data;
                         
-                        // Ordenar por data de entrada mais recente
-                        const sortedStudents = studentsWithTime.sort((a, b) => {
-                            const dateA = new Date(a.ultimaEntrada || 0);
-                            const dateB = new Date(b.ultimaEntrada || 0);
-                            return dateB - dateA;
-                        });
-                        
-                        // Mostrar os 10 mais recentes
-                        sortedStudents.slice(0, 10).forEach((student, index) => {
-                            const li = document.createElement('li');
-                            li.className = 'student-item';
+                        const presentList = document.getElementById('presentStudentsList');
+                        if (presentList) {
+                            // Manter altura atual durante a atualização para evitar pulos
+                            const currentHeight = presentList.offsetHeight;
+                            presentList.style.minHeight = `${currentHeight}px`;
                             
-                            const timeString = student.ultimaEntrada ? 
-                                new Date(student.ultimaEntrada).toLocaleTimeString('pt-BR', {
-                                    hour: '2-digit',
-                                    minute: '2-digit'
-                                }) : '';
+                            if (data.content && data.content.length > 0) {
+                                let html = '<ul style="padding: 0; margin: 0;">';
+                                data.content.forEach(student => {
+                                    const entryTime = student.entradaAt ? 
+                                        new Date(student.entradaAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 
+                                        '';
+                                    html += `
+                                        <li style="padding: 8px 0; border-bottom: 1px solid #eee; list-style: none;">
+                                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                                <span><strong>${student.nome}</strong> - ${student.salaNome}</span>
+                                                <span style="color: #666; font-size: 0.9em;">${entryTime}</span>
+                                            </div>
+                                        </li>
+                                    `;
+                                });
+                                html += '</ul>';
+                                presentList.innerHTML = html;
+                            } else {
+                                presentList.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">Nenhum aluno presente no momento</p>';
+                            }
                             
-                            li.innerHTML = `
-                                <div class="student-info">
-                                    <span class="student-name">
-                                        ${student.nome}
-                                        ${timeString ? `<small style="color: #888; font-size: 12px;"> - Entrada: ${timeString}</small>` : ''}
-                                    </span>
-                                    <span class="student-class">${student.salaNome}</span>
-                                </div>
-                                <span class="status-badge status-present">Presente</span>
-                            `;
-                            presentStudentsList.appendChild(li);
-                        });
-                        // ========================================================
-                        
+                            // Remover altura mínima temporária após renderização
+                            setTimeout(() => {
+                                presentList.style.minHeight = '';
+                            }, 100);
+                        }
                     } else {
-                        presentStudentsList.innerHTML = '<li style="padding: 15px; text-align: center; color: #666;">Nenhum aluno presente no momento</li>';
+                        console.log('🔄 Sem mudanças, mantendo visualização atual');
                     }
                 }
             } catch (error) {
-                console.error('❌ Erro ao carregar alunos presentes:', error);
+                console.error('Erro ao carregar alunos presentes:', error);
+                // Não limpar a lista em caso de erro, manter última visualização válida
             }
         }
 
