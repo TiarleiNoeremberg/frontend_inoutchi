@@ -752,11 +752,45 @@
 
                     <div class="card">
                         <div class="card-header">
-                            <i class="fas fa-history"></i>
-                            <h3>Meu Histórico Recente</h3>
+                            <i class="fas fa-user-clock"></i>
+                            <h3>Meu Status Atual</h3>
                         </div>
-                        <div id="directorHistory">
-                            <!-- Histórico do diretor será carregado via JavaScript -->
+                        <div style="padding: 15px;">
+                            <!-- Status do Diretor -->
+                            <div style="text-align: center; margin-bottom: 20px;">
+                                <div id="directorStatus" class="status-badge" style="font-size: 16px; padding: 10px; margin-bottom: 15px;">
+                                    Carregando...
+                                </div>
+                                
+                                <!-- Botões de Entrada/Saída -->
+                                <div class="action-buttons" style="justify-content: center; gap: 10px; margin-bottom: 15px;">
+                                    <button class="btn btn-success" id="directorEntryBtn" onclick="registerDirectorEntry()" style="display: none;">
+                                        <i class="fas fa-sign-in-alt"></i> Registrar Entrada
+                                    </button>
+                                    <button class="btn btn-danger" id="directorExitBtn" onclick="registerDirectorExit()" style="display: none;">
+                                        <i class="fas fa-sign-out-alt"></i> Registrar Saída
+                                    </button>
+                                </div>
+                                
+                                <!-- Botão Histórico -->
+                                <div class="action-buttons" style="justify-content: center;">
+                                    <button class="btn btn-primary" onclick="viewDirectorHistory()">
+                                        <i class="fas fa-history"></i> Ver Meu Histórico Completo
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- Histórico Recente (últimos 5 registros) -->
+                            <div style="border-top: 1px solid #e0e0e0; padding-top: 15px; margin-top: 20px;">
+                                <h4 style="margin-bottom: 10px; color: var(--primary-color); font-size: 14px;">
+                                    <i class="fas fa-history"></i> Últimos Registros
+                                </h4>
+                                <div id="directorPersonalHistory">
+                                    <p style="text-align: center; color: #666; padding: 20px;">
+                                        <i class="fas fa-spinner fa-spin"></i> Carregando histórico...
+                                    </p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -3125,6 +3159,25 @@
         // Carregar histórico pessoal do diretor para a aba "Meu Controle"
         async function loadDirectorPersonalHistory() {
             try {
+                console.log('📋 Carregando histórico pessoal do diretor...');
+                
+                const personalHistory = document.getElementById('directorPersonalHistory');
+                
+                if (!personalHistory) {
+                    console.error('❌ Elemento directorPersonalHistory não encontrado');
+                    console.log('🔍 Procurando elemento em todo o documento...');
+                    
+                    // Busca mais ampla
+                    const elements = document.querySelectorAll('[id*="directorPersonalHistory"]');
+                    console.log('Elementos encontrados:', elements);
+                    
+                    // Verificar se está na aba correta
+                    const activeTab = document.querySelector('.tab-content.active');
+                    console.log('Aba ativa:', activeTab ? activeTab.id : 'Nenhuma');
+                    
+                    return;
+                }
+                
                 const accessToken = localStorage.getItem('access_token');
                 const response = await fetch(`${BACKEND_URL}/api/presencas/diretores/${currentDirectorId}/historico`, {
                     headers: {
@@ -3135,15 +3188,9 @@
                 
                 if (response.ok) {
                     const data = await response.json();
-                    const personalHistory = document.getElementById('directorPersonalHistory');
-                    
-                    if (!personalHistory) {
-                        console.error('❌ Elemento directorPersonalHistory não encontrado');
-                        return;
-                    }
                     
                     if (data.sucesso && data.dados && data.dados.registros && data.dados.registros.length > 0) {
-                        let html = '<ul class="student-list">';
+                        let html = '<ul class="student-list" style="margin: 0; padding: 0; list-style: none;">';
                         
                         // Ordenar por data (mais recente primeiro) e pegar últimos 5 registros
                         const registrosOrdenados = data.dados.registros
@@ -3154,16 +3201,23 @@
                             const entryDate = new Date(record.entradaAt).toLocaleString('pt-BR');
                             const exitDate = record.saidaAt ? 
                                 new Date(record.saidaAt).toLocaleString('pt-BR') : 
-                                '<em>Em andamento</em>';
+                                '<em style="color: #ff9800;">Em andamento</em>';
                             const status = record.status === 'PRESENTE' ? 'Presente' : 'Ausente';
+                            const statusClass = record.status === 'PRESENTE' ? 'status-present' : 'status-absent';
                             
                             html += `
-                                <li class="student-item">
-                                    <div class="student-info">
-                                        <span class="student-name"><strong>Entrada:</strong> ${entryDate}</span>
-                                        <span class="student-class"><strong>Saída:</strong> ${exitDate}</span>
+                                <li style="padding: 12px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center;">
+                                    <div style="flex: 1;">
+                                        <div style="font-size: 0.9em; color: #333;">
+                                            <i class="fas fa-sign-in-alt" style="color: #4caf50;"></i> 
+                                            <strong>Entrada:</strong> ${entryDate}
+                                        </div>
+                                        <div style="font-size: 0.85em; color: #666; margin-top: 4px;">
+                                            <i class="fas fa-sign-out-alt" style="color: #f44336;"></i> 
+                                            <strong>Saída:</strong> ${exitDate}
+                                        </div>
                                     </div>
-                                    <span class="status-badge ${record.status === 'PRESENTE' ? 'status-present' : 'status-absent'}">
+                                    <span class="status-badge ${statusClass}" style="font-size: 0.75em;">
                                         ${status}
                                     </span>
                                 </li>
@@ -3172,11 +3226,12 @@
                         
                         html += '</ul>';
                         personalHistory.innerHTML = html;
+                        console.log('✅ Histórico pessoal carregado com sucesso');
                         
                     } else {
                         personalHistory.innerHTML = `
                             <div style="padding: 20px; text-align: center; color: #666;">
-                                <i class="fas fa-history" style="font-size: 24px; margin-bottom: 10px;"></i>
+                                <i class="fas fa-history" style="font-size: 24px; margin-bottom: 10px; opacity: 0.5;"></i>
                                 <p>Nenhum registro de presença encontrado</p>
                             </div>
                         `;
@@ -3190,8 +3245,9 @@
                 if (personalHistory) {
                     personalHistory.innerHTML = `
                         <div style="padding: 20px; text-align: center; color: #666;">
-                            <i class="fas fa-exclamation-triangle" style="font-size: 24px; margin-bottom: 10px;"></i>
+                            <i class="fas fa-exclamation-triangle" style="font-size: 24px; margin-bottom: 10px; color: #f44336;"></i>
                             <p>Erro ao carregar histórico</p>
+                            <small>${error.message}</small>
                         </div>
                     `;
                 }
@@ -3512,21 +3568,35 @@
 
         // Atualizar status do diretor na UI - VERSÃO OTIMIZADA
         function updateDirectorUI(status, hasActiveSession = false) {
+            // Tentar encontrar os elementos com IDs mais específicos
             const statusElement = document.getElementById('directorStatus');
             const entryBtn = document.getElementById('directorEntryBtn');
             const exitBtn = document.getElementById('directorExitBtn');
             
+            // Log para debug
+            console.log('🔍 Verificando elementos da UI:', {
+                statusElement: statusElement ? '✅ Encontrado' : '❌ Não encontrado',
+                entryBtn: entryBtn ? '✅ Encontrado' : '❌ Não encontrado',
+                exitBtn: exitBtn ? '✅ Encontrado' : '❌ Não encontrado'
+            });
+            
             if (!statusElement || !entryBtn || !exitBtn) {
-                console.error('❌ Elementos da UI do diretor não encontrados');
+                console.error('❌ Elementos da UI do diretor não encontrados. Verifique se a caixa "Meu Status Atual" existe na aba Visão Geral');
+                
+                // Tentar encontrar elementos em qualquer lugar do documento
+                const allElements = {
+                    status: document.querySelectorAll('[id*="directorStatus"]'),
+                    entry: document.querySelectorAll('[id*="directorEntry"]'),
+                    exit: document.querySelectorAll('[id*="directorExit"]')
+                };
+                
+                console.log('🔍 Busca ampla de elementos:', allElements);
                 return;
             }
             
             console.log('🎨 Atualizando UI do diretor:', {
                 status: status,
-                sessaoAtiva: hasActiveSession,
-                elementoStatus: statusElement ? 'Encontrado' : 'Não encontrado',
-                botaoEntrada: entryBtn ? 'Encontrado' : 'Não encontrado',
-                botaoSaida: exitBtn ? 'Encontrado' : 'Não encontrado'
+                sessaoAtiva: hasActiveSession
             });
             
             // Atualizar texto e cor do status
@@ -3552,14 +3622,11 @@
                 entryBtn.style.display = 'inline-block';
                 exitBtn.style.display = 'none';
             }
-
-            const updateTime = new Date().toLocaleTimeString('pt-BR');
-            if (statusElement) {
-                statusElement.setAttribute('title', `Última atualização: ${updateTime}`);
-            }
             
             // Forçar reflow para garantir que as mudanças sejam aplicadas
             statusElement.offsetHeight;
+            
+            console.log('✅ UI do diretor atualizada com sucesso');
         }
         
         window.registerDirectorExit = async function() {
