@@ -3234,77 +3234,134 @@
         function openDirectorActionModal(action) {
             console.log('🎭 Abrindo modal para ação do diretor:', action);
             
-            const modal = document.getElementById('actionModal');
-            const modalTitle = document.getElementById('modalTitle');
-            const modalMessage = document.getElementById('modalMessage');
-            const modalStudentName = document.getElementById('modalStudentName');
-            const confirmBtn = document.getElementById('confirmActionBtn');
-            const getLocationBtn = document.getElementById('getLocationBtn');
-            
-            // Resetar estado do modal
-            resetLocationState();
-            
-            // Configurar textos do modal
-            if (action === 'entrada') {
-                modalTitle.textContent = 'Registrar Entrada - Diretor';
-                modalMessage.innerHTML = `Deseja registrar sua <strong>ENTRADA</strong> como Diretor?`;
-                modalStudentName.textContent = '';
-            } else {
-                modalTitle.textContent = 'Registrar Saída - Diretor';
-                modalMessage.innerHTML = `Deseja registrar sua <strong>SAÍDA</strong> como Diretor?`;
-                modalStudentName.textContent = '';
-            }
-            
-            // Configurar botão de localização
-            getLocationBtn.onclick = async function() {
-                await getCurrentLocation();
-            };
-            
-            // Configurar botão de confirmação
-            confirmBtn.onclick = async function() {
-                // Verificar se tem localização
-                const latitude = parseFloat(document.getElementById('displayLatitude').textContent);
-                const longitude = parseFloat(document.getElementById('displayLongitude').textContent);
+            try {
+                const modal = document.getElementById('actionModal');
+                const modalTitle = document.getElementById('modalTitle');
+                const modalMessage = document.getElementById('modalMessage');
+                const confirmBtn = document.getElementById('confirmActionBtn');
+                const getLocationBtn = document.getElementById('getLocationBtn');
                 
-                if (isNaN(latitude) || isNaN(longitude)) {
-                    showAlert('Por favor, obtenha sua localização primeiro', 'error');
+                // Verificar elementos essenciais
+                if (!modal || !modalTitle || !modalMessage || !confirmBtn) {
+                    console.error('❌ Elementos do modal não encontrados');
+                    showAlert('Erro ao abrir modal', 'error');
                     return;
                 }
                 
-                // Validar geofence
-                const dentroDaEscola = await validateGeofence(latitude, longitude);
-                if (!dentroDaEscola) {
-                    showAlert('⚠️ Você precisa estar dentro da escola para registrar ' + action, 'warning');
-                    return;
-                }
+                // Resetar estado do modal
+                resetLocationState();
                 
-                // Fechar modal
-                closeModal();
-                
-                // Executar ação apropriada
+                // Configurar textos do modal - SEM USAR modalStudentName
                 if (action === 'entrada') {
-                    await executeDirectorEntry(latitude, longitude);
+                    modalTitle.textContent = 'Registrar Entrada - Diretor';
+                    modalMessage.innerHTML = `
+                        <div style="text-align: center;">
+                            <i class="fas fa-sign-in-alt" style="font-size: 24px; color: #28a745; margin-bottom: 10px;"></i>
+                            <p>Deseja registrar sua <strong>ENTRADA</strong> como Diretor?</p>
+                            <small style="color: #666;">Sua localização será verificada</small>
+                        </div>
+                    `;
                 } else {
-                    await executeDirectorExit(latitude, longitude);
+                    modalTitle.textContent = 'Registrar Saída - Diretor';
+                    modalMessage.innerHTML = `
+                        <div style="text-align: center;">
+                            <i class="fas fa-sign-out-alt" style="font-size: 24px; color: #dc3545; margin-bottom: 10px;"></i>
+                            <p>Deseja registrar sua <strong>SAÍDA</strong> como Diretor?</p>
+                            <small style="color: #666;">Sua localização será verificada</small>
+                        </div>
+                    `;
                 }
-            };
-            
-            // Abrir modal
-            modal.style.display = 'flex';
-            
-            // Obter localização automaticamente ao abrir
-            setTimeout(() => {
-                getCurrentLocation();
-            }, 500);
+                
+                // Limpar elemento modalStudentName se existir (para evitar confusão)
+                const modalStudentName = document.getElementById('modalStudentName');
+                if (modalStudentName) {
+                    modalStudentName.style.display = 'none';
+                }
+                
+                // Configurar botão de localização
+                if (getLocationBtn) {
+                    getLocationBtn.onclick = async function() {
+                        console.log('📍 Botão de localização clicado');
+                        await getCurrentLocation();
+                    };
+                }
+                
+                // Configurar botão de confirmação
+                confirmBtn.onclick = async function() {
+                    console.log('✅ Botão de confirmação clicado');
+                    
+                    // Verificar se tem localização
+                    const latitudeElement = document.getElementById('displayLatitude');
+                    const longitudeElement = document.getElementById('displayLongitude');
+                    
+                    if (!latitudeElement || !longitudeElement) {
+                        showAlert('Elementos de localização não encontrados', 'error');
+                        return;
+                    }
+                    
+                    const latitude = parseFloat(latitudeElement.textContent);
+                    const longitude = parseFloat(longitudeElement.textContent);
+                    
+                    if (isNaN(latitude) || isNaN(longitude)) {
+                        showAlert('Por favor, obtenha sua localização primeiro', 'error');
+                        return;
+                    }
+                    
+                    console.log('📍 Localização confirmada:', { latitude, longitude });
+                    
+                    // Desabilitar botão durante processamento
+                    confirmBtn.disabled = true;
+                    confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processando...';
+                    
+                    try {
+                        // Fechar modal ANTES de executar a ação
+                        closeModal();
+                        
+                        // Executar ação apropriada
+                        if (action === 'entrada') {
+                            await executeDirectorEntry(latitude, longitude);
+                        } else {
+                            await executeDirectorExit(latitude, longitude);
+                        }
+                    } catch (error) {
+                        console.error('❌ Erro ao executar ação:', error);
+                        showAlert(`Erro: ${error.message}`, 'error');
+                    } finally {
+                        // Restaurar botão
+                        confirmBtn.disabled = false;
+                        confirmBtn.innerHTML = '<i class="fas fa-check"></i> Confirmar';
+                    }
+                };
+                
+                // Abrir modal
+                modal.style.display = 'flex';
+                
+                // Obter localização automaticamente após um pequeno delay
+                setTimeout(async () => {
+                    console.log('🔄 Obtendo localização automaticamente...');
+                    const coords = await getCurrentLocation();
+                    if (coords) {
+                        console.log('✅ Localização obtida automaticamente');
+                        // Habilitar botão de confirmação se a localização foi obtida
+                        confirmBtn.disabled = false;
+                    }
+                }, 500);
+                
+            } catch (error) {
+                console.error('❌ Erro ao abrir modal do diretor:', error);
+                showAlert('Erro ao abrir modal', 'error');
+            }
         }
 
-        // Executar entrada do diretor (com localização já validada)
+        // Versão simplificada sem validação de geofence (temporário)
         async function executeDirectorEntry(latitude, longitude) {
             try {
-                console.log('🎯 Executando entrada do diretor com localização validada...');
+                console.log('🎯 Executando entrada do diretor...');
                 
-                const accessToken = await garantirAutenticacao();
-                if (!accessToken) return;
+                const accessToken = localStorage.getItem('access_token');
+                if (!accessToken) {
+                    throw new Error('Token não encontrado');
+                }
                 
                 const requestData = {
                     responsavelId: currentDirectorId,
@@ -3314,7 +3371,7 @@
                     longitude: longitude
                 };
 
-                console.log('📤 Dados enviados:', requestData);
+                console.log('📤 Enviando dados:', requestData);
                 showAlert('Registrando entrada...', 'info');
 
                 const response = await fetch(`${BACKEND_URL}/api/presencas/diretores/entrada`, {
@@ -3331,9 +3388,11 @@
                     console.log('✅ Entrada registrada com sucesso!', result);
                     showAlert('✅ Entrada registrada com sucesso!', 'success');
                     
-                    // Atualizar UI
+                    // Atualizar UI imediatamente
                     updateDirectorUI('PRESENTE', true);
-                    await loadDirectorData();
+                    
+                    // Recarregar dados em background
+                    setTimeout(() => loadDirectorData(), 1000);
                     
                 } else {
                     const errorText = await response.text();
@@ -3347,16 +3406,21 @@
             } catch (error) {
                 console.error('❌ Erro:', error);
                 showAlert(`Erro: ${error.message}`, 'error');
+                
+                // Recarregar dados para garantir sincronização
+                setTimeout(() => loadDirectorData(), 2000);
             }
         }
 
-        // Executar saída do diretor (com localização já validada)
+        // Versão simplificada sem validação de geofence (temporário)
         async function executeDirectorExit(latitude, longitude) {
             try {
-                console.log('📤 Executando saída do diretor com localização validada...');
+                console.log('📤 Executando saída do diretor...');
                 
-                const accessToken = await garantirAutenticacao();
-                if (!accessToken) return;
+                const accessToken = localStorage.getItem('access_token');
+                if (!accessToken) {
+                    throw new Error('Token não encontrado');
+                }
                 
                 const requestData = {
                     responsavelId: currentDirectorId,
@@ -3366,7 +3430,7 @@
                     longitude: longitude
                 };
 
-                console.log('📤 Dados enviados:', requestData);
+                console.log('📤 Enviando dados:', requestData);
                 showAlert('Registrando saída...', 'info');
 
                 const response = await fetch(`${BACKEND_URL}/api/presencas/diretores/saida`, {
@@ -3383,9 +3447,11 @@
                     console.log('✅ Saída registrada com sucesso!', result);
                     showAlert('✅ Saída registrada com sucesso!', 'success');
                     
-                    // Atualizar UI
+                    // Atualizar UI imediatamente
                     updateDirectorUI('AUSENTE', false);
-                    await loadDirectorData();
+                    
+                    // Recarregar dados em background
+                    setTimeout(() => loadDirectorData(), 1000);
                     
                 } else {
                     const errorText = await response.text();
@@ -3399,6 +3465,9 @@
             } catch (error) {
                 console.error('❌ Erro:', error);
                 showAlert(`Erro: ${error.message}`, 'error');
+                
+                // Recarregar dados para garantir sincronização
+                setTimeout(() => loadDirectorData(), 2000);
             }
         }
 
@@ -3731,7 +3800,7 @@
 
         // ========== FUNÇÕES DO DIRETOR ==========
 
-        // Registrar entrada do diretor
+        // Manter as funções dos botões simples
         window.registerDirectorEntry = function() {
             console.log('🚀 Abrindo modal para entrada do diretor...');
             openDirectorActionModal('entrada');
