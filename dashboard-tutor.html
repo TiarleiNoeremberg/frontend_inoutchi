@@ -371,18 +371,6 @@
             border: 1px solid #c8e6c9;
         }
 
-        .alert-info {
-        background-color: #e8f4fd;
-        color: #1e88e5;
-        border: 1px solid #bbdefb;
-    }
-
-    .alert-warning {
-        background-color: #fff8e1;
-        color: #f39c12;
-        border: 1px solid #ffe0b2;
-    }
-
         /* Responsive */
         @media (max-width: 768px) {
             .dashboard-cards {
@@ -552,8 +540,6 @@
 
         <div id="alertBox" class="alert"></div>
 
-        <div id="alertBox" class="alert alert-success" style="display:none;"></div>
-
         <div class="loading" id="loading">
             <div class="loading-spinner"></div>
             <p>Carregando informações...</p>
@@ -708,137 +694,47 @@
     let loadingElement, contentElement, alertBox, studentList, historyTableBody;
     let userFullName, userName, userAvatar, presenceSummary;
     let actionModal, modalTitle, modalMessage, modalStudentName, confirmActionBtn, getLocationBtn;
-    let presenceStatusTimer = null;
-    let isPageVisible = true;
 
     // ========== FUNÇÕES GLOBAIS ==========
-
-    async function ensureGeofence(latitude, longitude) {
-        try {
-            const accessToken = localStorage.getItem('access_token');
-            const escolaId = window.currentSchoolId || (currentUser && currentUser.escolaId);
-            
-            if (escolaId) {
-                const resp = await fetch(`${BACKEND_URL}/api/geofence/validate`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ latitude, longitude, escolaId })
-                });
-                if (resp.ok) {
-                    const result = await resp.json();
-                    return Boolean(result.dentroGeofence || result.isValid || result.valid);
-                }
-            }
-
-            // Fallback local (Haversine)
-            const centerLat = window.schoolLatitude || window.escolaLatitude || (currentUser && currentUser.escolaLatitude);
-            const centerLng = window.schoolLongitude || window.escolaLongitude || (currentUser && currentUser.escolaLongitude);
-            const radiusM   = window.GEOFENCE_RADIUS_METERS || window.geofenceRadius || 150;
-
-            if (typeof centerLat !== 'number' || typeof centerLng !== 'number') {
-                console.warn('Centro da geofence indisponível. Fail-closed para segurança.');
-                return false;
-            }
-
-            const dist = haversineDistanceMeters(latitude, longitude, centerLat, centerLng);
-            return dist <= radiusM;
-        } catch (e) {
-            console.error('Erro ao validar geofence:', e);
-            return false;
-        }
-    }
-
-    
-
-    function haversineDistanceMeters(lat1, lon1, lat2, lon2) {
-        const R = 6371000;
-        const toRad = d => d * Math.PI / 180;
-        const dLat = toRad(lat2 - lat1);
-        const dLon = toRad(lon2 - lon1);
-        const a = Math.sin(dLat/2) ** 2 +
-                Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-                Math.sin(dLon/2) ** 2;
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c;
-    }
-
-    function setupPageVisibilityHandler() {
-        document.addEventListener('visibilitychange', async () => {
-            isPageVisible = document.visibilityState === 'visible';
-            if (!isPageVisible) {
-                // Aba oculta: pausar tudo que faz polling
-                stopStudentsAutoRefresh?.();
-                stopPresenceStatusTimer();
-                return;
-                }
-
-                // Aba visível: retomar timers e fazer um refresh imediato
-                startStudentsAutoRefresh?.();
-                startPresenceStatusTimer();
-
-                try {
-                await updateStudentsStatusFromHistory();
-                if (selectedStudentId) {
-                    await loadHistory(selectedStudentId);
-                }
-                updateLastUpdateIndicator?.();
-                } catch (e) {
-                console.warn('Refresh ao voltar para a aba falhou:', e);
-                }
-        });
-    }
 
     // Confirmar ação (entrada/saída) - ATUALIZADA
     window.confirmAction = async function() {
         try {
             const accessToken = localStorage.getItem('access_token');
-
+            
             if (!selectedStudentId || !actionType) {
                 throw new Error('Aluno ou ação não selecionada');
             }
 
+            // Verificar se temos coordenadas válidas
             const latitude = parseFloat(document.getElementById('displayLatitude').textContent);
             const longitude = parseFloat(document.getElementById('displayLongitude').textContent);
-            if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+            
+            if (isNaN(latitude) || isNaN(longitude)) {
                 throw new Error('Localização não disponível. Obtenha a localização atual primeiro.');
             }
 
             console.log('=== DADOS DA REQUISIÇÃO ===');
             console.log('Dados do currentUser:', currentUser);
 
-            // Novo: calcular responsavelId de forma real
-            const jwt = parseJwt(accessToken);
-            const responsavelIdFromJwt = extractUserIdFromSub(jwt?.sub);
-            let responsavelId = currentUser?.id || responsavelIdFromJwt || await getTutorIdByName(currentUser?.nome);
-
+            // Usar ID fixo como fallback
+            const responsavelId = 1;
             console.log('ID do responsável:', responsavelId);
 
+            // Preparar dados para a requisição
             const requestData = {
                 alunoId: selectedStudentId,
                 responsavelNome: currentUser.nome,
                 responsavelTipo: 'TUTOR',
-                responsavelId,
-                latitude,
-                longitude
+                responsavelId: responsavelId,
+                latitude: latitude,
+                longitude: longitude
             };
 
             console.log('Dados da requisição:', requestData);
 
+            // Usar endpoints permitidos
             const endpoint = actionType === 'entrada' ? 'entrada' : 'saida';
-
-            // Geofence exigida para saída (mantenha assim ou aplique também à entrada, se desejar)
-            if (endpoint === 'saida') {
-                const dentroDaGeofence = await ensureGeofence(latitude, longitude);
-                if (!dentroDaGeofence) {
-                    showAlert('Saída negada: você está fora da área geofence da escola.', 'error');
-                    closeModal();
-                    return;
-                }
-            }
-
             const response = await fetch(`${BACKEND_URL}/api/presencas/${endpoint}`, {
                 method: 'POST',
                 headers: {
@@ -849,29 +745,40 @@
             });
 
             if (response.ok) {
-                await response.json();
+                const result = await response.json();
                 showAlert(`${actionType === 'entrada' ? 'Entrada' : 'Saída'} registrada com sucesso!`, 'success');
                 closeModal();
-
+                
+                // ATUALIZAÇÃO IMEDIATA APÓS AÇÃO
                 console.log('🔄 Atualizando dados após ação...');
                 await refreshStudentsData();
-                await updateStudentsStatusFromHistory();
 
+                // NOVO: Atualizar status real imediatamente
+                await updateStudentsStatusFromHistory();
+                
+                // Se há um aluno selecionado, atualizar também o histórico
                 if (selectedStudentId) {
                     await loadHistory(selectedStudentId);
                 }
+                
             } else {
                 const errorText = await response.text();
                 let errorMessage = errorText || `Erro ${response.status}: ${response.statusText}`;
+                
                 try {
                     const errorJson = JSON.parse(errorText);
                     errorMessage = errorJson.mensagem || errorJson.erro || errorMessage;
-                } catch (_) {}
+                } catch (e) {
+                    // Manter a mensagem original se não for JSON
+                }
+                
                 console.error('Erro detalhado:', { status: response.status, errorText });
                 throw new Error(errorMessage);
             }
+            
         } catch (error) {
             console.error(`Erro ao registrar ${actionType}:`, error);
+            // Fechar o modal automaticamente em caso de negação (ex.: geofence) ou erro de rede
             closeModal();
             showAlert(`Erro ao registrar ${actionType}: ${error.message}`, 'error');
         }
@@ -947,6 +854,7 @@
 
 🙏 Equipe Inoutchi agradece pelo seu feedback e compreensão.`);
     
+    alert(message);
 };
 
     // ========== FUNÇÕES AUXILIARES ==========
@@ -1052,7 +960,7 @@
             
             // MÉTODO 2: Verificar via histórico (apenas se necessário)
             console.log('🔄 Método 2: Verificando via histórico');
-            const accessToken = localStorage.getItem('access_token');
+            const accessToken = localStorage.getItem('accessToken');
             
             const alunosComStatusDetalhado = await Promise.all(
                 alunosComStatusAPI.map(async (aluno) => {
@@ -1175,18 +1083,6 @@
         }
     }
 
-    function startPresenceStatusTimer() {
-        if (presenceStatusTimer) clearInterval(presenceStatusTimer);
-        presenceStatusTimer = setInterval(updateStudentsStatusFromHistory, 30000);
-    }
-
-    function stopPresenceStatusTimer() {
-        if (presenceStatusTimer) {
-            clearInterval(presenceStatusTimer);
-        presenceStatusTimer = null;
-        }
-    }
-
     // Atualizar indicador de última atualização
     function updateLastUpdateIndicator() {
         const indicator = document.getElementById('lastUpdateIndicator');
@@ -1262,13 +1158,13 @@
         async function initializeDashboard() {
             console.log('Inicializando dashboard tutor...');
             
-            // initializeDOMElements(); // Removida para evitar duplicidade. Mantida apenas no DOMContentLoaded.
+            initializeDOMElements();
             
             const accessToken = localStorage.getItem('access_token');
             const expiry = localStorage.getItem('token_expiry');
 
             // Verificar autenticação
-            if (!accessToken || !expiry || new Date().getTime() > parseInt(expiry, 10)) {
+            if (!accessToken || !expiry || new Date().getTime() > parseInt(expiry)) {
                 console.log('REDIRECIONANDO: Token inválido ou expirado');
                 alert("Sessão expirada ou inexistente. Faça login novamente.");
                 window.location.href = "index.html";
@@ -1399,7 +1295,6 @@
                     selectedStudentId = previouslySelectedStudent;
                 }
                 
-                updateLastUpdateIndicator(); // <- chamada adicionada aqui
                 console.log('✅ Dados dos alunos atualizados');
                 
             } catch (error) {
@@ -1464,52 +1359,106 @@
                 const data = await response.json();
                 console.log('✅ Resposta completa da API:', data);
                 
+                // DEBUG: Verificar estrutura completa
+                console.log('🔍 Estrutura da resposta:');
+                console.log('- Tipo:', typeof data);
+                console.log('- É array?', Array.isArray(data));
+                console.log('- Keys do objeto:', data ? Object.keys(data) : 'N/A');
+                
                 // EXTRAIR ALUNOS CORRETAMENTE
                 let alunosData = [];
+                
+                // CASO 1: Se a resposta tem propriedade 'alunos' que é um array
                 if (data.alunos && Array.isArray(data.alunos)) {
+                    console.log('📁 Encontrado data.alunos com', data.alunos.length, 'alunos');
                     alunosData = data.alunos;
-                } else if (Array.isArray(data)) {
+                }
+                // CASO 2: Se a resposta é um array diretamente
+                else if (Array.isArray(data)) {
+                    console.log('📁 Resposta é array com', data.length, 'itens');
                     alunosData = data;
-                } else if (data.content && Array.isArray(data.content)) {
+                }
+                // CASO 3: Se a resposta tem propriedade 'content' (paginação)
+                else if (data.content && Array.isArray(data.content)) {
+                    console.log('📁 Encontrado data.content com', data.content.length, 'alunos');
                     alunosData = data.content;
-                } else if (data.alunosVinculados && Array.isArray(data.alunosVinculados)) {
+                }
+                // CASO 4: Se a resposta é um objeto de tutor com alunos aninhados
+                else if (data.alunosVinculados && Array.isArray(data.alunosVinculados)) {
+                    console.log('📁 Encontrado data.alunosVinculados com', data.alunosVinculados.length, 'alunos');
                     alunosData = data.alunosVinculados;
-                } else {
+                }
+                // CASO 5: Buscar em qualquer propriedade array que contenha objetos com 'nome'
+                else {
+                    console.log('🔍 Procurando alunos em outras propriedades...');
                     for (let key in data) {
-                        if (Array.isArray(data[key]) && data[key].length > 0 && data[key][0].nome) {
-                            alunosData = data[key];
-                            break;
+                        if (Array.isArray(data[key])) {
+                            console.log(`- Propriedade "${key}":`, data[key].length, 'itens');
+                            if (data[key].length > 0 && data[key][0].nome) {
+                                console.log(`✅ Encontrado alunos em "${key}"`);
+                                alunosData = data[key];
+                                break;
+                            }
                         }
-                    }
-                    if (alunosData.length === 0 && data.nome && data.id) {
-                        alunosData = [data];
                     }
                 }
                 
+                // SE NENHUM ALUNO FOI ENCONTRADO, TENTAR ESTRUTURAS ALTERNATIVAS
+                if (alunosData.length === 0) {
+                    console.log('🔍 Nenhum array de alunos encontrado, verificando estruturas alternativas...');
+                    
+                    // Tentar estrutura onde os alunos estão em propriedades individuais
+                    if (data.aluno1 || data.aluno2) {
+                        console.log('📁 Encontrado alunos em propriedades individuais');
+                        for (let key in data) {
+                            if (key.startsWith('aluno') && data[key] && data[key].nome) {
+                                alunosData.push(data[key]);
+                            }
+                        }
+                    }
+                    
+                    // Tentar estrutura com um único aluno diretamente no objeto
+                    if (data.nome && data.id) {
+                        console.log('📁 Resposta parece ser um único aluno');
+                        alunosData = [data]; // Tratar como array com um aluno
+                    }
+                }
+                
+                console.log(`📊 Total de alunos extraídos: ${alunosData.length}`);
+                
                 if (alunosData.length === 0) {
                     console.warn('⚠️ Nenhum aluno encontrado na resposta');
+                    console.log('📋 Estrutura completa disponível para debug:', JSON.stringify(data, null, 2));
+                    
                     students = [];
                     renderStudents();
                     updatePresenceSummary();
-                    updateLastUpdateIndicator(); // Atualiza indicador mesmo sem dados
                     showAlert('Nenhum aluno vinculado encontrado na resposta.', 'info');
                     return;
                 }
-
+                
                 // PROCESSAR CADA ALUNO
-                const alunosBase = alunosData.map((aluno, index) => ({
-                    id: aluno.id || index + 1,
-                    nome: aluno.nome || `Aluno ${index + 1}`,
-                    salaNome: aluno.salaNome || aluno.sala || aluno.turma || 'Sala não informada',
-                    status: aluno.status || 'AUSENTE'
-                }));
+                const alunosBase = alunosData.map((aluno, index) => {
+                    console.log(`👤 Aluno ${index + 1}:`, aluno);
+                    
+                    return {
+                        id: aluno.id || index + 1,
+                        nome: aluno.nome || `Aluno ${index + 1}`,
+                        salaNome: aluno.salaNome || aluno.sala || aluno.turma || 'Sala não informada',
+                        status: aluno.status || 'AUSENTE'
+                    };
+                });
+                
+                console.log(`🎯 ${alunosBase.length} alunos processados:`, alunosBase);
                 
                 // VERIFICAR STATUS
                 students = await checkAllStudentsStatus(alunosBase);
                 
+                console.log('✅ Alunos finais:', students);
+                
                 renderStudents();
                 updatePresenceSummary();
-                updateLastUpdateIndicator(); // <- chamada adicionada aqui
+                
             } catch (error) {
                 console.error('❌ Erro ao carregar alunos:', error);
                 showAlert('Erro ao carregar lista de alunos: ' + error.message, 'error');
@@ -1793,27 +1742,15 @@
         }
 
         function showAlert(message, type) {
-            const alertBox = window.alertBox || document.getElementById('alertBox');
             if (!alertBox) {
-                console.warn('Elemento #alertBox não encontrado');
+                console.warn('Elemento alertBox não encontrado');
                 return;
             }
-
             alertBox.textContent = message;
-
-            const typeMap = {
-                error: 'alert alert-error',
-                success: 'alert alert-success',
-                info: 'alert alert-info',
-                warning: 'alert alert-warning'
-            };
-
-            alertBox.className = typeMap[type] || 'alert alert-success';
+            alertBox.className = type === 'error' ? 'alert alert-error' : 'alert alert-success';
             alertBox.style.display = 'block';
-
-            clearTimeout(alertBox._hideTimer);
-            alertBox._hideTimer = setTimeout(() => {
-                if (alertBox) alertBox.style.display = 'none';
+            setTimeout(() => { 
+                if (alertBox) alertBox.style.display = 'none'; 
             }, 5000);
         }
 
@@ -1936,10 +1873,6 @@
                     return 'Erro ao obter localização. Tente novamente.';
             }
         }
-        
-        document.addEventListener('DOMContentLoaded', () => {
-            alertBox = document.getElementById('alertBox');
-        });
 
         // Initialize when DOM is loaded
         document.addEventListener('DOMContentLoaded', function() {
