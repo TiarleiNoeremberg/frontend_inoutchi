@@ -447,7 +447,18 @@
 
                 if (response.ok) {
                     currentUser = await response.json();
-                    currentSchoolId = currentUser.escolaId || 1;
+                    currentSchoolId = currentUser.escolaId;
+
+                    // Adicionar estas linhas para debug e salvamento
+                    console.log('User info loaded:', currentUser);
+                    
+                    // Salvar o ID do usuário no localStorage para uso posterior
+                    if (currentUser.id) {
+                        localStorage.setItem('user_id', currentUser.id.toString());
+                    }
+                    if (currentUser.email) {
+                        localStorage.setItem('user_email', currentUser.email);
+                    }
                     
                     // Salva o email no localStorage para uso posterior
                     if (currentUser.email) {
@@ -487,13 +498,14 @@
                     schoolGeofences = await response.json();
                     console.log('School geofences loaded:', schoolGeofences);
                 } else if (response.status === 403) {
+                    // Não mostrar erro para tutores - é esperado não ter permissão
                     console.warn('Sem permissão para carregar geofences - usando validação padrão');
                     schoolGeofences = [];
-                    // Opcional: definir geofences padrão se necessário
                 } else {
                     console.warn('Could not load geofences:', response.status);
                     schoolGeofences = [];
                 }
+
             } catch (error) {
                 console.error('Error loading geofences:', error);
                 schoolGeofences = [];
@@ -687,16 +699,18 @@
             try {
                 const accessToken = localStorage.getItem('access_token');
                 
-                // Usa o email do currentUser se disponível, caso contrário usa o email do localStorage
-                const userEmail = currentUser?.email || localStorage.getItem('user_email');
-                
-                if (!userEmail) {
-                    console.error('Email do usuário não encontrado');
-                    showAlert('Erro: Email do usuário não encontrado', 'error');
+                // Verificar se temos as informações do usuário
+                if (!currentUser || !currentUser.id) {
+                    console.error('Informações do usuário não disponíveis');
+                    showAlert('Erro: Informações do usuário não disponíveis', 'error');
                     return;
                 }
                 
-                const response = await fetch(`${BACKEND_URL}/api/tutores/${userEmail}/alunos`, {
+                // Usar o ID do tutor ao invés do email
+                const tutorId = currentUser.id;
+                console.log('Carregando alunos do tutor ID:', tutorId);
+                
+                const response = await fetch(`${BACKEND_URL}/api/tutores/${tutorId}/alunos`, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`
                     }
@@ -704,6 +718,7 @@
 
                 if (response.ok) {
                     students = await response.json();
+                    console.log('Alunos carregados:', students);
                     renderStudents();
                     updateStatistics();
                 } else {
