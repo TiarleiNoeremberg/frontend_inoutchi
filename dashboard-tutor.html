@@ -448,6 +448,11 @@
                 if (response.ok) {
                     currentUser = await response.json();
                     currentSchoolId = currentUser.escolaId || 1;
+                    
+                    // Salva o email no localStorage para uso posterior
+                    if (currentUser.email) {
+                        localStorage.setItem('user_email', currentUser.email);
+                    }
 
                     // Update UI
                     document.getElementById('userName').textContent = currentUser.nome || 'Tutor';
@@ -481,8 +486,12 @@
                 if (response.ok) {
                     schoolGeofences = await response.json();
                     console.log('School geofences loaded:', schoolGeofences);
+                } else if (response.status === 403) {
+                    console.warn('Sem permissão para carregar geofences - usando validação padrão');
+                    schoolGeofences = [];
+                    // Opcional: definir geofences padrão se necessário
                 } else {
-                    console.warn('Could not load geofences');
+                    console.warn('Could not load geofences:', response.status);
                     schoolGeofences = [];
                 }
             } catch (error) {
@@ -677,7 +686,17 @@
         async function loadStudents() {
             try {
                 const accessToken = localStorage.getItem('access_token');
-                const response = await fetch(`${BACKEND_URL}/api/tutores/${tutorName}/alunos`, {
+                
+                // Usa o email do currentUser se disponível, caso contrário usa o email do localStorage
+                const userEmail = currentUser?.email || localStorage.getItem('user_email');
+                
+                if (!userEmail) {
+                    console.error('Email do usuário não encontrado');
+                    showAlert('Erro: Email do usuário não encontrado', 'error');
+                    return;
+                }
+                
+                const response = await fetch(`${BACKEND_URL}/api/tutores/${userEmail}/alunos`, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`
                     }
@@ -688,10 +707,12 @@
                     renderStudents();
                     updateStatistics();
                 } else {
-                    console.error('Failed to load students');
+                    console.error('Failed to load students:', response.status);
+                    showAlert('Erro ao carregar alunos', 'error');
                 }
             } catch (error) {
                 console.error('Error loading students:', error);
+                showAlert('Erro ao carregar alunos', 'error');
             }
         }
 
