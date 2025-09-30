@@ -415,6 +415,7 @@
         let currentLocation = null;
         let schoolGeofences = [];
         let isWithinGeofence = false;
+        let tutorName = null;
 
         // ========== INITIALIZATION ==========
         async function initializeDashboard() {
@@ -448,6 +449,13 @@
                 if (response.ok) {
                     currentUser = await response.json();
                     currentSchoolId = currentUser.escolaId;
+
+                    // IMPORTANTE: Capturar o nome do tutor
+                    tutorName = currentUser.nome || currentUser.name;
+                    console.log('Nome do tutor capturado:', tutorName);
+
+                    // Exibir informações do usuário
+                    document.getElementById('userFullName').textContent = tutorName;
 
                     // Adicionar estas linhas para debug e salvamento
                     console.log('User info loaded:', currentUser);
@@ -699,35 +707,61 @@
             try {
                 const accessToken = localStorage.getItem('access_token');
                 
-                // Verificar se temos as informações do usuário
-                if (!currentUser || !currentUser.id) {
-                    console.error('Informações do usuário não disponíveis');
-                    showAlert('Erro: Informações do usuário não disponíveis', 'error');
+                // Verificação estrita - sem fallbacks
+                if (!tutorName) {
+                    console.error('ERRO CRÍTICO: tutorName não está definido');
+                    showAlert('Erro: Nome do tutor não disponível', 'error');
                     return;
                 }
                 
-                // Usar o ID do tutor ao invés do email
-                const tutorId = currentUser.id;
-                console.log('Carregando alunos do tutor ID:', tutorId);
+                console.log('Carregando alunos do tutor:', tutorName);
                 
-                const response = await fetch(`${BACKEND_URL}/api/tutores/${tutorId}/alunos`, {
+                // Usar o nome do tutor na URL
+                const response = await fetch(`${BACKEND_URL}/api/tutores/${encodeURIComponent(tutorName)}/alunos`, {
                     headers: {
-                        'Authorization': `Bearer ${accessToken}`
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
                     }
                 });
 
                 if (response.ok) {
-                    students = await response.json();
-                    console.log('Alunos carregados:', students);
+                    const data = await response.json();
+                    console.log('Resposta da API:', data);
+                    
+                    // Processar a resposta baseado na estrutura retornada
+                    if (Array.isArray(data)) {
+                        students = data;
+                    } else if (data.alunos && Array.isArray(data.alunos)) {
+                        students = data.alunos;
+                    } else if (data.content && Array.isArray(data.content)) {
+                        students = data.content;
+                    } else {
+                        students = [];
+                        console.warn('Formato de resposta não reconhecido:', data);
+                    }
+                    
+                    console.log(`Total de alunos carregados: ${students.length}`);
+                    
+                    // Renderizar os alunos
                     renderStudents();
                     updateStatistics();
+                    
                 } else {
-                    console.error('Failed to load students:', response.status);
-                    showAlert('Erro ao carregar alunos', 'error');
+                    const errorText = await response.text();
+                    console.error(`Erro HTTP ${response.status}:`, errorText);
+                    
+                    if (response.status === 404) {
+                        showAlert('Tutor não encontrado', 'error');
+                    } else if (response.status === 401) {
+                        showAlert('Sessão expirada. Faça login novamente', 'error');
+                        setTimeout(() => logout(), 2000);
+                    } else {
+                        showAlert(`Erro ao carregar alunos: ${response.status}`, 'error');
+                    }
                 }
             } catch (error) {
-                console.error('Error loading students:', error);
-                showAlert('Erro ao carregar alunos', 'error');
+                console.error('Erro ao carregar alunos:', error);
+                showAlert('Erro ao carregar alunos. Verifique sua conexão.', 'error');
             }
         }
 
