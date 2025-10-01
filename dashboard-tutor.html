@@ -699,7 +699,7 @@
 
     // ========== FUNÇÕES DE REGISTRO DE ENTRADA/SAÍDA ==========
 
-    // ✅ FUNÇÃO registrarEntrada - ATUALIZADA
+    // ✅ FUNÇÃO registrarEntrada - COM MELHOR TRATAMENTO DE ERRO
     async function registrarEntrada(alunoId, responsavelId, responsavelNome, responsavelTipo) {
         try {
             console.log('🚀 Iniciando registro de entrada...');
@@ -748,7 +748,20 @@
             if (!response.ok) {
                 const errorText = await response.text();
                 console.error('❌ Erro na resposta:', errorText);
-                throw new Error(`Erro ${response.status}: ${errorText || 'Falha no registro'}`);
+                
+                // ✅ TRATAMENTO ESPECÍFICO PARA ERRO DE PERMISSÃO
+                let errorMessage = `Erro ${response.status}: ${errorText || 'Falha no registro'}`;
+                
+                try {
+                    const errorData = JSON.parse(errorText);
+                    if (errorData.mensagem && errorData.mensagem.includes('Tutor não pode operar em nome de outro tutor')) {
+                        errorMessage = '❌ Erro de permissão: Você só pode registrar presença para alunos vinculados a você.';
+                    }
+                } catch (e) {
+                    // Mantém a mensagem original se não for JSON
+                }
+                
+                throw new Error(errorMessage);
             }
 
             const result = await response.json();
@@ -1019,6 +1032,14 @@
         if (!alunoId) {
             console.error('❌ alunoId não definido');
             alert('Erro: Aluno não identificado.');
+            return;
+        }
+        
+        // ✅ NOVA VERIFICAÇÃO: Verificar se o aluno pertence ao tutor
+        const aluno = students.find(s => s.id === alunoId);
+        if (!aluno) {
+            console.error('❌ Aluno não encontrado na lista do tutor');
+            alert('Erro: Aluno não encontrado ou não vinculado a você.');
             return;
         }
         
