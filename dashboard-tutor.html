@@ -699,7 +699,7 @@
 
     // ========== FUNÇÕES DE REGISTRO DE ENTRADA/SAÍDA ==========
 
-    // ✅ FUNÇÃO registrarEntrada - USANDO ID REAL DA API
+    // ✅ FUNÇÃO registrarEntrada - COM ID REAL
     async function registrarEntrada(alunoId, responsavelId, responsavelNome, responsavelTipo) {
         try {
             console.log('🚀 Iniciando registro de entrada...');
@@ -722,20 +722,17 @@
             // Verificar geofence
             await ensureGeofence(coords.latitude, coords.longitude);
 
-            // ✅ USAR O ID REAL QUE VEIO DA API
+            // ✅ ESTRUTURA IDÊNTICA AO POSTMAN COM IDS REAIS
             const requestData = {
                 alunoId: alunoId,
-                responsavelId: responsavelId, // ✅ ID REAL do usuário
-                responsavelNome: responsavelNome,
-                responsavelTipo: responsavelTipo,
+                responsavelId: responsavelId, // ✅ ID REAL do usuário (ex: 1)
+                responsavelNome: responsavelNome, // ✅ "Maria"
+                responsavelTipo: responsavelTipo, // ✅ "TUTOR"
                 latitude: coords.latitude,
                 longitude: coords.longitude
             };
 
-            // ✅ DEBUG: Verificar estrutura
-            debugRequestStructure(requestData, '/api/presencas/entrada');
-
-            console.log('📤 Enviando dados para API:', requestData);
+            console.log('📤 Estrutura final da requisição:', JSON.stringify(requestData, null, 2));
 
             const accessToken = localStorage.getItem('access_token');
             const response = await fetch(`${BACKEND_URL}/api/presencas/entrada`, {
@@ -759,11 +756,6 @@
                     const errorData = JSON.parse(errorText);
                     if (errorData.mensagem) {
                         errorMessage = errorData.mensagem;
-                        
-                        // ✅ TRATAMENTO ESPECÍFICO PARA O ERRO DE TUTOR
-                        if (errorData.mensagem.includes('Tutor não pode operar em nome de outro tutor')) {
-                            errorMessage = '❌ Erro de permissão: Você só pode registrar presença para alunos vinculados a você. Verifique se o aluno está correto.';
-                        }
                     }
                 } catch (e) {
                     // Mantém a mensagem original se não for JSON
@@ -913,36 +905,37 @@
         }
     }
 
-    // ✅ FUNÇÃO: Debug da estrutura da requisição
+    // ✅ FUNÇÃO: Debug detalhado da requisição
     function debugRequestStructure(requestData, endpoint) {
-        console.log('🔍 DEBUG DA REQUISIÇÃO:');
-        console.log('Endpoint:', endpoint);
+        console.log('🔍 ========== DEBUG DA REQUISIÇÃO ==========');
+        console.log('Endpoint:', `${BACKEND_URL}${endpoint}`);
         console.log('Método: POST');
-        console.log('Estrutura do Body:');
+        console.log('Headers: Authorization: Bearer [token], Content-Type: application/json');
+        console.log('Body (JSON):', JSON.stringify(requestData, null, 2));
+        
+        console.log('📊 COMPARAÇÃO COM POSTMAN:');
+        console.log('✅ Deve ser igual ao que funciona no Postman:');
+        console.log(`{
+            "alunoId": 1,
+            "responsavelNome": "Maria",
+            "responsavelTipo": "TUTOR", 
+            "responsavelId": 1,
+            "latitude": -23.55052,
+            "longitude": -46.633309
+            }`);
+        
+        console.log('🔄 NOSSA REQUISIÇÃO:');
         console.log(JSON.stringify(requestData, null, 2));
-        console.log('Campos presentes:');
-        Object.keys(requestData).forEach(key => {
-            console.log(`- ${key}: ${requestData[key]} (tipo: ${typeof requestData[key]})`);
+        
+        // Verificação campo a campo
+        console.log('✅ VERIFICAÇÃO DOS CAMPOS:');
+        const campos = ['alunoId', 'responsavelId', 'responsavelNome', 'responsavelTipo', 'latitude', 'longitude'];
+        campos.forEach(campo => {
+            const valor = requestData[campo];
+            console.log(`- ${campo}: ${valor} (tipo: ${typeof valor})`);
         });
         
-        // Estrutura esperada baseada no Postman (apenas para referência)
-        const expectedStructure = {
-            "alunoId": "number",
-            "responsavelNome": "string", 
-            "responsavelTipo": "string",
-            "responsavelId": "number",
-            "latitude": "number",
-            "longitude": "number"
-        };
-        
-        console.log('🔄 VERIFICAÇÃO DE TIPOS:');
-        Object.keys(expectedStructure).forEach(key => {
-            const expectedType = expectedStructure[key];
-            const actualValue = requestData[key];
-            const actualType = typeof actualValue;
-            const match = expectedType === actualType ? '✅' : '❌';
-            console.log(`${match} ${key}: Esperado=${expectedType}, Enviado=${actualType} (valor: ${actualValue})`);
-        });
+        console.log('🔚 ========== FIM DEBUG ==========');
     }
 
     // ✅ FUNÇÃO ensureGeofence - ATUALIZADA
@@ -1109,48 +1102,7 @@
         executarRegistro(action, alunoId);
     }
 
-    async function executarRegistro(action, alunoId) {
-        console.log('=== EXECUTAR REGISTRO ===');
-        console.log('action:', action);
-        console.log('alunoId:', alunoId);
-        console.log('currentUser:', currentUser);
-        
-        // Verificações de segurança
-        if (!currentUser || !currentUser.id) {
-            console.error('❌ currentUser não disponível');
-            alert('Erro: Usuário não autenticado. Recarregue a página.');
-            return;
-        }
-        
-        if (!alunoId) {
-            console.error('❌ alunoId não definido');
-            alert('Erro: Aluno não identificado.');
-            return;
-        }
-        
-        // ✅ VERIFICAÇÃO DE PERMISSÃO
-        const temPermissao = await verificarPermissaoAluno(alunoId, currentUser.id);
-        if (!temPermissao) {
-            alert('❌ Erro: Você não tem permissão para registrar presença para este aluno.');
-            return;
-        }
-        
-        const responsavelId = currentUser.id; // ✅ ID REAL da API
-        const responsavelNome = currentUser.nome;
-        const responsavelTipo = currentUser.roles[0].replace('ROLE_', '');
-        
-        console.log(`🎯 Registrando ${action} para aluno ${alunoId} por ${responsavelNome} (ID: ${responsavelId}, Tipo: ${responsavelTipo})`);
-        
-        // Chamar as funções de registro
-        if (action === 'entrada') {
-            registrarEntrada(alunoId, responsavelId, responsavelNome, responsavelTipo);
-        } else if (action === 'saida') {
-            registrarSaida(alunoId, responsavelId, responsavelNome, responsavelTipo);
-        } else {
-            console.error('❌ Ação desconhecida:', action);
-            alert('Ação desconhecida: ' + action);
-        }
-    }
+    
 
     // Função auxiliar para obter alunoId do contexto
     function obterAlunoIdDoContexto() {
@@ -1724,7 +1676,7 @@
             }
         }
         
-        // Carregar informações do usuário
+        // ✅ CORRIGIR: Garantir que tutorName usa o nome correto da API
         async function loadUserInfo() {
             try {
                 const accessToken = localStorage.getItem('access_token');
@@ -1741,10 +1693,15 @@
                     
                     console.log('✅ Dados do usuário da API:', userData);
                     
+                    // ✅ CORREÇÃO IMPORTANTE: Usar o nome exato que vem da API
+                    tutorName = userData.nome; // "Maria" (exatamente como está na API)
+                    
                     // Atualizar UI com informações do usuário
                     userFullName.textContent = userData.nome || 'Tutor';
                     userName.textContent = userData.email || 'Usuário';
                     userAvatar.textContent = userData.nome ? userData.nome.charAt(0).toUpperCase() : 'U';
+                    
+                    console.log(`✅ Tutor name definido como: "${tutorName}"`);
                     
                 } else {
                     console.error('Erro na resposta /api/users/me:', response.status, response.statusText);
@@ -1756,7 +1713,7 @@
             }
         }
 
-        // Carregar alunos vinculados ao tutor - VERSÃO CORRIGIDA
+        // Carregar alunos vinculados ao tutor - VERSÃO CORRIGIDA COM ESTRUTURA REAL
         async function loadStudents() {
             try {
                 const accessToken = localStorage.getItem('access_token');
@@ -1781,113 +1738,42 @@
                 const data = await response.json();
                 console.log('✅ Resposta completa da API:', data);
                 
-                // DEBUG: Verificar estrutura completa
-                console.log('🔍 Estrutura da resposta:');
-                console.log('- Tipo:', typeof data);
-                console.log('- É array?', Array.isArray(data));
-                console.log('- Keys do objeto:', data ? Object.keys(data) : 'N/A');
-                
-                // EXTRAIR ALUNOS CORRETAMENTE
-                let alunosData = [];
-                
-                // CASO 1: Se a resposta tem propriedade 'alunos' que é um array
-                if (data.alunos && Array.isArray(data.alunos)) {
-                    console.log('📁 Encontrado data.alunos com', data.alunos.length, 'alunos');
-                    alunosData = data.alunos;
-                }
-                // CASO 2: Se a resposta é um array diretamente
-                else if (Array.isArray(data)) {
-                    console.log('📁 Resposta é array com', data.length, 'itens');
-                    alunosData = data;
-                }
-                // CASO 3: Se a resposta tem propriedade 'content' (paginação)
-                else if (data.content && Array.isArray(data.content)) {
-                    console.log('📁 Encontrado data.content com', data.content.length, 'alunos');
-                    alunosData = data.content;
-                }
-                // CASO 4: Se a resposta é um objeto de tutor com alunos aninhados
-                else if (data.alunosVinculados && Array.isArray(data.alunosVinculados)) {
-                    console.log('📁 Encontrado data.alunosVinculados com', data.alunosVinculados.length, 'alunos');
-                    alunosData = data.alunosVinculados;
-                }
-                // CASO 5: Buscar em qualquer propriedade array que contenha objetos com 'nome'
-                else {
-                    console.log('🔍 Procurando alunos em outras propriedades...');
-                    for (let key in data) {
-                        if (Array.isArray(data[key])) {
-                            console.log(`- Propriedade "${key}":`, data[key].length, 'itens');
-                            if (data[key].length > 0 && data[key][0].nome) {
-                                console.log(`✅ Encontrado alunos em "${key}"`);
-                                alunosData = data[key];
-                                break;
-                            }
-                        }
-                    }
-                }
-                
-                // SE NENHUM ALUNO FOI ENCONTRADO, TENTAR ESTRUTURAS ALTERNATIVAS
-                if (alunosData.length === 0) {
-                    console.log('🔍 Nenhum array de alunos encontrado, verificando estruturas alternativas...');
+                // ✅ CORREÇÃO: ESTRUTURA REAL DA API
+                // A resposta é um objeto tutor com propriedade "alunos" que é um array
+                if (data && data.alunos && Array.isArray(data.alunos)) {
+                    console.log(`🎯 Encontrado tutor ${data.nome} com ${data.alunos.length} aluno(s)`);
                     
-                    // Tentar estrutura onde os alunos estão em propriedades individuais
-                    if (data.aluno1 || data.aluno2) {
-                        console.log('📁 Encontrado alunos em propriedades individuais');
-                        for (let key in data) {
-                            if (key.startsWith('aluno') && data[key] && data[key].nome) {
-                                alunosData.push(data[key]);
-                            }
-                        }
-                    }
+                    // Processar os alunos da estrutura real
+                    students = data.alunos.map(aluno => {
+                        console.log('👤 Aluno:', aluno);
+                        return {
+                            id: aluno.id,
+                            nome: aluno.nome,
+                            salaNome: aluno.salaNome,
+                            escolaId: aluno.escolaId,
+                            status: aluno.status || 'AUSENTE'
+                        };
+                    });
                     
-                    // Tentar estrutura com um único aluno diretamente no objeto
-                    if (data.nome && data.id) {
-                        console.log('📁 Resposta parece ser um único aluno');
-                        alunosData = [data]; // Tratar como array com um aluno
-                    }
-                }
-                
-                console.log(`📊 Total de alunos extraídos: ${alunosData.length}`);
-                
-                if (alunosData.length === 0) {
-                    console.warn('⚠️ Nenhum aluno encontrado na resposta');
-                    console.log('📋 Estrutura completa disponível para debug:', JSON.stringify(data, null, 2));
+                    console.log('✅ Alunos processados:', students);
                     
+                } else {
+                    console.error('❌ Estrutura inesperada da API');
+                    console.log('Estrutura recebida:', data);
                     students = [];
-                    renderStudents();
-                    updatePresenceSummary();
-                    showAlert('Nenhum aluno vinculado encontrado na resposta.', 'info');
-                    return;
                 }
-                
-                // PROCESSAR CADA ALUNO
-                const alunosBase = alunosData.map((aluno, index) => {
-                    console.log(`👤 Aluno ${index + 1}:`, aluno);
-                    
-                    return {
-                        id: aluno.id || index + 1,
-                        nome: aluno.nome || `Aluno ${index + 1}`,
-                        salaNome: aluno.salaNome || aluno.sala || aluno.turma || 'Sala não informada',
-                        escolaId: aluno.escolaId || aluno.escola?.id, // ✅ ADICIONE ESTA LINHA
-                        status: aluno.status || 'AUSENTE'
-                    };
-                });
-                
-                console.log(`🎯 ${alunosBase.length} alunos processados:`, alunosBase);
-                
-                // VERIFICAR STATUS
-                students = await checkAllStudentsStatus(alunosBase);
-                
-                console.log('✅ Alunos finais:', students);
                 
                 renderStudents();
                 updatePresenceSummary();
+                updateLastUpdateIndicator();
                 
             } catch (error) {
                 console.error('❌ Erro ao carregar alunos:', error);
                 showAlert('Erro ao carregar lista de alunos: ' + error.message, 'error');
+                students = [];
+                renderStudents();
+                updatePresenceSummary();
             }
-
-
         }
 
         // Função de debug para ver a estrutura exata
