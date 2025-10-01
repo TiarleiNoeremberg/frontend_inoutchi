@@ -719,13 +719,24 @@
             console.log('=== DADOS DA REQUISIÇÃO ===');
             console.log('Dados do currentUser:', currentUser);
 
+            // ✅ VERIFICAÇÃO DE GEOFENCE OBRIGATÓRIA
+            console.log('📍 Verificando geofence...');
+            const dentroDaGeofence = await ensureGeofence(latitude, longitude);
             
+            if (!dentroDaGeofence) {
+                showAlert('Ação negada: você está fora da área permitida da escola.', 'error');
+                closeModal();
+                return;
+            }
+
+            console.log('✅ Dentro da geofence, procedendo com registro...');
+
             // Preparar dados para a requisição
             const requestData = {
                 alunoId: selectedStudentId,
                 responsavelNome: currentUser.nome,
                 responsavelTipo: 'TUTOR',
-                responsavelId: responsavelId,
+                responsavelId: currentUser.id,
                 latitude: latitude,
                 longitude: longitude
             };
@@ -734,18 +745,6 @@
 
             // Usar endpoints permitidos
             const endpoint = actionType === 'entrada' ? 'entrada' : 'saida';
-
-            /*
-            // BLOQUEIO: negar SAÍDA se estiver fora da geofence (igual ao comportamento da Entrada)
-            if (endpoint === 'saida') {
-                const dentroDaGeofence = await ensureGeofence(latitude, longitude);
-                if (!dentroDaGeofence) {
-                    showAlert('Saída negada: você está fora da área geofence da escola.', 'error');
-                    closeModal(); // fecha o modal imediatamente
-                    return;       // não envia requisição ao backend
-                }
-            }
-            */
 
             const response = await fetch(`${BACKEND_URL}/api/presencas/${endpoint}`, {
                 method: 'POST',
@@ -764,14 +763,7 @@
                 // ATUALIZAÇÃO IMEDIATA APÓS AÇÃO
                 console.log('🔄 Atualizando dados após ação...');
                 await refreshStudentsData();
-
-                // NOVO: Atualizar status real imediatamente
                 await updateStudentsStatusFromHistory();
-                
-                // Se há um aluno selecionado, atualizar também o histórico
-                if (selectedStudentId) {
-                    await loadHistory(selectedStudentId);
-                }
                 
             } else {
                 const errorText = await response.text();
@@ -789,14 +781,105 @@
             }
             
         } catch (error) {
-            closeModal();
             console.error(`Erro ao registrar ${actionType}:`, error);
-            // Fechar o modal automaticamente em caso de negação (ex.: geofence) ou erro de rede
-            closeModal();
             showAlert(`Erro ao registrar ${actionType}: ${error.message}`, 'error');
             closeModal();
         }
     };
+
+    // ✅ FUNÇÃO ensureGeofence COM ENDPOINT REAL
+    async function ensureGeofence(latitude, longitude) {
+        try {
+            console.log('📍 Verificando geofence para coordenadas:', { latitude, longitude });
+            
+            const accessToken = localStorage.getItem('access_token');
+            
+            // Primeiro, precisamos obter o escolaId do aluno selecionado
+            const aluno = students.find(s => s.id === selectedStudentId);
+            if (!aluno) {
+                throw new Error('Aluno não encontrado');
+            }
+            
+            // Supondo que o aluno tenha escolaId - ajuste conforme sua estrutura
+            const escolaId = aluno.escolaId || 1; // ✅ Use o escolaId real do aluno
+            
+            console.log('🏫 Verificando geofence para escola:', escolaId);
+            
+            const response = await fetch(
+                `${BACKEND_URL}/api/geofences/verificar/${escolaId}?` + 
+                `latitude=${latitude}&` +
+                `longitude=${longitude}&` +
+                `tipo=${actionType.toUpperCase()}`, // ENTRADA ou SAIDA
+                {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+
+            if (!response.ok) {
+                throw new Error(`Erro ${response.status} ao verificar geofence`);
+            }
+
+            const dentroDaGeofence = await response.json();
+            console.log('📍 Resultado da verificação de geofence:', dentroDaGeofence);
+            
+            if (dentroDaGeofence) {
+                return true;
+            } else {
+                throw new Error('Fora da área permitida da escola');
+            }
+            
+        } catch (error) {
+            console.error('❌ Erro na verificação de geofence:', error);
+            throw error;
+        }
+    }
+
+    // Função para buscar escolaId do aluno usando seu endpoint existente
+    async function getEscolaIdFromAluno(alunoId) {
+        try {
+            // Primeiro, precisamos do nome do aluno para usar seu endpoint
+            // Se você não tem o nome, precisaremos de outro endpoint
+            const alunoResponse = await fetch(`/api/alunos/${alunoId}`);
+            
+            if (!alunoResponse.ok) {
+                throw new Error('Erro ao buscar dados do aluno');
+            }
+            
+            const aluno = await alunoResponse.json();
+            const alunoNome = aluno.nome; // Supondo que o aluno tem campo 'nome'
+            
+            // Usar seu endpoint existente para buscar dados completos
+            const response = await fetch(`/api/alunos/${alunoNome}/tutores`);
+            
+            if (!response.ok) {
+                throw new Error('Erro ao buscar dados completos do aluno');
+            }
+            
+            const alunoCompleto = await response.json();
+            
+            // Agora precisamos ver a estrutura do AlunoDetalheDTO
+            console.log('Dados completos do aluno:', alunoCompleto);
+            
+            // Supondo que a estrutura seja algo como:
+            // { id: 1, nome: "Aluno", escola: { id: 1, nome: "Escola" } }
+            if (alunoCompleto.escola && alunoCompleto.escola.id) {
+                return alunoCompleto.escola.id;
+            } else {
+                throw new Error('Escola não encontrada para o aluno');
+            }
+            
+        } catch (error) {
+            console.error('Erro ao buscar escolaId:', error);
+            throw error;
+        }
+    }
+
+
+
 
     // Fechar modal - FUNÇÃO GLOBAL
     window.closeModal = function() {
@@ -1459,6 +1542,7 @@
                         id: aluno.id || index + 1,
                         nome: aluno.nome || `Aluno ${index + 1}`,
                         salaNome: aluno.salaNome || aluno.sala || aluno.turma || 'Sala não informada',
+                        escolaId: aluno.escolaId || aluno.escola?.id || 1, // ✅ ADICIONE ESTA LINHA
                         status: aluno.status || 'AUSENTE'
                     };
                 });
@@ -1477,6 +1561,8 @@
                 console.error('❌ Erro ao carregar alunos:', error);
                 showAlert('Erro ao carregar lista de alunos: ' + error.message, 'error');
             }
+
+
         }
 
         // Função de debug para ver a estrutura exata
@@ -1537,21 +1623,6 @@
             `;
         }
 
-        /*
-        // Carregar dados de exemplo (fallback)
-        function loadExampleStudents() {
-            students = [
-                { id: 1, nome: 'João Silva', salaNome: '1º Ano A', status: 'PRESENTE' },
-                { id: 2, nome: 'Maria Santos', salaNome: '1º Ano A', status: 'AUSENTE' },
-                { id: 3, nome: 'Pedro Costa', salaNome: '2º Ano B', status: 'PRESENTE' },
-                { id: 4, nome: 'Ana Oliveira', salaNome: '1º Ano A', status: 'AUSENTE' },
-                { id: 5, nome: 'Carlos Souza', salaNome: '2º Ano B', status: 'PRESENTE' }
-            ];
-            renderStudents();
-            updatePresenceSummary();
-            showAlert('Usando dados de exemplo devido a erro no servidor.', 'error');
-        }
-        */
 
         // Renderizar lista de alunos - VERSÃO MELHORADA
         function renderStudents() {
