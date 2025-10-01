@@ -1018,98 +1018,6 @@
 
     // ========== PATCH DE EMERGÊNCIA - INTERCEPTAR CHAMADAS INCORRETAS ========== 
     
-    // ✅ FUNÇÃO executarRegistro - DEVE SER GLOBAL
-    window.executarRegistro = function(action, alunoId) {
-        console.log('=== EXECUTAR REGISTRO ===');
-        console.log('action:', action);
-        console.log('alunoId:', alunoId);
-        console.log('currentUser:', currentUser);
-        
-        // Verificações de segurança
-        if (!currentUser || !currentUser.id) {
-            console.error('❌ currentUser não disponível');
-            alert('Erro: Usuário não autenticado. Recarregue a página.');
-            return;
-        }
-        
-        if (!alunoId) {
-            console.error('❌ alunoId não definido');
-            alert('Erro: Aluno não identificado.');
-            return;
-        }
-        
-        // ✅ VERIFICAÇÃO SIMPLES: O aluno está na lista carregada?
-        const aluno = students.find(s => s.id === alunoId);
-        if (!aluno) {
-            console.error('❌ Aluno não encontrado na lista do tutor');
-            alert('Erro: Aluno não encontrado ou não vinculado a você.');
-            return;
-        }
-        
-        const responsavelId = currentUser.id; // ✅ ID REAL da API
-        const responsavelNome = currentUser.nome;
-        const responsavelTipo = currentUser.roles[0].replace('ROLE_', '');
-        
-        console.log(`🎯 Registrando ${action} para aluno ${alunoId} por ${responsavelNome} (ID: ${responsavelId}, Tipo: ${responsavelTipo})`);
-        console.log(`📚 Aluno: ${aluno.nome} da escola ${aluno.escolaId}`);
-        
-        // Chamar as funções de registro
-        if (action === 'entrada') {
-            registrarEntrada(alunoId, responsavelId, responsavelNome, responsavelTipo);
-        } else if (action === 'saida') {
-            registrarSaida(alunoId, responsavelId, responsavelNome, responsavelTipo);
-        } else {
-            console.error('❌ Ação desconhecida:', action);
-            alert('Ação desconhecida: ' + action);
-        }
-    };
-
-    // Confirmar ação (entrada/saída) - ATUALIZADA
-    function confirmAction(action, alunoId, event) {
-        console.log('=== confirmAction CHAMADA ===');
-        console.log('Número de argumentos:', arguments.length);
-        console.log('Argumentos:', { action, alunoId, event });
-    
-        // DETECTAR E CORRIGIR CHAMADA INCORRETA
-        if (arguments.length === 1 && action instanceof Event) {
-            console.warn('⚠️ CHAMADA INCORRETA DETECTADA - Corrigindo automaticamente');
-            
-            const button = action.target;
-            const buttonText = button.textContent.toLowerCase();
-            
-            // Detectar ação pelo texto do botão
-            let acaoCorrigida = 'entrada';
-            if (buttonText.includes('saída') || buttonText.includes('saida')) {
-                acaoCorrigida = 'saida';
-            }
-            
-            // Usar o aluno ID 1 (Ana Silva) como fallback
-            const alunoIdCorrigido = 1;
-            
-            console.log(`🔧 CORREÇÃO: ${acaoCorrigida} para aluno ${alunoIdCorrigido}`);
-            
-            // Chamar a lógica principal com parâmetros corrigidos
-            executarRegistro(acaoCorrigida, alunoIdCorrigido);
-            return;
-        }
-        
-        // Se já veio com parâmetros (mesmo que undefined)
-        if (!alunoId) {
-            console.warn('⚠️ alunoId está undefined - usando fallback');
-            alunoId = 1; // Fallback para Ana Silva
-        }
-        
-        if (!action) {
-            console.warn('⚠️ action está undefined - usando entrada como padrão');
-            action = 'entrada';
-        }
-        
-        console.log(`✅ Executando: ${action} para aluno ${alunoId}`);
-        executarRegistro(action, alunoId);
-    }
-
-    
-
     // Função auxiliar para obter alunoId do contexto
     function obterAlunoIdDoContexto() {
         // Tenta obter do primeiro aluno da lista (já que você só tem 1 aluno)
@@ -1182,7 +1090,28 @@
         window.location.href = 'index.html';
     };
 
-    // Abrir modal para registrar entrada/saída - FUNÇÃO CORRIGIDA
+    // ✅ DEBUG: Encontrar onde confirmAction ainda está sendo chamada
+    function findConfirmActionCalls() {
+        console.log('🔍 Buscando chamadas remanescentes de confirmAction...');
+        
+        // Verificar botões com onclick
+        const buttons = document.querySelectorAll('button[onclick*="confirmAction"]');
+        console.log(`❌ Encontrados ${buttons.length} botões com confirmAction:`);
+        
+        buttons.forEach((button, index) => {
+            console.log(`Botão ${index + 1}:`, button.outerHTML);
+            console.log('onclick:', button.getAttribute('onclick'));
+        });
+        
+        if (buttons.length > 0) {
+            console.log('⚠️ REMOVA o onclick dos botões acima!');
+        }
+    }
+
+    // Executar após a página carregar
+    setTimeout(findConfirmActionCalls, 3000);
+
+    // ✅ Esta função deve existir e configurar o botão corretamente
     window.openActionModal = function(studentId, type, studentName) {
         selectedStudentId = studentId;
         actionType = type;
@@ -1194,13 +1123,9 @@
         // Resetar estado da localização
         resetLocationState();
         
-        // ✅ CORREÇÃO: Configurar o botão de confirmação CORRETAMENTE
+        // ✅ CONFIGURAR O BOTÃO CORRETAMENTE
         if (confirmActionBtn) {
-            // Remover event listeners anteriores
-            confirmActionBtn.replaceWith(confirmActionBtn.cloneNode(true));
-            confirmActionBtn = document.getElementById('confirmActionBtn');
-            
-            // Configurar novo event listener
+            // Configurar o event listener do botão Confirmar
             confirmActionBtn.onclick = function() {
                 if (!currentUser || !currentUser.id) {
                     showAlert('Erro: Usuário não autenticado', 'error');
@@ -1212,7 +1137,12 @@
                 const responsavelTipo = currentUser.roles[0].replace('ROLE_', '');
                 
                 console.log(`🎯 Registrando ${type} para aluno ${studentId}`);
-                console.log(`👤 Responsável: ${responsavelNome} (ID: ${responsavelId}, Tipo: ${responsavelTipo})`);
+                console.log(`📋 Dados:`, { 
+                    alunoId: studentId, 
+                    responsavelId, 
+                    responsavelNome, 
+                    responsavelTipo 
+                });
                 
                 if (type === 'entrada') {
                     registrarEntrada(studentId, responsavelId, responsavelNome, responsavelTipo);
@@ -1230,7 +1160,7 @@
         // Mostrar modal
         if (actionModal) actionModal.style.display = 'flex';
         
-        // Tentar obter localização automaticamente ao abrir o modal
+        // Tentar obter localização automaticamente
         setTimeout(() => {
             getCurrentLocation();
         }, 500);
