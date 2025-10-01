@@ -417,6 +417,8 @@
         let isWithinGeofence = false;
         let tutorName = null;
         let currentUserId = null;
+        let latitude = undefined;
+        let longitude = undefined;
 
         // ========== INITIALIZATION ==========
         async function initializeDashboard() {
@@ -458,17 +460,17 @@
                     currentUser = await response.json();
                     
                     // IMPORTANTE: Garantir que currentSchoolId NUNCA seja undefined
-                    currentSchoolId = currentUser.escolaId || currentUser.schoolId || 1;
-                    
+                    currentSchoolId = currentUser.escolaId;
+                    tutorName = currentUser.nome || currentUser.name;
+                    console.log('Nome do tutor capturado:', tutorName);
                     // Log para debug
                     console.log('currentUser recebido:', currentUser);
                     console.log('currentSchoolId definido como:', currentSchoolId);
-
-                    currentSchoolId = currentUser.escolaId;
+                    // IMPORTANTE: O currentUser já tem o ID
+                    console.log('User ID:', currentUser.id);
 
                     // IMPORTANTE: Capturar o nome do tutor
-                    tutorName = currentUser.nome || currentUser.name;
-                    console.log('Nome do tutor capturado:', tutorName);
+                    
 
                     // Exibir informações do usuário
                     document.getElementById('userFullName').textContent = tutorName;
@@ -591,31 +593,30 @@
             }
 
             showLocationLoading();
-
+            
             navigator.geolocation.getCurrentPosition(
                 (position) => {
+                    // CRUCIAL: Definir as variáveis globais
+                    latitude = position.coords.latitude;
+                    longitude = position.coords.longitude;
+                    
                     currentLocation = {
-                        latitude: position.coords.latitude,
-                        longitude: position.coords.longitude
+                        latitude: latitude,
+                        longitude: longitude
                     };
 
                     showLocationSuccess(currentLocation);
 
-                    // Validate with geofences
-                    const validations = validateLocationWithGeofences(
-                        currentLocation.latitude,
-                        currentLocation.longitude
-                    );
-
+                    // Validação com geofences
+                    const validations = validateLocationWithGeofences(latitude, longitude);
                     showGeofenceValidation(validations);
 
-                    // Check if location is valid for the action type
                     isWithinGeofence = validations.some(v => 
                         v.valido && 
                         (actionType === 'entrada' ? v.tipo !== 'SAIDA' : v.tipo !== 'ENTRADA')
                     );
 
-                    // Enable/disable confirm button based on validation
+                    // Habilitar botão se localização válida
                     const confirmBtn = document.getElementById('confirmActionBtn');
                     confirmBtn.disabled = !isWithinGeofence;
 
@@ -626,6 +627,8 @@
                 (error) => {
                     showLocationError(getLocationErrorMessage(error));
                     currentLocation = null;
+                    latitude = undefined;  // Resetar
+                    longitude = undefined;  // Resetar
                     isWithinGeofence = false;
                 },
                 {
@@ -866,6 +869,8 @@
         }
 
         function resetLocationState() {
+            latitude = undefined;
+            longitude = undefined;
             document.getElementById('locationStatus').style.display = 'none';
             document.getElementById('coordinatesDisplay').style.display = 'none';
             document.getElementById('geofenceResults').style.display = 'none';
@@ -876,8 +881,19 @@
 
         // ========== ACTION CONFIRMATION ==========
         async function confirmAction() {
-            if (!selectedStudentId || !actionType || !currentLocation || !isWithinGeofence) {
-                showAlert('Dados incompletos ou localização inválida', 'error');
+            if (!selectedStudentId || !actionType) {
+                showAlert('Dados incompletos', 'error');
+                return;
+            }
+            
+            // VALIDAÇÃO DAS COORDENADAS GLOBAIS
+            if (typeof latitude === 'undefined' || typeof longitude === 'undefined') {
+                showAlert('Localização não disponível. Obtenha a localização primeiro.', 'error');
+                return;
+            }
+            
+            if (!isWithinGeofence) {
+                showAlert('Você está fora do perímetro permitido', 'error');
                 return;
             }
 
@@ -887,12 +903,14 @@
 
                 const requestData = {
                     alunoId: selectedStudentId,
-                    responsavelNome: currentUser.nome,
+                    responsavelNome: tutorName || currentUser.nome,
                     responsavelTipo: 'TUTOR',
                     responsavelId: currentUser.id || 1,
-                    latitude: currentLocation.latitude,
-                    longitude: currentLocation.longitude
+                    latitude: latitude,      // Usar variável global
+                    longitude: longitude      // Usar variável global
                 };
+
+                console.log('Enviando:', requestData);
 
                 const response = await fetch(`${BACKEND_URL}/api/presencas/${endpoint}`, {
                     method: 'POST',
@@ -904,15 +922,15 @@
                 });
 
                 if (response.ok) {
-                    showAlert(`${actionType === 'entrada' ? 'Entrada' : 'Saída'} registrada com sucesso!`, 'success');
+                    showAlert(`${actionType === 'entrada' ? 'Entrada' : 'Saída'} registrada!`, 'success');
                     closeModal();
                     await loadStudents();
                 } else {
                     const error = await response.text();
-                    throw new Error(error || 'Erro ao registrar ação');
+                    throw new Error(error || 'Erro ao registrar');
                 }
             } catch (error) {
-                console.error('Error confirming action:', error);
+                console.error('Erro:', error);
                 showAlert(`Erro: ${error.message}`, 'error');
             }
         }
