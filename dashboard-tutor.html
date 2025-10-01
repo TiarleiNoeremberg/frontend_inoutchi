@@ -699,10 +699,11 @@
 
     // ========== FUNÇÕES DE REGISTRO DE ENTRADA/SAÍDA ==========
 
-    // ✅ FUNÇÃO registrarEntrada - COM MELHOR TRATAMENTO DE ERRO
+    // ✅ FUNÇÃO registrarEntrada - USANDO ID REAL DA API
     async function registrarEntrada(alunoId, responsavelId, responsavelNome, responsavelTipo) {
         try {
             console.log('🚀 Iniciando registro de entrada...');
+            
             console.log('📋 Dados da requisição:', { 
                 alunoId, 
                 responsavelId, 
@@ -721,15 +722,18 @@
             // Verificar geofence
             await ensureGeofence(coords.latitude, coords.longitude);
 
-            // Preparar dados para a API
+            // ✅ USAR O ID REAL QUE VEIO DA API
             const requestData = {
                 alunoId: alunoId,
-                responsavelId: responsavelId,
+                responsavelId: responsavelId, // ✅ ID REAL do usuário
                 responsavelNome: responsavelNome,
                 responsavelTipo: responsavelTipo,
                 latitude: coords.latitude,
                 longitude: coords.longitude
             };
+
+            // ✅ DEBUG: Verificar estrutura
+            debugRequestStructure(requestData, '/api/presencas/entrada');
 
             console.log('📤 Enviando dados para API:', requestData);
 
@@ -749,13 +753,17 @@
                 const errorText = await response.text();
                 console.error('❌ Erro na resposta:', errorText);
                 
-                // ✅ TRATAMENTO ESPECÍFICO PARA ERRO DE PERMISSÃO
                 let errorMessage = `Erro ${response.status}: ${errorText || 'Falha no registro'}`;
                 
                 try {
                     const errorData = JSON.parse(errorText);
-                    if (errorData.mensagem && errorData.mensagem.includes('Tutor não pode operar em nome de outro tutor')) {
-                        errorMessage = '❌ Erro de permissão: Você só pode registrar presença para alunos vinculados a você.';
+                    if (errorData.mensagem) {
+                        errorMessage = errorData.mensagem;
+                        
+                        // ✅ TRATAMENTO ESPECÍFICO PARA O ERRO DE TUTOR
+                        if (errorData.mensagem.includes('Tutor não pode operar em nome de outro tutor')) {
+                            errorMessage = '❌ Erro de permissão: Você só pode registrar presença para alunos vinculados a você. Verifique se o aluno está correto.';
+                        }
                     }
                 } catch (e) {
                     // Mantém a mensagem original se não for JSON
@@ -782,10 +790,11 @@
         }
     }
 
-    // ✅ FUNÇÃO registrarSaida - ATUALIZADA
+    // ✅ FUNÇÃO registrarSaida - USANDO ID REAL DA API
     async function registrarSaida(alunoId, responsavelId, responsavelNome, responsavelTipo) {
         try {
             console.log('🚀 Iniciando registro de saída...');
+            
             console.log('📋 Dados da requisição:', { 
                 alunoId, 
                 responsavelId, 
@@ -804,15 +813,18 @@
             // Verificar geofence
             await ensureGeofence(coords.latitude, coords.longitude);
 
-            // Preparar dados para a API
+            // ✅ USAR O ID REAL QUE VEIO DA API
             const requestData = {
                 alunoId: alunoId,
-                responsavelId: responsavelId,
+                responsavelId: responsavelId, // ✅ ID REAL do usuário
                 responsavelNome: responsavelNome,
                 responsavelTipo: responsavelTipo,
                 latitude: coords.latitude,
                 longitude: coords.longitude
             };
+
+            // ✅ DEBUG: Verificar estrutura
+            debugRequestStructure(requestData, '/api/presencas/saida');
 
             console.log('📤 Enviando dados para API:', requestData);
 
@@ -831,7 +843,24 @@
             if (!response.ok) {
                 const errorText = await response.text();
                 console.error('❌ Erro na resposta:', errorText);
-                throw new Error(`Erro ${response.status}: ${errorText || 'Falha no registro'}`);
+                
+                let errorMessage = `Erro ${response.status}: ${errorText || 'Falha no registro'}`;
+                
+                try {
+                    const errorData = JSON.parse(errorText);
+                    if (errorData.mensagem) {
+                        errorMessage = errorData.mensagem;
+                        
+                        // ✅ TRATAMENTO ESPECÍFICO PARA O ERRO DE TUTOR
+                        if (errorData.mensagem.includes('Tutor não pode operar em nome de outro tutor')) {
+                            errorMessage = '❌ Erro de permissão: Você só pode registrar presença para alunos vinculados a você. Verifique se o aluno está correto.';
+                        }
+                    }
+                } catch (e) {
+                    // Mantém a mensagem original se não for JSON
+                }
+                
+                throw new Error(errorMessage);
             }
 
             const result = await response.json();
@@ -850,6 +879,70 @@
             console.error('❌ Erro no registro de saída:', error);
             showAlert(`Erro ao registrar saída: ${error.message}`, 'error');
         }
+    }
+
+    // ✅ NOVA FUNÇÃO: Verificar se o tutor tem permissão para o aluno
+    async function verificarPermissaoAluno(alunoId, tutorId) {
+        try {
+            console.log(`🔐 Verificando permissão: Tutor ${tutorId} pode acessar aluno ${alunoId}?`);
+            
+            const accessToken = localStorage.getItem('access_token');
+            const response = await fetch(`${BACKEND_URL}/api/tutores/${tutorId}/alunos`, {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                const alunos = await response.json();
+                
+                // Verificar se o aluno está na lista do tutor
+                const alunoPermitido = alunos.some(aluno => aluno.id === alunoId);
+                
+                console.log(`📋 Alunos do tutor:`, alunos);
+                console.log(`✅ Aluno ${alunoId} permitido? ${alunoPermitido}`);
+                
+                return alunoPermitido;
+            }
+            
+            return false;
+        } catch (error) {
+            console.error('Erro ao verificar permissão:', error);
+            return false;
+        }
+    }
+
+    // ✅ FUNÇÃO: Debug da estrutura da requisição
+    function debugRequestStructure(requestData, endpoint) {
+        console.log('🔍 DEBUG DA REQUISIÇÃO:');
+        console.log('Endpoint:', endpoint);
+        console.log('Método: POST');
+        console.log('Estrutura do Body:');
+        console.log(JSON.stringify(requestData, null, 2));
+        console.log('Campos presentes:');
+        Object.keys(requestData).forEach(key => {
+            console.log(`- ${key}: ${requestData[key]} (tipo: ${typeof requestData[key]})`);
+        });
+        
+        // Estrutura esperada baseada no Postman (apenas para referência)
+        const expectedStructure = {
+            "alunoId": "number",
+            "responsavelNome": "string", 
+            "responsavelTipo": "string",
+            "responsavelId": "number",
+            "latitude": "number",
+            "longitude": "number"
+        };
+        
+        console.log('🔄 VERIFICAÇÃO DE TIPOS:');
+        Object.keys(expectedStructure).forEach(key => {
+            const expectedType = expectedStructure[key];
+            const actualValue = requestData[key];
+            const actualType = typeof actualValue;
+            const match = expectedType === actualType ? '✅' : '❌';
+            console.log(`${match} ${key}: Esperado=${expectedType}, Enviado=${actualType} (valor: ${actualValue})`);
+        });
     }
 
     // ✅ FUNÇÃO ensureGeofence - ATUALIZADA
@@ -1016,7 +1109,7 @@
         executarRegistro(action, alunoId);
     }
 
-    function executarRegistro(action, alunoId) {
+    async function executarRegistro(action, alunoId) {
         console.log('=== EXECUTAR REGISTRO ===');
         console.log('action:', action);
         console.log('alunoId:', alunoId);
@@ -1035,19 +1128,18 @@
             return;
         }
         
-        // ✅ NOVA VERIFICAÇÃO: Verificar se o aluno pertence ao tutor
-        const aluno = students.find(s => s.id === alunoId);
-        if (!aluno) {
-            console.error('❌ Aluno não encontrado na lista do tutor');
-            alert('Erro: Aluno não encontrado ou não vinculado a você.');
+        // ✅ VERIFICAÇÃO DE PERMISSÃO
+        const temPermissao = await verificarPermissaoAluno(alunoId, currentUser.id);
+        if (!temPermissao) {
+            alert('❌ Erro: Você não tem permissão para registrar presença para este aluno.');
             return;
         }
         
-        const responsavelId = currentUser.id;
+        const responsavelId = currentUser.id; // ✅ ID REAL da API
         const responsavelNome = currentUser.nome;
         const responsavelTipo = currentUser.roles[0].replace('ROLE_', '');
         
-        console.log(`🎯 Registrando ${action} para aluno ${alunoId} por ${responsavelNome} (${responsavelTipo})`);
+        console.log(`🎯 Registrando ${action} para aluno ${alunoId} por ${responsavelNome} (ID: ${responsavelId}, Tipo: ${responsavelTipo})`);
         
         // Chamar as funções de registro
         if (action === 'entrada') {
@@ -1647,7 +1739,7 @@
                     const userData = await response.json();
                     currentUser = userData;
                     
-                    console.log('Dados do usuário:', userData);
+                    console.log('✅ Dados do usuário da API:', userData);
                     
                     // Atualizar UI com informações do usuário
                     userFullName.textContent = userData.nome || 'Tutor';
