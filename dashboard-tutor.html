@@ -632,7 +632,7 @@
             <div class="modal-body">
                 <p id="modalMessage">Deseja registrar a entrada do aluno <span id="modalStudentName">[Nome]</span>?</p>
                 
-                <!-- Área de localização automática - MODIFICADA -->
+                <!-- Área de localização automática -->
                 <div class="form-group" style="margin-top: 15px;">
                     <label style="display: block; margin-bottom: 10px; font-weight: 600;">
                         <i class="fas fa-location-arrow"></i> Localização Atual (Obrigatório)
@@ -662,12 +662,15 @@
             </div>
             <div class="modal-footer">
                 <button class="btn" onclick="closeModal()">Cancelar</button>
+                <!-- ✅ BOTÃO CORRETO - sem onclick hardcoded -->
                 <button class="btn btn-primary" id="confirmActionBtn" disabled>
                     <i class="fas fa-check"></i> Confirmar
                 </button>
             </div>
         </div>
     </div>
+
+
 
     <script>
         const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
@@ -1013,49 +1016,52 @@
     // Executar após a página carregar
     setTimeout(findProblematicButtons, 2000);
 
-    // ========== PATCH DE EMERGÊNCIA - INTERCEPTAR CHAMADAS INCORRETAS ==========
-
-    // Salvar a função original
-    const originalConfirmAction = window.confirmAction;
-
-    // Substituir pela função corrigida
-    window.confirmAction = function(action, alunoId, event) {
-        console.log('=== confirmAction INTERCEPTADA ===');
-        console.log('Argumentos recebidos:', { action, alunoId, event });
+    // ========== PATCH DE EMERGÊNCIA - INTERCEPTAR CHAMADAS INCORRETAS ========== 
+    
+    // ✅ FUNÇÃO executarRegistro - DEVE SER GLOBAL
+    window.executarRegistro = function(action, alunoId) {
+        console.log('=== EXECUTAR REGISTRO ===');
+        console.log('action:', action);
+        console.log('alunoId:', alunoId);
+        console.log('currentUser:', currentUser);
         
-        // Se foi chamada sem parâmetros (onclick="confirmAction")
-        if (arguments.length === 0) {
-            console.error('❌ confirmAction chamada SEM parâmetros!');
-            console.trace();
-            alert('Erro: Botão mal configurado. Contate o suporte.');
+        // Verificações de segurança
+        if (!currentUser || !currentUser.id) {
+            console.error('❌ currentUser não disponível');
+            alert('Erro: Usuário não autenticado. Recarregue a página.');
             return;
         }
         
-        // Se o primeiro parâmetro é um evento (onclick="confirmAction" sem parênteses)
-        if (action && action instanceof Event) {
-            console.warn('⚠️ confirmAction chamada com EVENTO - aplicando correção...');
-            
-            // Tentar detectar de qual botão veio a chamada
-            const button = action.target;
-            const buttonText = button.textContent?.toLowerCase() || '';
-            
-            // Detectar ação
-            let acaoCorrigida = 'entrada';
-            if (buttonText.includes('saída') || buttonText.includes('saida')) {
-                acaoCorrigida = 'saida';
-            }
-            
-            // Usar aluno ID 1 como fallback (Ana Silva)
-            const alunoIdCorrigido = 1;
-            
-            console.log(`🔧 Correção aplicada: ${acaoCorrigida} para aluno ${alunoIdCorrigido}`);
-            
-            // Chamar a função corretamente
-            return executarRegistro(acaoCorrigida, alunoIdCorrigido);
+        if (!alunoId) {
+            console.error('❌ alunoId não definido');
+            alert('Erro: Aluno não identificado.');
+            return;
         }
         
-        // Se já tem parâmetros corretos, chamar a função original
-        return originalConfirmAction(action, alunoId, event);
+        // ✅ VERIFICAÇÃO SIMPLES: O aluno está na lista carregada?
+        const aluno = students.find(s => s.id === alunoId);
+        if (!aluno) {
+            console.error('❌ Aluno não encontrado na lista do tutor');
+            alert('Erro: Aluno não encontrado ou não vinculado a você.');
+            return;
+        }
+        
+        const responsavelId = currentUser.id; // ✅ ID REAL da API
+        const responsavelNome = currentUser.nome;
+        const responsavelTipo = currentUser.roles[0].replace('ROLE_', '');
+        
+        console.log(`🎯 Registrando ${action} para aluno ${alunoId} por ${responsavelNome} (ID: ${responsavelId}, Tipo: ${responsavelTipo})`);
+        console.log(`📚 Aluno: ${aluno.nome} da escola ${aluno.escolaId}`);
+        
+        // Chamar as funções de registro
+        if (action === 'entrada') {
+            registrarEntrada(alunoId, responsavelId, responsavelNome, responsavelTipo);
+        } else if (action === 'saida') {
+            registrarSaida(alunoId, responsavelId, responsavelNome, responsavelTipo);
+        } else {
+            console.error('❌ Ação desconhecida:', action);
+            alert('Ação desconhecida: ' + action);
+        }
     };
 
     // Confirmar ação (entrada/saída) - ATUALIZADA
@@ -1176,7 +1182,7 @@
         window.location.href = 'index.html';
     };
 
-    // Abrir modal para registrar entrada/saída - FUNÇÃO GLOBAL
+    // Abrir modal para registrar entrada/saída - FUNÇÃO CORRIGIDA
     window.openActionModal = function(studentId, type, studentName) {
         selectedStudentId = studentId;
         actionType = type;
@@ -1188,9 +1194,33 @@
         // Resetar estado da localização
         resetLocationState();
         
-        // Configurar botão de confirmação
+        // ✅ CORREÇÃO: Configurar o botão de confirmação CORRETAMENTE
         if (confirmActionBtn) {
-            confirmActionBtn.onclick = window.confirmAction;
+            // Remover event listeners anteriores
+            confirmActionBtn.replaceWith(confirmActionBtn.cloneNode(true));
+            confirmActionBtn = document.getElementById('confirmActionBtn');
+            
+            // Configurar novo event listener
+            confirmActionBtn.onclick = function() {
+                if (!currentUser || !currentUser.id) {
+                    showAlert('Erro: Usuário não autenticado', 'error');
+                    return;
+                }
+                
+                const responsavelId = currentUser.id;
+                const responsavelNome = currentUser.nome;
+                const responsavelTipo = currentUser.roles[0].replace('ROLE_', '');
+                
+                console.log(`🎯 Registrando ${type} para aluno ${studentId}`);
+                console.log(`👤 Responsável: ${responsavelNome} (ID: ${responsavelId}, Tipo: ${responsavelTipo})`);
+                
+                if (type === 'entrada') {
+                    registrarEntrada(studentId, responsavelId, responsavelNome, responsavelTipo);
+                } else {
+                    registrarSaida(studentId, responsavelId, responsavelNome, responsavelTipo);
+                }
+            };
+            
             confirmActionBtn.innerHTML = type === 'entrada' 
                 ? '<i class="fas fa-sign-in-alt"></i> Confirmar Entrada' 
                 : '<i class="fas fa-sign-out-alt"></i> Confirmar Saída';
