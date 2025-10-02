@@ -702,14 +702,21 @@
 
     // ========== FUNÇÕES DE REGISTRO DE ENTRADA/SAÍDA ==========
 
-    // ✅ FUNÇÃO registrarEntrada - COM ID REAL
-    async function registrarEntrada(alunoId, responsavelId, responsavelNome, responsavelTipo) {
+    // ✅ FUNÇÃO registrarEntrada - SIMPLIFICADA COM ID DO TUTOR
+    async function registrarEntrada(alunoId, responsavelNome, responsavelTipo) {
         try {
             console.log('🚀 Iniciando registro de entrada...');
             
+            // ✅ USAR ID DO TUTOR JÁ CAPTURADO
+            if (!currentUser.tutorId) {
+                throw new Error('ID do tutor não disponível');
+            }
+            
+            const responsavelId = currentUser.tutorId;
+            
             console.log('📋 Dados da requisição:', { 
                 alunoId, 
-                responsavelId, 
+                responsavelId, // ✅ ID REAL DO TUTOR CAPTURADO
                 responsavelNome, 
                 responsavelTipo 
             });
@@ -725,12 +732,12 @@
             // Verificar geofence
             await ensureGeofence(coords.latitude, coords.longitude);
 
-            // ✅ ESTRUTURA IDÊNTICA AO POSTMAN COM IDS REAIS
+            // Estrutura com dados reais
             const requestData = {
                 alunoId: alunoId,
-                responsavelId: responsavelId, // ✅ ID REAL do usuário (ex: 1)
-                responsavelNome: responsavelNome, // ✅ "Maria"
-                responsavelTipo: responsavelTipo, // ✅ "TUTOR"
+                responsavelId: responsavelId, // ✅ ID CORRETO
+                responsavelNome: responsavelNome,
+                responsavelTipo: responsavelTipo,
                 latitude: coords.latitude,
                 longitude: coords.longitude
             };
@@ -770,11 +777,9 @@
             const result = await response.json();
             console.log('✅ Registro de entrada realizado com sucesso:', result);
 
-            // Fechar modal e mostrar sucesso
             closeModal();
             showAlert('Entrada registrada com sucesso!', 'success');
             
-            // Atualizar lista de alunos
             setTimeout(() => {
                 refreshStudentsData();
             }, 1000);
@@ -785,14 +790,21 @@
         }
     }
 
-    // ✅ FUNÇÃO registrarSaida - USANDO ID REAL DA API
-    async function registrarSaida(alunoId, responsavelId, responsavelNome, responsavelTipo) {
+    // ✅ FUNÇÃO registrarSaida - SIMPLIFICADA COM ID DO TUTOR
+    async function registrarSaida(alunoId, responsavelNome, responsavelTipo) {
         try {
             console.log('🚀 Iniciando registro de saída...');
             
+            // ✅ USAR ID DO TUTOR JÁ CAPTURADO
+            if (!currentUser.tutorId) {
+                throw new Error('ID do tutor não disponível');
+            }
+            
+            const responsavelId = currentUser.tutorId;
+            
             console.log('📋 Dados da requisição:', { 
                 alunoId, 
-                responsavelId, 
+                responsavelId, // ✅ ID REAL DO TUTOR CAPTURADO
                 responsavelNome, 
                 responsavelTipo 
             });
@@ -808,20 +820,17 @@
             // Verificar geofence
             await ensureGeofence(coords.latitude, coords.longitude);
 
-            // ✅ USAR O ID REAL QUE VEIO DA API
+            // Estrutura com dados reais
             const requestData = {
                 alunoId: alunoId,
-                responsavelId: responsavelId, // ✅ ID REAL do usuário
+                responsavelId: responsavelId, // ✅ ID CORRETO
                 responsavelNome: responsavelNome,
                 responsavelTipo: responsavelTipo,
                 latitude: coords.latitude,
                 longitude: coords.longitude
             };
 
-            // ✅ DEBUG: Verificar estrutura
-            debugRequestStructure(requestData, '/api/presencas/saida');
-
-            console.log('📤 Enviando dados para API:', requestData);
+            console.log('📤 Estrutura final da requisição:', JSON.stringify(requestData, null, 2));
 
             const accessToken = localStorage.getItem('access_token');
             const response = await fetch(`${BACKEND_URL}/api/presencas/saida`, {
@@ -845,11 +854,6 @@
                     const errorData = JSON.parse(errorText);
                     if (errorData.mensagem) {
                         errorMessage = errorData.mensagem;
-                        
-                        // ✅ TRATAMENTO ESPECÍFICO PARA O ERRO DE TUTOR
-                        if (errorData.mensagem.includes('Tutor não pode operar em nome de outro tutor')) {
-                            errorMessage = '❌ Erro de permissão: Você só pode registrar presença para alunos vinculados a você. Verifique se o aluno está correto.';
-                        }
                     }
                 } catch (e) {
                     // Mantém a mensagem original se não for JSON
@@ -861,11 +865,9 @@
             const result = await response.json();
             console.log('✅ Registro de saída realizado com sucesso:', result);
 
-            // Fechar modal e mostrar sucesso
             closeModal();
             showAlert('Saída registrada com sucesso!', 'success');
             
-            // Atualizar lista de alunos
             setTimeout(() => {
                 refreshStudentsData();
             }, 1000);
@@ -1111,7 +1113,7 @@
     // Executar após a página carregar
     setTimeout(findConfirmActionCalls, 3000);
 
-    // ✅ Esta função deve existir e configurar o botão corretamente
+    // ✅ CONFIGURAR BOTÃO DE CONFIRMAÇÃO - COM VALIDAÇÃO DO ID
     window.openActionModal = function(studentId, type, studentName) {
         selectedStudentId = studentId;
         actionType = type;
@@ -1123,31 +1125,30 @@
         // Resetar estado da localização
         resetLocationState();
         
-        // ✅ CONFIGURAR O BOTÃO CORRETAMENTE
         if (confirmActionBtn) {
-            // Configurar o event listener do botão Confirmar
-            confirmActionBtn.onclick = function() {
-                if (!currentUser || !currentUser.id) {
-                    showAlert('Erro: Usuário não autenticado', 'error');
+            confirmActionBtn.replaceWith(confirmActionBtn.cloneNode(true));
+            confirmActionBtn = document.getElementById('confirmActionBtn');
+            
+            confirmActionBtn.onclick = async function() {
+                if (!currentUser || !currentUser.nome || !currentUser.tutorId) {
+                    showAlert('Erro: Dados do tutor incompletos', 'error');
                     return;
                 }
                 
-                const responsavelId = currentUser.id;
                 const responsavelNome = currentUser.nome;
                 const responsavelTipo = currentUser.roles[0].replace('ROLE_', '');
                 
                 console.log(`🎯 Registrando ${type} para aluno ${studentId}`);
-                console.log(`📋 Dados:`, { 
-                    alunoId: studentId, 
-                    responsavelId, 
-                    responsavelNome, 
-                    responsavelTipo 
-                });
+                console.log(`👤 Responsável: ${responsavelNome} (ID: ${currentUser.tutorId}, Tipo: ${responsavelTipo})`);
                 
-                if (type === 'entrada') {
-                    registrarEntrada(studentId, responsavelId, responsavelNome, responsavelTipo);
-                } else {
-                    registrarSaida(studentId, responsavelId, responsavelNome, responsavelTipo);
+                try {
+                    if (type === 'entrada') {
+                        await registrarEntrada(studentId, responsavelNome, responsavelTipo);
+                    } else {
+                        await registrarSaida(studentId, responsavelNome, responsavelTipo);
+                    }
+                } catch (error) {
+                    console.error('❌ Erro no registro:', error);
                 }
             };
             
@@ -1157,10 +1158,8 @@
             confirmActionBtn.disabled = true;
         }
         
-        // Mostrar modal
         if (actionModal) actionModal.style.display = 'flex';
         
-        // Tentar obter localização automaticamente
         setTimeout(() => {
             getCurrentLocation();
         }, 500);
@@ -1431,29 +1430,7 @@
         }
     }
 
-    // Função para obter ID do tutor pelo nome
-    async function getTutorIdByName(tutorNome) {
-        try {
-            const accessToken = localStorage.getItem('access_token');
-            const response = await fetch(`${BACKEND_URL}/api/tutores?nome=${encodeURIComponent(tutorNome)}`, {
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            if (response.ok) {
-                const tutors = await response.json();
-                if (tutors && tutors.length > 0) {
-                    return tutors[0].id;
-                }
-            }
-        } catch (error) {
-            console.error('Erro ao obter ID do tutor por nome:', error);
-        }
-        return null;
-    }
-
+    
     // Função para parsear JWT
     function parseJwt(token) {
         try {
@@ -1673,7 +1650,7 @@
             }
         }
 
-        // Carregar alunos vinculados ao tutor - VERSÃO CORRIGIDA COM ESTRUTURA REAL
+        // Carregar alunos vinculados ao tutor - CAPTURANDO ID DO TUTOR
         async function loadStudents() {
             try {
                 const accessToken = localStorage.getItem('access_token');
@@ -1698,30 +1675,40 @@
                 const data = await response.json();
                 console.log('✅ Resposta completa da API:', data);
                 
-                // ✅ CORREÇÃO: ESTRUTURA REAL DA API
-                // A resposta é um objeto tutor com propriedade "alunos" que é um array
-                if (data && data.alunos && Array.isArray(data.alunos)) {
-                    console.log(`🎯 Encontrado tutor ${data.nome} com ${data.alunos.length} aluno(s)`);
-                    
-                    // Processar os alunos da estrutura real
-                    students = data.alunos.map(aluno => {
-                        console.log('👤 Aluno:', aluno);
-                        return {
-                            id: aluno.id,
-                            nome: aluno.nome,
-                            salaNome: aluno.salaNome,
-                            escolaId: aluno.escolaId,
-                            status: aluno.status || 'AUSENTE'
-                        };
-                    });
-                    
-                    console.log('✅ Alunos processados:', students);
-                    
-                } else {
-                    console.error('❌ Estrutura inesperada da API');
-                    console.log('Estrutura recebida:', data);
-                    students = [];
+                // ✅ VALIDAÇÃO DOS DADOS OBRIGATÓRIOS
+                if (!data || !data.id || !data.nome) {
+                    throw new Error('Dados do tutor incompletos na resposta da API');
                 }
+                
+                if (!data.alunos || !Array.isArray(data.alunos)) {
+                    throw new Error('Estrutura de alunos inválida na resposta da API');
+                }
+                
+                console.log(`🎯 Encontrado tutor ${data.nome} (ID: ${data.id}) com ${data.alunos.length} aluno(s)`);
+                
+                // ✅ CAPTURAR O ID DO TUTOR DA RESPOSTA
+                currentUser.tutorId = data.id; // Adicionar o ID real do tutor ao currentUser
+                
+                // Processar os alunos
+                students = data.alunos.map(aluno => {
+                    console.log('👤 Aluno:', aluno);
+                    
+                    // Validação dos dados do aluno
+                    if (!aluno.id || !aluno.nome) {
+                        throw new Error('Dados incompletos do aluno');
+                    }
+                    
+                    return {
+                        id: aluno.id,
+                        nome: aluno.nome,
+                        salaNome: aluno.salaNome,
+                        escolaId: aluno.escolaId,
+                        status: aluno.status || 'AUSENTE'
+                    };
+                });
+                
+                console.log('✅ Alunos processados:', students);
+                console.log('✅ ID do tutor capturado:', currentUser.tutorId);
                 
                 renderStudents();
                 updatePresenceSummary();
