@@ -517,6 +517,28 @@
             }
         }
 
+        /* Novos estilos para validação Wi-Fi */
+        .wifi-status {
+            background-color: rgba(155, 89, 182, 0.1);
+            color: #9b59b6;
+            border: 1px solid rgba(155, 89, 182, 0.3);
+        }
+        
+        .validation-method {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+            text-align: center;
+        }
+        
+        .wifi-icon {
+            color: #9b59b6;
+        }
+        
+        .geofence-icon {
+            color: var(--success-color);
+        }
+
     </style>
 </head>
 <body>
@@ -670,6 +692,7 @@
         </div>
     </div>
 
+    
 
 
     <script>
@@ -700,14 +723,24 @@
 
     // ========== FUNÇÕES GLOBAIS ==========
 
+    // No HTML, atualizar a mensagem de instrução:
+    const updatedInstruction = `
+        <div style="font-size: 12px; color: #666; margin-top: 10px; text-align: center;">
+            <i class="fas fa-info-circle"></i> 
+            É necessário estar <strong>na área da escola</strong> OU 
+            <strong>conectado à rede Wi-Fi "MAR"</strong> para registrar presença
+        </div>
+    `;
+
     // ========== FUNÇÕES DE REGISTRO DE ENTRADA/SAÍDA ==========
 
-    // ✅ FUNÇÃO registrarEntrada - SIMPLIFICADA COM ID DO TUTOR
+    // ✅ VERSÃO ALTERNATIVA - USANDO FINALLY PARA GARANTIR FECHAMENTO
     async function registrarEntrada(alunoId, responsavelNome, responsavelTipo) {
+        let shouldCloseModal = true;
+        
         try {
             console.log('🚀 Iniciando registro de entrada...');
             
-            // ✅ USAR ID DO TUTOR JÁ CAPTURADO
             if (!currentUser.tutorId) {
                 throw new Error('ID do tutor não disponível');
             }
@@ -716,7 +749,7 @@
             
             console.log('📋 Dados da requisição:', { 
                 alunoId, 
-                responsavelId, // ✅ ID REAL DO TUTOR CAPTURADO
+                responsavelId,
                 responsavelNome, 
                 responsavelTipo 
             });
@@ -732,10 +765,9 @@
             // Verificar geofence
             await ensureGeofence(coords.latitude, coords.longitude);
 
-            // Estrutura com dados reais
             const requestData = {
                 alunoId: alunoId,
-                responsavelId: responsavelId, // ✅ ID CORRETO
+                responsavelId: responsavelId,
                 responsavelNome: responsavelNome,
                 responsavelTipo: responsavelTipo,
                 latitude: coords.latitude,
@@ -777,7 +809,6 @@
             const result = await response.json();
             console.log('✅ Registro de entrada realizado com sucesso:', result);
 
-            closeModal();
             showAlert('Entrada registrada com sucesso!', 'success');
             
             setTimeout(() => {
@@ -787,15 +818,22 @@
         } catch (error) {
             console.error('❌ Erro no registro de entrada:', error);
             showAlert(`Erro ao registrar entrada: ${error.message}`, 'error');
+            shouldCloseModal = true; // ✅ SEMPRE FECHAR EM CASO DE ERRO
+        } finally {
+            // ✅ GARANTIR QUE O MODAL SEJA FECHADO EM QUALQUER CASO (sucesso ou erro)
+            if (shouldCloseModal) {
+                closeModal();
+            }
         }
     }
 
-    // ✅ FUNÇÃO registrarSaida - SIMPLIFICADA COM ID DO TUTOR
+    // ✅ FUNÇÃO registrarSaida - USANDO FINALLY PARA GARANTIR FECHAMENTO
     async function registrarSaida(alunoId, responsavelNome, responsavelTipo) {
+        let shouldCloseModal = true;
+        
         try {
             console.log('🚀 Iniciando registro de saída...');
             
-            // ✅ USAR ID DO TUTOR JÁ CAPTURADO
             if (!currentUser.tutorId) {
                 throw new Error('ID do tutor não disponível');
             }
@@ -804,7 +842,7 @@
             
             console.log('📋 Dados da requisição:', { 
                 alunoId, 
-                responsavelId, // ✅ ID REAL DO TUTOR CAPTURADO
+                responsavelId,
                 responsavelNome, 
                 responsavelTipo 
             });
@@ -823,7 +861,7 @@
             // Estrutura com dados reais
             const requestData = {
                 alunoId: alunoId,
-                responsavelId: responsavelId, // ✅ ID CORRETO
+                responsavelId: responsavelId,
                 responsavelNome: responsavelNome,
                 responsavelTipo: responsavelTipo,
                 latitude: coords.latitude,
@@ -865,7 +903,6 @@
             const result = await response.json();
             console.log('✅ Registro de saída realizado com sucesso:', result);
 
-            closeModal();
             showAlert('Saída registrada com sucesso!', 'success');
             
             setTimeout(() => {
@@ -875,6 +912,12 @@
         } catch (error) {
             console.error('❌ Erro no registro de saída:', error);
             showAlert(`Erro ao registrar saída: ${error.message}`, 'error');
+            shouldCloseModal = true; // ✅ SEMPRE FECHAR EM CASO DE ERRO
+        } finally {
+            // ✅ GARANTIR QUE O MODAL SEJA FECHADO EM QUALQUER CASO (sucesso ou erro)
+            if (shouldCloseModal) {
+                closeModal();
+            }
         }
     }
 
@@ -943,33 +986,203 @@
         console.log('🔚 ========== FIM DEBUG ==========');
     }
 
-    // ✅ FUNÇÃO ensureGeofence - ATUALIZADA
+    // ========== NOVAS FUNÇÕES PARA VALIDAÇÃO DE REDE Wi-Fi ==========
+
+    // Função para obter informações da rede Wi-Fi
+    async function getWifiInfo() {
+        return new Promise((resolve) => {
+            if (!navigator.connection) {
+                console.log('📡 API de Network Information não suportada');
+                resolve(null);
+                return;
+            }
+
+            const connection = navigator.connection;
+            console.log('📡 Informações da conexão:', {
+                type: connection.type,
+                effectiveType: connection.effectiveType,
+                downlink: connection.downlink,
+                rtt: connection.rtt
+            });
+
+            // Verificar se está em Wi-Fi (type 'wifi' ou velocidade alta típica de Wi-Fi)
+            if (connection.type === 'wifi' || 
+                (connection.effectiveType === '4g' && connection.downlink > 10)) {
+                
+                // Tentar obter SSID (funciona em alguns dispositivos/apps)
+                if (connection.ssid) {
+                    resolve({
+                        ssid: connection.ssid,
+                        type: connection.type,
+                        isWifi: true
+                    });
+                } else {
+                    // Se não conseguir SSID, assume que é Wi-Fi baseado no tipo
+                    resolve({
+                        ssid: 'unknown',
+                        type: connection.type,
+                        isWifi: true
+                    });
+                }
+            } else {
+                resolve({
+                    isWifi: false,
+                    type: connection.type
+                });
+            }
+        });
+    }
+
+    // Adicionar os estilos ao documento
+    const styleSheet = document.createElement("style");
+    styleSheet.textContent = additionalCSS;
+    document.head.appendChild(styleSheet);
+
+    // Função para verificar se está na rede Wi-Fi da escola
+    async function checkSchoolWifi() {
+        try {
+            const wifiInfo = await getWifiInfo();
+            
+            if (!wifiInfo || !wifiInfo.isWifi) {
+                return { isSchoolWifi: false, reason: 'Não conectado a Wi-Fi' };
+            }
+
+            // ✅ LISTA ATUALIZADA COM A REDE "MAR"
+            const schoolSsids = [
+                'MAR',                    // ✅ Nova rede adicionada
+                'Escola_Principal',
+                'REDE-ESCOLA', 
+                'Lab_Informatica',
+                'Professores',
+                'Alunos'
+                // Adicione aqui outros SSIDs da sua escola
+            ];
+
+            console.log('📡 Verificando se está na rede da escola...');
+            console.log('📡 SSID atual:', wifiInfo.ssid);
+            console.log('📡 Redes permitidas:', schoolSsids);
+
+            const isSchoolWifi = schoolSsids.some(ssid => {
+                // Comparação case-insensitive
+                const currentSsid = wifiInfo.ssid.toLowerCase().trim();
+                const allowedSsid = ssid.toLowerCase().trim();
+                
+                const match = currentSsid === allowedSsid || 
+                            currentSsid.includes(allowedSsid) ||
+                            allowedSsid.includes(currentSsid);
+                
+                if (match) {
+                    console.log(`✅ Rede correspondente encontrada: "${wifiInfo.ssid}" = "${ssid}"`);
+                }
+                
+                return match;
+            });
+
+            return {
+                isSchoolWifi: isSchoolWifi,
+                ssid: wifiInfo.ssid,
+                type: wifiInfo.type
+            };
+
+        } catch (error) {
+            console.error('Erro ao verificar Wi-Fi:', error);
+            return { isSchoolWifi: false, reason: 'Erro na verificação' };
+        }
+    }
+
+    // ========== NOVA FUNÇÃO: ATUALIZAR STATUS NA UI ==========
+
+    function updateLocationStatus(validationType, data) {
+        const statusElement = document.getElementById('locationStatus');
+        const coordsDisplay = document.getElementById('coordinatesDisplay');
+        
+        switch(validationType) {
+            case 'wifi':
+                statusElement.className = 'location-status location-success';
+                statusElement.innerHTML = 
+                    `<i class="fas fa-wifi"></i> ${data.message}`;
+                statusElement.style.display = 'block';
+                
+                // Mostrar informações da rede
+                coordsDisplay.innerHTML = `
+                    <div><strong>Rede:</strong> ${data.ssid}</div>
+                    <div><strong>Método:</strong> Validação por Wi-Fi</div>
+                `;
+                coordsDisplay.style.display = 'block';
+                break;
+                
+            case 'geofence':
+                statusElement.className = 'location-status location-success';
+                statusElement.innerHTML = 
+                    `<i class="fas fa-map-marker-alt"></i> ${data.message}`;
+                statusElement.style.display = 'block';
+                
+                // Mostrar coordenadas
+                coordsDisplay.innerHTML = `
+                    <div><strong>Latitude:</strong> ${data.latitude.toFixed(6)}</div>
+                    <div><strong>Longitude:</strong> ${data.longitude.toFixed(6)}</div>
+                    <div><strong>Método:</strong> Validação por Geofence</div>
+                `;
+                coordsDisplay.style.display = 'block';
+                break;
+                
+            case 'error':
+                statusElement.className = 'location-status location-error';
+                statusElement.innerHTML = 
+                    `<i class="fas fa-exclamation-circle"></i> ${data.message}`;
+                statusElement.style.display = 'block';
+                coordsDisplay.style.display = 'none';
+                break;
+        }
+    }
+
+    // ========== FUNÇÃO ensureGeofence ATUALIZADA ==========
+
+    // ✅ FUNÇÃO ensureGeofence - AGORA COM VALIDAÇÃO DUPLA (Geofence OU Wi-Fi)
     async function ensureGeofence(latitude, longitude) {
         try {
-            console.log('📍 Verificando geofence para coordenadas:', { latitude, longitude });
+            console.log('📍 Iniciando validação de localização...');
             
             const accessToken = localStorage.getItem('access_token');
             
-            // Primeiro, precisamos obter o escolaId do aluno selecionado
             const aluno = students.find(s => s.id === selectedStudentId);
             if (!aluno) {
                 throw new Error('Aluno não encontrado');
             }
             
-            // Usar escolaId do aluno (já disponível nos dados)
-            const escolaId = aluno.escolaId; 
+            const escolaId = aluno.escolaId;
             
             if (!escolaId) {
                 throw new Error('Escola não identificada para o aluno');
             }
             
-            console.log('🏫 Verificando geofence para escola:', escolaId);
+            console.log('🏫 Verificando acesso para escola:', escolaId);
+
+            // ========== TENTATIVA 1: VERIFICAR Wi-Fi DA ESCOLA ==========
+            console.log('📡 Verificando rede Wi-Fi da escola...');
+            const wifiCheck = await checkSchoolWifi();
             
+            if (wifiCheck.isSchoolWifi) {
+                console.log('✅ Conectado à rede Wi-Fi da escola:', wifiCheck.ssid);
+                
+                // Atualizar UI para mostrar validação por Wi-Fi
+                updateLocationStatus('wifi', {
+                    ssid: wifiCheck.ssid,
+                    message: `Conectado à rede da escola: ${wifiCheck.ssid}`
+                });
+                
+                return true; // ✅ ACESSO PERMITIDO VIA Wi-Fi
+            } else {
+                console.log('📡 Não está na Wi-Fi da escola:', wifiCheck.reason);
+            }
+
+            // ========== TENTATIVA 2: VERIFICAR GEOFENCE ==========
+            console.log('📍 Verificando geofence...');
             const response = await fetch(
                 `${BACKEND_URL}/api/geofences/verificar/${escolaId}?` + 
                 `latitude=${latitude}&` +
                 `longitude=${longitude}&` +
-                `tipo=${actionType.toUpperCase()}`, // ENTRADA ou SAIDA
+                `tipo=${actionType.toUpperCase()}`,
                 {
                     method: 'GET',
                     headers: {
@@ -986,17 +1199,30 @@
             const resultado = await response.json();
             console.log('📍 Resultado da verificação de geofence:', resultado);
             
-            // Ajuste conforme a estrutura real do retorno
             if (resultado.dentroDaArea === true || resultado === true) {
-                console.log('✅ Dentro da área permitida');
-                return true;
+                console.log('✅ Dentro da área permitida (geofence)');
+                
+                // Atualizar UI para mostrar validação por geofence
+                updateLocationStatus('geofence', {
+                    latitude: latitude,
+                    longitude: longitude,
+                    message: 'Dentro da área da escola'
+                });
+                
+                return true; // ✅ ACESSO PERMITIDO VIA GEOFENCE
             } else {
                 throw new Error('Fora da área permitida da escola');
             }
             
         } catch (error) {
-            console.error('❌ Erro na verificação de geofence:', error);
-            throw error;
+            console.error('❌ Validação de localização falhou:', error);
+            
+            // Atualizar UI com erro
+            updateLocationStatus('error', {
+                message: error.message
+            });
+            
+            throw error; // ❌ ACESSO NEGADO
         }
     }
 
@@ -1617,36 +1843,39 @@
         async function loadUserInfo() {
             try {
                 const accessToken = localStorage.getItem('access_token');
-                const response = await fetch(`${BACKEND_URL}/api/users/me`, {
+                
+                const response = await fetch(`${BACKEND_URL}/api/auth/me`, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
                     }
                 });
 
-                if (response.ok) {
-                    const userData = await response.json();
-                    currentUser = userData;
-                    
-                    console.log('✅ Dados do usuário da API:', userData);
-                    
-                    // ✅ CORREÇÃO IMPORTANTE: Usar o nome exato que vem da API
-                    tutorName = userData.nome; // "Maria" (exatamente como está na API)
-                    
-                    // Atualizar UI com informações do usuário
-                    userFullName.textContent = userData.nome || 'Tutor';
-                    userName.textContent = userData.email || 'Usuário';
-                    userAvatar.textContent = userData.nome ? userData.nome.charAt(0).toUpperCase() : 'U';
-                    
-                    console.log(`✅ Tutor name definido como: "${tutorName}"`);
-                    
-                } else {
-                    console.error('Erro na resposta /api/users/me:', response.status, response.statusText);
-                    throw new Error('Erro ao carregar informações do usuário');
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.message || `Erro ${response.status} ao buscar dados do usuário`);
                 }
+
+                const userData = await response.json();
+                currentUser = userData;
+                
+                console.log('✅ Dados reais do usuário do banco:', userData);
+                
+                // ✅ AGORA TEMOS DADOS REAIS DO BANCO
+                tutorName = currentUser.nome;
+                
+                // Atualizar UI
+                userFullName.textContent = currentUser.nome;
+                userName.textContent = currentUser.email;
+                userAvatar.textContent = currentUser.nome.charAt(0).toUpperCase();
+                
+                console.log(`✅ Tutor name real: "${tutorName}"`);
+                console.log(`✅ Tutor ID real: ${currentUser.tutorId}`);
+                
             } catch (error) {
-                console.error('Erro ao carregar informações do usuário:', error);
-                throw error;
+                console.error('❌ Erro ao carregar informações do usuário:', error);
+                showAlert('Erro ao carregar informações: ' + error.message, 'error');
+                throw error; // Propagar o erro
             }
         }
 
@@ -2022,10 +2251,12 @@
         function resetLocationState() {
             document.getElementById('locationStatus').style.display = 'none';
             document.getElementById('coordinatesDisplay').style.display = 'none';
-            document.getElementById('displayLatitude').textContent = '-';
-            document.getElementById('displayLongitude').textContent = '-';
+            document.getElementById('coordinatesDisplay').innerHTML = `
+                <div>Latitude: <span id="displayLatitude">-</span></div>
+                <div>Longitude: <span id="displayLongitude">-</span></div>
+            `;
             getLocationBtn.disabled = false;
-            getLocationBtn.innerHTML = '<i class="fas fa-location-arrow"></i> Obter Localização Atual';
+            getLocationBtn.innerHTML = '<i class="fas fa-location-arrow"></i> Validar Localização';
             confirmActionBtn.disabled = true;
         }
 
@@ -2041,13 +2272,26 @@
             
             return new Promise((resolve) => {
                 navigator.geolocation.getCurrentPosition(
-                    (position) => {
+                    async (position) => {
                         const coords = {
                             latitude: position.coords.latitude,
                             longitude: position.coords.longitude
                         };
-                        showLocationSuccess(coords);
-                        resolve(coords);
+                        
+                        try {
+                            // ✅ AGORA VALIDAÇÃO DUPLA: Geofence OU Wi-Fi
+                            await ensureGeofence(coords.latitude, coords.longitude);
+                            
+                            // Se chegou aqui, a validação foi bem-sucedida
+                            confirmActionBtn.disabled = false;
+                            getLocationBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Revalidar Localização';
+                            getLocationBtn.disabled = false;
+                            
+                        } catch (error) {
+                            // A validação falhou - mostrar erro específico
+                            showLocationError(error.message);
+                            resolve(null);
+                        }
                     },
                     (error) => {
                         const errorMsg = getLocationErrorMessage(error);
@@ -2056,7 +2300,7 @@
                     },
                     {
                         enableHighAccuracy: true,
-                        timeout: 10000,
+                        timeout: 15000, // Aumentado para permitir verificação Wi-Fi
                         maximumAge: 60000
                     }
                 );
