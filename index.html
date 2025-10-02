@@ -214,59 +214,8 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            const loginForm = document.getElementById('loginForm');
-            const alertBox = document.getElementById('alertBox');
-            const loading = document.getElementById('loading');
-            const loginBtn = document.getElementById('loginBtn');
-            const passwordInput = document.getElementById('password');
-            const togglePassword = document.getElementById('togglePassword');
-
-            const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
-            const CLIENT_ID = 'myclientid';
-            const CLIENT_SECRET = 'myclientsecret';
-
-            // Alternar visibilidade da senha
-            togglePassword.addEventListener('click', () => {
-                const isPasswordVisible = passwordInput.getAttribute('type') === 'text';
-                
-                if (isPasswordVisible) {
-                    passwordInput.setAttribute('type', 'password');
-                    togglePassword.src = 'img/eye-closed.png';
-                    togglePassword.alt = 'Mostrar senha';
-                } else {
-                    passwordInput.setAttribute('type', 'text');
-                    togglePassword.src = 'img/eye-open.png';
-                    togglePassword.alt = 'Ocultar senha';
-                }
-            });
-
-            // Verificar token existente
-            const token = localStorage.getItem('access_token');
-            const tokenExpiry = localStorage.getItem('token_expiry');
-            if (token && tokenExpiry && new Date().getTime() < parseInt(tokenExpiry)) {
-                // Se já tem token, verificar o ROLE para redirecionar corretamente
-                getUserRole(token)
-                    .then(userRole => {
-                        if (userRole.includes('ROLE_TUTOR')) {
-                            showAlert('Login automático realizado. Redirecionando para área do Tutor...', 'success');
-                            setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
-                        } else if (userRole.includes('ROLE_DIRETOR')) {
-                            showAlert('Login automático realizado. Redirecionando para área do Diretor...', 'success');
-                            setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
-                        } else if (userRole.includes('ROLE_ESCOLA')) {
-                            showAlert('Login automático realizado. Redirecionando para área da Escola...', 'success');
-                            setTimeout(() => { window.location.href = 'dashboard-escola.html'; }, 1500);
-                        } else {
-                            showAlert('Login automático realizado. Redirecionando...', 'success');
-                            setTimeout(() => { window.location.href = 'dashboard-sala.html'; }, 1500);
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Erro ao verificar ROLE:', error);
-                        showAlert('Login automático realizado. Redirecionando...', 'success');
-                        setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
-                    });
-            }
+            const API_BASE_URL = window.APP_CONFIG?.API_BASE_URL 
+                || 'https://inoutchi-cd92743c8443.herokuapp.com';
 
             loginForm.addEventListener('submit', async function(e) {
                 e.preventDefault();
@@ -274,6 +223,7 @@
                 const email = document.getElementById('email').value;
                 const password = passwordInput.value;
 
+                // Validação básica
                 if (!email || !password) {
                     showAlert('Por favor, preencha todos os campos.', 'error');
                     return;
@@ -283,122 +233,148 @@
                 loginBtn.disabled = true;
 
                 try {
-                    console.group('Tentativa de Login');
-                    console.log('URL:', BACKEND_URL + '/oauth2/token');
-                    console.log('Email:', email);
+                    console.group('🔐 Tentativa de Login Seguro');
+                    console.log('📝 Endpoint:', `${API_BASE_URL}/api/auth/login`);
+                    console.log('📧 Email:', email);
 
-                    let response = await fetch(`${BACKEND_URL}/oauth2/token`, {
+                    // Chamar endpoint seguro do Spring Boot
+                    const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
                         method: 'POST',
                         headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                            'Authorization': 'Basic ' + btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)
+                            'Content-Type': 'application/json',
                         },
-                        body: new URLSearchParams({
-                            'grant_type': 'password',
-                            'username': email,
-                            'password': password,
-                            'scope': 'read write'
+                        body: JSON.stringify({
+                            email: email,
+                            password: password
                         })
                     });
 
-                    if (!response.ok) {
-                        response = await fetch(`${BACKEND_URL}/oauth2/token`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                            body: new URLSearchParams({
-                                'grant_type': 'password',
-                                'username': email,
-                                'password': password,
-                                'scope': 'read write',
-                                'client_id': CLIENT_ID,
-                                'client_secret': CLIENT_SECRET
-                            })
-                        });
-                    }
-
-                    const responseText = await response.text();
-                    let data;
-                    try { data = JSON.parse(responseText); } catch(e) { throw new Error('Resposta inválida do servidor'); }
+                    const data = await response.json();
 
                     if (response.ok) {
+                        // Token recebido com segurança - client_secret protegido no backend
                         const expiresIn = data.expires_in * 1000;
                         const expiryTime = new Date().getTime() + expiresIn;
 
                         localStorage.setItem('access_token', data.access_token);
                         localStorage.setItem('token_expiry', expiryTime.toString());
+                        localStorage.setItem('refresh_token', data.refresh_token);
                         
-                        const refreshToken = data.refresh_token || 'no-refresh-token';
-                        localStorage.setItem('refresh_token', refreshToken);
+                        console.log('✅ Login realizado com segurança');
+                        console.log('🔑 Access Token recebido (primeiros 20 chars):', data.access_token.substring(0, 20) + '...');
+                        console.log('🔄 Refresh Token recebido:', data.refresh_token ? 'Sim' : 'Não');
                         
-                        console.log('Refresh token salvo:', refreshToken);
+                        await handleSuccessfulLogin(data.access_token);
                         
-                        // Verificar o ROLE do usuário após login bem-sucedido
-                        try {
-                            const userRole = await getUserRole(data.access_token);
-                            
-                            // Redirecionar com base no ROLE
-                            if (userRole.includes('ROLE_TUTOR')) {
-                                showAlert('Login realizado com sucesso! Redirecionando para área do Tutor...', 'success');
-                                setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
-                            } else if (userRole.includes('ROLE_DIRETOR')) {
-                                showAlert('Login realizado com sucesso! Redirecionando para área do Diretor...', 'success');
-                                setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
-                            } else if (userRole.includes('ROLE_ESCOLA')) {
-                                showAlert('Login realizado com sucesso! Redirecionando para área da Escola...', 'success');
-                                setTimeout(() => { window.location.href = 'dashboard-escola.html'; }, 1500);
-                            } else {
-                                // ROLE não reconhecido, usar dashboard padrão
-                                showAlert('Login realizado com sucesso! Redirecionando...', 'success');
-                                setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
-                            }
-                        } catch (error) {
-                            console.error('Erro ao obter ROLE:', error);
-                            // Em caso de erro, redirecionar para dashboard padrão
-                            showAlert('Login realizado com sucesso! Redirecionando...', 'success');
-                            setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
-                        }
                     } else {
-                        const errorMsg = data.error_description || `Erro ${response.status}: ${response.statusText}`;
-                        showAlert(errorMsg, 'error');
+                        const errorMsg = data.message || `Erro ${response.status}`;
+                        
+                        // Tratamento específico para diferentes tipos de erro
+                        if (response.status === 429) {
+                            showAlert('⏳ Muitas tentativas de login. Aguarde 15 minutos antes de tentar novamente.', 'error');
+                        } else if (response.status === 401) {
+                            showAlert('❌ Credenciais inválidas. Verifique seu e-mail e senha.', 'error');
+                        } else {
+                            showAlert(`❌ Erro: ${errorMsg}`, 'error');
+                        }
+                        
+                        console.error('❌ Erro na autenticação:', data);
                     }
-                    console.groupEnd();
+                    
                 } catch (error) {
-                    console.error('Erro completo:', error);
-                    showAlert('Erro de conexão: ' + error.message, 'error');
+                    console.error('💥 Erro de conexão:', error);
+                    showAlert('🌐 Erro de conexão. Verifique sua internet e tente novamente.', 'error');
                 } finally {
                     loading.style.display = 'none';
                     loginBtn.disabled = false;
+                    console.groupEnd();
                 }
             });
 
-            // Função para obter o ROLE do usuário
-            async function getUserRole(accessToken) {
+            // Função para refresh token usando endpoint seguro
+            async function refreshToken() {
+                const refreshToken = localStorage.getItem('refresh_token');
+                
+                if (!refreshToken || refreshToken === 'no-refresh-token') {
+                    throw new Error('Nenhum refresh token disponível');
+                }
+
                 try {
-                    const response = await fetch(`${BACKEND_URL}/api/users/me`, {
+                    console.log('🔄 Tentando renovar token...');
+                    
+                    const response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+                        method: 'POST',
                         headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json'
-                        }
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            refreshToken: refreshToken
+                        })
                     });
 
                     if (response.ok) {
-                        const userData = await response.json();
-                        return userData.roles || [];
+                        const data = await response.json();
+                        
+                        const expiresIn = data.expires_in * 1000;
+                        const expiryTime = new Date().getTime() + expiresIn;
+
+                        localStorage.setItem('access_token', data.access_token);
+                        localStorage.setItem('token_expiry', expiryTime.toString());
+                        localStorage.setItem('refresh_token', data.refresh_token);
+                        
+                        console.log('✅ Token renovado com sucesso');
+                        return data.access_token;
                     } else {
-                        throw new Error('Erro ao obter informações do usuário');
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || 'Falha ao renovar token');
                     }
                 } catch (error) {
-                    console.error('Erro ao obter ROLE:', error);
+                    console.error('❌ Erro no refresh token:', error);
+                    
+                    // Limpar tokens inválidos
+                    localStorage.removeItem('access_token');
+                    localStorage.removeItem('token_expiry');
+                    localStorage.removeItem('refresh_token');
+                    
                     throw error;
                 }
             }
 
-            function showAlert(message, type) {
-                alertBox.textContent = message;
-                alertBox.className = type === 'error' ? 'alert alert-error' : 'alert alert-success';
-                alertBox.style.display = 'block';
-                setTimeout(() => { alertBox.style.display = 'none'; }, 5000);
+            // Verificar token existente ao carregar a página
+            async function checkExistingToken() {
+                const token = localStorage.getItem('access_token');
+                const tokenExpiry = localStorage.getItem('token_expiry');
+                
+                if (token && tokenExpiry && new Date().getTime() < parseInt(tokenExpiry)) {
+                    try {
+                        console.log('🔍 Verificando token existente...');
+                        
+                        // Verificar se o token ainda é válido
+                        const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+                            headers: {
+                                'Authorization': `Bearer ${token}`
+                            }
+                        });
+
+                        if (response.ok) {
+                            const userData = await response.json();
+                            console.log('✅ Token válido encontrado, redirecionando...');
+                            await handleSuccessfulLogin(token);
+                        } else {
+                            throw new Error('Token inválido');
+                        }
+                    } catch (error) {
+                        console.log('❌ Token inválido, fazendo logout...');
+                        // Token inválido, limpar storage
+                        localStorage.removeItem('access_token');
+                        localStorage.removeItem('token_expiry');
+                        localStorage.removeItem('refresh_token');
+                    }
+                }
             }
+
+            // Executar verificação ao carregar a página
+            checkExistingToken();
         });
     </script>
 </body>
