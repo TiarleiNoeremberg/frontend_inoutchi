@@ -675,11 +675,6 @@
                     <button class="btn btn-primary" id="getLocationBtn" style="width: 100%; margin-top: 10px;">
                         <i class="fas fa-location-arrow"></i> Obter Localização Atual
                     </button>
-                    
-                    <!-- Mensagem de instrução -->
-                    <div style="font-size: 12px; color: #666; margin-top: 10px; text-align: center;">
-                        <i class="fas fa-info-circle"></i> A localização atual é obrigatória para registrar presença
-                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -739,6 +734,25 @@
         if (instructionElement) {
             instructionElement.innerHTML = updatedInstructionHTML;
         }
+    }
+
+    function testConfirmButton() {
+        const confirmBtn = document.getElementById('confirmActionBtn');
+        if (!confirmBtn) {
+            console.error('❌ confirmActionBtn NÃO ENCONTRADO no DOM!');
+            return false;
+        }
+        
+        console.log('✅ confirmActionBtn encontrado:', confirmBtn);
+        console.log('✅ confirmActionBtn disabled:', confirmBtn.disabled);
+        console.log('✅ confirmActionBtn onclick:', confirmBtn.onclick);
+        
+        // Testar clique manual
+        confirmBtn.addEventListener('click', function testHandler() {
+            console.log('🎯 TESTE: Botão confirmActionBtn Clicado!');
+        });
+        
+        return true;
     }
 
     // ========== FUNÇÕES DE REGISTRO DE ENTRADA/SAÍDA ==========
@@ -1360,8 +1374,73 @@
     // Executar após a página carregar
     setTimeout(findConfirmActionCalls, 3000);
 
+    // ✅ NOVA FUNÇÃO: Configurar botão de confirmação
+function setupConfirmButton(studentId, type) {
+    // Remover event listeners antigos
+    const oldConfirmBtn = document.getElementById('confirmActionBtn');
+    if (oldConfirmBtn) {
+        oldConfirmBtn.replaceWith(oldConfirmBtn.cloneNode(true));
+    }
+    
+    // Obter novo botão
+    confirmActionBtn = document.getElementById('confirmActionBtn');
+    
+        if (!confirmActionBtn) {
+            console.error('❌ Botão confirmActionBtn não encontrado!');
+            return;
+        }
+        
+        // Configurar conteúdo do botão
+        confirmActionBtn.innerHTML = type === 'entrada' 
+            ? '<i class="fas fa-sign-in-alt"></i> Confirmar Entrada' 
+            : '<i class="fas fa-sign-out-alt"></i> Confirmar Saída';
+        
+        confirmActionBtn.disabled = true;
+        
+        // ✅ CORREÇÃO: Usar addEventListener em vez de onclick
+        confirmActionBtn.addEventListener('click', async function confirmHandler() {
+            console.log('🎯 BOTÃO CONFIRMAR CLICADO - Iniciando registro');
+            
+            if (!currentUser || !currentUser.nome || !currentUser.tutorId) {
+                console.error('❌ Dados do tutor incompletos:', currentUser);
+                showAlert('Erro: Dados do tutor incompletos', 'error');
+                return;
+            }
+            
+            const responsavelNome = currentUser.nome;
+            const responsavelTipo = currentUser.roles ? currentUser.roles[0].replace('ROLE_', '') : 'TUTOR';
+            
+            console.log(`🎯 Registrando ${type} para aluno ${studentId}`);
+            console.log(`👤 Responsável: ${responsavelNome} (ID: ${currentUser.tutorId}, Tipo: ${responsavelTipo})`);
+            
+            try {
+                // ✅ REMOVER O EVENT LISTENER PARA EVITAR DUPLICAÇÃO
+                confirmActionBtn.removeEventListener('click', confirmHandler);
+                
+                if (type === 'entrada') {
+                    console.log('🎯 Chamando registrarEntrada...');
+                    await registrarEntrada(studentId, responsavelNome, responsavelTipo);
+                } else {
+                    console.log('🎯 Chamando registrarSaida...');
+                    await registrarSaida(studentId, responsavelNome, responsavelTipo);
+                }
+                
+                console.log('🎯 Registro concluído com sucesso');
+            } catch (error) {
+                console.error('❌ Erro no registro:', error);
+                // Re-adicionar o listener em caso de erro
+                confirmActionBtn.addEventListener('click', confirmHandler);
+            }
+        });
+        
+        console.log('✅ Botão de confirmação configurado com sucesso');
+    }
+
     // ✅ CONFIGURAR BOTÃO DE CONFIRMAÇÃO - COM VALIDAÇÃO DO ID
     window.openActionModal = function(studentId, type, studentName) {
+        console.log('🎯 ABRINDO MODAL - Início do fluxo');
+        console.log('🎯 Dados:', { studentId, type, studentName });
+        
         selectedStudentId = studentId;
         actionType = type;
         
@@ -1369,50 +1448,23 @@
         if (modalStudentName) modalStudentName.textContent = studentName;
         if (modalMessage) modalMessage.textContent = `Deseja registrar ${type === 'entrada' ? 'a entrada' : 'a saída'} do aluno ${studentName}?`;
         
-        // ✅ ATUALIZAR mensagem instrutiva
-        updateModalInstruction();
-
         // Resetar estado da localização
         resetLocationState();
         
-        if (confirmActionBtn) {
-            confirmActionBtn.replaceWith(confirmActionBtn.cloneNode(true));
-            confirmActionBtn = document.getElementById('confirmActionBtn');
-            
-            confirmActionBtn.onclick = async function() {
-                if (!currentUser || !currentUser.nome || !currentUser.tutorId) {
-                    showAlert('Erro: Dados do tutor incompletos', 'error');
-                    return;
-                }
-                
-                const responsavelNome = currentUser.nome;
-                const responsavelTipo = currentUser.roles[0].replace('ROLE_', '');
-                
-                console.log(`🎯 Registrando ${type} para aluno ${studentId}`);
-                console.log(`👤 Responsável: ${responsavelNome} (ID: ${currentUser.tutorId}, Tipo: ${responsavelTipo})`);
-                
-                try {
-                    if (type === 'entrada') {
-                        await registrarEntrada(studentId, responsavelNome, responsavelTipo);
-                    } else {
-                        await registrarSaida(studentId, responsavelNome, responsavelTipo);
-                    }
-                } catch (error) {
-                    console.error('❌ Erro no registro:', error);
-                }
-            };
-            
-            confirmActionBtn.innerHTML = type === 'entrada' 
-                ? '<i class="fas fa-sign-in-alt"></i> Confirmar Entrada' 
-                : '<i class="fas fa-sign-out-alt"></i> Confirmar Saída';
-            confirmActionBtn.disabled = true;
+        // ✅ CORREÇÃO: Configurar o botão de confirmação de forma robusta
+        setupConfirmButton(studentId, type);
+        
+        if (actionModal) {
+            actionModal.style.display = 'flex';
+            console.log('✅ Modal aberto com sucesso');
         }
         
-        if (actionModal) actionModal.style.display = 'flex';
-        
         setTimeout(() => {
+            console.log('🎯 Iniciando captura de localização automática');
             getCurrentLocation();
         }, 500);
+        console.log('🔍 Testando botão de confirmação...');
+        testConfirmButton();
     };
 
     // Função viewStudentHistory corrigida
@@ -2273,15 +2325,35 @@
 
         // Resetar estado da localização
         function resetLocationState() {
-            document.getElementById('locationStatus').style.display = 'none';
-            document.getElementById('coordinatesDisplay').style.display = 'none';
-            document.getElementById('coordinatesDisplay').innerHTML = `
-                <div>Latitude: <span id="displayLatitude">-</span></div>
-                <div>Longitude: <span id="displayLongitude">-</span></div>
-            `;
-            getLocationBtn.disabled = false;
-            getLocationBtn.innerHTML = '<i class="fas fa-location-arrow"></i> Validar Localização';
-            confirmActionBtn.disabled = true;
+            console.log('🔄 Resetando estado da localização...');
+            
+            const locationStatus = document.getElementById('locationStatus');
+            const coordinatesDisplay = document.getElementById('coordinatesDisplay');
+            
+            if (locationStatus) {
+                locationStatus.style.display = 'none';
+                locationStatus.className = 'location-status';
+                locationStatus.innerHTML = '';
+            }
+            
+            if (coordinatesDisplay) {
+                coordinatesDisplay.style.display = 'none';
+                coordinatesDisplay.innerHTML = `
+                    <div>Latitude: <span id="displayLatitude">-</span></div>
+                    <div>Longitude: <span id="displayLongitude">-</span></div>
+                `;
+            }
+            
+            if (getLocationBtn) {
+                getLocationBtn.disabled = false;
+                getLocationBtn.innerHTML = '<i class="fas fa-location-arrow"></i> Validar Localização';
+            }
+            
+            if (confirmActionBtn) {
+                confirmActionBtn.disabled = true;
+            }
+            
+            console.log('✅ Estado da localização resetado');
         }
 
         // Obter localização atual - MODIFICADA
@@ -2292,7 +2364,7 @@
             }
             
             showLocationLoading();
-            getLocationBtn.disabled = true;
+            if (getLocationBtn) getLocationBtn.disabled = true;
             
             return new Promise((resolve) => {
                 navigator.geolocation.getCurrentPosition(
@@ -2303,16 +2375,24 @@
                         };
                         
                         try {
-                            // ✅ AGORA VALIDAÇÃO DUPLA: Geofence OU Wi-Fi
+                            // ✅ VALIDAÇÃO DUPLA: Geofence OU Wi-Fi
                             await ensureGeofence(coords.latitude, coords.longitude);
                             
-                            // Se chegou aqui, a validação foi bem-sucedida
-                            confirmActionBtn.disabled = false;
-                            getLocationBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Revalidar Localização';
-                            getLocationBtn.disabled = false;
+                            // ✅ HABILITAR BOTÃO DE CONFIRMAÇÃO
+                            if (confirmActionBtn) {
+                                confirmActionBtn.disabled = false;
+                                console.log('✅ Botão de confirmação HABILITADO');
+                            }
+                            
+                            if (getLocationBtn) {
+                                getLocationBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Revalidar Localização';
+                                getLocationBtn.disabled = false;
+                            }
+                            
+                            resolve(coords);
                             
                         } catch (error) {
-                            // A validação falhou - mostrar erro específico
+                            console.error('❌ Validação de localização falhou:', error);
                             showLocationError(error.message);
                             resolve(null);
                         }
@@ -2324,7 +2404,7 @@
                     },
                     {
                         enableHighAccuracy: true,
-                        timeout: 15000, // Aumentado para permitir verificação Wi-Fi
+                        timeout: 15000,
                         maximumAge: 60000
                     }
                 );
