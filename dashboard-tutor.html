@@ -403,10 +403,10 @@
             margin: 10px 0;
             text-align: center;
             font-size: 14px;
-            display: none; /* Inicialmente oculto */
+            display: none;
         }
 
-        /* ✅ ESTILOS PARA A CONTAGEM REGRESSIVA */
+        /* ESTILOS PARA A CONTAGEM REGRESSIVA */
         .location-status .fa-clock {
             color: var(--warning-color);
             margin-right: 5px;
@@ -422,16 +422,6 @@
             0% { opacity: 1; }
             50% { opacity: 0.7; }
             100% { opacity: 1; }
-        }
-
-        /* ✅ DESTAQUE PARA O AVISO DE AUTO-FECHAMENTO */
-        .auto-close-warning {
-            background-color: rgba(243, 156, 18, 0.1);
-            border-left: 4px solid var(--warning-color);
-            padding: 8px 12px;
-            margin: 10px 0;
-            border-radius: 4px;
-            font-size: 13px;
         }
 
         .coordinates-display strong {
@@ -471,15 +461,11 @@
             margin: 10px 0;
             text-align: center;
             border: 1px solid #e9ecef;
-            display: none; /* Inicialmente oculto */
+            display: none;
         }
 
         .coordinates-display div {
             margin: 4px 0;
-        }
-
-        .coordinates-display span[style*="danger-color"] {
-            font-weight: bold;
         }
 
         /* Ajustar a tabela para 6 colunas */
@@ -650,7 +636,7 @@
                     </button>
                 </div>
                 
-                <!-- Controles de Paginação - NOVO -->
+                <!-- Controles de Paginação -->
                 <div id="paginationControls" style="display: none; justify-content: space-between; align-items: center; margin-bottom: 15px; padding: 10px; background-color: #f8f9fa; border-radius: 5px;">
                     <div>
                         <span id="paginationInfo" style="font-size: 14px; color: #666;">Mostrando 0-0 de 0 registros</span>
@@ -728,7 +714,6 @@
             </div>
             <div class="modal-footer">
                 <button class="btn" onclick="closeModal()">Cancelar</button>
-                <!-- ✅ BOTÃO CORRETO - sem onclick hardcoded -->
                 <button class="btn btn-primary" id="confirmActionBtn" disabled>
                     <i class="fas fa-check"></i> Confirmar
                 </button>
@@ -736,1241 +721,828 @@
         </div>
     </div>
 
-    
-
-
     <script>
         const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
-    let currentUser = null;
-    let students = [];
-    let selectedStudentId = null;
-    let actionType = null;
-    let tutorName = null;
+        let currentUser = null;
+        let students = [];
+        let selectedStudentId = null;
+        let actionType = null;
+        let tutorName = null;
 
-    // ========== VARIÁVEIS DE ATUALIZAÇÃO AUTOMÁTICA ==========
-    let studentsAutoRefreshInterval = null;
-    const STUDENTS_REFRESH_INTERVAL = 30000; // 30 segundos
-    let lastStudentsUpdate = 0;
-    const MIN_UPDATE_INTERVAL = 5000; // 5 segundos entre atualizações
+        // VARIÁVEIS DE ATUALIZAÇÃO AUTOMÁTICA
+        let studentsAutoRefreshInterval = null;
+        const STUDENTS_REFRESH_INTERVAL = 30000;
+        let lastStudentsUpdate = 0;
+        const MIN_UPDATE_INTERVAL = 5000;
 
-    // ========== VARIÁVEIS DE PAGINAÇÃO ==========
-    let currentPage = 1;
-    const recordsPerPage = 10;
-    let currentHistoryData = [];
-    let totalRecords = 0;
-    let totalPages = 1;
+        // VARIÁVEIS DE PAGINAÇÃO
+        let currentPage = 1;
+        const recordsPerPage = 10;
+        let currentHistoryData = [];
+        let totalRecords = 0;
+        let totalPages = 1;
 
-    // ========== ELEMENTOS DOM ==========
-    let loadingElement, contentElement, alertBox, studentList, historyTableBody;
-    let userFullName, userName, userAvatar, presenceSummary;
-    let actionModal, modalTitle, modalMessage, modalStudentName, confirmActionBtn, getLocationBtn;
-    let geofenceValidated = false;
-    let lastValidatedCoords = null;
-    let autoCloseTimeout = null;
+        // ELEMENTOS DOM
+        let loadingElement, contentElement, alertBox, studentList, historyTableBody;
+        let userFullName, userName, userAvatar, presenceSummary;
+        let actionModal, modalTitle, modalMessage, modalStudentName, confirmActionBtn, getLocationBtn;
+        let geofenceValidated = false;
+        let lastValidatedCoords = null;
+        let autoCloseTimeout = null;
 
-    // ========== FUNÇÕES GLOBAIS ==========
-
-    // ✅ ATUALIZAR a mensagem instrutiva no modal:
-    // No lugar da mensagem atual no HTML, substituir por:
-    const updatedInstructionHTML = `
-        <div style="font-size: 12px; color: #666; margin-top: 10px; text-align: center;">
-            <i class="fas fa-info-circle"></i> 
-            É necessário estar <strong>na área da escola</strong> OU 
-            <strong>conectado à rede Wi-Fi "MAR"</strong> para registrar presença
-        </div>
-    `;
-
-    // E adicionar esta função para atualizar o modal:
-    function updateModalInstruction() {
-        const instructionElement = document.querySelector('.modal-body .form-group div:last-child');
-        if (instructionElement) {
-            instructionElement.innerHTML = updatedInstructionHTML;
-        }
-    }
-
-    function testConfirmButton() {
-        const confirmBtn = document.getElementById('confirmActionBtn');
-        if (!confirmBtn) {
-            console.error('❌ confirmActionBtn NÃO ENCONTRADO no DOM!');
-            return false;
-        }
-        
-        console.log('✅ confirmActionBtn encontrado:', confirmBtn);
-        console.log('✅ confirmActionBtn disabled:', confirmBtn.disabled);
-        console.log('✅ confirmActionBtn onclick:', confirmBtn.onclick);
-        
-        // Testar clique manual
-        confirmBtn.addEventListener('click', function testHandler() {
-            console.log('🎯 TESTE: Botão confirmActionBtn Clicado!');
-        });
-        
-        return true;
-    }
-
-    // ========== FUNÇÕES DE REGISTRO DE ENTRADA/SAÍDA ==========
-
-    // ✅ VERSÃO ALTERNATIVA - USANDO FINALLY PARA GARANTIR FECHAMENTO
-    async function registrarEntrada(alunoId, responsavelNome, responsavelTipo) {
-        let shouldCloseModal = true;
-        
-        try {
-            console.log('🚀 Iniciando registro de entrada...');
-            
-            if (!currentUser.tutorId) {
-                throw new Error('ID do tutor não disponível');
-            }
-            
-            const responsavelId = currentUser.tutorId;
-            
-            console.log('📋 Dados da requisição:', { 
-                alunoId, 
-                responsavelId,
-                responsavelNome, 
-                responsavelTipo 
-            });
-
-            // ✅ OBTER LOCALIZAÇÃO SEM VALIDAR GEOFENCE NOVAMENTE
-            // A geofence já foi validada quando o botão foi habilitado
-            const coords = await getCurrentLocationWithoutValidation();
-            
-            if (!coords) {
-                throw new Error('Não foi possível obter a localização');
-            }
-
-            console.log('📍 Coordenadas obtidas para registro:', coords);
-
-            // ✅ NÃO VALIDAR GEOFENCE NOVAMENTE - JÁ FOI VALIDADA
-            console.log('✅ Geofence já validada anteriormente, prosseguindo com registro...');
-
-            const requestData = {
-                alunoId: alunoId,
-                responsavelId: responsavelId,
-                responsavelNome: responsavelNome,
-                responsavelTipo: responsavelTipo,
-                latitude: coords.latitude,
-                longitude: coords.longitude
-            };
-
-            console.log('📤 Estrutura final da requisição:', JSON.stringify(requestData, null, 2));
-
-            const accessToken = localStorage.getItem('access_token');
-            
-            // ✅ LOG ANTES DO FETCH
-            console.log('🔄 Enviando requisição para /api/presencas/entrada...');
-            
-            const response = await fetch(`${BACKEND_URL}/api/presencas/entrada`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(requestData)
-            });
-
-            console.log('📥 Resposta da API recebida:', response.status, response.statusText);
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('❌ Erro na resposta:', errorText);
+        // FUNÇÕES DE REGISTRO DE ENTRADA/SAÍDA
+        async function registrarEntrada(alunoId, responsavelNome, responsavelTipo) {
+            try {
+                console.log('🚀 Iniciando registro de entrada...');
                 
-                let errorMessage = `Erro ${response.status}: ${errorText || 'Falha no registro'}`;
-                
-                try {
-                    const errorData = JSON.parse(errorText);
-                    if (errorData.mensagem) {
-                        errorMessage = errorData.mensagem;
-                    }
-                } catch (e) {
-                    // Mantém a mensagem original se não for JSON
+                if (!currentUser.tutorId) {
+                    throw new Error('ID do tutor não disponível');
                 }
                 
-                throw new Error(errorMessage);
-            }
-
-            const result = await response.json();
-            console.log('✅ Registro de entrada realizado com sucesso:', result);
-
-            showAlert('Entrada registrada com sucesso!', 'success');
-            
-            setTimeout(() => {
-                refreshStudentsData();
-            }, 1000);
-
-        } catch (error) {
-            console.error('❌ Erro no registro de entrada:', error);
-            showAlert(`Erro ao registrar entrada: ${error.message}`, 'error');
-            shouldCloseModal = true;
-        } finally {
-            console.log('🔒 Finally executado - fechando modal');
-            closeModal();
-        }
-    }
-
-    // ✅ NOVA FUNÇÃO: Obter localização sem validação de geofence
-    async function getCurrentLocationWithoutValidation() {
-        return new Promise((resolve) => {
-            if (!navigator.geolocation) {
-                resolve(null);
-                return;
-            }
-            
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    const coords = {
-                        latitude: position.coords.latitude,
-                        longitude: position.coords.longitude
-                    };
-                    console.log('📍 Localização obtida (sem validação):', coords);
-                    resolve(coords);
-                },
-                (error) => {
-                    console.error('❌ Erro ao obter localização:', error);
-                    resolve(null);
-                },
-                {
-                    enableHighAccuracy: true,
-                    timeout: 10000,
-                    maximumAge: 0 // Sem cache
-                }
-            );
-        });
-    }
-
-    // ✅ FUNÇÃO registrarSaida - USANDO FINALLY PARA GARANTIR FECHAMENTO
-    async function registrarSaida(alunoId, responsavelNome, responsavelTipo) {
-        let shouldCloseModal = true;
-        
-        try {
-            console.log('🚀 Iniciando registro de saída...');
-            
-            if (!currentUser.tutorId) {
-                throw new Error('ID do tutor não disponível');
-            }
-            
-            const responsavelId = currentUser.tutorId;
-            
-            console.log('📋 Dados da requisição:', { 
-                alunoId, 
-                responsavelId,
-                responsavelNome, 
-                responsavelTipo 
-            });
-
-            // ✅ OBTER LOCALIZAÇÃO SEM VALIDAR GEOFENCE NOVAMENTE
-            const coords = await getCurrentLocationWithoutValidation();
-            
-            if (!coords) {
-                throw new Error('Não foi possível obter a localização');
-            }
-
-            console.log('📍 Coordenadas obtidas para registro:', coords);
-
-            // ✅ NÃO VALIDAR GEOFENCE NOVAMENTE
-            console.log('✅ Geofence já validada anteriormente, prosseguindo com registro...');
-
-            const requestData = {
-                alunoId: alunoId,
-                responsavelId: responsavelId,
-                responsavelNome: responsavelNome,
-                responsavelTipo: responsavelTipo,
-                latitude: coords.latitude,
-                longitude: coords.longitude
-            };
-
-            console.log('📤 Estrutura final da requisição:', JSON.stringify(requestData, null, 2));
-
-            const accessToken = localStorage.getItem('access_token');
-            
-            console.log('🔄 Enviando requisição para /api/presencas/saida...');
-            
-            const response = await fetch(`${BACKEND_URL}/api/presencas/saida`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(requestData)
-            });
-
-            console.log('📥 Resposta da API recebida:', response.status, response.statusText);
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('❌ Erro na resposta:', errorText);
+                const responsavelId = currentUser.tutorId;
                 
-                let errorMessage = `Erro ${response.status}: ${errorText || 'Falha no registro'}`;
-                
-                try {
-                    const errorData = JSON.parse(errorText);
-                    if (errorData.mensagem) {
-                        errorMessage = errorData.mensagem;
-                    }
-                } catch (e) {
-                    // Mantém a mensagem original se não for JSON
-                }
-                
-                throw new Error(errorMessage);
-            }
-
-            const result = await response.json();
-            console.log('✅ Registro de saída realizado com sucesso:', result);
-
-            showAlert('Saída registrada com sucesso!', 'success');
-            
-            setTimeout(() => {
-                refreshStudentsData();
-            }, 1000);
-
-        } catch (error) {
-            console.error('❌ Erro no registro de saída:', error);
-            showAlert(`Erro ao registrar saída: ${error.message}`, 'error');
-            shouldCloseModal = true;
-        } finally {
-            console.log('🔒 Finally executado - fechando modal');
-            closeModal();
-        }
-    }
-
-    // ✅ NOVA FUNÇÃO: Verificar se o tutor tem permissão para o aluno
-    async function verificarPermissaoAluno(alunoId, tutorId) {
-        try {
-            console.log(`🔐 Verificando permissão: Tutor ${tutorId} pode acessar aluno ${alunoId}?`);
-            
-            const accessToken = localStorage.getItem('access_token');
-            const response = await fetch(`${BACKEND_URL}/api/tutores/${tutorId}/alunos`, {
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            if (response.ok) {
-                const alunos = await response.json();
-                
-                // Verificar se o aluno está na lista do tutor
-                const alunoPermitido = alunos.some(aluno => aluno.id === alunoId);
-                
-                console.log(`📋 Alunos do tutor:`, alunos);
-                console.log(`✅ Aluno ${alunoId} permitido? ${alunoPermitido}`);
-                
-                return alunoPermitido;
-            }
-            
-            return false;
-        } catch (error) {
-            console.error('Erro ao verificar permissão:', error);
-            return false;
-        }
-    }
-
-    // ✅ FUNÇÃO: Debug detalhado da requisição
-    function debugRequestStructure(requestData, endpoint) {
-        console.log('🔍 ========== DEBUG DA REQUISIÇÃO ==========');
-        console.log('Endpoint:', `${BACKEND_URL}${endpoint}`);
-        console.log('Método: POST');
-        console.log('Headers: Authorization: Bearer [token], Content-Type: application/json');
-        console.log('Body (JSON):', JSON.stringify(requestData, null, 2));
-        
-        console.log('📊 COMPARAÇÃO COM POSTMAN:');
-        console.log('✅ Deve ser igual ao que funciona no Postman:');
-        console.log(`{
-            "alunoId": 1,
-            "responsavelNome": "Maria",
-            "responsavelTipo": "TUTOR", 
-            "responsavelId": 1,
-            "latitude": -23.55052,
-            "longitude": -46.633309
-            }`);
-        
-        console.log('🔄 NOSSA REQUISIÇÃO:');
-        console.log(JSON.stringify(requestData, null, 2));
-        
-        // Verificação campo a campo
-        console.log('✅ VERIFICAÇÃO DOS CAMPOS:');
-        const campos = ['alunoId', 'responsavelId', 'responsavelNome', 'responsavelTipo', 'latitude', 'longitude'];
-        campos.forEach(campo => {
-            const valor = requestData[campo];
-            console.log(`- ${campo}: ${valor} (tipo: ${typeof valor})`);
-        });
-        
-        console.log('🔚 ========== FIM DEBUG ==========');
-    }
-
-    // ========== NOVAS FUNÇÕES PARA VALIDAÇÃO DE REDE Wi-Fi ==========
-
-    // Função para obter informações da rede Wi-Fi
-    async function getWifiInfo() {
-        return new Promise((resolve) => {
-            if (!navigator.connection) {
-                console.log('📡 API de Network Information não suportada');
-                resolve(null);
-                return;
-            }
-
-            const connection = navigator.connection;
-            console.log('📡 Informações da conexão:', {
-                type: connection.type,
-                effectiveType: connection.effectiveType,
-                downlink: connection.downlink,
-                rtt: connection.rtt
-            });
-
-            // Verificar se está em Wi-Fi (type 'wifi' ou velocidade alta típica de Wi-Fi)
-            if (connection.type === 'wifi' || 
-                (connection.effectiveType === '4g' && connection.downlink > 10)) {
-                
-                // Tentar obter SSID (funciona em alguns dispositivos/apps)
-                if (connection.ssid) {
-                    resolve({
-                        ssid: connection.ssid,
-                        type: connection.type,
-                        isWifi: true
-                    });
-                } else {
-                    // Se não conseguir SSID, assume que é Wi-Fi baseado no tipo
-                    resolve({
-                        ssid: 'unknown',
-                        type: connection.type,
-                        isWifi: true
-                    });
-                }
-            } else {
-                resolve({
-                    isWifi: false,
-                    type: connection.type
+                console.log('📋 Dados da requisição:', { 
+                    alunoId, 
+                    responsavelId,
+                    responsavelNome, 
+                    responsavelTipo 
                 });
-            }
-        });
-    }
 
-
-    // Função para verificar se está na rede Wi-Fi da escola
-    async function checkSchoolWifi() {
-        try {
-            const wifiInfo = await getWifiInfo();
-            
-            if (!wifiInfo || !wifiInfo.isWifi) {
-                return { isSchoolWifi: false, reason: 'Não conectado a Wi-Fi' };
-            }
-
-            // ✅ LISTA ATUALIZADA COM A REDE "MAR"
-            const schoolSsids = [
-                'MAR',                    // ✅ Nova rede adicionada
-                'Escola_Principal',
-                'REDE-ESCOLA', 
-                'Lab_Informatica',
-                'Professores',
-                'Alunos'
-                // Adicione aqui outros SSIDs da sua escola
-            ];
-
-            console.log('📡 Verificando se está na rede da escola...');
-            console.log('📡 SSID atual:', wifiInfo.ssid);
-            console.log('📡 Redes permitidas:', schoolSsids);
-
-            const isSchoolWifi = schoolSsids.some(ssid => {
-                // Comparação case-insensitive
-                const currentSsid = wifiInfo.ssid.toLowerCase().trim();
-                const allowedSsid = ssid.toLowerCase().trim();
+                const coords = await getCurrentLocationWithoutValidation();
                 
-                const match = currentSsid === allowedSsid || 
-                            currentSsid.includes(allowedSsid) ||
-                            allowedSsid.includes(currentSsid);
-                
-                if (match) {
-                    console.log(`✅ Rede correspondente encontrada: "${wifiInfo.ssid}" = "${ssid}"`);
+                if (!coords) {
+                    throw new Error('Não foi possível obter a localização');
                 }
-                
-                return match;
-            });
 
-            return {
-                isSchoolWifi: isSchoolWifi,
-                ssid: wifiInfo.ssid,
-                type: wifiInfo.type
-            };
+                console.log('📍 Coordenadas obtidas para registro:', coords);
 
-        } catch (error) {
-            console.error('Erro ao verificar Wi-Fi:', error);
-            return { isSchoolWifi: false, reason: 'Erro na verificação' };
-        }
-    }
+                const requestData = {
+                    alunoId: alunoId,
+                    responsavelId: responsavelId,
+                    responsavelNome: responsavelNome,
+                    responsavelTipo: responsavelTipo,
+                    latitude: coords.latitude,
+                    longitude: coords.longitude
+                };
 
-    // ========== NOVA FUNÇÃO: ATUALIZAR STATUS NA UI ==========
+                console.log('📤 Estrutura final da requisição:', JSON.stringify(requestData, null, 2));
 
-    // ✅ CORREÇÃO: updateLocationStatus com novo caso para erro com coordenadas
-    // ✅ CORREÇÃO: updateLocationStatus com auto-fechamento para erro
-    function updateLocationStatus(validationType, data) {
-        const statusElement = document.getElementById('locationStatus');
-        const coordsDisplay = document.getElementById('coordinatesDisplay');
-        
-        if (!statusElement || !coordsDisplay) {
-            console.error('❌ Elementos do modal não encontrados');
-            return;
-        }
-        
-        // ✅ CANCELAR TIMEOUT ANTERIOR SE EXISTIR
-        if (autoCloseTimeout) {
-            clearTimeout(autoCloseTimeout);
-            autoCloseTimeout = null;
-            console.log('🕒 Timeout anterior cancelado');
-        }
-        
-        // ✅ SEMPRE LIMPAR E PREPARAR OS ELEMENTOS
-        statusElement.style.display = 'block';
-        coordsDisplay.style.display = 'block';
-        
-        switch(validationType) {
-            case 'wifi':
-                statusElement.className = 'location-status location-success';
-                statusElement.innerHTML = 
-                    `<i class="fas fa-wifi wifi-icon"></i> ${data.message}`;
+                const accessToken = localStorage.getItem('access_token');
                 
-                coordsDisplay.innerHTML = `
-                    <div><strong>Rede:</strong> ${data.ssid}</div>
-                    <div><strong>Latitude:</strong> ${data.latitude.toFixed(6)}</div>
-                    <div><strong>Longitude:</strong> ${data.longitude.toFixed(6)}</div>
-                    <div><strong>Método:</strong> Validação por Wi-Fi</div>
-                    <div class="validation-method">Conectado à rede da escola</div>
-                `;
-                break;
+                console.log('🔄 Enviando requisição para /api/presencas/entrada...');
                 
-            case 'geofence':
-                statusElement.className = 'location-status location-success';
-                statusElement.innerHTML = 
-                    `<i class="fas fa-map-marker-alt geofence-icon"></i> ${data.message}`;
-                
-                coordsDisplay.innerHTML = `
-                    <div><strong>Latitude:</strong> ${data.latitude.toFixed(6)}</div>
-                    <div><strong>Longitude:</strong> ${data.longitude.toFixed(6)}</div>
-                    <div><strong>Método:</strong> Validação por Geofence</div>
-                    <div class="validation-method">Dentro da área da escola</div>
-                `;
-                break;
-                
-            case 'error_with_coords':
-                // ✅ NOVO CASO: ERRO MAS COM COORDENADAS + AUTO-FECHAMENTO
-                statusElement.className = 'location-status location-error';
-                statusElement.innerHTML = 
-                    `<i class="fas fa-exclamation-circle"></i> ${data.message}
-                    <div style="font-size: 12px; margin-top: 5px; font-weight: normal;">
-                        <i class="fas fa-clock"></i> Fechando automaticamente em <span id="countdown">5</span> segundos...
-                    </div>`;
-                
-                coordsDisplay.innerHTML = `
-                    <div><strong>Latitude:</strong> ${data.latitude.toFixed(6)}</div>
-                    <div><strong>Longitude:</strong> ${data.longitude.toFixed(6)}</div>
-                    <div><strong>Status:</strong> <span style="color: var(--danger-color);">Fora da área permitida</span></div>
-                    <div class="validation-method">Localização adquirida mas fora do raio permitido</div>
-                `;
-                
-                // ✅ INICIAR CONTAGEM REGRESSIVA PARA FECHAMENTO
-                startAutoCloseCountdown();
-                break;
-                
-            case 'error':
-                statusElement.className = 'location-status location-error';
-                statusElement.innerHTML = 
-                    `<i class="fas fa-exclamation-circle"></i> ${data.message}`;
-                
-                coordsDisplay.style.display = 'none';
-                break;
-        }
-        
-        console.log(`✅ UI atualizada: ${validationType}`, data);
-    }
-
-    // ✅ NOVA FUNÇÃO: Contagem regressiva para auto-fechamento
-    function startAutoCloseCountdown() {
-        let secondsLeft = 5;
-        const countdownElement = document.getElementById('countdown');
-        
-        console.log(`🕒 Iniciando contagem regressiva: ${secondsLeft} segundos`);
-        
-        // ✅ ATUALIZAR CONTAGEM A CADA SEGUNDO
-        const countdownInterval = setInterval(() => {
-            secondsLeft--;
-            
-            if (countdownElement) {
-                countdownElement.textContent = secondsLeft;
-            }
-            
-            console.log(`🕒 Fechando em ${secondsLeft} segundos...`);
-            
-            if (secondsLeft <= 0) {
-                clearInterval(countdownInterval);
-                closeModalWithFeedback();
-            }
-        }, 1000);
-        
-        // ✅ CONFIGURAR TIMEOUT PARA FECHAMENTO
-        autoCloseTimeout = setTimeout(() => {
-            clearInterval(countdownInterval);
-            closeModalWithFeedback();
-        }, 5000);
-    }
-
-    // ✅ NOVA FUNÇÃO: Fechar modal com feedback
-    function closeModalWithFeedback() {
-        console.log('🕒 Auto-fechamento executado - fechando modal');
-        
-        // ✅ MOSTRAR FEEDBACK ANTES DE FECHAR
-        showAlert('Modal fechado automaticamente. Você estava fora da área permitida.', 'warning');
-        
-        // ✅ FECHAR MODAL
-        closeModal();
-        
-        // ✅ LIMPAR VARIÁVEL
-        autoCloseTimeout = null;
-    }
-
-    // ========== FUNÇÃO ensureGeofence ATUALIZADA ==========
-
-    // ✅ FUNÇÃO ensureGeofence - AGORA COM VALIDAÇÃO DUPLA (Geofence OU Wi-Fi)
-    // ✅ CORREÇÃO: ensureGeofence para sempre retornar as coordenadas
-    async function ensureGeofence(latitude, longitude) {
-        try {
-            console.log('📍 Iniciando validação de localização...');
-            
-            const accessToken = localStorage.getItem('access_token');
-            
-            const aluno = students.find(s => s.id === selectedStudentId);
-            if (!aluno) {
-                throw new Error('Aluno não encontrado');
-            }
-            
-            const escolaId = aluno.escolaId;
-            
-            if (!escolaId) {
-                throw new Error('Escola não identificada para o aluno');
-            }
-            
-            console.log('🏫 Verificando acesso para escola:', escolaId);
-
-            // ========== TENTATIVA 1: VERIFICAR Wi-Fi DA ESCOLA ==========
-            console.log('📡 Verificando rede Wi-Fi da escola...');
-            const wifiCheck = await checkSchoolWifi();
-            
-            if (wifiCheck.isSchoolWifi) {
-                console.log('✅ Conectado à rede Wi-Fi da escola:', wifiCheck.ssid);
-                
-                // ✅ ATUALIZAR UI COM SUCESSO VIA Wi-Fi
-                updateLocationStatus('wifi', {
-                    ssid: wifiCheck.ssid,
-                    message: `Conectado à rede da escola: ${wifiCheck.ssid}`,
-                    latitude: latitude,
-                    longitude: longitude
-                });
-                
-                geofenceValidated = true;
-                lastValidatedCoords = { latitude, longitude };
-                return true;
-            } else {
-                console.log('📡 Não está na Wi-Fi da escola:', wifiCheck.reason);
-            }
-
-            // ========== TENTATIVA 2: VERIFICAR GEOFENCE ==========
-            console.log('📍 Verificando geofence...');
-            const response = await fetch(
-                `${BACKEND_URL}/api/geofences/verificar/${escolaId}?` + 
-                `latitude=${latitude}&` +
-                `longitude=${longitude}&` +
-                `tipo=${actionType.toUpperCase()}`,
-                {
-                    method: 'GET',
+                const response = await fetch(`${BACKEND_URL}/api/presencas/entrada`, {
+                    method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestData)
+                });
+
+                console.log('📥 Resposta da API recebida:', response.status, response.statusText);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('❌ Erro na resposta:', errorText);
+                    
+                    let errorMessage = `Erro ${response.status}: ${errorText || 'Falha no registro'}`;
+                    
+                    try {
+                        const errorData = JSON.parse(errorText);
+                        if (errorData.mensagem) {
+                            errorMessage = errorData.mensagem;
+                        }
+                    } catch (e) {
+                        // Mantém a mensagem original se não for JSON
                     }
+                    
+                    throw new Error(errorMessage);
                 }
-            );
 
-            if (!response.ok) {
-                throw new Error(`Erro ${response.status} ao verificar geofence`);
+                const result = await response.json();
+                console.log('✅ Registro de entrada realizado com sucesso:', result);
+
+                showAlert('Entrada registrada com sucesso!', 'success');
+                
+                setTimeout(() => {
+                    refreshStudentsData();
+                }, 1000);
+
+            } catch (error) {
+                console.error('❌ Erro no registro de entrada:', error);
+                showAlert(`Erro ao registrar entrada: ${error.message}`, 'error');
+            } finally {
+                console.log('🔒 Finally executado - fechando modal');
+                closeModal();
             }
+        }
 
-            const resultado = await response.json();
-            console.log('📍 Resultado da verificação de geofence:', resultado);
+        async function registrarSaida(alunoId, responsavelNome, responsavelTipo) {
+            try {
+                console.log('🚀 Iniciando registro de saída...');
+                
+                if (!currentUser.tutorId) {
+                    throw new Error('ID do tutor não disponível');
+                }
+                
+                const responsavelId = currentUser.tutorId;
+                
+                console.log('📋 Dados da requisição:', { 
+                    alunoId, 
+                    responsavelId,
+                    responsavelNome, 
+                    responsavelTipo 
+                });
+
+                const coords = await getCurrentLocationWithoutValidation();
+                
+                if (!coords) {
+                    throw new Error('Não foi possível obter a localização');
+                }
+
+                console.log('📍 Coordenadas obtidas para registro:', coords);
+
+                const requestData = {
+                    alunoId: alunoId,
+                    responsavelId: responsavelId,
+                    responsavelNome: responsavelNome,
+                    responsavelTipo: responsavelTipo,
+                    latitude: coords.latitude,
+                    longitude: coords.longitude
+                };
+
+                console.log('📤 Estrutura final da requisição:', JSON.stringify(requestData, null, 2));
+
+                const accessToken = localStorage.getItem('access_token');
+                
+                console.log('🔄 Enviando requisição para /api/presencas/saida...');
+                
+                const response = await fetch(`${BACKEND_URL}/api/presencas/saida`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestData)
+                });
+
+                console.log('📥 Resposta da API recebida:', response.status, response.statusText);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('❌ Erro na resposta:', errorText);
+                    
+                    let errorMessage = `Erro ${response.status}: ${errorText || 'Falha no registro'}`;
+                    
+                    try {
+                        const errorData = JSON.parse(errorText);
+                        if (errorData.mensagem) {
+                            errorMessage = errorData.mensagem;
+                        }
+                    } catch (e) {
+                        // Mantém a mensagem original se não for JSON
+                    }
+                    
+                    throw new Error(errorMessage);
+                }
+
+                const result = await response.json();
+                console.log('✅ Registro de saída realizado com sucesso:', result);
+
+                showAlert('Saída registrada com sucesso!', 'success');
+                
+                setTimeout(() => {
+                    refreshStudentsData();
+                }, 1000);
+
+            } catch (error) {
+                console.error('❌ Erro no registro de saída:', error);
+                showAlert(`Erro ao registrar saída: ${error.message}`, 'error');
+            } finally {
+                console.log('🔒 Finally executado - fechando modal');
+                closeModal();
+            }
+        }
+
+        async function getCurrentLocationWithoutValidation() {
+            return new Promise((resolve) => {
+                if (!navigator.geolocation) {
+                    resolve(null);
+                    return;
+                }
+                
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const coords = {
+                            latitude: position.coords.latitude,
+                            longitude: position.coords.longitude
+                        };
+                        console.log('📍 Localização obtida (sem validação):', coords);
+                        resolve(coords);
+                    },
+                    (error) => {
+                        console.error('❌ Erro ao obter localização:', error);
+                        resolve(null);
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 0
+                    }
+                );
+            });
+        }
+
+        // Função para verificar se está na rede Wi-Fi da escola
+        async function checkSchoolWifi() {
+            try {
+                const wifiInfo = await getWifiInfo();
+                
+                if (!wifiInfo || !wifiInfo.isWifi) {
+                    return { isSchoolWifi: false, reason: 'Não conectado a Wi-Fi' };
+                }
+
+                const schoolSsids = [
+                    'MAR',
+                    'Escola_Principal',
+                    'REDE-ESCOLA', 
+                    'Lab_Informatica',
+                    'Professores',
+                    'Alunos'
+                ];
+
+                console.log('📡 Verificando se está na rede da escola...');
+                console.log('📡 SSID atual:', wifiInfo.ssid);
+                console.log('📡 Redes permitidas:', schoolSsids);
+
+                const isSchoolWifi = schoolSsids.some(ssid => {
+                    const currentSsid = wifiInfo.ssid.toLowerCase().trim();
+                    const allowedSsid = ssid.toLowerCase().trim();
+                    
+                    const match = currentSsid === allowedSsid || 
+                                currentSsid.includes(allowedSsid) ||
+                                allowedSsid.includes(currentSsid);
+                    
+                    if (match) {
+                        console.log(`✅ Rede correspondente encontrada: "${wifiInfo.ssid}" = "${ssid}"`);
+                    }
+                    
+                    return match;
+                });
+
+                return {
+                    isSchoolWifi: isSchoolWifi,
+                    ssid: wifiInfo.ssid,
+                    type: wifiInfo.type
+                };
+
+            } catch (error) {
+                console.error('Erro ao verificar Wi-Fi:', error);
+                return { isSchoolWifi: false, reason: 'Erro na verificação' };
+            }
+        }
+
+        // Função para obter informações da rede Wi-Fi
+        async function getWifiInfo() {
+            return new Promise((resolve) => {
+                if (!navigator.connection) {
+                    console.log('📡 API de Network Information não suportada');
+                    resolve(null);
+                    return;
+                }
+
+                const connection = navigator.connection;
+                console.log('📡 Informações da conexão:', {
+                    type: connection.type,
+                    effectiveType: connection.effectiveType,
+                    downlink: connection.downlink,
+                    rtt: connection.rtt
+                });
+
+                if (connection.type === 'wifi' || 
+                    (connection.effectiveType === '4g' && connection.downlink > 10)) {
+                    
+                    if (connection.ssid) {
+                        resolve({
+                            ssid: connection.ssid,
+                            type: connection.type,
+                            isWifi: true
+                        });
+                    } else {
+                        resolve({
+                            ssid: 'unknown',
+                            type: connection.type,
+                            isWifi: true
+                        });
+                    }
+                } else {
+                    resolve({
+                        isWifi: false,
+                        type: connection.type
+                    });
+                }
+            });
+        }
+
+        function updateLocationStatus(validationType, data) {
+            const statusElement = document.getElementById('locationStatus');
+            const coordsDisplay = document.getElementById('coordinatesDisplay');
             
-            if (resultado.dentroDaArea === true || resultado === true) {
-                console.log('✅ Dentro da área permitida (geofence)');
+            if (!statusElement || !coordsDisplay) {
+                console.error('❌ Elementos do modal não encontrados');
+                return;
+            }
+            
+            if (autoCloseTimeout) {
+                clearTimeout(autoCloseTimeout);
+                autoCloseTimeout = null;
+                console.log('🕒 Timeout anterior cancelado');
+            }
+            
+            statusElement.style.display = 'block';
+            coordsDisplay.style.display = 'block';
+            
+            switch(validationType) {
+                case 'wifi':
+                    statusElement.className = 'location-status location-success';
+                    statusElement.innerHTML = 
+                        `<i class="fas fa-wifi wifi-icon"></i> ${data.message}`;
+                    
+                    coordsDisplay.innerHTML = `
+                        <div><strong>Rede:</strong> ${data.ssid}</div>
+                        <div><strong>Latitude:</strong> ${data.latitude.toFixed(6)}</div>
+                        <div><strong>Longitude:</strong> ${data.longitude.toFixed(6)}</div>
+                        <div><strong>Método:</strong> Validação por Wi-Fi</div>
+                        <div class="validation-method">Conectado à rede da escola</div>
+                    `;
+                    break;
+                    
+                case 'geofence':
+                    statusElement.className = 'location-status location-success';
+                    statusElement.innerHTML = 
+                        `<i class="fas fa-map-marker-alt geofence-icon"></i> ${data.message}`;
+                    
+                    coordsDisplay.innerHTML = `
+                        <div><strong>Latitude:</strong> ${data.latitude.toFixed(6)}</div>
+                        <div><strong>Longitude:</strong> ${data.longitude.toFixed(6)}</div>
+                        <div><strong>Método:</strong> Validação por Geofence</div>
+                        <div class="validation-method">Dentro da área da escola</div>
+                    `;
+                    break;
+                    
+                case 'error_with_coords':
+                    statusElement.className = 'location-status location-error';
+                    statusElement.innerHTML = 
+                        `<i class="fas fa-exclamation-circle"></i> ${data.message}
+                        <div style="font-size: 12px; margin-top: 5px; font-weight: normal;">
+                            <i class="fas fa-clock"></i> Fechando automaticamente em <span id="countdown">5</span> segundos...
+                        </div>`;
+                    
+                    coordsDisplay.innerHTML = `
+                        <div><strong>Latitude:</strong> ${data.latitude.toFixed(6)}</div>
+                        <div><strong>Longitude:</strong> ${data.longitude.toFixed(6)}</div>
+                        <div><strong>Status:</strong> <span style="color: var(--danger-color);">Fora da área permitida</span></div>
+                        <div class="validation-method">Localização adquirida mas fora do raio permitido</div>
+                    `;
+                    
+                    startAutoCloseCountdown();
+                    break;
+                    
+                case 'error':
+                    statusElement.className = 'location-status location-error';
+                    statusElement.innerHTML = 
+                        `<i class="fas fa-exclamation-circle"></i> ${data.message}`;
+                    
+                    coordsDisplay.style.display = 'none';
+                    break;
+            }
+            
+            console.log(`✅ UI atualizada: ${validationType}`, data);
+        }
+
+        function startAutoCloseCountdown() {
+            let secondsLeft = 5;
+            const countdownElement = document.getElementById('countdown');
+            
+            console.log(`🕒 Iniciando contagem regressiva: ${secondsLeft} segundos`);
+            
+            const countdownInterval = setInterval(() => {
+                secondsLeft--;
                 
-                // ✅ ATUALIZAR UI COM SUCESSO VIA GEOFENCE
-                updateLocationStatus('geofence', {
-                    latitude: latitude,
-                    longitude: longitude,
-                    message: 'Dentro da área da escola'
-                });
+                if (countdownElement) {
+                    countdownElement.textContent = secondsLeft;
+                }
                 
-                geofenceValidated = true;
-                lastValidatedCoords = { latitude, longitude };
-                return true;
-            } else {
-                // ✅ MUDANÇA: Mesmo fora da área, exibir as coordenadas
-                console.log('❌ Fora da área permitida, mas exibindo coordenadas');
+                console.log(`🕒 Fechando em ${secondsLeft} segundos...`);
                 
-                // ✅ ATUALIZAR UI COM ERRO MAS MOSTRANDO COORDENADAS
-                updateLocationStatus('error_with_coords', {
-                    latitude: latitude,
-                    longitude: longitude,
-                    message: 'Fora da área permitida da escola'
-                });
+                if (secondsLeft <= 0) {
+                    clearInterval(countdownInterval);
+                    closeModalWithFeedback();
+                }
+            }, 1000);
+            
+            autoCloseTimeout = setTimeout(() => {
+                clearInterval(countdownInterval);
+                closeModalWithFeedback();
+            }, 5000);
+        }
+
+        function closeModalWithFeedback() {
+            console.log('🕒 Auto-fechamento executado - fechando modal');
+            
+            showAlert('Modal fechado automaticamente. Você estava fora da área permitida.', 'warning');
+            
+            closeModal();
+            
+            autoCloseTimeout = null;
+        }
+
+        async function ensureGeofence(latitude, longitude) {
+            try {
+                console.log('📍 Iniciando validação de localização...');
                 
+                const accessToken = localStorage.getItem('access_token');
+                
+                const aluno = students.find(s => s.id === selectedStudentId);
+                if (!aluno) {
+                    throw new Error('Aluno não encontrado');
+                }
+                
+                const escolaId = aluno.escolaId;
+                
+                if (!escolaId) {
+                    throw new Error('Escola não identificada para o aluno');
+                }
+                
+                console.log('🏫 Verificando acesso para escola:', escolaId);
+
+                console.log('📡 Verificando rede Wi-Fi da escola...');
+                const wifiCheck = await checkSchoolWifi();
+                
+                if (wifiCheck.isSchoolWifi) {
+                    console.log('✅ Conectado à rede Wi-Fi da escola:', wifiCheck.ssid);
+                    
+                    updateLocationStatus('wifi', {
+                        ssid: wifiCheck.ssid,
+                        message: `Conectado à rede da escola: ${wifiCheck.ssid}`,
+                        latitude: latitude,
+                        longitude: longitude
+                    });
+                    
+                    geofenceValidated = true;
+                    lastValidatedCoords = { latitude, longitude };
+                    return true;
+                } else {
+                    console.log('📡 Não está na Wi-Fi da escola:', wifiCheck.reason);
+                }
+
+                console.log('📍 Verificando geofence...');
+                const response = await fetch(
+                    `${BACKEND_URL}/api/geofences/verificar/${escolaId}?` + 
+                    `latitude=${latitude}&` +
+                    `longitude=${longitude}&` +
+                    `tipo=${actionType.toUpperCase()}`,
+                    {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json'
+                        }
+                    }
+                );
+
+                if (!response.ok) {
+                    throw new Error(`Erro ${response.status} ao verificar geofence`);
+                }
+
+                const resultado = await response.json();
+                console.log('📍 Resultado da verificação de geofence:', resultado);
+                
+                if (resultado.dentroDaArea === true || resultado === true) {
+                    console.log('✅ Dentro da área permitida (geofence)');
+                    
+                    updateLocationStatus('geofence', {
+                        latitude: latitude,
+                        longitude: longitude,
+                        message: 'Dentro da área da escola'
+                    });
+                    
+                    geofenceValidated = true;
+                    lastValidatedCoords = { latitude, longitude };
+                    return true;
+                } else {
+                    console.log('❌ Fora da área permitida, mas exibindo coordenadas');
+                    
+                    updateLocationStatus('error_with_coords', {
+                        latitude: latitude,
+                        longitude: longitude,
+                        message: 'Fora da área permitida da escola'
+                    });
+                    
+                    geofenceValidated = false;
+                    lastValidatedCoords = null;
+                    throw new Error('Fora da área permitida da escola');
+                }
+                
+            } catch (error) {
+                console.error('❌ Validação de localização falhou:', error);
                 geofenceValidated = false;
                 lastValidatedCoords = null;
-                throw new Error('Fora da área permitida da escola');
+                
+                if (!error.message.includes('Fora da área permitida')) {
+                    updateLocationStatus('error', {
+                        message: error.message
+                    });
+                }
+                
+                throw error;
+            }
+        }
+
+        function setupConfirmButton(studentId, type) {
+            const oldConfirmBtn = document.getElementById('confirmActionBtn');
+            if (oldConfirmBtn) {
+                oldConfirmBtn.replaceWith(oldConfirmBtn.cloneNode(true));
             }
             
-        } catch (error) {
-            console.error('❌ Validação de localização falhou:', error);
+            confirmActionBtn = document.getElementById('confirmActionBtn');
+            
+            if (!confirmActionBtn) {
+                console.error('❌ Botão confirmActionBtn não encontrado!');
+                return;
+            }
+            
+            confirmActionBtn.innerHTML = type === 'entrada' 
+                ? '<i class="fas fa-sign-in-alt"></i> Confirmar Entrada' 
+                : '<i class="fas fa-sign-out-alt"></i> Confirmar Saída';
+            
+            confirmActionBtn.disabled = true;
+            
+            confirmActionBtn.addEventListener('click', async function confirmHandler() {
+                console.log('🎯 BOTÃO CONFIRMAR CLICADO - Iniciando registro');
+                
+                if (!currentUser || !currentUser.nome || !currentUser.tutorId) {
+                    console.error('❌ Dados do tutor incompletos:', currentUser);
+                    showAlert('Erro: Dados do tutor incompletos', 'error');
+                    return;
+                }
+                
+                const responsavelNome = currentUser.nome;
+                const responsavelTipo = currentUser.roles ? currentUser.roles[0].replace('ROLE_', '') : 'TUTOR';
+                
+                console.log(`🎯 Registrando ${type} para aluno ${studentId}`);
+                console.log(`👤 Responsável: ${responsavelNome} (ID: ${currentUser.tutorId}, Tipo: ${responsavelTipo})`);
+                
+                try {
+                    confirmActionBtn.removeEventListener('click', confirmHandler);
+                    
+                    if (type === 'entrada') {
+                        console.log('🎯 Chamando registrarEntrada...');
+                        await registrarEntrada(studentId, responsavelNome, responsavelTipo);
+                    } else {
+                        console.log('🎯 Chamando registrarSaida...');
+                        await registrarSaida(studentId, responsavelNome, responsavelTipo);
+                    }
+                    
+                    console.log('🎯 Registro concluído com sucesso');
+                } catch (error) {
+                    console.error('❌ Erro no registro:', error);
+                    confirmActionBtn.addEventListener('click', confirmHandler);
+                }
+            });
+            
+            console.log('✅ Botão de confirmação configurado com sucesso');
+        }
+
+        window.openActionModal = function(studentId, type, studentName) {
+            console.log('🎯 ABRINDO MODAL - Início do fluxo');
+            console.log('🎯 Dados:', { studentId, type, studentName });
+            
+            verifyModalElements();
+            
+            selectedStudentId = studentId;
+            actionType = type;
+            
+            if (modalTitle) modalTitle.textContent = type === 'entrada' ? 'Registrar Entrada' : 'Registrar Saída';
+            if (modalStudentName) modalStudentName.textContent = studentName;
+            if (modalMessage) modalMessage.textContent = `Deseja registrar ${type === 'entrada' ? 'a entrada' : 'a saída'} do aluno ${studentName}?`;
+            
+            resetLocationState();
+            
+            setupConfirmButton(studentId, type);
+            
+            if (actionModal) {
+                actionModal.style.display = 'flex';
+                console.log('✅ Modal aberto com sucesso');
+            }
+            
+            setTimeout(() => {
+                console.log('🎯 Iniciando captura de localização automática');
+                getCurrentLocation();
+            }, 500);
+        };
+
+        window.viewStudentHistory = function(studentId, studentName) {
+            selectedStudentId = studentId;
+            loadHistory(studentId);
+            showAlert(`Carregando histórico de ${studentName}...`, 'success');
+            
+            setTimeout(() => {
+                document.querySelector('.history-section').scrollIntoView({ 
+                    behavior: 'smooth' 
+                });
+            }, 300);
+        };
+
+        window.viewDetails = function(recordId) {
+            const message = `Detalhes do registro ${recordId}\n\nℹ️ Esta funcionalidade não está implementada no momento.
+
+            💡 Caso você tenha alguma sugestão ou necessidade específica, poste no grupo Inoutchi da escola a qual faça parte. Nossa equipe terá o maior prazer em avaliar e, se pertinente, implementar.
+
+            🙏 Equipe Inoutchi agradece pelo seu feedback e compreensão.`;
+            
+            alert(message);
+        };
+
+        window.closeModal = function() {
+            console.log('🔒 Fechando modal...');
+            
+            if (autoCloseTimeout) {
+                clearTimeout(autoCloseTimeout);
+                autoCloseTimeout = null;
+                console.log('🕒 Timeout de auto-fechamento cancelado');
+            }
+            
+            if (actionModal) {
+                actionModal.style.display = 'none';
+                console.log('✅ Modal fechado com sucesso');
+            }
+            
+            selectedStudentId = null;
+            actionType = null;
             geofenceValidated = false;
             lastValidatedCoords = null;
+            resetLocationState();
             
-            // ✅ SE AINDA NÃO ATUALIZOU A UI COM COORDENADAS, FAZER AGORA
-            if (!error.message.includes('Fora da área permitida')) {
-                updateLocationStatus('error', {
-                    message: error.message
-                });
-            }
+            console.log('✅ Estados limpos - modal pronto para reabrir');
+        };
+
+        window.logout = function() {
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
+            localStorage.removeItem('token_expiry');
+            window.location.href = 'index.html';
+        };
+
+        // FUNÇÕES AUXILIARES
+        function displayPage(pageNumber) {
+            currentPage = pageNumber;
+            const startIndex = (pageNumber - 1) * recordsPerPage;
+            const endIndex = startIndex + recordsPerPage;
+            const pageData = currentHistoryData.slice(startIndex, endIndex);
             
-            throw error;
+            renderHistory(pageData);
+            updatePaginationControls();
         }
-    }
 
-    // DEBUG: Encontrar botões problemáticos
-    function findProblematicButtons() {
-        console.log('🔍 Procurando botões problemáticos...');
-        
-        const allButtons = document.querySelectorAll('button');
-        allButtons.forEach((button, index) => {
-            const onclickAttr = button.getAttribute('onclick');
-            if (onclickAttr === 'confirmAction') {
-                console.log(`❌ BOTÃO PROBLEMÁTICO ${index + 1}:`, button);
-                console.log('Texto:', button.textContent);
-                console.log('HTML:', button.outerHTML);
-            }
-        });
-    }
-
-    // Executar após a página carregar
-    setTimeout(findProblematicButtons, 2000);
-
-    // ========== PATCH DE EMERGÊNCIA - INTERCEPTAR CHAMADAS INCORRETAS ========== 
-    
-    // Função auxiliar para obter alunoId do contexto
-    function obterAlunoIdDoContexto() {
-        // Tenta obter do primeiro aluno da lista (já que você só tem 1 aluno)
-        if (window.alunosCarregados && window.alunosCarregados.length > 0) {
-            return window.alunosCarregados[0].id;
-        }
-        return null;
-    }
-
-    
-
-    // Função para buscar escolaId do aluno usando seu endpoint existente
-    async function getEscolaIdFromAluno(alunoId) {
-        try {
-            // Primeiro, precisamos do nome do aluno para usar seu endpoint
-            // Se você não tem o nome, precisaremos de outro endpoint
-            const alunoResponse = await fetch(`/api/alunos/${alunoId}`);
+        function updatePaginationControls() {
+            const paginationControls = document.getElementById('paginationControls');
+            const paginationInfo = document.getElementById('paginationInfo');
+            const pageInfo = document.getElementById('pageInfo');
+            const firstPageBtn = document.getElementById('firstPageBtn');
+            const prevPageBtn = document.getElementById('prevPageBtn');
+            const nextPageBtn = document.getElementById('nextPageBtn');
+            const lastPageBtn = document.getElementById('lastPageBtn');
             
-            if (!alunoResponse.ok) {
-                throw new Error('Erro ao buscar dados do aluno');
-            }
-            
-            const aluno = await alunoResponse.json();
-            const alunoNome = aluno.nome; // Supondo que o aluno tem campo 'nome'
-            
-            // Usar seu endpoint existente para buscar dados completos
-            const response = await fetch(`/api/alunos/${alunoNome}/tutores`);
-            
-            if (!response.ok) {
-                throw new Error('Erro ao buscar dados completos do aluno');
-            }
-            
-            const alunoCompleto = await response.json();
-            
-            // Agora precisamos ver a estrutura do AlunoDetalheDTO
-            console.log('Dados completos do aluno:', alunoCompleto);
-            
-            // Supondo que a estrutura seja algo como:
-            // { id: 1, nome: "Aluno", escola: { id: 1, nome: "Escola" } }
-            if (alunoCompleto.escola && alunoCompleto.escola.id) {
-                return alunoCompleto.escola.id;
-            } else {
-                throw new Error('Escola não encontrada para o aluno');
-            }
-            
-        } catch (error) {
-            console.error('Erro ao buscar escolaId:', error);
-            throw error;
-        }
-    }
-
-    // ✅ CAPTURAR ERROS NÃO TRATADOS
-    window.addEventListener('error', function(e) {
-        console.error('❌ ERRO GLOBAL:', e.error);
-        console.error('❌ Stack:', e.error?.stack);
-    });
-
-    window.addEventListener('unhandledrejection', function(e) {
-        console.error('❌ PROMISE REJEITADA:', e.reason);
-    });
-
-    // Fechar modal - FUNÇÃO GLOBAL
-    // ✅ CORREÇÃO: closeModal para cancelar timeouts
-    window.closeModal = function() {
-        console.log('🔒 Fechando modal...');
-        
-        // ✅ CANCELAR TIMEOUT DE AUTO-FECHAMENTO SE EXISTIR
-        if (autoCloseTimeout) {
-            clearTimeout(autoCloseTimeout);
-            autoCloseTimeout = null;
-            console.log('🕒 Timeout de auto-fechamento cancelado');
-        }
-        
-        if (actionModal) {
-            actionModal.style.display = 'none';
-            console.log('✅ Modal fechado com sucesso');
-        }
-        
-        // ✅ LIMPAR ESTADOS
-        selectedStudentId = null;
-        actionType = null;
-        geofenceValidated = false;
-        lastValidatedCoords = null;
-        resetLocationState();
-        
-        console.log('✅ Estados limpos - modal pronto para reabrir');
-    };
-
-    // Logout - FUNÇÃO GLOBAL
-    window.logout = function() {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        localStorage.removeItem('token_expiry');
-        window.location.href = 'index.html';
-    };
-
-    // ✅ DEBUG: Encontrar onde confirmAction ainda está sendo chamada
-    function findConfirmActionCalls() {
-        console.log('🔍 Buscando chamadas remanescentes de confirmAction...');
-        
-        // Verificar botões com onclick
-        const buttons = document.querySelectorAll('button[onclick*="confirmAction"]');
-        console.log(`❌ Encontrados ${buttons.length} botões com confirmAction:`);
-        
-        buttons.forEach((button, index) => {
-            console.log(`Botão ${index + 1}:`, button.outerHTML);
-            console.log('onclick:', button.getAttribute('onclick'));
-        });
-        
-        if (buttons.length > 0) {
-            console.log('⚠️ REMOVA o onclick dos botões acima!');
-        }
-    }
-
-    // Executar após a página carregar
-    setTimeout(findConfirmActionCalls, 3000);
-
-    // ✅ NOVA FUNÇÃO: Configurar botão de confirmação
-function setupConfirmButton(studentId, type) {
-    // Remover event listeners antigos
-    const oldConfirmBtn = document.getElementById('confirmActionBtn');
-    if (oldConfirmBtn) {
-        oldConfirmBtn.replaceWith(oldConfirmBtn.cloneNode(true));
-    }
-    
-    // Obter novo botão
-    confirmActionBtn = document.getElementById('confirmActionBtn');
-    
-        if (!confirmActionBtn) {
-            console.error('❌ Botão confirmActionBtn não encontrado!');
-            return;
-        }
-        
-        // Configurar conteúdo do botão
-        confirmActionBtn.innerHTML = type === 'entrada' 
-            ? '<i class="fas fa-sign-in-alt"></i> Confirmar Entrada' 
-            : '<i class="fas fa-sign-out-alt"></i> Confirmar Saída';
-        
-        confirmActionBtn.disabled = true;
-        
-        // ✅ CORREÇÃO: Usar addEventListener em vez de onclick
-        confirmActionBtn.addEventListener('click', async function confirmHandler() {
-            console.log('🎯 BOTÃO CONFIRMAR CLICADO - Iniciando registro');
-            
-            if (!currentUser || !currentUser.nome || !currentUser.tutorId) {
-                console.error('❌ Dados do tutor incompletos:', currentUser);
-                showAlert('Erro: Dados do tutor incompletos', 'error');
+            if (totalRecords === 0) {
+                paginationControls.style.display = 'none';
                 return;
             }
             
-            const responsavelNome = currentUser.nome;
-            const responsavelTipo = currentUser.roles ? currentUser.roles[0].replace('ROLE_', '') : 'TUTOR';
+            paginationControls.style.display = 'flex';
             
-            console.log(`🎯 Registrando ${type} para aluno ${studentId}`);
-            console.log(`👤 Responsável: ${responsavelNome} (ID: ${currentUser.tutorId}, Tipo: ${responsavelTipo})`);
+            const startRecord = ((currentPage - 1) * recordsPerPage) + 1;
+            const endRecord = Math.min(currentPage * recordsPerPage, totalRecords);
             
+            paginationInfo.textContent = `Mostrando ${startRecord}-${endRecord} de ${totalRecords} registros`;
+            pageInfo.textContent = `Página ${currentPage} de ${totalPages}`;
+            
+            firstPageBtn.disabled = currentPage === 1;
+            prevPageBtn.disabled = currentPage === 1;
+            nextPageBtn.disabled = currentPage === totalPages;
+            lastPageBtn.disabled = currentPage === totalPages;
+        }
+
+        function goToFirstPage() {
+            if (currentPage > 1) {
+                displayPage(1);
+            }
+        }
+
+        function goToPreviousPage() {
+            if (currentPage > 1) {
+                displayPage(currentPage - 1);
+            }
+        }
+
+        function goToNextPage() {
+            if (currentPage < totalPages) {
+                displayPage(currentPage + 1);
+            }
+        }
+
+        function goToLastPage() {
+            if (currentPage < totalPages) {
+                displayPage(totalPages);
+            }
+        }
+
+        async function updateStudentsStatusFromHistory() {
             try {
-                // ✅ REMOVER O EVENT LISTENER PARA EVITAR DUPLICAÇÃO
-                confirmActionBtn.removeEventListener('click', confirmHandler);
+                const accessToken = localStorage.getItem('access_token');
                 
-                if (type === 'entrada') {
-                    console.log('🎯 Chamando registrarEntrada...');
-                    await registrarEntrada(studentId, responsavelNome, responsavelTipo);
-                } else {
-                    console.log('🎯 Chamando registrarSaida...');
-                    await registrarSaida(studentId, responsavelNome, responsavelTipo);
+                if (!students || students.length === 0) {
+                    return;
                 }
                 
-                console.log('🎯 Registro concluído com sucesso');
-            } catch (error) {
-                console.error('❌ Erro no registro:', error);
-                // Re-adicionar o listener em caso de erro
-                confirmActionBtn.addEventListener('click', confirmHandler);
-            }
-        });
-        
-        console.log('✅ Botão de confirmação configurado com sucesso');
-    }
-
-    // ✅ CONFIGURAR BOTÃO DE CONFIRMAÇÃO - COM VALIDAÇÃO DO ID
-    // ✅ CHAMAR NO openActionModal
-    window.openActionModal = function(studentId, type, studentName) {
-        console.log('🎯 ABRINDO MODAL - Início do fluxo');
-        console.log('🎯 Dados:', { studentId, type, studentName });
-        
-        // ✅ VERIFICAR ELEMENTOS DO MODAL
-        console.log('🔍 Verificando elementos do modal...');
-        verifyModalElements();
-        
-        selectedStudentId = studentId;
-        actionType = type;
-        
-        if (modalTitle) modalTitle.textContent = type === 'entrada' ? 'Registrar Entrada' : 'Registrar Saída';
-        if (modalStudentName) modalStudentName.textContent = studentName;
-        if (modalMessage) modalMessage.textContent = `Deseja registrar ${type === 'entrada' ? 'a entrada' : 'a saída'} do aluno ${studentName}?`;
-        
-        // Resetar estado da localização
-        resetLocationState();
-        
-        // Configurar botão de confirmação
-        setupConfirmButton(studentId, type);
-        
-        if (actionModal) {
-            actionModal.style.display = 'flex';
-            console.log('✅ Modal aberto com sucesso');
-        }
-        
-        setTimeout(() => {
-            console.log('🎯 Iniciando captura de localização automática');
-            getCurrentLocation();
-        }, 500);
-    };
-
-    // Função viewStudentHistory corrigida
-    window.viewStudentHistory = function(studentId, studentName) {
-        selectedStudentId = studentId;
-        loadHistory(studentId);
-        showAlert(`Carregando histórico de ${studentName}...`, 'success');
-        
-        // Rolagem suave para a seção de histórico
-        setTimeout(() => {
-            document.querySelector('.history-section').scrollIntoView({ 
-                behavior: 'smooth' 
-            });
-        }, 300);
-    };
-
-    // Visualizar detalhes de um registro - FUNÇÃO GLOBAL
-    window.viewDetails = function(recordId) {
-        const message = `Detalhes do registro ${recordId}\n\nℹ️ Esta funcionalidade não está implementada no momento.
-
-        💡 Caso você tenha alguma sugestão ou necessidade específica, poste no grupo Inoutchi da escola a qual faça parte. Nossa equipe terá o maior prazer em avaliar e, se pertinente, implementar.
-
-        🙏 Equipe Inoutchi agradece pelo seu feedback e compreensão.`;
-        
-        alert(message);
-    };
-
-    // ========== FUNÇÕES AUXILIARES ==========
-
-    // Função para exibir os registros da página atual
-    function displayPage(pageNumber) {
-        currentPage = pageNumber;
-        const startIndex = (pageNumber - 1) * recordsPerPage;
-        const endIndex = startIndex + recordsPerPage;
-        const pageData = currentHistoryData.slice(startIndex, endIndex);
-        
-        renderHistory(pageData);
-        updatePaginationControls();
-    }
-
-    // Função para atualizar os controles de paginação
-    function updatePaginationControls() {
-        const paginationControls = document.getElementById('paginationControls');
-        const paginationInfo = document.getElementById('paginationInfo');
-        const pageInfo = document.getElementById('pageInfo');
-        const firstPageBtn = document.getElementById('firstPageBtn');
-        const prevPageBtn = document.getElementById('prevPageBtn');
-        const nextPageBtn = document.getElementById('nextPageBtn');
-        const lastPageBtn = document.getElementById('lastPageBtn');
-        
-        if (totalRecords === 0) {
-            paginationControls.style.display = 'none';
-            return;
-        }
-        
-        paginationControls.style.display = 'flex';
-        
-        // Calcular índices exibidos
-        const startRecord = ((currentPage - 1) * recordsPerPage) + 1;
-        const endRecord = Math.min(currentPage * recordsPerPage, totalRecords);
-        
-        // Atualizar informações
-        paginationInfo.textContent = `Mostrando ${startRecord}-${endRecord} de ${totalRecords} registros`;
-        pageInfo.textContent = `Página ${currentPage} de ${totalPages}`;
-        
-        // Atualizar estado dos botões
-        firstPageBtn.disabled = currentPage === 1;
-        prevPageBtn.disabled = currentPage === 1;
-        nextPageBtn.disabled = currentPage === totalPages;
-        lastPageBtn.disabled = currentPage === totalPages;
-    }
-
-    // Funções de navegação
-    function goToFirstPage() {
-        if (currentPage > 1) {
-            displayPage(1);
-        }
-    }
-
-    function goToPreviousPage() {
-    if (currentPage > 1) {
-        displayPage(currentPage - 1);
-        }
-    }
-
-    function goToNextPage() {
-        if (currentPage < totalPages) {
-            displayPage(currentPage + 1);
-        }
-    }
-
-    function goToLastPage() {
-        if (currentPage < totalPages) {
-            displayPage(totalPages);
-        }
-    }
-
-    // Função para extrair ID do campo 'sub' do JWT
-    function extractUserIdFromSub(sub) {
-        const matches = sub.match(/\d+/);
-        return matches ? parseInt(matches[0]) : null;
-    }
-
-    // ========== FUNÇÃO DEFINITIVA - COM FALLBACK INTELIGENTE ==========
-    async function checkAllStudentsStatus(alunosBase) {
-        try {
-            if (!alunosBase || alunosBase.length === 0) {
-                return [];
-            }
-            
-            console.log('🔍 Verificando status de', alunosBase.length, 'alunos');
-            
-            // MÉTODO 1: Confiar no status da API (mais eficiente)
-            console.log('🔄 Método 1: Usando status da resposta da API');
-            const alunosComStatusAPI = alunosBase.map(aluno => ({
-                ...aluno,
-                status: aluno.status || 'AUSENTE'
-            }));
-            
-            // Verificar se os status parecem corretos
-            const alunosPresentes = alunosComStatusAPI.filter(a => a.status === 'PRESENTE').length;
-            console.log(`✅ Status da API: ${alunosPresentes} presentes, ${alunosComStatusAPI.length - alunosPresentes} ausentes`);
-            
-            // Se há alunos presentes, provavelmente os dados estão corretos
-            if (alunosPresentes > 0) {
-                return alunosComStatusAPI;
-            }
-            
-            // MÉTODO 2: Verificar via histórico (apenas se necessário)
-            console.log('🔄 Método 2: Verificando via histórico');
-            const accessToken = localStorage.getItem('accessToken');
-            
-            const alunosComStatusDetalhado = await Promise.all(
-                alunosComStatusAPI.map(async (aluno) => {
-                    try {
-                        const isPresent = await checkStudentPresence(aluno.id, accessToken);
-                        return {
-                            ...aluno,
-                            status: isPresent ? 'PRESENTE' : 'AUSENTE'
-                        };
-                    } catch (error) {
-                        return aluno; // Mantém status original em caso de erro
-                    }
-                })
-            );
-            
-            const alunosPresentesDetalhado = alunosComStatusDetalhado.filter(a => a.status === 'PRESENTE').length;
-            console.log(`✅ Status detalhado: ${alunosPresentesDetalhado} presentes`);
-            
-            return alunosComStatusDetalhado;
-            
-        } catch (error) {
-            console.error('❌ Erro na verificação de status:', error);
-            // Fallback: usar status básico
-            return alunosBase.map(aluno => ({
-                ...aluno,
-                status: aluno.status || 'AUSENTE'
-            }));
-        }
-    }
-
-    // Função auxiliar para verificar presença de um aluno específico
-    async function checkStudentPresence(studentId, accessToken) {
-        try {
-            // Buscar histórico recente do aluno
-            const response = await fetch(`${BACKEND_URL}/api/presencas/historico/${studentId}?size=5`, {
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            if (response.ok) {
-                const historico = await response.json();
+                console.log('🔄 Verificando status real dos alunos...');
                 
-                if (historico.sucesso && historico.dados && Array.isArray(historico.dados)) {
-                    // Encontrar o registro mais recente
-                    const registroMaisRecente = historico.dados[0];
-                    if (registroMaisRecente) {
-                        // Se tem entrada mas não tem saída, está presente
-                        return registroMaisRecente.entradaAt && !registroMaisRecente.saidaAt;
-                    }
-                }
-            }
-            
-            return false; // Por padrão, assume como ausente
-            
-        } catch (error) {
-            console.error('Erro ao verificar presença do aluno:', error);
-            return false;
-        }
-    }
-
-    // ========== NOVA FUNÇÃO - VERIFICAR STATUS REAL DOS ALUNOS ==========
-    async function updateStudentsStatusFromHistory() {
-        try {
-            const accessToken = localStorage.getItem('access_token');
-            
-            if (!students || students.length === 0) {
-                return;
-            }
-            
-            console.log('🔄 Verificando status real dos alunos...');
-            
-            // Para cada aluno, buscar o histórico mais recente
-            const updatedStudents = await Promise.all(
-                students.map(async (student) => {
-                    try {
-                        const response = await fetch(`${BACKEND_URL}/api/presencas/historico/${student.id}?size=1`, {
-                            headers: {
-                                'Authorization': `Bearer ${accessToken}`,
-                                'Content-Type': 'application/json'
-                            }
-                        });
-                        
-                        if (response.ok) {
-                            const result = await response.json();
+                const updatedStudents = await Promise.all(
+                    students.map(async (student) => {
+                        try {
+                            const response = await fetch(`${BACKEND_URL}/api/presencas/historico/${student.id}?size=1`, {
+                                headers: {
+                                    'Authorization': `Bearer ${accessToken}`,
+                                    'Content-Type': 'application/json'
+                                }
+                            });
                             
-                            if (result.sucesso && result.dados && result.dados.length > 0) {
-                                const ultimoRegistro = result.dados[0];
+                            if (response.ok) {
+                                const result = await response.json();
                                 
-                                // Se tem entrada mas NÃO tem saída = PRESENTE
-                                if (ultimoRegistro.entradaAt && !ultimoRegistro.saidaAt) {
-                                    return { ...student, status: 'PRESENTE' };
-                                } else {
-                                    return { ...student, status: 'AUSENTE' };
+                                if (result.sucesso && result.dados && result.dados.length > 0) {
+                                    const ultimoRegistro = result.dados[0];
+                                    
+                                    if (ultimoRegistro.entradaAt && !ultimoRegistro.saidaAt) {
+                                        return { ...student, status: 'PRESENTE' };
+                                    } else {
+                                        return { ...student, status: 'AUSENTE' };
+                                    }
                                 }
                             }
+                            
+                            return { ...student, status: 'AUSENTE' };
+                            
+                        } catch (error) {
+                            console.error(`Erro ao verificar status do aluno ${student.id}:`, error);
+                            return student;
                         }
-                        
-                        // Se não há histórico, considera AUSENTE
-                        return { ...student, status: 'AUSENTE' };
-                        
-                    } catch (error) {
-                        console.error(`Erro ao verificar status do aluno ${student.id}:`, error);
-                        return student; // Mantém o status atual em caso de erro
-                    }
-                })
-            );
-            
-            // Atualizar lista de alunos
-            students = updatedStudents;
-            renderStudents();
-            updatePresenceSummary();
-            updateLastUpdateIndicator();
-            
-            console.log('✅ Status dos alunos atualizado');
-            
-        } catch (error) {
-            console.error('❌ Erro ao atualizar status dos alunos:', error);
+                    })
+                );
+                
+                students = updatedStudents;
+                renderStudents();
+                updatePresenceSummary();
+                updateLastUpdateIndicator();
+                
+                console.log('✅ Status dos alunos atualizado');
+                
+            } catch (error) {
+                console.error('❌ Erro ao atualizar status dos alunos:', error);
+            }
         }
-    }
 
-    // Atualizar indicador de última atualização
-    function updateLastUpdateIndicator() {
-        const indicator = document.getElementById('lastUpdateIndicator');
-        if (indicator) {
-            indicator.textContent = `Atualizado: ${new Date().toLocaleTimeString()}`;
-            
-            // Animação sutil
-            indicator.style.opacity = '0.7';
-            setTimeout(() => {
-                indicator.style.opacity = '1';
-            }, 300);
+        function updateLastUpdateIndicator() {
+            const indicator = document.getElementById('lastUpdateIndicator');
+            if (indicator) {
+                indicator.textContent = `Atualizado: ${new Date().toLocaleTimeString()}`;
+                
+                indicator.style.opacity = '0.7';
+                setTimeout(() => {
+                    indicator.style.opacity = '1';
+                }, 300);
+            }
         }
-    }
 
-    
-    // Função para parsear JWT
-    function parseJwt(token) {
-        try {
-            const base64Url = token.split('.')[1];
-            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-            const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-            }).join(''));
-            return JSON.parse(jsonPayload);
-        } catch (e) {
-            console.error('Erro ao parsear JWT:', e);
-            return null;
+        function initializeDOMElements() {
+            loadingElement = document.getElementById('loading');
+            contentElement = document.getElementById('content');
+            alertBox = document.getElementById('alertBox');
+            studentList = document.getElementById('studentList');
+            historyTableBody = document.getElementById('historyTableBody');
+            userFullName = document.getElementById('userFullName');
+            userName = document.getElementById('userName');
+            userAvatar = document.getElementById('userAvatar');
+            presenceSummary = document.getElementById('presenceSummary');
+            actionModal = document.getElementById('actionModal');
+            modalTitle = document.getElementById('modalTitle');
+            modalMessage = document.getElementById('modalMessage');
+            modalStudentName = document.getElementById('modalStudentName');
+            confirmActionBtn = document.getElementById('confirmActionBtn');
+            getLocationBtn = document.getElementById('getLocationBtn');
         }
-    }
 
-        // ========== INICIALIZAÇÃO DOS ELEMENTOS DOM ==========
-    function initializeDOMElements() {
-        loadingElement = document.getElementById('loading');
-        contentElement = document.getElementById('content');
-        alertBox = document.getElementById('alertBox');
-        studentList = document.getElementById('studentList');
-        historyTableBody = document.getElementById('historyTableBody');
-        userFullName = document.getElementById('userFullName');
-        userName = document.getElementById('userName');
-        userAvatar = document.getElementById('userAvatar');
-        presenceSummary = document.getElementById('presenceSummary');
-        actionModal = document.getElementById('actionModal');
-        modalTitle = document.getElementById('modalTitle');
-        modalMessage = document.getElementById('modalMessage');
-        modalStudentName = document.getElementById('modalStudentName');
-        confirmActionBtn = document.getElementById('confirmActionBtn');
-        getLocationBtn = document.getElementById('getLocationBtn');
-    }
-
-        // ========== FUNÇÃO PRINCIPAL DE INICIALIZAÇÃO ==========
         async function initializeDashboard() {
             console.log('Inicializando dashboard tutor...');
             
@@ -1979,7 +1551,6 @@ function setupConfirmButton(studentId, type) {
             const accessToken = localStorage.getItem('access_token');
             const expiry = localStorage.getItem('token_expiry');
 
-            // Verificar autenticação
             if (!accessToken || !expiry || new Date().getTime() > parseInt(expiry)) {
                 console.log('REDIRECIONANDO: Token inválido ou expirado');
                 alert("Sessão expirada ou inexistente. Faça login novamente.");
@@ -1988,10 +1559,8 @@ function setupConfirmButton(studentId, type) {
             }
 
             try {
-                // Obter informações do usuário
                 await loadUserInfo();
                 
-                // Obter nome do tutor para usar no endpoint
                 tutorName = currentUser.nome;
                 if (!tutorName) {
                     showAlert('Não foi possível identificar o tutor. Faça login novamente.', 'error');
@@ -1999,29 +1568,21 @@ function setupConfirmButton(studentId, type) {
                     return;
                 }
                 
-                // Carregar alunos vinculados ao tutor
                 await loadStudents();
 
-                // Verificar status real dos alunos após carregar
                 await updateStudentsStatusFromHistory();
 
-                // Configurar atualização automática a cada 30 segundos
                 setInterval(updateStudentsStatusFromHistory, 30000);
                 
-                // INICIAR ATUALIZAÇÃO AUTOMÁTICA
                 startStudentsAutoRefresh();
                 
-                // Configurar o botão de atualizar
                 setupUpdateButton();
                 
-                // Configurar os botões de paginação
                 setupPaginationButtons();
                 
-                // MOSTRAR MENSAGEM INICIAL NO HISTÓRICO
                 renderEmptyHistory('Selecione um aluno para visualizar o histórico');
                 document.getElementById('paginationControls').style.display = 'none';
                 
-                // Mostrar conteúdo
                 showContent();
                 
                 console.log('✅ Dashboard tutor inicializado com sucesso!');
@@ -2032,41 +1593,31 @@ function setupConfirmButton(studentId, type) {
             }
         }
         
-        // Configurar o botão "Atualizar" 
         function setupUpdateButton() {
             const updateButton = document.getElementById('updateHistoryBtn');
             if (updateButton) {
                 updateButton.onclick = async function() {
                     if (selectedStudentId) {
-                        // Atualizar histórico específico
                         await loadHistory(selectedStudentId);
                         showAlert('Histórico atualizado!', 'success');
                     } else {
-                        // Atualizar toda a lista de alunos
                         showAlert('Atualizando lista de alunos...', 'success');
                         await refreshStudentsData();
                     }
                 };
                 
-                // Adicionar tooltip
                 updateButton.title = "Clique para atualizar a lista de alunos e históricos";
             }
         }
 
-        // ========== FUNÇÕES DE ATUALIZAÇÃO AUTOMÁTICA ==========
-
-        // Iniciar atualização automática dos alunos
         function startStudentsAutoRefresh() {
-            // Parar intervalo anterior se existir
             if (studentsAutoRefreshInterval) {
                 clearInterval(studentsAutoRefreshInterval);
             }
             
-            // Iniciar novo intervalo (a cada 30 segundos)
             studentsAutoRefreshInterval = setInterval(() => {
                 const now = Date.now();
                 
-                // Evitar atualizações muito frequentes
                 if (now - lastStudentsUpdate > MIN_UPDATE_INTERVAL) {
                     console.log('🔄 Atualização automática dos alunos...');
                     refreshStudentsData();
@@ -2076,7 +1627,6 @@ function setupConfirmButton(studentId, type) {
             console.log('✅ Atualização automática dos alunos iniciada (30s)');
         }
 
-        // Parar atualização automática
         function stopStudentsAutoRefresh() {
             if (studentsAutoRefreshInterval) {
                 clearInterval(studentsAutoRefreshInterval);
@@ -2085,12 +1635,10 @@ function setupConfirmButton(studentId, type) {
             }
         }
 
-        // Atualizar dados dos alunos (com controle de frequência)
         async function refreshStudentsData() {
             try {
                 const now = Date.now();
                 
-                // Evitar múltiplas atualizações simultâneas
                 if (now - lastStudentsUpdate < MIN_UPDATE_INTERVAL) {
                     console.log('⏭️ Atualização ignorada (muito recente)');
                     return;
@@ -2100,13 +1648,10 @@ function setupConfirmButton(studentId, type) {
                 
                 console.log('🔄 Atualizando dados dos alunos...');
                 
-                // Manter o aluno selecionado se houver
                 const previouslySelectedStudent = selectedStudentId;
                 
-                // Recarregar alunos
                 await loadStudents();
                 
-                // Restaurar seleção se ainda existir
                 if (previouslySelectedStudent && students.some(s => s.id === previouslySelectedStudent)) {
                     selectedStudentId = previouslySelectedStudent;
                 }
@@ -2118,7 +1663,6 @@ function setupConfirmButton(studentId, type) {
             }
         }
         
-        // ✅ CORRIGIR: Garantir que tutorName usa o nome correto da API
         async function loadUserInfo() {
             try {
                 const accessToken = localStorage.getItem('access_token');
@@ -2140,10 +1684,8 @@ function setupConfirmButton(studentId, type) {
                 
                 console.log('✅ Dados reais do usuário do banco:', userData);
                 
-                // ✅ AGORA TEMOS DADOS REAIS DO BANCO
                 tutorName = currentUser.nome;
                 
-                // Atualizar UI
                 userFullName.textContent = currentUser.nome;
                 userName.textContent = currentUser.email;
                 userAvatar.textContent = currentUser.nome.charAt(0).toUpperCase();
@@ -2154,11 +1696,10 @@ function setupConfirmButton(studentId, type) {
             } catch (error) {
                 console.error('❌ Erro ao carregar informações do usuário:', error);
                 showAlert('Erro ao carregar informações: ' + error.message, 'error');
-                throw error; // Propagar o erro
+                throw error;
             }
         }
 
-        // Carregar alunos vinculados ao tutor - CAPTURANDO ID DO TUTOR
         async function loadStudents() {
             try {
                 const accessToken = localStorage.getItem('access_token');
@@ -2183,7 +1724,6 @@ function setupConfirmButton(studentId, type) {
                 const data = await response.json();
                 console.log('✅ Resposta completa da API:', data);
                 
-                // ✅ VALIDAÇÃO DOS DADOS OBRIGATÓRIOS
                 if (!data || !data.id || !data.nome) {
                     throw new Error('Dados do tutor incompletos na resposta da API');
                 }
@@ -2194,14 +1734,11 @@ function setupConfirmButton(studentId, type) {
                 
                 console.log(`🎯 Encontrado tutor ${data.nome} (ID: ${data.id}) com ${data.alunos.length} aluno(s)`);
                 
-                // ✅ CAPTURAR O ID DO TUTOR DA RESPOSTA
-                currentUser.tutorId = data.id; // Adicionar o ID real do tutor ao currentUser
+                currentUser.tutorId = data.id;
                 
-                // Processar os alunos
                 students = data.alunos.map(aluno => {
                     console.log('👤 Aluno:', aluno);
                     
-                    // Validação dos dados do aluno
                     if (!aluno.id || !aluno.nome) {
                         throw new Error('Dados incompletos do aluno');
                     }
@@ -2231,28 +1768,6 @@ function setupConfirmButton(studentId, type) {
             }
         }
 
-        // Função de debug para ver a estrutura exata
-        function debugDataStructure(data) {
-            console.log('🔍 DEBUG - Estrutura completa da resposta:');
-            console.log('Tipo:', typeof data);
-            console.log('É array?', Array.isArray(data));
-            
-            if (data && typeof data === 'object') {
-                console.log('Keys:', Object.keys(data));
-                
-                // Verificar se há array de alunos em alguma propriedade
-                Object.keys(data).forEach(key => {
-                    if (Array.isArray(data[key])) {
-                        console.log(`Array encontrado em "${key}":`, data[key].length, 'itens');
-                        if (data[key].length > 0) {
-                            console.log('Primeiro item:', data[key][0]);
-                        }
-                    }
-                });
-            }
-        }
-
-        // Atualizar resumo de presença
         function updatePresenceSummary() {
             if (students.length === 0) {
                 presenceSummary.innerHTML = '<p>Nenhum aluno vinculado</p>';
@@ -2289,8 +1804,6 @@ function setupConfirmButton(studentId, type) {
             `;
         }
 
-
-        // Renderizar lista de alunos - VERSÃO MELHORADA
         function renderStudents() {
             studentList.innerHTML = '';
             
@@ -2306,7 +1819,6 @@ function setupConfirmButton(studentId, type) {
                 const statusClass = student.status === 'PRESENTE' ? 'status-present' : 'status-absent';
                 const statusText = student.status === 'PRESENTE' ? 'Presente' : 'Ausente';
                 
-                // Destacar se é o aluno selecionado
                 const isSelected = student.id === selectedStudentId;
                 if (isSelected) {
                     li.style.backgroundColor = '#f8f9fa';
@@ -2339,27 +1851,19 @@ function setupConfirmButton(studentId, type) {
                 studentList.appendChild(li);
             });
             
-            // Mostrar timestamp da última atualização
             console.log('🕒 Lista de alunos renderizada:', new Date().toLocaleTimeString());
         }
 
-
-
-
-
-        // Função loadHistory corrigida - versão final
         window.loadHistory = async function(studentId = null) {
             try {
                 const accessToken = localStorage.getItem('access_token');
                 
-                // Se não for passado studentId, mostrar mensagem
                 if (!studentId) {
                     renderEmptyHistory('Selecione um aluno para visualizar o histórico');
                     document.getElementById('paginationControls').style.display = 'none';
                     return;
                 }
                 
-                // Mostrar loading
                 historyTableBody.innerHTML = `
                     <tr>
                         <td colspan="6" style="text-align: center; padding: 20px;">
@@ -2380,7 +1884,6 @@ function setupConfirmButton(studentId, type) {
                     const result = await response.json();
                     
                     if (result.sucesso && result.dados && Array.isArray(result.dados)) {
-                        // Ordenar por data (mais recente primeiro)
                         currentHistoryData = result.dados.sort((a, b) => 
                             new Date(b.entradaAt) - new Date(a.entradaAt)
                         );
@@ -2393,11 +1896,9 @@ function setupConfirmButton(studentId, type) {
                             renderEmptyHistory('Nenhum registro encontrado para este aluno');
                             document.getElementById('paginationControls').style.display = 'none';
                         } else {
-                            // Encontrar o nome do aluno para o título
                             const student = students.find(s => s.id == studentId);
                             const studentName = student ? student.nome : 'Aluno';
                             
-                            // Atualizar título da seção
                             const historyTitle = document.querySelector('.history-section h3');
                             if (historyTitle) {
                                 historyTitle.textContent = `Histórico de Presença - ${studentName}`;
@@ -2420,7 +1921,6 @@ function setupConfirmButton(studentId, type) {
             }
         }
 
-        // ========== CONFIGURAÇÃO DOS BOTÕES DE PAGINAÇÃO ==========
         function setupPaginationButtons() {
             document.getElementById('firstPageBtn').onclick = goToFirstPage;
             document.getElementById('prevPageBtn').onclick = goToPreviousPage;
@@ -2428,9 +1928,6 @@ function setupConfirmButton(studentId, type) {
             document.getElementById('lastPageBtn').onclick = goToLastPage;
         }
 
-
-
-        // Função renderHistory atualizada para a nova estrutura da API
         function renderHistory(historyData) {
             historyTableBody.innerHTML = '';
             
@@ -2448,14 +1945,12 @@ function setupConfirmButton(studentId, type) {
             historyData.forEach(record => {
                 const tr = document.createElement('tr');
                 
-                // Formatar datas
                 const entryDate = record.entradaAt ? 
                     new Date(record.entradaAt).toLocaleString('pt-BR') : '-';
                 
                 const exitDate = record.saidaAt ? 
                     new Date(record.saidaAt).toLocaleString('pt-BR') : '-';
                 
-                // Tratar campos que podem ser null
                 const iniciadoPor = record.iniciadoPor || 'Sistema';
                 const iniciadoPorTipo = record.iniciadoPorTipo || 'SISTEMA';
                 const finalizadoPor = record.finalizadoPor || (record.saidaAt ? 'Sistema' : '-');
@@ -2478,12 +1973,6 @@ function setupConfirmButton(studentId, type) {
             });
         }
 
-
-
-
-
-
-        // Função auxiliar para exibir estado vazio (corrigir colspan)
         function renderEmptyHistory(message) {
             historyTableBody.innerHTML = `
                 <tr>
@@ -2513,29 +2002,12 @@ function setupConfirmButton(studentId, type) {
             if (contentElement) contentElement.style.display = 'block';
         }
 
-        // Dados de exemplo para histórico
-        function renderExampleHistory() {
-            historyTableBody.innerHTML = '';
-            
-            const exampleData = [
-                { id: 1, alunoNome: 'João Silva', entradaAt: '2023-10-15T08:05:00', saidaAt: '2023-10-15T12:30:00', iniciadoPor: 'Você' },
-                { id: 2, alunoNome: 'Maria Santos', entradaAt: '2023-10-15T08:10:00', saidaAt: null, iniciadoPor: 'Sistema' },
-                { id: 3, alunoNome: 'João Silva', entradaAt: '2023-10-14T08:00:00', saidaAt: '2023-10-14T12:35:00', iniciadoPor: 'Você' },
-            ];
-            
-            renderHistory(exampleData);
-        }
-
-        // Resetar estado da localização
-        // ✅ CORREÇÃO: resetLocationState mais robusto
-        // ✅ CORREÇÃO: resetLocationState para limpar elementos do countdown
         function resetLocationState() {
             console.log('🔄 Resetando estado da localização...');
             
             const locationStatus = document.getElementById('locationStatus');
             const coordinatesDisplay = document.getElementById('coordinatesDisplay');
             
-            // ✅ CANCELAR TIMEOUT SE EXISTIR
             if (autoCloseTimeout) {
                 clearTimeout(autoCloseTimeout);
                 autoCloseTimeout = null;
@@ -2568,8 +2040,6 @@ function setupConfirmButton(studentId, type) {
             console.log('✅ Estado da localização resetado');
         }
 
-        // ✅ CORREÇÃO: getCurrentLocation com atualização de UI
-        // ✅ CORREÇÃO: getCurrentLocation com tratamento melhorado de erro
         async function getCurrentLocation() {
             if (!navigator.geolocation) {
                 showLocationError('Geolocalização não é suportada pelo seu navegador');
@@ -2590,10 +2060,8 @@ function setupConfirmButton(studentId, type) {
                         console.log('📍 Coordenadas obtidas:', coords);
                         
                         try {
-                            // ✅ VALIDAÇÃO DUPLA: Geofence OU Wi-Fi
                             await ensureGeofence(coords.latitude, coords.longitude);
                             
-                            // ✅ HABILITAR BOTÃO DE CONFIRMAÇÃO APENAS SE DENTRO DA ÁREA
                             if (confirmActionBtn) {
                                 confirmActionBtn.disabled = false;
                                 console.log('✅ Botão de confirmação HABILITADO - Localização validada');
@@ -2609,7 +2077,6 @@ function setupConfirmButton(studentId, type) {
                         } catch (error) {
                             console.error('❌ Validação de localização falhou:', error);
                             
-                            // ✅ MANTÉM O BOTÃO DESABILITADO MAS MOSTRA COORDENADAS
                             if (confirmActionBtn) {
                                 confirmActionBtn.disabled = true;
                                 console.log('❌ Botão de confirmação MANTIDO DESABILITADO - Fora da área');
@@ -2620,7 +2087,6 @@ function setupConfirmButton(studentId, type) {
                                 getLocationBtn.disabled = false;
                             }
                             
-                            // ✅ NÃO MOSTRA ALERTA AQUI - A UI JÁ FOI ATUALIZADA PELO ensureGeofence
                             resolve(null);
                         }
                     },
@@ -2644,31 +2110,6 @@ function setupConfirmButton(studentId, type) {
             });
         }
 
-        // ✅ NOVA FUNÇÃO: Mostrar sucesso com coordenadas
-        function showLocationSuccessWithCoords(coords) {
-            const statusElement = document.getElementById('locationStatus');
-            const coordsDisplay = document.getElementById('coordinatesDisplay');
-            
-            if (statusElement) {
-                statusElement.className = 'location-status location-success';
-                statusElement.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida e validada com sucesso!';
-                statusElement.style.display = 'block';
-            }
-            
-            if (coordsDisplay) {
-                // ✅ ATUALIZAR AS COORDENADAS NOS ELEMENTOS CORRETOS
-                const latitudeElement = document.getElementById('displayLatitude');
-                const longitudeElement = document.getElementById('displayLongitude');
-                
-                if (latitudeElement) latitudeElement.textContent = coords.latitude.toFixed(6);
-                if (longitudeElement) longitudeElement.textContent = coords.longitude.toFixed(6);
-                
-                coordsDisplay.style.display = 'block';
-                console.log('✅ Coordenadas exibidas na UI:', coords);
-            }
-        }
-
-        // Mostrar carregamento da localização
         function showLocationLoading() {
             const statusElement = document.getElementById('locationStatus');
             statusElement.className = 'location-status location-loading';
@@ -2677,7 +2118,6 @@ function setupConfirmButton(studentId, type) {
             document.getElementById('coordinatesDisplay').style.display = 'none';
         }
 
-        // ✅ FUNÇÃO: Verificar elementos do modal
         function verifyModalElements() {
             const elements = {
                 locationStatus: document.getElementById('locationStatus'),
@@ -2696,30 +2136,6 @@ function setupConfirmButton(studentId, type) {
             return Object.values(elements).every(el => el !== null);
         }
 
-        // ✅ CORREÇÃO: showLocationSuccess para usar coordenadas
-        function showLocationSuccess(coords) {
-            const statusElement = document.getElementById('locationStatus');
-            const coordsDisplay = document.getElementById('coordinatesDisplay');
-            
-            if (statusElement) {
-                statusElement.className = 'location-status location-success';
-                statusElement.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida com sucesso!';
-                statusElement.style.display = 'block';
-            }
-            
-            if (coordsDisplay) {
-                // ✅ GARANTIR QUE OS ELEMENTOS EXISTEM
-                coordsDisplay.innerHTML = `
-                    <div>Latitude: <span id="displayLatitude">${coords.latitude.toFixed(6)}</span></div>
-                    <div>Longitude: <span id="displayLongitude">${coords.longitude.toFixed(6)}</span></div>
-                `;
-                coordsDisplay.style.display = 'block';
-            }
-            
-            console.log('📍 Localização exibida:', coords);
-        }
-
-        // Mostrar erro na localização
         function showLocationError(message) {
             const statusElement = document.getElementById('locationStatus');
             statusElement.className = 'location-status location-error';
@@ -2727,13 +2143,11 @@ function setupConfirmButton(studentId, type) {
             statusElement.style.display = 'block';
             document.getElementById('coordinatesDisplay').style.display = 'none';
             
-            // Manter botão de confirmação desabilitado
             confirmActionBtn.disabled = true;
             getLocationBtn.disabled = false;
             getLocationBtn.innerHTML = '<i class="fas fa-location-arrow"></i> Tentar Novamente';
         }
 
-        // Obter mensagem de erro da geolocalização
         function getLocationErrorMessage(error) {
             switch(error.code) {
                 case error.PERMISSION_DENIED:
@@ -2751,7 +2165,6 @@ function setupConfirmButton(studentId, type) {
         document.addEventListener('DOMContentLoaded', function() {
             initializeDOMElements();
             
-            // Initialize location button event listener
             if (getLocationBtn) {
                 getLocationBtn.addEventListener('click', async () => {
                     const coords = await getCurrentLocation();
@@ -2761,25 +2174,8 @@ function setupConfirmButton(studentId, type) {
                 });
             }
             
-            // Initialize dashboard
             initializeDashboard();
         });
-
-        // Otimizar atualização quando a página está visível
-        function setupPageVisibilityHandler() {
-            document.addEventListener('visibilitychange', function() {
-                if (document.visibilityState === 'visible') {
-                    // Página voltou a ser visível - atualizar dados
-                    console.log('📄 Página visível, atualizando dados...');
-                    refreshStudentsData();
-                } else {
-                    // Página não está visível - reduzir atualizações
-                    console.log('📄 Página oculta, reduzindo atualizações...');
-                }
-            });
-        }
-
-        //16ba8fb
 
     </script>
 </body>
