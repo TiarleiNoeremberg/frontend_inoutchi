@@ -1277,54 +1277,52 @@
 
             // Verificar autenticação
             if (!accessToken || !expiry || new Date().getTime() > parseInt(expiry)) {
-                console.log('REDIRECIONANDO: Token inválido ou expirado');
                 alert("Sessão expirada. Faça login novamente.");
                 window.location.href = "index.html";
                 return;
             }
 
             try {
-                // 1. Obter informações do usuário
+                // 1. Obter informações do usuário (AGORA SEM FALLBACK)
                 await loadUserInfo();
                 
-                // 2. VERIFICAR STATUS DO DIRETOR IMEDIATAMENTE NO BANCO
-                console.log('🔐 Login realizado, verificando status do diretor no banco de dados...');
-                await loadDirectorData(); // Esta função agora verifica direto no banco
+                // 2. VALIDAR CONFIGURAÇÃO OBRIGATORIAMENTE
+                validateConfiguration();
                 
-                // 3. Verificar status dos alunos
+                // 3. Verificar status do diretor
+                console.log('🔐 Verificando status do diretor no banco de dados...');
+                await loadDirectorData();
+                
+                // 4. Verificar status dos alunos
                 console.log('🔐 Verificando status dos alunos...');
                 await loadAllStudents();
                 
-                // 4. Configurar interface
+                // 5. Configurar interface
                 setupTabs();
                 
-                // 5. Carregar dados da visão geral
+                // 6. Carregar dados da visão geral
                 await loadOverviewData();
                 
-                // 6. Configurar botão de localização
+                // 7. Configurar botão de localização
                 setupLocationButton();
                 
-                // 7. Mostrar conteúdo
+                // 8. Mostrar conteúdo
                 showContent();
                 
-                // 8. INICIAR VERIFICAÇÃO PERIÓDICA (opcional - a cada 60 segundos)
-                setInterval(async () => {
-                    console.log('🔄 Verificação periódica do status do diretor...');
-                    await loadDirectorData();
-                }, 60000); // 60 segundos
+                // 9. Iniciar verificações periódicas
+                startStatusPolling();
                 
                 console.log('✅ Dashboard inicializado com sucesso!');
-                // Iniciar verificação periódica
-                startStatusPolling();
-                console.log('✅ Atualização automática ativada (30 segundos)');
-                console.log('✅ Status do diretor sincronizado com o banco de dados');
-                
+
             } catch (error) {
                 console.error('Erro ao inicializar dashboard:', error);
-                showAlert('Erro ao carregar informações. Tente novamente.', 'error');
+                showAlert(`Erro crítico: ${error.message}`, 'error');
+                
+                // Não permitir uso sem dados válidos
+                setTimeout(() => {
+                    window.location.href = 'index.html';
+                }, 3000);
             }
-
-            startStatusPolling();
         }
 
         // Verificação periódica do status (a cada 30 segundos)
@@ -1358,7 +1356,60 @@
             }, 30000); // 30 segundos
         }
 
-        
+        function validateConfiguration() {
+            const errors = [];
+            
+            if (!currentSchoolId) {
+                errors.push('ID da escola não configurado');
+            }
+            
+            if (!currentDirectorId) {
+                errors.push('ID do diretor não configurado');
+            }
+            
+            if (!currentUser) {
+                errors.push('Dados do usuário não carregados');
+            }
+
+            if (errors.length > 0) {
+                const errorMessage = `Erro de configuração: ${errors.join(', ')}`;
+                console.error('❌', errorMessage);
+                throw new Error(errorMessage);
+            }
+
+            console.log('✅ Configuração validada com sucesso');
+            return true;
+        }
+
+        // ADICIONE esta função para buscar a escola do diretor
+        async function loadDirectorSchool() {
+            try {
+                const accessToken = localStorage.getItem('access_token');
+                const response = await fetch(`${BACKEND_URL}/api/diretores/${currentDirectorId}/escola`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Erro ao buscar escola: ${response.status}`);
+                }
+
+                const escolaData = await response.json();
+                
+                if (!escolaData.id && !escolaData.escolaId) {
+                    throw new Error('ID da escola não encontrado na resposta da API');
+                }
+                
+                currentSchoolId = escolaData.id || escolaData.escolaId;
+                console.log('✅ Escola carregada da API:', currentSchoolId);
+
+            } catch (error) {
+                console.error('❌ Erro ao carregar escola do diretor:', error);
+                throw new Error('Não foi possível obter a escola do diretor');
+            }
+        }
 
         // Carregar informações do usuário
         async function loadUserInfo() {
@@ -1371,35 +1422,43 @@
                     }
                 });
 
-                if (response.ok) {
-                    const userData = await response.json();
-                    currentUser = userData;
-                    
-                    console.log('Dados do usuário:', userData);
-                    
-                    // Extrair ID da escola e do diretor
-                    currentSchoolId = userData.escolaId;
-                    currentDirectorId = userData.id;
-                    
-                    // Atualizar UI com informações do usuário
-                    userFullName.textContent = userData.nome || 'Diretor';
-                    userName.textContent = userData.email || 'Usuário';
-                    userAvatar.textContent = userData.nome ? userData.nome.charAt(0).toUpperCase() : 'D';
-                    
-                } else {
-                    console.error('Erro na resposta /api/users/me:', response.status, response.statusText);
-                    
-                    // Se for 401, lançar erro específico
+                if (!response.ok) {
                     if (response.status === 401) {
                         throw new Error('TOKEN_EXPIRED');
-                    } else {
-                        throw new Error(`Erro ${response.status}: ${response.statusText}`);
                     }
+                    throw new Error(`Erro ${response.status}: ${response.statusText}`);
                 }
+
+                const userData = await response.json();
+                currentUser = userData;
+                
+                console.log('🔍 Dados completos do usuário:', userData);
+
+                // EXTRAIR IDs APENAS DA API - SEM FALLBACK
+                if (!userData.id) {
+                    throw new Error('ID do diretor não encontrado na resposta da API');
+                }
+                currentDirectorId = userData.id;
+
+                // BUSCAR escolaId DE FORMA CORRETA
+                currentSchoolId = userData.escolaId || userData.escola?.id;
+                
+                if (!currentSchoolId) {
+                    await loadDirectorSchool(); // Buscar escola via endpoint específico
+                }
+
+                console.log('✅ IDs obtidos da API:', {
+                    diretorId: currentDirectorId,
+                    escolaId: currentSchoolId
+                });
+
+                // Atualizar UI
+                userFullName.textContent = userData.nome;
+                userName.textContent = userData.email;
+                userAvatar.textContent = userData.nome.charAt(0).toUpperCase();
+
             } catch (error) {
                 console.error('Erro ao carregar informações do usuário:', error);
-                
-                // Propagrar o erro para ser tratado no initializeDashboard
                 throw error;
             }
         }
@@ -2104,6 +2163,9 @@
         // ATUALIZAR a função loadAllStudents para usar o cache
         async function loadAllStudents(page = 0, searchTerm = '') {
             try {
+                // VALIDAÇÃO OBRIGATÓRIA
+                validateConfiguration();
+                
                 console.log('🎯 Carregando lista de alunos...');
                 
                 const accessToken = localStorage.getItem('access_token');
@@ -2120,30 +2182,24 @@
                     }
                 });
                 
-                if (response.ok) {
-                    const data = await response.json();
-                    
-                    // VERIFICAR STATUS EM LOTE (já existente)
-                    if (data.content && data.content.length > 0) {
-                        console.log('🔍 Verificando status dos alunos em lote...');
-                        data.content = await checkAllStudentsStatus(data.content);
-                        
-                        // ===== ADICIONAR ESTA LINHA =====
-                        // Buscar tutores para todos os alunos
-                        console.log('👥 Enriquecendo dados com informações de tutores...');
-                        data.content = await enrichStudentsWithTutors(data.content);
-                        // =================================
-                    }
-                    
-                    renderStudentsTable(data);
-                    setupStudentsPagination(data);
-                    
-                } else {
+                if (!response.ok) {
                     throw new Error(`Erro ${response.status}: ${response.statusText}`);
                 }
+
+                const data = await response.json();
+                
+                // Verificar status em lote
+                if (data.content && data.content.length > 0) {
+                    console.log('🔍 Verificando status dos alunos em lote...');
+                    data.content = await checkAllStudentsStatus(data.content);
+                }
+                
+                renderStudentsTable(data);
+                setupStudentsPagination(data);
+                
             } catch (error) {
                 console.error('Erro ao carregar alunos:', error);
-                showAlert('Erro ao carregar lista de alunos.', 'error');
+                showAlert(`Erro ao carregar lista de alunos: ${error.message}`, 'error');
             }
         }
 
