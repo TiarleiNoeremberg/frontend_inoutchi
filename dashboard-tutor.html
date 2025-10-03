@@ -365,23 +365,6 @@
             border: 1px solid #ffcdd2;
         }
 
-        /* ✅ ESTILO PARA ALERTA DE MUDANÇA DE REDE */
-        .alert-info {
-            background-color: rgba(52, 152, 219, 0.1);
-            color: #2980b9;
-            border: 1px solid rgba(52, 152, 219, 0.3);
-        }
-
-        .network-change-indicator {
-            background-color: rgba(241, 196, 15, 0.1);
-            border-left: 4px solid #f1c40f;
-            padding: 8px 12px;
-            margin: 10px 0;
-            border-radius: 4px;
-            font-size: 13px;
-            animation: pulse 2s infinite;
-        }
-
         .alert-success {
             background-color: #e8f5e9;
             color: var(--success-color);
@@ -421,34 +404,6 @@
             text-align: center;
             font-size: 14px;
             display: none; /* Inicialmente oculto */
-        }
-
-        /* ✅ ESTILOS PARA A CONTAGEM REGRESSIVA */
-        .location-status .fa-clock {
-            color: var(--warning-color);
-            margin-right: 5px;
-        }
-
-        #countdown {
-            font-weight: bold;
-            color: var(--warning-color);
-            animation: pulse 1s infinite;
-        }
-
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.7; }
-            100% { opacity: 1; }
-        }
-
-        /* ✅ DESTAQUE PARA O AVISO DE AUTO-FECHAMENTO */
-        .auto-close-warning {
-            background-color: rgba(243, 156, 18, 0.1);
-            border-left: 4px solid var(--warning-color);
-            padding: 8px 12px;
-            margin: 10px 0;
-            border-radius: 4px;
-            font-size: 13px;
         }
 
         .coordinates-display strong {
@@ -783,7 +738,6 @@
     let actionModal, modalTitle, modalMessage, modalStudentName, confirmActionBtn, getLocationBtn;
     let geofenceValidated = false;
     let lastValidatedCoords = null;
-    let autoCloseTimeout = null;
 
     // ========== FUNÇÕES GLOBAIS ==========
 
@@ -1115,219 +1069,107 @@
 
     // ========== NOVAS FUNÇÕES PARA VALIDAÇÃO DE REDE Wi-Fi ==========
 
-    // ✅ NOVA FUNÇÃO: Monitorar mudanças de rede em tempo real
-    function setupNetworkChangeListener() {
-        if (!navigator.connection) {
-            console.log('📡 API de Network Information não suportada para monitoramento em tempo real');
-            return;
-        }
-
-        // ✅ OUVIR MUDANÇAS NA CONEXÃO
-        navigator.connection.addEventListener('change', async () => {
-            console.log('📡 Mudança na conexão detectada!');
-            
-            // ✅ SE O MODAL ESTIVER ABERTO, ATUALIZAR A VALIDAÇÃO
-            if (actionModal && actionModal.style.display === 'flex') {
-                console.log('🔄 Modal aberto detectado - atualizando validação de rede...');
-                
-                // ✅ ATUALIZAR BOTÃO "OBTER LOCALIZAÇÃO" PARA FORÇAR NOVA VALIDAÇÃO
-                if (getLocationBtn) {
-                    getLocationBtn.disabled = false;
-                    getLocationBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Revalidar com Nova Rede';
-                    console.log('✅ Botão de localização atualizado para revalidação');
-                }
-                
-                // ✅ MOSTRAR MENSAGEM INFORMATIVA
-                showAlert('Mudança na rede detectada. Clique em "Revalidar Localização" para atualizar.', 'info');
-            }
-        });
-        
-        console.log('✅ Monitor de mudanças de rede configurado');
-    }
-
     // Função para obter informações da rede Wi-Fi
-    // ✅ CORREÇÃO: getWifiInfo para forçar atualização
-    // ✅ CORREÇÃO: getWifiInfo com múltiplas estratégias de detecção
     async function getWifiInfo() {
         return new Promise((resolve) => {
-            console.log('📡 Iniciando detecção de Wi-Fi...');
-            
-            // ✅ ESTRATÉGIA 1: API de Network Information (se disponível)
-            if (navigator.connection) {
-                const connection = navigator.connection;
-                console.log('📡 Dados da API Network Information:', {
-                    type: connection.type,
-                    effectiveType: connection.effectiveType,
-                    downlink: connection.downlink,
-                    rtt: connection.rtt,
-                    ssid: connection.ssid
-                });
-                
-                // ✅ DETECÇÃO MELHORADA - Considerar Wi-Fi em mais casos
-                let isWifi = false;
-                let detectionMethod = '';
-                
-                // Caso 1: Tipo explícito de Wi-Fi
-                if (connection.type === 'wifi') {
-                    isWifi = true;
-                    detectionMethod = 'tipo_explicito';
-                }
-                // Caso 2: Velocidade alta típica de Wi-Fi
-                else if (connection.downlink > 5) {
-                    isWifi = true;
-                    detectionMethod = 'velocidade_alta';
-                }
-                // Caso 3: SSID disponível (mesmo que não seja acessível o nome)
-                else if (connection.ssid !== undefined && connection.ssid !== null) {
-                    isWifi = true;
-                    detectionMethod = 'ssid_presente';
-                }
-                // Caso 4: effectiveType reportando Wi-Fi
-                else if (connection.effectiveType === 'wifi') {
-                    isWifi = true;
-                    detectionMethod = 'effective_type';
-                }
-                
-                if (isWifi) {
-                    console.log(`✅ Wi-Fi detectado via API (${detectionMethod})`);
-                    resolve({
-                        ssid: connection.ssid || 'wi-fi_detectado',
-                        type: connection.type,
-                        effectiveType: connection.effectiveType,
-                        downlink: connection.downlink,
-                        isWifi: true,
-                        detectionMethod: detectionMethod
-                    });
-                    return;
-                }
+            if (!navigator.connection) {
+                console.log('📡 API de Network Information não suportada');
+                resolve(null);
+                return;
             }
-            
-            // ✅ ESTRATÉGIA 2: Detecção por User Agent e características
-            const userAgent = navigator.userAgent.toLowerCase();
-            const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
-            
-            // ✅ ESTRATÉGIA 3: Teste de velocidade/performance
-            performNetworkTest().then(testResult => {
-                if (testResult.likelyWifi) {
-                    console.log('✅ Wi-Fi detectado via teste de performance');
+
+            const connection = navigator.connection;
+            console.log('📡 Informações da conexão:', {
+                type: connection.type,
+                effectiveType: connection.effectiveType,
+                downlink: connection.downlink,
+                rtt: connection.rtt
+            });
+
+            // Verificar se está em Wi-Fi (type 'wifi' ou velocidade alta típica de Wi-Fi)
+            if (connection.type === 'wifi' || 
+                (connection.effectiveType === '4g' && connection.downlink > 10)) {
+                
+                // Tentar obter SSID (funciona em alguns dispositivos/apps)
+                if (connection.ssid) {
                     resolve({
-                        ssid: 'wi-fi_inferido',
-                        type: 'wifi',
-                        effectiveType: 'wifi', 
-                        downlink: testResult.speed,
-                        isWifi: true,
-                        detectionMethod: 'teste_performance',
-                        confidence: testResult.confidence
+                        ssid: connection.ssid,
+                        type: connection.type,
+                        isWifi: true
                     });
                 } else {
-                    console.log('❌ Wi-Fi não detectado - usando dados celular');
+                    // Se não conseguir SSID, assume que é Wi-Fi baseado no tipo
                     resolve({
-                        isWifi: false,
-                        type: 'cellular',
-                        effectiveType: '4g',
-                        reason: 'Conexão identificada como dados móveis'
+                        ssid: 'unknown',
+                        type: connection.type,
+                        isWifi: true
                     });
                 }
-            }).catch(() => {
-                // Fallback final
-                console.log('❌ Não foi possível determinar o tipo de conexão');
+            } else {
                 resolve({
                     isWifi: false,
-                    type: 'unknown',
-                    reason: 'Não foi possível detectar o tipo de conexão'
+                    type: connection.type
                 });
-            });
-        });
-    }
-
-    // ✅ NOVA FUNÇÃO: Teste de performance de rede
-    async function performNetworkTest() {
-        return new Promise((resolve) => {
-            const testStart = Date.now();
-            const testImage = new Image();
-            let speed = 0;
-            
-            // Testar velocidade com uma imagem pequena
-            testImage.src = 'https://www.google.com/images/phd/px.gif?t=' + Date.now();
-            testImage.onload = function() {
-                const loadTime = Date.now() - testStart;
-                speed = (1 / (loadTime / 1000)).toFixed(2); // MB/s aproximado
-                
-                // ✅ LÓGICA: Se a velocidade for alta, provavelmente é Wi-Fi
-                const likelyWifi = speed > 2; // Mais de 2 MB/s = provável Wi-Fi
-                const confidence = likelyWifi ? 'medium' : 'low';
-                
-                console.log(`📡 Teste de rede: ${speed} MB/s, Wi-Fi provável: ${likelyWifi}`);
-                
-                resolve({
-                    likelyWifi: likelyWifi,
-                    speed: speed,
-                    confidence: confidence
-                });
-            };
-            
-            testImage.onerror = function() {
-                console.log('❌ Teste de rede falhou');
-                resolve({
-                    likelyWifi: false,
-                    speed: 0,
-                    confidence: 'low'
-                });
-            };
-            
-            // Timeout de segurança
-            setTimeout(() => {
-                resolve({
-                    likelyWifi: false,
-                    speed: 0,
-                    confidence: 'low'
-                });
-            }, 3000);
+            }
         });
     }
 
 
     // Função para verificar se está na rede Wi-Fi da escola
-    // ✅ VERIFICAR: Função checkSchoolWifi está detectando corretamente?
-    // ✅ CORREÇÃO: checkSchoolWifi mais permissiva para Wi-Fi detectado
     async function checkSchoolWifi() {
         try {
             const wifiInfo = await getWifiInfo();
             
-            console.log('📡 Resultado da detecção de Wi-Fi:', wifiInfo);
-            
             if (!wifiInfo || !wifiInfo.isWifi) {
-                return { 
-                    isSchoolWifi: false, 
-                    reason: wifiInfo?.reason || 'Não conectado a Wi-Fi designada da Escola'
-                };
+                return { isSchoolWifi: false, reason: 'Não conectado a Wi-Fi' };
             }
 
-            // ✅ SE WI-FI FOI DETECTADO, CONSIDERAR COMO ESCOLA (PARA TESTES)
-            // Em produção, você pode manter a verificação de SSID específica
-            console.log('🎯 Modo de desenvolvimento: Qualquer Wi-Fi detectado é considerado autorizado');
-            
+            // ✅ LISTA ATUALIZADA COM A REDE "MAR"
+            const schoolSsids = [
+                'MAR',                    // ✅ Nova rede adicionada
+                'Escola_Principal',
+                'REDE-ESCOLA', 
+                'Lab_Informatica',
+                'Professores',
+                'Alunos'
+                // Adicione aqui outros SSIDs da sua escola
+            ];
+
+            console.log('📡 Verificando se está na rede da escola...');
+            console.log('📡 SSID atual:', wifiInfo.ssid);
+            console.log('📡 Redes permitidas:', schoolSsids);
+
+            const isSchoolWifi = schoolSsids.some(ssid => {
+                // Comparação case-insensitive
+                const currentSsid = wifiInfo.ssid.toLowerCase().trim();
+                const allowedSsid = ssid.toLowerCase().trim();
+                
+                const match = currentSsid === allowedSsid || 
+                            currentSsid.includes(allowedSsid) ||
+                            allowedSsid.includes(currentSsid);
+                
+                if (match) {
+                    console.log(`✅ Rede correspondente encontrada: "${wifiInfo.ssid}" = "${ssid}"`);
+                }
+                
+                return match;
+            });
+
             return {
-                isSchoolWifi: true,
-                ssid: wifiInfo.ssid || 'wi-fi_autorizado',
-                type: wifiInfo.type,
-                detectionMethod: wifiInfo.detectionMethod,
-                confidence: wifiInfo.confidence || 'high'
+                isSchoolWifi: isSchoolWifi,
+                ssid: wifiInfo.ssid,
+                type: wifiInfo.type
             };
 
         } catch (error) {
             console.error('Erro ao verificar Wi-Fi:', error);
-            return { 
-                isSchoolWifi: false, 
-                reason: 'Erro na verificação de Wi-Fi' 
-            };
+            return { isSchoolWifi: false, reason: 'Erro na verificação' };
         }
     }
 
     // ========== NOVA FUNÇÃO: ATUALIZAR STATUS NA UI ==========
 
     // ✅ CORREÇÃO: updateLocationStatus com novo caso para erro com coordenadas
-    // ✅ CORREÇÃO: updateLocationStatus com auto-fechamento para erro
     function updateLocationStatus(validationType, data) {
         const statusElement = document.getElementById('locationStatus');
         const coordsDisplay = document.getElementById('coordinatesDisplay');
@@ -1335,13 +1177,6 @@
         if (!statusElement || !coordsDisplay) {
             console.error('❌ Elementos do modal não encontrados');
             return;
-        }
-        
-        // ✅ CANCELAR TIMEOUT ANTERIOR SE EXISTIR
-        if (autoCloseTimeout) {
-            clearTimeout(autoCloseTimeout);
-            autoCloseTimeout = null;
-            console.log('🕒 Timeout anterior cancelado');
         }
         
         // ✅ SEMPRE LIMPAR E PREPARAR OS ELEMENTOS
@@ -1354,6 +1189,7 @@
                 statusElement.innerHTML = 
                     `<i class="fas fa-wifi wifi-icon"></i> ${data.message}`;
                 
+                // ✅ EXIBIR COORDENADAS MESMO NO Wi-Fi
                 coordsDisplay.innerHTML = `
                     <div><strong>Rede:</strong> ${data.ssid}</div>
                     <div><strong>Latitude:</strong> ${data.latitude.toFixed(6)}</div>
@@ -1368,6 +1204,7 @@
                 statusElement.innerHTML = 
                     `<i class="fas fa-map-marker-alt geofence-icon"></i> ${data.message}`;
                 
+                // ✅ EXIBIR COORDENADAS NO SUCESSO
                 coordsDisplay.innerHTML = `
                     <div><strong>Latitude:</strong> ${data.latitude.toFixed(6)}</div>
                     <div><strong>Longitude:</strong> ${data.longitude.toFixed(6)}</div>
@@ -1376,24 +1213,19 @@
                 `;
                 break;
                 
-            // ✅ ATUALIZAR: Mensagem do caso 'error_with_coords' para ser mais clara
             case 'error_with_coords':
+                // ✅ NOVO CASO: ERRO MAS COM COORDENADAS
                 statusElement.className = 'location-status location-error';
                 statusElement.innerHTML = 
-                    `<i class="fas fa-exclamation-circle"></i> ${data.message}
-                    <div style="font-size: 12px; margin-top: 5px; font-weight: normal;">
-                        <i class="fas fa-clock"></i> Fechando automaticamente em <span id="countdown">5</span> segundos...
-                    </div>`;
+                    `<i class="fas fa-exclamation-circle"></i> ${data.message}`;
                 
+                // ✅ EXIBIR COORDENADAS MESMO NO ERRO
                 coordsDisplay.innerHTML = `
                     <div><strong>Latitude:</strong> ${data.latitude.toFixed(6)}</div>
                     <div><strong>Longitude:</strong> ${data.longitude.toFixed(6)}</div>
-                    <div><strong>Status Wi-Fi:</strong> <span style="color: var(--danger-color);">Não conectado à rede autorizada</span></div>
-                    <div><strong>Status Geofence:</strong> <span style="color: var(--danger-color);">Fora da área permitida</span></div>
-                    <div class="validation-method">É necessário estar na área OU conectado à rede Wi-Fi da escola</div>
+                    <div><strong>Status:</strong> <span style="color: var(--danger-color);">Fora da área permitida</span></div>
+                    <div class="validation-method">Localização adquirida mas fora do raio permitido</div>
                 `;
-                
-                startAutoCloseCountdown();
                 break;
                 
             case 'error':
@@ -1401,6 +1233,7 @@
                 statusElement.innerHTML = 
                     `<i class="fas fa-exclamation-circle"></i> ${data.message}`;
                 
+                // ✅ EM OUTROS ERROS, MANTER COORDENADAS OCULTAS
                 coordsDisplay.style.display = 'none';
                 break;
         }
@@ -1408,55 +1241,10 @@
         console.log(`✅ UI atualizada: ${validationType}`, data);
     }
 
-    // ✅ NOVA FUNÇÃO: Contagem regressiva para auto-fechamento
-    function startAutoCloseCountdown() {
-        let secondsLeft = 5;
-        const countdownElement = document.getElementById('countdown');
-        
-        console.log(`🕒 Iniciando contagem regressiva: ${secondsLeft} segundos`);
-        
-        // ✅ ATUALIZAR CONTAGEM A CADA SEGUNDO
-        const countdownInterval = setInterval(() => {
-            secondsLeft--;
-            
-            if (countdownElement) {
-                countdownElement.textContent = secondsLeft;
-            }
-            
-            console.log(`🕒 Fechando em ${secondsLeft} segundos...`);
-            
-            if (secondsLeft <= 0) {
-                clearInterval(countdownInterval);
-                closeModalWithFeedback();
-            }
-        }, 1000);
-        
-        // ✅ CONFIGURAR TIMEOUT PARA FECHAMENTO
-        autoCloseTimeout = setTimeout(() => {
-            clearInterval(countdownInterval);
-            closeModalWithFeedback();
-        }, 5000);
-    }
-
-    // ✅ NOVA FUNÇÃO: Fechar modal com feedback
-    function closeModalWithFeedback() {
-        console.log('🕒 Auto-fechamento executado - fechando modal');
-        
-        // ✅ MOSTRAR FEEDBACK ANTES DE FECHAR
-        showAlert('Modal fechado automaticamente. Você estava fora da área permitida.', 'warning');
-        
-        // ✅ FECHAR MODAL
-        closeModal();
-        
-        // ✅ LIMPAR VARIÁVEL
-        autoCloseTimeout = null;
-    }
-
     // ========== FUNÇÃO ensureGeofence ATUALIZADA ==========
 
     // ✅ FUNÇÃO ensureGeofence - AGORA COM VALIDAÇÃO DUPLA (Geofence OU Wi-Fi)
     // ✅ CORREÇÃO: ensureGeofence para sempre retornar as coordenadas
-    // ✅ CORREÇÃO: ensureGeofence com lógica OR correta
     async function ensureGeofence(latitude, longitude) {
         try {
             console.log('📍 Iniciando validação de localização...');
@@ -1483,7 +1271,7 @@
             if (wifiCheck.isSchoolWifi) {
                 console.log('✅ Conectado à rede Wi-Fi da escola:', wifiCheck.ssid);
                 
-                // ✅ CORREÇÃO: SE Wi-Fi FUNCIONAR, RETORNA SUCESSO IMEDIATAMENTE
+                // ✅ ATUALIZAR UI COM SUCESSO VIA Wi-Fi
                 updateLocationStatus('wifi', {
                     ssid: wifiCheck.ssid,
                     message: `Conectado à rede da escola: ${wifiCheck.ssid}`,
@@ -1493,14 +1281,13 @@
                 
                 geofenceValidated = true;
                 lastValidatedCoords = { latitude, longitude };
-                return true; // ✅ APROVAÇÃO IMEDIATA - NÃO PRECISA VERIFICAR GEOFENCE
+                return true;
             } else {
                 console.log('📡 Não está na Wi-Fi da escola:', wifiCheck.reason);
-                // ✅ CONTINUA PARA VERIFICAÇÃO DE GEOFENCE
             }
 
-            // ========== TENTATIVA 2: VERIFICAR GEOFENCE (APENAS SE Wi-Fi FALHOU) ==========
-            console.log('📍 Verificando geofence (apenas se Wi-Fi falhou)...');
+            // ========== TENTATIVA 2: VERIFICAR GEOFENCE ==========
+            console.log('📍 Verificando geofence...');
             const response = await fetch(
                 `${BACKEND_URL}/api/geofences/verificar/${escolaId}?` + 
                 `latitude=${latitude}&` +
@@ -1525,6 +1312,7 @@
             if (resultado.dentroDaArea === true || resultado === true) {
                 console.log('✅ Dentro da área permitida (geofence)');
                 
+                // ✅ ATUALIZAR UI COM SUCESSO VIA GEOFENCE
                 updateLocationStatus('geofence', {
                     latitude: latitude,
                     longitude: longitude,
@@ -1535,18 +1323,19 @@
                 lastValidatedCoords = { latitude, longitude };
                 return true;
             } else {
-                // ❌ NEM Wi-Fi NEM GEOFENCE FUNCIONARAM
-                console.log('❌ Fora da área permitida e não conectado ao Wi-Fi da escola');
+                // ✅ MUDANÇA: Mesmo fora da área, exibir as coordenadas
+                console.log('❌ Fora da área permitida, mas exibindo coordenadas');
                 
+                // ✅ ATUALIZAR UI COM ERRO MAS MOSTRANDO COORDENADAS
                 updateLocationStatus('error_with_coords', {
                     latitude: latitude,
                     longitude: longitude,
-                    message: 'Fora da área permitida da escola e não conectado à rede Wi-Fi autorizada'
+                    message: 'Fora da área permitida da escola'
                 });
                 
                 geofenceValidated = false;
                 lastValidatedCoords = null;
-                throw new Error('Fora da área permitida da escola e não conectado à rede Wi-Fi autorizada');
+                throw new Error('Fora da área permitida da escola');
             }
             
         } catch (error) {
@@ -1554,7 +1343,7 @@
             geofenceValidated = false;
             lastValidatedCoords = null;
             
-            // ✅ SE AINDA NÃO ATUALIZOU A UI, FAZER AGORA
+            // ✅ SE AINDA NÃO ATUALIZOU A UI COM COORDENADAS, FAZER AGORA
             if (!error.message.includes('Fora da área permitida')) {
                 updateLocationStatus('error', {
                     message: error.message
@@ -1647,23 +1436,15 @@
     });
 
     // Fechar modal - FUNÇÃO GLOBAL
-    // ✅ CORREÇÃO: closeModal para cancelar timeouts
     window.closeModal = function() {
         console.log('🔒 Fechando modal...');
-        
-        // ✅ CANCELAR TIMEOUT DE AUTO-FECHAMENTO SE EXISTIR
-        if (autoCloseTimeout) {
-            clearTimeout(autoCloseTimeout);
-            autoCloseTimeout = null;
-            console.log('🕒 Timeout de auto-fechamento cancelado');
-        }
         
         if (actionModal) {
             actionModal.style.display = 'none';
             console.log('✅ Modal fechado com sucesso');
         }
         
-        // ✅ LIMPAR ESTADOS
+        // ✅ LIMPAR ESTADOS E VALIDAÇÃO
         selectedStudentId = null;
         actionType = null;
         geofenceValidated = false;
@@ -1765,13 +1546,14 @@ function setupConfirmButton(studentId, type) {
     }
 
     // ✅ CONFIGURAR BOTÃO DE CONFIRMAÇÃO - COM VALIDAÇÃO DO ID
-    // ✅ CORREÇÃO: openActionModal com reset de cache de rede
+    // ✅ CHAMAR NO openActionModal
     window.openActionModal = function(studentId, type, studentName) {
         console.log('🎯 ABRINDO MODAL - Início do fluxo');
         console.log('🎯 Dados:', { studentId, type, studentName });
         
-        // ✅ RESETAR CACHE DE REDE - FORÇAR NOVA DETECÇÃO
-        resetNetworkCache();
+        // ✅ VERIFICAR ELEMENTOS DO MODAL
+        console.log('🔍 Verificando elementos do modal...');
+        verifyModalElements();
         
         selectedStudentId = studentId;
         actionType = type;
@@ -1796,32 +1578,6 @@ function setupConfirmButton(studentId, type) {
             getCurrentLocation();
         }, 500);
     };
-
-    // ✅ NOVA FUNÇÃO: Resetar cache de rede
-    function resetNetworkCache() {
-        console.log('🔄 Resetando cache de informações de rede...');
-        // Esta função pode ser expandida para limpar qualquer cache de rede
-        // Atualmente o getWifiInfo() já busca informações frescas, mas podemos garantir
-    }
-
-    // ✅ DEBUG: Função para testar detecção de Wi-Fi
-    async function debugWifiDetection() {
-        console.log('🔍 DEBUG: Testando detecção de Wi-Fi...');
-        
-        const wifiInfo = await getWifiInfo();
-        console.log('📡 Informações da conexão:', wifiInfo);
-        
-        const wifiCheck = await checkSchoolWifi();
-        console.log('📡 Resultado da verificação Wi-Fi:', wifiCheck);
-        
-        if (wifiCheck.isSchoolWifi) {
-            console.log('✅ DEBUG: Wi-Fi da escola DETECTADO com sucesso!');
-        } else {
-            console.log('❌ DEBUG: Wi-Fi da escola NÃO detectado. Razão:', wifiCheck.reason);
-        }
-        
-        return wifiCheck;
-    }
 
     // Função viewStudentHistory corrigida
     window.viewStudentHistory = function(studentId, studentName) {
@@ -2169,9 +1925,6 @@ function setupConfirmButton(studentId, type) {
                 
                 // Configurar os botões de paginação
                 setupPaginationButtons();
-
-                // ✅ CONFIGURAR MONITOR DE REDE
-                setupNetworkChangeListener();
                 
                 // MOSTRAR MENSAGEM INICIAL NO HISTÓRICO
                 renderEmptyHistory('Selecione um aluno para visualizar o histórico');
@@ -2186,35 +1939,6 @@ function setupConfirmButton(studentId, type) {
                 console.error('Erro ao inicializar dashboard:', error);
                 showAlert('Erro ao carregar informações. Tente novamente.', 'error');
             }
-        }
-
-        // ✅ CORREÇÃO: Configurar botão getLocationBtn para forçar atualização completa
-        function setupLocationButton() {
-            if (!getLocationBtn) return;
-            
-            getLocationBtn.onclick = async function() {
-                console.log('🔄 Botão "Revalidar Localização" clicado - forçando atualização completa');
-                
-                // ✅ RESETAR CACHE E ESTADOS
-                resetLocationState();
-                
-                // ✅ MOSTRAR LOADING
-                showLocationLoading();
-                getLocationBtn.disabled = true;
-                
-                // ✅ FORÇAR NOVA VALIDAÇÃO COMPLETA
-                try {
-                    const coords = await getCurrentLocation();
-                    if (coords) {
-                        console.log('✅ Revalidação concluída com sucesso');
-                        showAlert('Localização revalidada com sucesso!', 'success');
-                    } else {
-                        console.log('❌ Revalidação falhou');
-                    }
-                } catch (error) {
-                    console.error('❌ Erro na revalidação:', error);
-                }
-            };
         }
         
         // Configurar o botão "Atualizar" 
@@ -2713,22 +2437,11 @@ function setupConfirmButton(studentId, type) {
 
         // Resetar estado da localização
         // ✅ CORREÇÃO: resetLocationState mais robusto
-        // ✅ CORREÇÃO: resetLocationState para limpar elementos do countdown
         function resetLocationState() {
             console.log('🔄 Resetando estado da localização...');
             
             const locationStatus = document.getElementById('locationStatus');
             const coordinatesDisplay = document.getElementById('coordinatesDisplay');
-            
-            // ✅ CONFIGURAR BOTÃO DE LOCALIZAÇÃO
-            setupLocationButton();
-
-            // ✅ CANCELAR TIMEOUT SE EXISTIR
-            if (autoCloseTimeout) {
-                clearTimeout(autoCloseTimeout);
-                autoCloseTimeout = null;
-                console.log('🕒 Timeout cancelado no reset');
-            }
             
             if (locationStatus) {
                 locationStatus.style.display = 'none';
@@ -2738,6 +2451,7 @@ function setupConfirmButton(studentId, type) {
             
             if (coordinatesDisplay) {
                 coordinatesDisplay.style.display = 'none';
+                // ✅ GARANTIR QUE OS ELEMENTOS EXISTEM NO RESET
                 coordinatesDisplay.innerHTML = `
                     <div>Latitude: <span id="displayLatitude">-</span></div>
                     <div>Longitude: <span id="displayLongitude">-</span></div>
@@ -2966,6 +2680,9 @@ function setupConfirmButton(studentId, type) {
                 }
             });
         }
+
+        //V11 totalmente funciona 100%
+        //7818757
 
     </script>
 </body>
