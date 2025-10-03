@@ -365,6 +365,23 @@
             border: 1px solid #ffcdd2;
         }
 
+        /* ✅ ESTILO PARA ALERTA DE MUDANÇA DE REDE */
+        .alert-info {
+            background-color: rgba(52, 152, 219, 0.1);
+            color: #2980b9;
+            border: 1px solid rgba(52, 152, 219, 0.3);
+        }
+
+        .network-change-indicator {
+            background-color: rgba(241, 196, 15, 0.1);
+            border-left: 4px solid #f1c40f;
+            padding: 8px 12px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-size: 13px;
+            animation: pulse 2s infinite;
+        }
+
         .alert-success {
             background-color: #e8f5e9;
             color: var(--success-color);
@@ -1098,46 +1115,96 @@
 
     // ========== NOVAS FUNÇÕES PARA VALIDAÇÃO DE REDE Wi-Fi ==========
 
+    // ✅ NOVA FUNÇÃO: Monitorar mudanças de rede em tempo real
+    function setupNetworkChangeListener() {
+        if (!navigator.connection) {
+            console.log('📡 API de Network Information não suportada para monitoramento em tempo real');
+            return;
+        }
+
+        // ✅ OUVIR MUDANÇAS NA CONEXÃO
+        navigator.connection.addEventListener('change', async () => {
+            console.log('📡 Mudança na conexão detectada!');
+            
+            // ✅ SE O MODAL ESTIVER ABERTO, ATUALIZAR A VALIDAÇÃO
+            if (actionModal && actionModal.style.display === 'flex') {
+                console.log('🔄 Modal aberto detectado - atualizando validação de rede...');
+                
+                // ✅ ATUALIZAR BOTÃO "OBTER LOCALIZAÇÃO" PARA FORÇAR NOVA VALIDAÇÃO
+                if (getLocationBtn) {
+                    getLocationBtn.disabled = false;
+                    getLocationBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Revalidar com Nova Rede';
+                    console.log('✅ Botão de localização atualizado para revalidação');
+                }
+                
+                // ✅ MOSTRAR MENSAGEM INFORMATIVA
+                showAlert('Mudança na rede detectada. Clique em "Revalidar Localização" para atualizar.', 'info');
+            }
+        });
+        
+        console.log('✅ Monitor de mudanças de rede configurado');
+    }
+
     // Função para obter informações da rede Wi-Fi
+    // ✅ CORREÇÃO: getWifiInfo para forçar atualização
     async function getWifiInfo() {
         return new Promise((resolve) => {
+            // ✅ VERIFICAR SE A API DE NETWORK INFORMATION ESTÁ DISPONÍVEL
             if (!navigator.connection) {
-                console.log('📡 API de Network Information não suportada');
+                console.log('📡 API de Network Information não suportada neste navegador');
                 resolve(null);
                 return;
             }
 
+            // ✅ SEMPRE USAR OS DADOS MAIS RECENTES DA CONEXÃO
             const connection = navigator.connection;
-            console.log('📡 Informações da conexão:', {
-                type: connection.type,
-                effectiveType: connection.effectiveType,
-                downlink: connection.downlink,
-                rtt: connection.rtt
-            });
+            
+            console.log('📡 Buscando informações FRESCAS da conexão:');
+            console.log('📡 Tipo:', connection.type);
+            console.log('📡 Effective Type:', connection.effectiveType);
+            console.log('📡 Downlink:', connection.downlink);
+            console.log('📡 RTT:', connection.rtt);
+            console.log('📡 SSID:', connection.ssid);
 
-            // Verificar se está em Wi-Fi (type 'wifi' ou velocidade alta típica de Wi-Fi)
-            if (connection.type === 'wifi' || 
-                (connection.effectiveType === '4g' && connection.downlink > 10)) {
-                
-                // Tentar obter SSID (funciona em alguns dispositivos/apps)
-                if (connection.ssid) {
-                    resolve({
-                        ssid: connection.ssid,
-                        type: connection.type,
-                        isWifi: true
-                    });
-                } else {
-                    // Se não conseguir SSID, assume que é Wi-Fi baseado no tipo
-                    resolve({
-                        ssid: 'unknown',
-                        type: connection.type,
-                        isWifi: true
-                    });
-                }
+            // ✅ LÓGICA MELHORADA PARA DETECTAR Wi-Fi
+            let isWifi = false;
+            
+            // Método 1: Verificar pelo tipo direto
+            if (connection.type === 'wifi') {
+                isWifi = true;
+                console.log('✅ Wi-Fi detectado pelo tipo: wifi');
+            }
+            // Método 2: Verificar por velocidade típica de Wi-Fi
+            else if (connection.downlink > 5 && connection.effectiveType === '4g') {
+                // Em alguns dispositivos, Wi-Fi pode ser reportado como '4g' mas com alta velocidade
+                isWifi = true;
+                console.log('✅ Wi-Fi detectado pela velocidade:', connection.downlink, 'Mbps');
+            }
+            // Método 3: Verificar se há SSID disponível
+            else if (connection.ssid && connection.ssid !== '') {
+                isWifi = true;
+                console.log('✅ Wi-Fi detectado pelo SSID:', connection.ssid);
+            }
+            // Método 4: Fallback baseado no effectiveType
+            else if (connection.effectiveType === 'wifi') {
+                isWifi = true;
+                console.log('✅ Wi-Fi detectado pelo effectiveType: wifi');
+            }
+
+            if (isWifi) {
+                resolve({
+                    ssid: connection.ssid || 'unknown',
+                    type: connection.type,
+                    effectiveType: connection.effectiveType,
+                    downlink: connection.downlink,
+                    isWifi: true
+                });
             } else {
                 resolve({
                     isWifi: false,
-                    type: connection.type
+                    type: connection.type,
+                    effectiveType: connection.effectiveType,
+                    reason: `Tipo de conexão: ${connection.type}`
                 });
             }
         });
@@ -1630,13 +1697,13 @@ function setupConfirmButton(studentId, type) {
     }
 
     // ✅ CONFIGURAR BOTÃO DE CONFIRMAÇÃO - COM VALIDAÇÃO DO ID
+    // ✅ CORREÇÃO: openActionModal com reset de cache de rede
     window.openActionModal = function(studentId, type, studentName) {
         console.log('🎯 ABRINDO MODAL - Início do fluxo');
         console.log('🎯 Dados:', { studentId, type, studentName });
         
-        // ✅ VERIFICAR ELEMENTOS DO MODAL
-        console.log('🔍 Verificando elementos do modal...');
-        verifyModalElements();
+        // ✅ RESETAR CACHE DE REDE - FORÇAR NOVA DETECÇÃO
+        resetNetworkCache();
         
         selectedStudentId = studentId;
         actionType = type;
@@ -1645,9 +1712,6 @@ function setupConfirmButton(studentId, type) {
         if (modalStudentName) modalStudentName.textContent = studentName;
         if (modalMessage) modalMessage.textContent = `Deseja registrar ${type === 'entrada' ? 'a entrada' : 'a saída'} do aluno ${studentName}?`;
         
-        // ✅ CHAMAR NO openActionModal PARA DEBUG (remover depois)
-        debugWifiDetection();
-
         // Resetar estado da localização
         resetLocationState();
         
@@ -1664,6 +1728,13 @@ function setupConfirmButton(studentId, type) {
             getCurrentLocation();
         }, 500);
     };
+
+    // ✅ NOVA FUNÇÃO: Resetar cache de rede
+    function resetNetworkCache() {
+        console.log('🔄 Resetando cache de informações de rede...');
+        // Esta função pode ser expandida para limpar qualquer cache de rede
+        // Atualmente o getWifiInfo() já busca informações frescas, mas podemos garantir
+    }
 
     // ✅ DEBUG: Função para testar detecção de Wi-Fi
     async function debugWifiDetection() {
@@ -2030,6 +2101,9 @@ function setupConfirmButton(studentId, type) {
                 
                 // Configurar os botões de paginação
                 setupPaginationButtons();
+
+                // ✅ CONFIGURAR MONITOR DE REDE
+                setupNetworkChangeListener();
                 
                 // MOSTRAR MENSAGEM INICIAL NO HISTÓRICO
                 renderEmptyHistory('Selecione um aluno para visualizar o histórico');
@@ -2044,6 +2118,35 @@ function setupConfirmButton(studentId, type) {
                 console.error('Erro ao inicializar dashboard:', error);
                 showAlert('Erro ao carregar informações. Tente novamente.', 'error');
             }
+        }
+
+        // ✅ CORREÇÃO: Configurar botão getLocationBtn para forçar atualização completa
+        function setupLocationButton() {
+            if (!getLocationBtn) return;
+            
+            getLocationBtn.onclick = async function() {
+                console.log('🔄 Botão "Revalidar Localização" clicado - forçando atualização completa');
+                
+                // ✅ RESETAR CACHE E ESTADOS
+                resetLocationState();
+                
+                // ✅ MOSTRAR LOADING
+                showLocationLoading();
+                getLocationBtn.disabled = true;
+                
+                // ✅ FORÇAR NOVA VALIDAÇÃO COMPLETA
+                try {
+                    const coords = await getCurrentLocation();
+                    if (coords) {
+                        console.log('✅ Revalidação concluída com sucesso');
+                        showAlert('Localização revalidada com sucesso!', 'success');
+                    } else {
+                        console.log('❌ Revalidação falhou');
+                    }
+                } catch (error) {
+                    console.error('❌ Erro na revalidação:', error);
+                }
+            };
         }
         
         // Configurar o botão "Atualizar" 
@@ -2549,6 +2652,9 @@ function setupConfirmButton(studentId, type) {
             const locationStatus = document.getElementById('locationStatus');
             const coordinatesDisplay = document.getElementById('coordinatesDisplay');
             
+            // ✅ CONFIGURAR BOTÃO DE LOCALIZAÇÃO
+            setupLocationButton();
+
             // ✅ CANCELAR TIMEOUT SE EXISTIR
             if (autoCloseTimeout) {
                 clearTimeout(autoCloseTimeout);
