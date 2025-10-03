@@ -397,13 +397,13 @@
             }
         }
 
-        /* Novos estilos para a localização automática */
         .location-status {
-            padding: 10px;
+            padding: 12px;
             border-radius: 5px;
             margin: 10px 0;
             text-align: center;
             font-size: 14px;
+            display: none; /* Inicialmente oculto */
         }
         
         .location-success {
@@ -426,12 +426,23 @@
         
         .coordinates-display {
             background-color: #f8f9fa;
-            padding: 8px;
+            padding: 12px;
             border-radius: 5px;
-            font-family: monospace;
-            font-size: 12px;
-            margin: 5px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            margin: 10px 0;
             text-align: center;
+            border: 1px solid #e9ecef;
+            display: none; /* Inicialmente oculto */
+        }
+
+        .coordinates-display div {
+            margin: 4px 0;
+        }
+
+        .coordinates-display span {
+            font-weight: bold;
+            color: var(--primary-color);
         }
 
         /* Ajustar a tabela para 6 colunas */
@@ -1459,9 +1470,14 @@ function setupConfirmButton(studentId, type) {
     }
 
     // ✅ CONFIGURAR BOTÃO DE CONFIRMAÇÃO - COM VALIDAÇÃO DO ID
+    // ✅ CHAMAR NO openActionModal
     window.openActionModal = function(studentId, type, studentName) {
         console.log('🎯 ABRINDO MODAL - Início do fluxo');
         console.log('🎯 Dados:', { studentId, type, studentName });
+        
+        // ✅ VERIFICAR ELEMENTOS DO MODAL
+        console.log('🔍 Verificando elementos do modal...');
+        verifyModalElements();
         
         selectedStudentId = studentId;
         actionType = type;
@@ -1473,7 +1489,7 @@ function setupConfirmButton(studentId, type) {
         // Resetar estado da localização
         resetLocationState();
         
-        // ✅ CORREÇÃO: Configurar o botão de confirmação de forma robusta
+        // Configurar botão de confirmação
         setupConfirmButton(studentId, type);
         
         if (actionModal) {
@@ -1485,8 +1501,6 @@ function setupConfirmButton(studentId, type) {
             console.log('🎯 Iniciando captura de localização automática');
             getCurrentLocation();
         }, 500);
-        console.log('🔍 Testando botão de confirmação...');
-        testConfirmButton();
     };
 
     // Função viewStudentHistory corrigida
@@ -2346,6 +2360,7 @@ function setupConfirmButton(studentId, type) {
         }
 
         // Resetar estado da localização
+        // ✅ CORREÇÃO: resetLocationState mais robusto
         function resetLocationState() {
             console.log('🔄 Resetando estado da localização...');
             
@@ -2355,11 +2370,12 @@ function setupConfirmButton(studentId, type) {
             if (locationStatus) {
                 locationStatus.style.display = 'none';
                 locationStatus.className = 'location-status';
-                locationStatus.innerHTML = '';
+                locationStatus.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo localização...';
             }
             
             if (coordinatesDisplay) {
                 coordinatesDisplay.style.display = 'none';
+                // ✅ GARANTIR QUE OS ELEMENTOS EXISTEM NO RESET
                 coordinatesDisplay.innerHTML = `
                     <div>Latitude: <span id="displayLatitude">-</span></div>
                     <div>Longitude: <span id="displayLongitude">-</span></div>
@@ -2378,7 +2394,7 @@ function setupConfirmButton(studentId, type) {
             console.log('✅ Estado da localização resetado');
         }
 
-        // Obter localização atual - MODIFICADA
+        // ✅ CORREÇÃO: getCurrentLocation com atualização de UI
         async function getCurrentLocation() {
             if (!navigator.geolocation) {
                 showLocationError('Geolocalização não é suportada pelo seu navegador');
@@ -2396,9 +2412,14 @@ function setupConfirmButton(studentId, type) {
                             longitude: position.coords.longitude
                         };
                         
+                        console.log('📍 Coordenadas obtidas:', coords);
+                        
                         try {
                             // ✅ VALIDAÇÃO DUPLA: Geofence OU Wi-Fi
                             await ensureGeofence(coords.latitude, coords.longitude);
+                            
+                            // ✅ ATUALIZAR UI COM AS COORDENADAS
+                            showLocationSuccessWithCoords(coords);
                             
                             // ✅ HABILITAR BOTÃO DE CONFIRMAÇÃO
                             if (confirmActionBtn) {
@@ -2433,6 +2454,30 @@ function setupConfirmButton(studentId, type) {
             });
         }
 
+        // ✅ NOVA FUNÇÃO: Mostrar sucesso com coordenadas
+        function showLocationSuccessWithCoords(coords) {
+            const statusElement = document.getElementById('locationStatus');
+            const coordsDisplay = document.getElementById('coordinatesDisplay');
+            
+            if (statusElement) {
+                statusElement.className = 'location-status location-success';
+                statusElement.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida e validada com sucesso!';
+                statusElement.style.display = 'block';
+            }
+            
+            if (coordsDisplay) {
+                // ✅ ATUALIZAR AS COORDENADAS NOS ELEMENTOS CORRETOS
+                const latitudeElement = document.getElementById('displayLatitude');
+                const longitudeElement = document.getElementById('displayLongitude');
+                
+                if (latitudeElement) latitudeElement.textContent = coords.latitude.toFixed(6);
+                if (longitudeElement) longitudeElement.textContent = coords.longitude.toFixed(6);
+                
+                coordsDisplay.style.display = 'block';
+                console.log('✅ Coordenadas exibidas na UI:', coords);
+            }
+        }
+
         // Mostrar carregamento da localização
         function showLocationLoading() {
             const statusElement = document.getElementById('locationStatus');
@@ -2442,23 +2487,46 @@ function setupConfirmButton(studentId, type) {
             document.getElementById('coordinatesDisplay').style.display = 'none';
         }
 
-        // Mostrar sucesso na obtenção da localização
+        // ✅ FUNÇÃO: Verificar elementos do modal
+        function verifyModalElements() {
+            const elements = {
+                locationStatus: document.getElementById('locationStatus'),
+                coordinatesDisplay: document.getElementById('coordinatesDisplay'),
+                displayLatitude: document.getElementById('displayLatitude'),
+                displayLongitude: document.getElementById('displayLongitude'),
+                getLocationBtn: document.getElementById('getLocationBtn'),
+                confirmActionBtn: document.getElementById('confirmActionBtn')
+            };
+            
+            console.log('🔍 Verificando elementos do modal:');
+            Object.keys(elements).forEach(key => {
+                console.log(`  ${key}:`, elements[key] ? '✅ ENCONTRADO' : '❌ NÃO ENCONTRADO');
+            });
+            
+            return Object.values(elements).every(el => el !== null);
+        }
+
+        // ✅ CORREÇÃO: showLocationSuccess para usar coordenadas
         function showLocationSuccess(coords) {
             const statusElement = document.getElementById('locationStatus');
-            statusElement.className = 'location-status location-success';
-            statusElement.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida com sucesso!';
-            statusElement.style.display = 'block';
-            
-            // Exibir coordenadas
             const coordsDisplay = document.getElementById('coordinatesDisplay');
-            document.getElementById('displayLatitude').textContent = coords.latitude.toFixed(6);
-            document.getElementById('displayLongitude').textContent = coords.longitude.toFixed(6);
-            coordsDisplay.style.display = 'block';
             
-            // Habilitar botão de confirmação
-            confirmActionBtn.disabled = false;
-            getLocationBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Atualizar Localização';
-            getLocationBtn.disabled = false;
+            if (statusElement) {
+                statusElement.className = 'location-status location-success';
+                statusElement.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida com sucesso!';
+                statusElement.style.display = 'block';
+            }
+            
+            if (coordsDisplay) {
+                // ✅ GARANTIR QUE OS ELEMENTOS EXISTEM
+                coordsDisplay.innerHTML = `
+                    <div>Latitude: <span id="displayLatitude">${coords.latitude.toFixed(6)}</span></div>
+                    <div>Longitude: <span id="displayLongitude">${coords.longitude.toFixed(6)}</span></div>
+                `;
+                coordsDisplay.style.display = 'block';
+            }
+            
+            console.log('📍 Localização exibida:', coords);
         }
 
         // Mostrar erro na localização
