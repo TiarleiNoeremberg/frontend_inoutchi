@@ -406,6 +406,34 @@
             display: none; /* Inicialmente oculto */
         }
 
+        /* ✅ ESTILOS PARA A CONTAGEM REGRESSIVA */
+        .location-status .fa-clock {
+            color: var(--warning-color);
+            margin-right: 5px;
+        }
+
+        #countdown {
+            font-weight: bold;
+            color: var(--warning-color);
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+
+        /* ✅ DESTAQUE PARA O AVISO DE AUTO-FECHAMENTO */
+        .auto-close-warning {
+            background-color: rgba(243, 156, 18, 0.1);
+            border-left: 4px solid var(--warning-color);
+            padding: 8px 12px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
         .coordinates-display strong {
             color: var(--dark-color);
         }
@@ -738,6 +766,7 @@
     let actionModal, modalTitle, modalMessage, modalStudentName, confirmActionBtn, getLocationBtn;
     let geofenceValidated = false;
     let lastValidatedCoords = null;
+    let autoCloseTimeout = null;
 
     // ========== FUNÇÕES GLOBAIS ==========
 
@@ -1170,6 +1199,7 @@
     // ========== NOVA FUNÇÃO: ATUALIZAR STATUS NA UI ==========
 
     // ✅ CORREÇÃO: updateLocationStatus com novo caso para erro com coordenadas
+    // ✅ CORREÇÃO: updateLocationStatus com auto-fechamento para erro
     function updateLocationStatus(validationType, data) {
         const statusElement = document.getElementById('locationStatus');
         const coordsDisplay = document.getElementById('coordinatesDisplay');
@@ -1177,6 +1207,13 @@
         if (!statusElement || !coordsDisplay) {
             console.error('❌ Elementos do modal não encontrados');
             return;
+        }
+        
+        // ✅ CANCELAR TIMEOUT ANTERIOR SE EXISTIR
+        if (autoCloseTimeout) {
+            clearTimeout(autoCloseTimeout);
+            autoCloseTimeout = null;
+            console.log('🕒 Timeout anterior cancelado');
         }
         
         // ✅ SEMPRE LIMPAR E PREPARAR OS ELEMENTOS
@@ -1189,7 +1226,6 @@
                 statusElement.innerHTML = 
                     `<i class="fas fa-wifi wifi-icon"></i> ${data.message}`;
                 
-                // ✅ EXIBIR COORDENADAS MESMO NO Wi-Fi
                 coordsDisplay.innerHTML = `
                     <div><strong>Rede:</strong> ${data.ssid}</div>
                     <div><strong>Latitude:</strong> ${data.latitude.toFixed(6)}</div>
@@ -1204,7 +1240,6 @@
                 statusElement.innerHTML = 
                     `<i class="fas fa-map-marker-alt geofence-icon"></i> ${data.message}`;
                 
-                // ✅ EXIBIR COORDENADAS NO SUCESSO
                 coordsDisplay.innerHTML = `
                     <div><strong>Latitude:</strong> ${data.latitude.toFixed(6)}</div>
                     <div><strong>Longitude:</strong> ${data.longitude.toFixed(6)}</div>
@@ -1214,18 +1249,23 @@
                 break;
                 
             case 'error_with_coords':
-                // ✅ NOVO CASO: ERRO MAS COM COORDENADAS
+                // ✅ NOVO CASO: ERRO MAS COM COORDENADAS + AUTO-FECHAMENTO
                 statusElement.className = 'location-status location-error';
                 statusElement.innerHTML = 
-                    `<i class="fas fa-exclamation-circle"></i> ${data.message}`;
+                    `<i class="fas fa-exclamation-circle"></i> ${data.message}
+                    <div style="font-size: 12px; margin-top: 5px; font-weight: normal;">
+                        <i class="fas fa-clock"></i> Fechando automaticamente em <span id="countdown">5</span> segundos...
+                    </div>`;
                 
-                // ✅ EXIBIR COORDENADAS MESMO NO ERRO
                 coordsDisplay.innerHTML = `
                     <div><strong>Latitude:</strong> ${data.latitude.toFixed(6)}</div>
                     <div><strong>Longitude:</strong> ${data.longitude.toFixed(6)}</div>
                     <div><strong>Status:</strong> <span style="color: var(--danger-color);">Fora da área permitida</span></div>
                     <div class="validation-method">Localização adquirida mas fora do raio permitido</div>
                 `;
+                
+                // ✅ INICIAR CONTAGEM REGRESSIVA PARA FECHAMENTO
+                startAutoCloseCountdown();
                 break;
                 
             case 'error':
@@ -1233,12 +1273,55 @@
                 statusElement.innerHTML = 
                     `<i class="fas fa-exclamation-circle"></i> ${data.message}`;
                 
-                // ✅ EM OUTROS ERROS, MANTER COORDENADAS OCULTAS
                 coordsDisplay.style.display = 'none';
                 break;
         }
         
         console.log(`✅ UI atualizada: ${validationType}`, data);
+    }
+
+    // ✅ NOVA FUNÇÃO: Contagem regressiva para auto-fechamento
+    function startAutoCloseCountdown() {
+        let secondsLeft = 5;
+        const countdownElement = document.getElementById('countdown');
+        
+        console.log(`🕒 Iniciando contagem regressiva: ${secondsLeft} segundos`);
+        
+        // ✅ ATUALIZAR CONTAGEM A CADA SEGUNDO
+        const countdownInterval = setInterval(() => {
+            secondsLeft--;
+            
+            if (countdownElement) {
+                countdownElement.textContent = secondsLeft;
+            }
+            
+            console.log(`🕒 Fechando em ${secondsLeft} segundos...`);
+            
+            if (secondsLeft <= 0) {
+                clearInterval(countdownInterval);
+                closeModalWithFeedback();
+            }
+        }, 1000);
+        
+        // ✅ CONFIGURAR TIMEOUT PARA FECHAMENTO
+        autoCloseTimeout = setTimeout(() => {
+            clearInterval(countdownInterval);
+            closeModalWithFeedback();
+        }, 5000);
+    }
+
+    // ✅ NOVA FUNÇÃO: Fechar modal com feedback
+    function closeModalWithFeedback() {
+        console.log('🕒 Auto-fechamento executado - fechando modal');
+        
+        // ✅ MOSTRAR FEEDBACK ANTES DE FECHAR
+        showAlert('Modal fechado automaticamente. Você estava fora da área permitida.', 'warning');
+        
+        // ✅ FECHAR MODAL
+        closeModal();
+        
+        // ✅ LIMPAR VARIÁVEL
+        autoCloseTimeout = null;
     }
 
     // ========== FUNÇÃO ensureGeofence ATUALIZADA ==========
@@ -1436,15 +1519,23 @@
     });
 
     // Fechar modal - FUNÇÃO GLOBAL
+    // ✅ CORREÇÃO: closeModal para cancelar timeouts
     window.closeModal = function() {
         console.log('🔒 Fechando modal...');
+        
+        // ✅ CANCELAR TIMEOUT DE AUTO-FECHAMENTO SE EXISTIR
+        if (autoCloseTimeout) {
+            clearTimeout(autoCloseTimeout);
+            autoCloseTimeout = null;
+            console.log('🕒 Timeout de auto-fechamento cancelado');
+        }
         
         if (actionModal) {
             actionModal.style.display = 'none';
             console.log('✅ Modal fechado com sucesso');
         }
         
-        // ✅ LIMPAR ESTADOS E VALIDAÇÃO
+        // ✅ LIMPAR ESTADOS
         selectedStudentId = null;
         actionType = null;
         geofenceValidated = false;
@@ -2437,11 +2528,19 @@ function setupConfirmButton(studentId, type) {
 
         // Resetar estado da localização
         // ✅ CORREÇÃO: resetLocationState mais robusto
+        // ✅ CORREÇÃO: resetLocationState para limpar elementos do countdown
         function resetLocationState() {
             console.log('🔄 Resetando estado da localização...');
             
             const locationStatus = document.getElementById('locationStatus');
             const coordinatesDisplay = document.getElementById('coordinatesDisplay');
+            
+            // ✅ CANCELAR TIMEOUT SE EXISTIR
+            if (autoCloseTimeout) {
+                clearTimeout(autoCloseTimeout);
+                autoCloseTimeout = null;
+                console.log('🕒 Timeout cancelado no reset');
+            }
             
             if (locationStatus) {
                 locationStatus.style.display = 'none';
@@ -2451,7 +2550,6 @@ function setupConfirmButton(studentId, type) {
             
             if (coordinatesDisplay) {
                 coordinatesDisplay.style.display = 'none';
-                // ✅ GARANTIR QUE OS ELEMENTOS EXISTEM NO RESET
                 coordinatesDisplay.innerHTML = `
                     <div>Latitude: <span id="displayLatitude">-</span></div>
                     <div>Longitude: <span id="displayLongitude">-</span></div>
@@ -2681,8 +2779,7 @@ function setupConfirmButton(studentId, type) {
             });
         }
 
-        //V11 totalmente funciona 100%
-        //7818757
+        //16ba8fb
 
     </script>
 </body>
