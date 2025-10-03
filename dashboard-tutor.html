@@ -405,6 +405,16 @@
             font-size: 14px;
             display: none; /* Inicialmente oculto */
         }
+
+        .coordinates-display strong {
+            color: var(--dark-color);
+        }
+
+        .location-status.location-error {
+            background-color: rgba(231, 76, 60, 0.1);
+            color: var(--danger-color);
+            border: 1px solid rgba(231, 76, 60, 0.3);
+        }
         
         .location-success {
             background-color: rgba(46, 204, 113, 0.1);
@@ -440,9 +450,8 @@
             margin: 4px 0;
         }
 
-        .coordinates-display span {
+        .coordinates-display span[style*="danger-color"] {
             font-weight: bold;
-            color: var(--primary-color);
         }
 
         /* Ajustar a tabela para 6 colunas */
@@ -538,8 +547,9 @@
         .validation-method {
             font-size: 12px;
             color: #666;
-            margin-top: 5px;
+            margin-top: 8px;
             text-align: center;
+            font-style: italic;
         }
         
         .wifi-icon {
@@ -1159,53 +1169,82 @@
 
     // ========== NOVA FUNÇÃO: ATUALIZAR STATUS NA UI ==========
 
+    // ✅ CORREÇÃO: updateLocationStatus com novo caso para erro com coordenadas
     function updateLocationStatus(validationType, data) {
         const statusElement = document.getElementById('locationStatus');
         const coordsDisplay = document.getElementById('coordinatesDisplay');
+        
+        if (!statusElement || !coordsDisplay) {
+            console.error('❌ Elementos do modal não encontrados');
+            return;
+        }
+        
+        // ✅ SEMPRE LIMPAR E PREPARAR OS ELEMENTOS
+        statusElement.style.display = 'block';
+        coordsDisplay.style.display = 'block';
         
         switch(validationType) {
             case 'wifi':
                 statusElement.className = 'location-status location-success';
                 statusElement.innerHTML = 
-                    `<i class="fas fa-wifi"></i> ${data.message}`;
-                statusElement.style.display = 'block';
+                    `<i class="fas fa-wifi wifi-icon"></i> ${data.message}`;
                 
-                // Mostrar informações da rede
+                // ✅ EXIBIR COORDENADAS MESMO NO Wi-Fi
                 coordsDisplay.innerHTML = `
                     <div><strong>Rede:</strong> ${data.ssid}</div>
+                    <div><strong>Latitude:</strong> ${data.latitude.toFixed(6)}</div>
+                    <div><strong>Longitude:</strong> ${data.longitude.toFixed(6)}</div>
                     <div><strong>Método:</strong> Validação por Wi-Fi</div>
+                    <div class="validation-method">Conectado à rede da escola</div>
                 `;
-                coordsDisplay.style.display = 'block';
                 break;
                 
             case 'geofence':
                 statusElement.className = 'location-status location-success';
                 statusElement.innerHTML = 
-                    `<i class="fas fa-map-marker-alt"></i> ${data.message}`;
-                statusElement.style.display = 'block';
+                    `<i class="fas fa-map-marker-alt geofence-icon"></i> ${data.message}`;
                 
-                // Mostrar coordenadas
+                // ✅ EXIBIR COORDENADAS NO SUCESSO
                 coordsDisplay.innerHTML = `
                     <div><strong>Latitude:</strong> ${data.latitude.toFixed(6)}</div>
                     <div><strong>Longitude:</strong> ${data.longitude.toFixed(6)}</div>
                     <div><strong>Método:</strong> Validação por Geofence</div>
+                    <div class="validation-method">Dentro da área da escola</div>
                 `;
-                coordsDisplay.style.display = 'block';
+                break;
+                
+            case 'error_with_coords':
+                // ✅ NOVO CASO: ERRO MAS COM COORDENADAS
+                statusElement.className = 'location-status location-error';
+                statusElement.innerHTML = 
+                    `<i class="fas fa-exclamation-circle"></i> ${data.message}`;
+                
+                // ✅ EXIBIR COORDENADAS MESMO NO ERRO
+                coordsDisplay.innerHTML = `
+                    <div><strong>Latitude:</strong> ${data.latitude.toFixed(6)}</div>
+                    <div><strong>Longitude:</strong> ${data.longitude.toFixed(6)}</div>
+                    <div><strong>Status:</strong> <span style="color: var(--danger-color);">Fora da área permitida</span></div>
+                    <div class="validation-method">Localização adquirida mas fora do raio permitido</div>
+                `;
                 break;
                 
             case 'error':
                 statusElement.className = 'location-status location-error';
                 statusElement.innerHTML = 
                     `<i class="fas fa-exclamation-circle"></i> ${data.message}`;
-                statusElement.style.display = 'block';
+                
+                // ✅ EM OUTROS ERROS, MANTER COORDENADAS OCULTAS
                 coordsDisplay.style.display = 'none';
                 break;
         }
+        
+        console.log(`✅ UI atualizada: ${validationType}`, data);
     }
 
     // ========== FUNÇÃO ensureGeofence ATUALIZADA ==========
 
     // ✅ FUNÇÃO ensureGeofence - AGORA COM VALIDAÇÃO DUPLA (Geofence OU Wi-Fi)
+    // ✅ CORREÇÃO: ensureGeofence para sempre retornar as coordenadas
     async function ensureGeofence(latitude, longitude) {
         try {
             console.log('📍 Iniciando validação de localização...');
@@ -1231,6 +1270,15 @@
             
             if (wifiCheck.isSchoolWifi) {
                 console.log('✅ Conectado à rede Wi-Fi da escola:', wifiCheck.ssid);
+                
+                // ✅ ATUALIZAR UI COM SUCESSO VIA Wi-Fi
+                updateLocationStatus('wifi', {
+                    ssid: wifiCheck.ssid,
+                    message: `Conectado à rede da escola: ${wifiCheck.ssid}`,
+                    latitude: latitude,
+                    longitude: longitude
+                });
+                
                 geofenceValidated = true;
                 lastValidatedCoords = { latitude, longitude };
                 return true;
@@ -1263,10 +1311,30 @@
             
             if (resultado.dentroDaArea === true || resultado === true) {
                 console.log('✅ Dentro da área permitida (geofence)');
+                
+                // ✅ ATUALIZAR UI COM SUCESSO VIA GEOFENCE
+                updateLocationStatus('geofence', {
+                    latitude: latitude,
+                    longitude: longitude,
+                    message: 'Dentro da área da escola'
+                });
+                
                 geofenceValidated = true;
                 lastValidatedCoords = { latitude, longitude };
                 return true;
             } else {
+                // ✅ MUDANÇA: Mesmo fora da área, exibir as coordenadas
+                console.log('❌ Fora da área permitida, mas exibindo coordenadas');
+                
+                // ✅ ATUALIZAR UI COM ERRO MAS MOSTRANDO COORDENADAS
+                updateLocationStatus('error_with_coords', {
+                    latitude: latitude,
+                    longitude: longitude,
+                    message: 'Fora da área permitida da escola'
+                });
+                
+                geofenceValidated = false;
+                lastValidatedCoords = null;
                 throw new Error('Fora da área permitida da escola');
             }
             
@@ -1274,6 +1342,14 @@
             console.error('❌ Validação de localização falhou:', error);
             geofenceValidated = false;
             lastValidatedCoords = null;
+            
+            // ✅ SE AINDA NÃO ATUALIZOU A UI COM COORDENADAS, FAZER AGORA
+            if (!error.message.includes('Fora da área permitida')) {
+                updateLocationStatus('error', {
+                    message: error.message
+                });
+            }
+            
             throw error;
         }
     }
@@ -2395,6 +2471,7 @@ function setupConfirmButton(studentId, type) {
         }
 
         // ✅ CORREÇÃO: getCurrentLocation com atualização de UI
+        // ✅ CORREÇÃO: getCurrentLocation com tratamento melhorado de erro
         async function getCurrentLocation() {
             if (!navigator.geolocation) {
                 showLocationError('Geolocalização não é suportada pelo seu navegador');
@@ -2418,13 +2495,10 @@ function setupConfirmButton(studentId, type) {
                             // ✅ VALIDAÇÃO DUPLA: Geofence OU Wi-Fi
                             await ensureGeofence(coords.latitude, coords.longitude);
                             
-                            // ✅ ATUALIZAR UI COM AS COORDENADAS
-                            showLocationSuccessWithCoords(coords);
-                            
-                            // ✅ HABILITAR BOTÃO DE CONFIRMAÇÃO
+                            // ✅ HABILITAR BOTÃO DE CONFIRMAÇÃO APENAS SE DENTRO DA ÁREA
                             if (confirmActionBtn) {
                                 confirmActionBtn.disabled = false;
-                                console.log('✅ Botão de confirmação HABILITADO - Geofence validada');
+                                console.log('✅ Botão de confirmação HABILITADO - Localização validada');
                             }
                             
                             if (getLocationBtn) {
@@ -2436,13 +2510,31 @@ function setupConfirmButton(studentId, type) {
                             
                         } catch (error) {
                             console.error('❌ Validação de localização falhou:', error);
-                            showLocationError(error.message);
+                            
+                            // ✅ MANTÉM O BOTÃO DESABILITADO MAS MOSTRA COORDENADAS
+                            if (confirmActionBtn) {
+                                confirmActionBtn.disabled = true;
+                                console.log('❌ Botão de confirmação MANTIDO DESABILITADO - Fora da área');
+                            }
+                            
+                            if (getLocationBtn) {
+                                getLocationBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Tentar Novamente';
+                                getLocationBtn.disabled = false;
+                            }
+                            
+                            // ✅ NÃO MOSTRA ALERTA AQUI - A UI JÁ FOI ATUALIZADA PELO ensureGeofence
                             resolve(null);
                         }
                     },
                     (error) => {
                         const errorMsg = getLocationErrorMessage(error);
                         showLocationError(errorMsg);
+                        
+                        if (getLocationBtn) {
+                            getLocationBtn.innerHTML = '<i class="fas fa-location-arrow"></i> Tentar Novamente';
+                            getLocationBtn.disabled = false;
+                        }
+                        
                         resolve(null);
                     },
                     {
