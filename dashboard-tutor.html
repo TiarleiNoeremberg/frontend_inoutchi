@@ -715,6 +715,8 @@
     let loadingElement, contentElement, alertBox, studentList, historyTableBody;
     let userFullName, userName, userAvatar, presenceSummary;
     let actionModal, modalTitle, modalMessage, modalStudentName, confirmActionBtn, getLocationBtn;
+    let geofenceValidated = false;
+    let lastValidatedCoords = null;
 
     // ========== FUNÇÕES GLOBAIS ==========
 
@@ -777,16 +779,18 @@
                 responsavelTipo 
             });
 
-            // Obter localização atual
-            const coords = await getCurrentLocation();
+            // ✅ OBTER LOCALIZAÇÃO SEM VALIDAR GEOFENCE NOVAMENTE
+            // A geofence já foi validada quando o botão foi habilitado
+            const coords = await getCurrentLocationWithoutValidation();
+            
             if (!coords) {
                 throw new Error('Não foi possível obter a localização');
             }
 
-            console.log('📍 Coordenadas obtidas:', coords);
+            console.log('📍 Coordenadas obtidas para registro:', coords);
 
-            // Verificar geofence
-            await ensureGeofence(coords.latitude, coords.longitude);
+            // ✅ NÃO VALIDAR GEOFENCE NOVAMENTE - JÁ FOI VALIDADA
+            console.log('✅ Geofence já validada anteriormente, prosseguindo com registro...');
 
             const requestData = {
                 alunoId: alunoId,
@@ -800,6 +804,10 @@
             console.log('📤 Estrutura final da requisição:', JSON.stringify(requestData, null, 2));
 
             const accessToken = localStorage.getItem('access_token');
+            
+            // ✅ LOG ANTES DO FETCH
+            console.log('🔄 Enviando requisição para /api/presencas/entrada...');
+            
             const response = await fetch(`${BACKEND_URL}/api/presencas/entrada`, {
                 method: 'POST',
                 headers: {
@@ -809,7 +817,7 @@
                 body: JSON.stringify(requestData)
             });
 
-            console.log('📥 Resposta da API:', response.status, response.statusText);
+            console.log('📥 Resposta da API recebida:', response.status, response.statusText);
 
             if (!response.ok) {
                 const errorText = await response.text();
@@ -841,13 +849,41 @@
         } catch (error) {
             console.error('❌ Erro no registro de entrada:', error);
             showAlert(`Erro ao registrar entrada: ${error.message}`, 'error');
-            shouldCloseModal = true; // ✅ SEMPRE FECHAR EM CASO DE ERRO
+            shouldCloseModal = true;
         } finally {
-            // ✅ GARANTIR QUE O MODAL SEJA FECHADO EM QUALQUER CASO (sucesso ou erro)
-            if (shouldCloseModal) {
-                closeModal();
-            }
+            console.log('🔒 Finally executado - fechando modal');
+            closeModal();
         }
+    }
+
+    // ✅ NOVA FUNÇÃO: Obter localização sem validação de geofence
+    async function getCurrentLocationWithoutValidation() {
+        return new Promise((resolve) => {
+            if (!navigator.geolocation) {
+                resolve(null);
+                return;
+            }
+            
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const coords = {
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude
+                    };
+                    console.log('📍 Localização obtida (sem validação):', coords);
+                    resolve(coords);
+                },
+                (error) => {
+                    console.error('❌ Erro ao obter localização:', error);
+                    resolve(null);
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 0 // Sem cache
+                }
+            );
+        });
     }
 
     // ✅ FUNÇÃO registrarSaida - USANDO FINALLY PARA GARANTIR FECHAMENTO
@@ -870,18 +906,18 @@
                 responsavelTipo 
             });
 
-            // Obter localização atual
-            const coords = await getCurrentLocation();
+            // ✅ OBTER LOCALIZAÇÃO SEM VALIDAR GEOFENCE NOVAMENTE
+            const coords = await getCurrentLocationWithoutValidation();
+            
             if (!coords) {
                 throw new Error('Não foi possível obter a localização');
             }
 
-            console.log('📍 Coordenadas obtidas:', coords);
+            console.log('📍 Coordenadas obtidas para registro:', coords);
 
-            // ✅ VERIFICAR GEOFENCE (já está funcionando pelos logs)
-            await ensureGeofence(coords.latitude, coords.longitude);
+            // ✅ NÃO VALIDAR GEOFENCE NOVAMENTE
+            console.log('✅ Geofence já validada anteriormente, prosseguindo com registro...');
 
-            // Estrutura com dados reais
             const requestData = {
                 alunoId: alunoId,
                 responsavelId: responsavelId,
@@ -894,6 +930,9 @@
             console.log('📤 Estrutura final da requisição:', JSON.stringify(requestData, null, 2));
 
             const accessToken = localStorage.getItem('access_token');
+            
+            console.log('🔄 Enviando requisição para /api/presencas/saida...');
+            
             const response = await fetch(`${BACKEND_URL}/api/presencas/saida`, {
                 method: 'POST',
                 headers: {
@@ -903,7 +942,7 @@
                 body: JSON.stringify(requestData)
             });
 
-            console.log('📥 Resposta da API:', response.status, response.statusText);
+            console.log('📥 Resposta da API recebida:', response.status, response.statusText);
 
             if (!response.ok) {
                 const errorText = await response.text();
@@ -928,7 +967,6 @@
 
             showAlert('Saída registrada com sucesso!', 'success');
             
-            // ✅ ATUALIZAR LISTA DE ALUNOS APÓS SUCESSO
             setTimeout(() => {
                 refreshStudentsData();
             }, 1000);
@@ -936,9 +974,8 @@
         } catch (error) {
             console.error('❌ Erro no registro de saída:', error);
             showAlert(`Erro ao registrar saída: ${error.message}`, 'error');
-            shouldCloseModal = true; // ✅ FECHAR MESMO EM CASO DE ERRO
+            shouldCloseModal = true;
         } finally {
-            // ✅ GARANTIR QUE O MODAL SEJA FECHADO
             console.log('🔒 Finally executado - fechando modal');
             closeModal();
         }
@@ -1183,14 +1220,9 @@
             
             if (wifiCheck.isSchoolWifi) {
                 console.log('✅ Conectado à rede Wi-Fi da escola:', wifiCheck.ssid);
-                
-                // Atualizar UI para mostrar validação por Wi-Fi
-                updateLocationStatus('wifi', {
-                    ssid: wifiCheck.ssid,
-                    message: `Conectado à rede da escola: ${wifiCheck.ssid}`
-                });
-                
-                return true; // ✅ ACESSO PERMITIDO VIA Wi-Fi
+                geofenceValidated = true;
+                lastValidatedCoords = { latitude, longitude };
+                return true;
             } else {
                 console.log('📡 Não está na Wi-Fi da escola:', wifiCheck.reason);
             }
@@ -1220,28 +1252,18 @@
             
             if (resultado.dentroDaArea === true || resultado === true) {
                 console.log('✅ Dentro da área permitida (geofence)');
-                
-                // Atualizar UI para mostrar validação por geofence
-                updateLocationStatus('geofence', {
-                    latitude: latitude,
-                    longitude: longitude,
-                    message: 'Dentro da área da escola'
-                });
-                
-                return true; // ✅ ACESSO PERMITIDO VIA GEOFENCE
+                geofenceValidated = true;
+                lastValidatedCoords = { latitude, longitude };
+                return true;
             } else {
                 throw new Error('Fora da área permitida da escola');
             }
             
         } catch (error) {
             console.error('❌ Validação de localização falhou:', error);
-            
-            // Atualizar UI com erro
-            updateLocationStatus('error', {
-                message: error.message
-            });
-            
-            throw error; // ❌ ACESSO NEGADO
+            geofenceValidated = false;
+            lastValidatedCoords = null;
+            throw error;
         }
     }
 
@@ -1333,13 +1355,13 @@
         if (actionModal) {
             actionModal.style.display = 'none';
             console.log('✅ Modal fechado com sucesso');
-        } else {
-            console.warn('⚠️ actionModal não encontrado');
         }
         
-        // ✅ LIMPAR ESTADOS
+        // ✅ LIMPAR ESTADOS E VALIDAÇÃO
         selectedStudentId = null;
         actionType = null;
+        geofenceValidated = false;
+        lastValidatedCoords = null;
         resetLocationState();
         
         console.log('✅ Estados limpos - modal pronto para reabrir');
@@ -2381,7 +2403,7 @@ function setupConfirmButton(studentId, type) {
                             // ✅ HABILITAR BOTÃO DE CONFIRMAÇÃO
                             if (confirmActionBtn) {
                                 confirmActionBtn.disabled = false;
-                                console.log('✅ Botão de confirmação HABILITADO');
+                                console.log('✅ Botão de confirmação HABILITADO - Geofence validada');
                             }
                             
                             if (getLocationBtn) {
