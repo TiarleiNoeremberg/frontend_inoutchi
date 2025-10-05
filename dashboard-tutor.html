@@ -261,6 +261,27 @@
         .btn:disabled {
             background-color: #ccc;
             cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        /* Feedback visual para quando o botão está processando */
+        .btn-processing {
+            position: relative;
+            color: transparent !important;
+        }
+
+        .btn-processing::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 20px;
+            height: 20px;
+            margin: -10px 0 0 -10px;
+            border: 2px solid transparent;
+            border-top: 2px solid currentColor;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
         }
 
         /* MODIFICAÇÃO: Container de status e ações alinhados */
@@ -620,6 +641,35 @@
             flex-direction: column;
             z-index: 2000;
             backdrop-filter: blur(5px);
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        /* Estado de erro na localização */
+        .location-error {
+            background-color: rgba(231, 76, 60, 0.1);
+            border: 1px solid rgba(231, 76, 60, 0.3);
+            color: var(--danger-color);
+        }
+
+        .location-success {
+            background-color: rgba(46, 204, 113, 0.1);
+            border: 1px solid rgba(46, 204, 113, 0.3);
+            color: var(--success-color);
+        }
+
+        .location-loading {
+            background-color: rgba(52, 152, 219, 0.1);
+            border: 1px solid rgba(52, 152, 219, 0.3);
+            color: var(--primary-color);
         }
 
         .loading-content {
@@ -726,6 +776,9 @@
         body.loading * {
             cursor: wait !important;
         }
+
+
+
     </style>
 </head>
 <body class="mobile-optimized">
@@ -1350,6 +1403,9 @@
         function closeModalWithFeedback() {
             console.log('🕒 Auto-fechamento executado - fechando modal');
             
+            // Esconde o loading ANTES de mostrar o alerta e fechar o modal
+            hideLoadingOverlay();
+            
             showAlert('Modal fechado automaticamente. Você estava fora da área permitida.', 'warning');
             
             closeModal();
@@ -1441,7 +1497,11 @@
                     
                     geofenceValidated = false;
                     lastValidatedCoords = null;
-                    throw new Error('Fora da área permitida da escola');
+                    
+                    // Lança um erro específico para fora da área
+                    const areaError = new Error('Fora da área permitida da escola');
+                    areaError.isAreaError = true; // Flag para identificar que é erro de área
+                    throw areaError;
                 }
                 
             } catch (error) {
@@ -1449,13 +1509,41 @@
                 geofenceValidated = false;
                 lastValidatedCoords = null;
                 
-                if (!error.message.includes('Fora da área permitida')) {
+                if (!error.isAreaError) { // Só mostra erro genérico se não for erro de área
                     updateLocationStatus('error', {
                         message: error.message
                     });
                 }
                 
                 throw error;
+            }
+        }
+
+        function showLoadingOverlay(mainText = "Processando...", subText = "Aguarde enquanto registramos a ação") {
+            const overlay = document.getElementById('loadingOverlay');
+            const mainTextElement = document.getElementById('loadingMainText');
+            const subTextElement = document.getElementById('loadingSubText');
+            
+            if (overlay && mainTextElement && subTextElement) {
+                mainTextElement.textContent = mainText;
+                subTextElement.textContent = subText;
+                overlay.style.display = 'flex';
+                document.body.classList.add('loading');
+                
+                // Adiciona efeito de shimmer no botão confirmar
+                const confirmBtn = document.getElementById('confirmActionBtn');
+                if (confirmBtn) {
+                    confirmBtn.classList.add('btn-loading');
+                }
+                
+                // Timeout de segurança para evitar loading eterno
+                setTimeout(() => {
+                    if (overlay.style.display === 'flex') {
+                        console.warn('⚠️ Loading timeout - escondendo overlay de segurança');
+                        hideLoadingOverlay();
+                        showAlert('A ação está demorando mais que o esperado. Tente novamente.', 'warning');
+                    }
+                }, 10000); // 10 segundos de timeout
             }
         }
 
@@ -1478,12 +1566,23 @@
             
             confirmActionBtn.disabled = true;
             
+            // Variável para controlar se já está processando
+            let isProcessing = false;
+            
             confirmActionBtn.addEventListener('click', async function confirmHandler() {
+                // Previne múltiplos cliques
+                if (isProcessing) {
+                    console.log('⏳ Ação já em processamento, ignorando clique duplo');
+                    return;
+                }
+                
+                isProcessing = true;
                 console.log('🎯 BOTÃO CONFIRMAR CLICADO - Iniciando registro');
                 
                 if (!currentUser || !currentUser.nome || !currentUser.tutorId) {
                     console.error('❌ Dados do tutor incompletos:', currentUser);
                     showAlert('Erro: Dados do tutor incompletos', 'error');
+                    isProcessing = false;
                     return;
                 }
                 
@@ -1501,8 +1600,6 @@
                         'Validando localização e enviando dados'
                     );
                     
-                    confirmActionBtn.removeEventListener('click', confirmHandler);
-                    
                     if (type === 'entrada') {
                         console.log('🎯 Chamando registrarEntrada...');
                         await registrarEntrada(studentId, responsavelNome, responsavelTipo);
@@ -1517,7 +1614,9 @@
                     console.error('❌ Erro no registro:', error);
                     // Esconde o loading em caso de erro
                     hideLoadingOverlay();
-                    confirmActionBtn.addEventListener('click', confirmHandler);
+                } finally {
+                    // Sempre libera o processamento
+                    isProcessing = false;
                 }
             });
             
@@ -2299,7 +2398,13 @@
                                 getLocationBtn.disabled = false;
                             }
                             
-                            resolve(null);
+                            // Se for erro de área, não resolve como null, mantém o modal aberto
+                            // mas com o botão desabilitado e contagem regressiva
+                            if (error.isAreaError) {
+                                resolve(coords); // Ainda resolve com as coordenadas, mas o botão fica desabilitado
+                            } else {
+                                resolve(null);
+                            }
                         }
                     },
                     (error) => {
