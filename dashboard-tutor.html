@@ -627,21 +627,47 @@
             min-height: 40px;
         }
 
-        /* Loading Overlay Moderno */
-        .loading-overlay {
-            position: fixed;
+        /* Loading dentro do modal - mais discreto */
+        .modal-loading {
+            position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background-color: rgba(255, 255, 255, 0.95);
+            background-color: rgba(255, 255, 255, 0.9);
             display: none;
             justify-content: center;
             align-items: center;
             flex-direction: column;
-            z-index: 2000;
-            backdrop-filter: blur(5px);
-            animation: fadeIn 0.3s ease-out;
+            z-index: 100;
+            border-radius: 10px;
+        }
+
+        .modal-loading-content {
+            text-align: center;
+            padding: 20px;
+        }
+
+        .modal-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        .modal-loading-text {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--dark-color);
+            margin-bottom: 5px;
+        }
+
+        .modal-loading-subtext {
+            font-size: 12px;
+            color: #666;
         }
 
         @keyframes fadeIn {
@@ -671,28 +697,7 @@
             border: 1px solid rgba(52, 152, 219, 0.3);
             color: var(--primary-color);
         }
-
-        .loading-content {
-            text-align: center;
-            background: white;
-            padding: 30px;
-            border-radius: 16px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-            max-width: 300px;
-            width: 90%;
-        }
-
-        /* Spinner Moderno */
-        .modern-spinner {
-            width: 60px;
-            height: 60px;
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid var(--primary-color);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
-        }
-
+        
         .loading-text {
             font-size: 16px;
             font-weight: 600;
@@ -706,26 +711,11 @@
             line-height: 1.4;
         }
 
-        /* Pulse animation para o botão durante o carregamento */
+        /* Estado do botão durante loading */
         .btn-loading {
             position: relative;
-            overflow: hidden;
-        }
-
-        .btn-loading::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(
-                90deg,
-                transparent,
-                rgba(255, 255, 255, 0.4),
-                transparent
-            );
-            animation: shimmer 1.5s infinite;
+            pointer-events: none;
+            opacity: 0.7;
         }
 
         @keyframes shimmer {
@@ -736,26 +726,7 @@
                 left: 100%;
             }
         }
-
-        /* Progress Bar */
-        .progress-bar {
-            width: 100%;
-            height: 4px;
-            background-color: #f0f0f0;
-            border-radius: 2px;
-            margin-top: 15px;
-            overflow: hidden;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--primary-color), var(--accent-color));
-            border-radius: 2px;
-            width: 0%;
-            transition: width 0.3s ease;
-            animation: progress 2s ease-in-out infinite;
-        }
-
+                
         @keyframes progress {
             0% {
                 width: 0%;
@@ -767,17 +738,7 @@
                 width: 100%;
             }
         }
-
-        /* Estado desabilitado durante carregamento */
-        body.loading {
-            pointer-events: none;
-        }
-
-        body.loading * {
-            cursor: wait !important;
-        }
-
-
+        
 
     </style>
 </head>
@@ -885,6 +846,15 @@
     <!-- Modal para confirmar ação -->
     <div class="modal" id="actionModal">
         <div class="modal-content">
+
+            <div class="modal-loading" id="modalLoading">
+                <div class="modal-loading-content">
+                    <div class="modal-spinner"></div>
+                    <div class="modal-loading-text" id="modalLoadingText">Processando...</div>
+                    <div class="modal-loading-subtext" id="modalLoadingSubtext">Aguarde um momento</div>
+                </div>
+            </div>
+
             <div class="modal-header">
                 <h3 id="modalTitle">Registrar Ação</h3>
                 <button class="close-modal" onclick="closeModal()">&times;</button>
@@ -923,17 +893,6 @@
             </div>
         </div>
 
-        <div class="loading-overlay" id="loadingOverlay">
-            <div class="loading-content">
-                <div class="modern-spinner"></div>
-                <div class="loading-text" id="loadingMainText">Processando...</div>
-                <div class="loading-subtext" id="loadingSubText">Aguarde enquanto registramos a ação</div>
-                <div class="progress-bar">
-                    <div class="progress-fill"></div>
-                </div>
-            </div>
-        </div>
-
     </div>
 
     <script>
@@ -964,6 +923,69 @@
         let geofenceValidated = false;
         let lastValidatedCoords = null;
         let autoCloseTimeout = null;
+
+
+        function showModalLoading(mainText = "Processando...", subText = "Aguarde um momento") {
+            const modalLoading = document.getElementById('modalLoading');
+            const loadingText = document.getElementById('modalLoadingText');
+            const loadingSubtext = document.getElementById('modalLoadingSubtext');
+            
+            if (modalLoading && loadingText && loadingSubtext) {
+                loadingText.textContent = mainText;
+                loadingSubtext.textContent = subText;
+                modalLoading.style.display = 'flex';
+                
+                // Adiciona classe de loading no botão confirmar
+                const confirmBtn = document.getElementById('confirmActionBtn');
+                if (confirmBtn) {
+                    confirmBtn.classList.add('btn-loading');
+                    confirmBtn.disabled = true;
+                }
+                
+                // Desabilita o botão de fechar durante o loading
+                const closeBtn = document.querySelector('.close-modal');
+                if (closeBtn) {
+                    closeBtn.disabled = true;
+                    closeBtn.style.opacity = '0.5';
+                    closeBtn.style.pointerEvents = 'none';
+                }
+                
+                // Timeout de segurança (8 segundos)
+                setTimeout(() => {
+                    if (modalLoading.style.display === 'flex') {
+                        console.warn('⚠️ Modal loading timeout - escondendo loading de segurança');
+                        hideModalLoading();
+                        showAlert('A ação está demorando mais que o esperado. Tente novamente.', 'warning');
+                    }
+                }, 8000);
+                
+                console.log('🔄 Modal loading mostrado');
+            }
+        }
+
+        function hideModalLoading() {
+            const modalLoading = document.getElementById('modalLoading');
+            if (modalLoading) {
+                modalLoading.style.display = 'none';
+                
+                // Remove classe de loading do botão confirmar
+                const confirmBtn = document.getElementById('confirmActionBtn');
+                if (confirmBtn) {
+                    confirmBtn.classList.remove('btn-loading');
+                }
+                
+                // Reabilita o botão de fechar
+                const closeBtn = document.querySelector('.close-modal');
+                if (closeBtn) {
+                    closeBtn.disabled = false;
+                    closeBtn.style.opacity = '1';
+                    closeBtn.style.pointerEvents = 'auto';
+                }
+                
+                console.log('✅ Modal loading escondido');
+            }
+        }
+
 
         // FUNÇÕES DE REGISTRO DE ENTRADA/SAÍDA
         async function registrarEntrada(alunoId, responsavelNome, responsavelTipo) {
@@ -1044,50 +1066,18 @@
                     refreshStudentsData();
                 }, 1000);
 
-            } catch (error) {
+                    } catch (error) {
                 console.error('❌ Erro no registro de entrada:', error);
                 showAlert(`Erro ao registrar entrada: ${error.message}`, 'error');
             } finally {
-                console.log('🔒 Finally executado - fechando modal e escondendo loading');
+                console.log('🔒 Finally executado - escondendo loading e fechando modal');
                 // Garante que o loading seja escondido
-                hideLoadingOverlay();
+                hideModalLoading();
                 closeModal();
             }
         }
-
-        function showLoadingOverlay(mainText = "Processando...", subText = "Aguarde enquanto registramos a ação") {
-            const overlay = document.getElementById('loadingOverlay');
-            const mainTextElement = document.getElementById('loadingMainText');
-            const subTextElement = document.getElementById('loadingSubText');
-            
-            if (overlay && mainTextElement && subTextElement) {
-                mainTextElement.textContent = mainText;
-                subTextElement.textContent = subText;
-                overlay.style.display = 'flex';
-                document.body.classList.add('loading');
-                
-                // Adiciona efeito de shimmer no botão confirmar
-                const confirmBtn = document.getElementById('confirmActionBtn');
-                if (confirmBtn) {
-                    confirmBtn.classList.add('btn-loading');
-                }
-            }
-        }
-
-        function hideLoadingOverlay() {
-            const overlay = document.getElementById('loadingOverlay');
-            if (overlay) {
-                overlay.style.display = 'none';
-                document.body.classList.remove('loading');
-                
-                // Remove efeito de shimmer
-                const confirmBtn = document.getElementById('confirmActionBtn');
-                if (confirmBtn) {
-                    confirmBtn.classList.remove('btn-loading');
-                }
-            }
-        }
-
+        
+        
         async function registrarSaida(alunoId, responsavelNome, responsavelTipo) {
             try {
                 console.log('🚀 Iniciando registro de saída...');
@@ -1166,13 +1156,13 @@
                     refreshStudentsData();
                 }, 1000);
 
-            } catch (error) {
+                    } catch (error) {
                 console.error('❌ Erro no registro de saída:', error);
                 showAlert(`Erro ao registrar saída: ${error.message}`, 'error');
             } finally {
-                console.log('🔒 Finally executado - fechando modal e escondendo loading');
+                console.log('🔒 Finally executado - escondendo loading e fechando modal');
                 // Garante que o loading seja escondido
-                hideLoadingOverlay();
+                hideModalLoading();
                 closeModal();
             }
         }
@@ -1566,23 +1556,17 @@
             
             confirmActionBtn.disabled = true;
             
-            // Variável para controlar se já está processando
-            let isProcessing = false;
+            // Remove event listeners anteriores para evitar duplicação
+            const newConfirmBtn = confirmActionBtn.cloneNode(true);
+            confirmActionBtn.parentNode.replaceChild(newConfirmBtn, confirmActionBtn);
+            confirmActionBtn = newConfirmBtn;
             
             confirmActionBtn.addEventListener('click', async function confirmHandler() {
-                // Previne múltiplos cliques
-                if (isProcessing) {
-                    console.log('⏳ Ação já em processamento, ignorando clique duplo');
-                    return;
-                }
-                
-                isProcessing = true;
                 console.log('🎯 BOTÃO CONFIRMAR CLICADO - Iniciando registro');
                 
                 if (!currentUser || !currentUser.nome || !currentUser.tutorId) {
                     console.error('❌ Dados do tutor incompletos:', currentUser);
                     showAlert('Erro: Dados do tutor incompletos', 'error');
-                    isProcessing = false;
                     return;
                 }
                 
@@ -1590,14 +1574,13 @@
                 const responsavelTipo = currentUser.roles ? currentUser.roles[0].replace('ROLE_', '') : 'TUTOR';
                 
                 console.log(`🎯 Registrando ${type} para aluno ${studentId}`);
-                console.log(`👤 Responsável: ${responsavelNome} (ID: ${currentUser.tutorId}, Tipo: ${responsavelTipo})`);
                 
                 try {
-                    // Mostra o loading overlay
+                    // Mostra o loading DENTRO do modal
                     const actionText = type === 'entrada' ? 'entrada' : 'saída';
-                    showLoadingOverlay(
+                    showModalLoading(
                         `Registrando ${actionText}...`,
-                        'Validando localização e enviando dados'
+                        'Enviando dados para o servidor'
                     );
                     
                     if (type === 'entrada') {
@@ -1613,10 +1596,7 @@
                 } catch (error) {
                     console.error('❌ Erro no registro:', error);
                     // Esconde o loading em caso de erro
-                    hideLoadingOverlay();
-                } finally {
-                    // Sempre libera o processamento
-                    isProcessing = false;
+                    hideModalLoading();
                 }
             });
             
@@ -1677,7 +1657,7 @@
             console.log('🔒 Fechando modal...');
             
             // Esconde o loading se estiver visível
-            hideLoadingOverlay();
+            hideModalLoading();
             
             if (autoCloseTimeout) {
                 clearTimeout(autoCloseTimeout);
