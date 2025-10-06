@@ -151,13 +151,13 @@
         }
 
         .aluno-card.destaque {
-            transform: scale(2);
+            transform: scale(1.1);
             z-index: 100;
             box-shadow: 0 10px 25px rgba(0,0,0,0.2);
         }
 
         .aluno-card.destaque .aluno-nome {
-            font-size: 1.4rem;
+            font-size: 1.2rem;
             font-weight: 700;
         }
 
@@ -181,36 +181,6 @@
             padding: 2rem;
         }
 
-        .error-state {
-            text-align: center;
-            color: #dc2626;
-            padding: 2rem;
-            background: #fef2f2;
-            border-radius: 8px;
-            margin: 1rem;
-        }
-
-        .auth-error {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-            text-align: center;
-            padding: 2rem;
-        }
-
-        .auth-error button {
-            margin-top: 1rem;
-            padding: 0.75rem 1.5rem;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 1rem;
-        }
-
         .demo-mode {
             background: #fffbeb;
             border: 1px solid #f59e0b;
@@ -218,6 +188,17 @@
             padding: 0.5rem 1rem;
             border-radius: 6px;
             margin-left: 1rem;
+            font-size: 0.9rem;
+        }
+
+        .connection-info {
+            background: #dbeafe;
+            border: 1px solid #3b82f6;
+            color: #1e40af;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            margin: 0.5rem 2rem;
+            text-align: center;
             font-size: 0.9rem;
         }
 
@@ -275,6 +256,10 @@
         </div>
     </header>
 
+    <div id="connectionInfo" class="connection-info" style="display: none;">
+        💡 Modo demonstração ativo - Dados simulados
+    </div>
+
     <div class="container">
         <div class="alunos-grid" id="alunosGrid">
             <div class="loading">
@@ -286,9 +271,12 @@
     <script>
         class SalaDashboard {
             constructor() {
-                // CONFIGURAÇÕES CORRIGIDAS
+                // CONFIGURAÇÕES
                 this.BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
-                this.WS_URL = 'wss://inoutchi-cd92743c8443.herokuapp.com/ws'; // URL WebSocket corrigida
+                this.WS_URL = 'wss://inoutchi-cd92743c8443.herokuapp.com/ws';
+                
+                // ENDPOINT REAL - ÚNICO NECESSÁRIO
+                this.ENDPOINT_ALUNOS_PRESENTES = '/api/diretores/salas/{salaId}/alunos?presentes=true';
                 
                 this.token = localStorage.getItem('access_token');
                 this.tokenExpiry = localStorage.getItem('token_expiry');
@@ -297,19 +285,19 @@
                 this.salaInfo = {};
                 this.socket = null;
                 this.horariosChamada = {};
-                this.salaId = 1;
+                this.salaId = 1; // Default, será atualizado
                 this.escolaId = 1;
                 this.modoDemo = false;
+                this.backendOnline = false;
                 
+                console.log('=== INICIALIZANDO DASHBOARD SALA ===');
                 console.log('Token:', this.token ? 'Presente' : 'Ausente');
                 console.log('Username:', this.username);
-                console.log('Token Expiry:', this.tokenExpiry);
                 
                 this.verificarAutenticacao();
             }
 
             obterUsername() {
-                // Tenta obter username de várias fontes possíveis
                 return localStorage.getItem('username') || 
                        localStorage.getItem('user_email') || 
                        localStorage.getItem('email') ||
@@ -317,7 +305,6 @@
             }
 
             async verificarAutenticacao() {
-                // Verificar se tem token válido
                 if (!this.token || !this.tokenExpiry) {
                     console.log('Token ou expiry não encontrados');
                     this.mostrarErroAutenticacao('Sessão não encontrada. Redirecionando para login...');
@@ -341,20 +328,20 @@
                         return;
                     }
                     
-                    // Inicializar com informações da sala
-                    await this.obterInfoSala();
-                    this.init();
-                        
+                    // Determinar salaId do username
+                    this.determinarSalaId();
+                    
+                    // Tentar carregar dados reais do backend
+                    await this.carregarDadosReais();
+                    
                 } catch (error) {
-                    console.error('Erro na autenticação:', error);
-                    // Modo demonstração se houver erro
+                    console.error('Erro ao carregar dados reais:', error);
                     this.iniciarModoDemonstracao();
                 }
             }
 
             async getUserRole() {
                 try {
-                    // Decodificar JWT token
                     const payload = JSON.parse(atob(this.token.split('.')[1]));
                     console.log('JWT Payload:', payload);
                     return payload.authorities || payload.roles || ['ROLE_SALA'];
@@ -364,112 +351,162 @@
                 }
             }
 
-            async obterInfoSala() {
+            determinarSalaId() {
+                // Extrair número da sala do username (ex: "sala01@gmail.com" -> 1)
+                if (this.username) {
+                    const salaMatch = this.username.match(/sala(\d+)/i);
+                    this.salaId = salaMatch ? parseInt(salaMatch[1]) : 1;
+                }
+                console.log('Sala ID determinado como:', this.salaId);
+            }
+
+            async carregarDadosReais() {
                 try {
-                    // Extrair número da sala do username
-                    if (this.username) {
-                        const salaMatch = this.username.match(/sala(\d+)/i);
-                        this.salaId = salaMatch ? parseInt(salaMatch[1]) : 1;
+                    console.log('🔄 Tentando carregar dados reais do backend...');
+                    
+                    const endpoint = this.ENDPOINT_ALUNOS_PRESENTES.replace('{salaId}', this.salaId);
+                    const response = await this.fazerRequisicao(endpoint);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
                     }
                     
-                    console.log('Sala ID definido como:', this.salaId);
+                    const data = await response.json();
+                    console.log('✅ Dados reais carregados:', data);
                     
-                    // Tentar diferentes endpoints para obter informações da sala
-                    let salaData;
-                    try {
-                        // Endpoint 1
-                        const response = await this.fazerRequisicao(`/api/salas/${this.salaId}`);
-                        salaData = await response.json();
-                    } catch (error) {
-                        console.warn('Endpoint 1 falhou, tentando endpoint alternativo...');
-                        // Endpoint 2
-                        const response = await this.fazerRequisicao(`/api/sala/${this.salaId}`);
-                        salaData = await response.json();
-                    }
+                    // Processar dados da sala
+                    this.processarInfoSala(data);
                     
-                    this.salaInfo = {
-                        id: salaData.id || this.salaId,
-                        nome: salaData.nome || salaData.descricao || `Sala ${this.salaId}`,
-                        codigo: salaData.codigo || salaData.numero || `S${this.salaId}`,
-                        escolaId: salaData.escolaId || salaData.escola?.id || 1,
-                        periodo: this.determinarPeriodo(),
-                        totalAlunos: salaData.totalAlunos || salaData.capacidade || 30
-                    };
+                    // Processar lista de alunos
+                    this.processarAlunosPresentes(data);
                     
-                    this.escolaId = this.salaInfo.escolaId;
+                    this.backendOnline = true;
+                    this.iniciarServicosReais();
                     
                 } catch (error) {
-                    console.warn('Não foi possível obter informações da sala, usando padrão:', error);
-                    // Informações padrão
-                    this.salaInfo = {
-                        id: this.salaId,
-                        nome: `Sala ${this.salaId}`,
-                        codigo: `S${this.salaId}`,
-                        escolaId: 1,
-                        periodo: this.determinarPeriodo(),
-                        totalAlunos: 30
-                    };
+                    console.warn('❌ Não foi possível carregar dados reais:', error);
+                    throw error; // Propaga para cair no modo demonstração
                 }
-                
-                this.atualizarHeader();
             }
 
-            init() {
-                console.log('Iniciando dashboard para sala:', this.salaId);
-                this.iniciarWebSocket();
-                this.carregarAlunosPresentes();
-                this.atualizarHora();
-                setInterval(() => this.atualizarHora(), 1000);
-                setInterval(() => this.carregarAlunosPresentes(), 30000);
-            }
-
-            iniciarModoDemonstracao() {
-                console.log('Iniciando modo demonstração');
-                this.modoDemo = true;
-                document.getElementById('demoModeIndicator').style.display = 'block';
-                
+            processarInfoSala(data) {
                 this.salaInfo = {
-                    id: 1,
-                    nome: 'Sala 1A - Matutino',
-                    codigo: 'S1A',
-                    periodo: 'Matutino',
-                    totalAlunos: 25
+                    id: data.salaId,
+                    nome: data.salaNome || `Sala ${this.salaId}`,
+                    codigo: data.salaNome || `S${this.salaId}`,
+                    periodo: this.determinarPeriodo(),
+                    totalAlunos: data.totalPresentes + data.totalAusentes,
+                    totalPresentes: data.totalPresentes,
+                    totalAusentes: data.totalAusentes
                 };
                 
                 this.atualizarHeader();
-                this.carregarDadosDemonstracao();
+            }
+
+            processarAlunosPresentes(data) {
+                if (data.alunos && Array.isArray(data.alunos)) {
+                    this.alunos = data.alunos.map(aluno => ({
+                        id: aluno.id,
+                        nome: aluno.nome,
+                        imgUrl: aluno.imgUrl,
+                        dataAniversario: aluno.dataAniversario,
+                        escolaId: aluno.escolaId,
+                        salaId: aluno.salaId,
+                        status: aluno.status
+                    }));
+                    
+                    this.renderizarAlunos();
+                    this.atualizarContador();
+                    
+                    console.log(`✅ ${this.alunos.length} alunos presentes carregados`);
+                } else {
+                    throw new Error('Estrutura de dados inválida');
+                }
+            }
+
+            iniciarServicosReais() {
+                console.log('🚀 Iniciando serviços com dados reais');
+                
+                this.iniciarWebSocket();
                 this.atualizarHora();
                 setInterval(() => this.atualizarHora(), 1000);
                 
+                // Atualizar lista a cada 30 segundos
+                setInterval(() => this.carregarDadosReais(), 30000);
+                
+                console.log('✅ Dashboard inicializado com dados reais');
+            }
+
+            iniciarModoDemonstracao() {
+                console.log('=== INICIANDO MODO DEMONSTRAÇÃO ===');
+                this.modoDemo = true;
+                this.backendOnline = false;
+                
+                document.getElementById('demoModeIndicator').style.display = 'block';
+                document.getElementById('connectionInfo').style.display = 'block';
+                
+                // Configurar informações básicas da sala
+                this.configurarSalaPadrao();
+                this.carregarDadosDemonstracao();
+                this.atualizarHora();
+                
+                // Iniciar atualizações
+                setInterval(() => this.atualizarHora(), 1000);
                 this.simularWebSocket();
+                
+                console.log('✅ Dashboard inicializado em modo demonstração');
+            }
+
+            configurarSalaPadrao() {
+                this.salaInfo = {
+                    id: this.salaId,
+                    nome: `Sala ${this.salaId} - ${this.determinarPeriodo()}`,
+                    codigo: `S${this.salaId}`,
+                    periodo: this.determinarPeriodo(),
+                    totalAlunos: 25,
+                    totalPresentes: 15,
+                    totalAusentes: 10
+                };
+                
+                this.atualizarHeader();
             }
 
             carregarDadosDemonstracao() {
+                // Usar dados similares aos do endpoint real para demonstração
                 const alunosDemo = [
-                    { id: 1, nome: 'Ana Silva' },
-                    { id: 2, nome: 'Bruno Oliveira' },
-                    { id: 3, nome: 'Carla Santos' },
-                    { id: 4, nome: 'Daniel Costa' },
-                    { id: 5, nome: 'Eduarda Lima' },
-                    { id: 6, nome: 'Felipe Souza' },
-                    { id: 7, nome: 'Gabriela Rocha' },
-                    { id: 8, nome: 'Henrique Alves' },
-                    { id: 9, nome: 'Isabela Martins' },
-                    { id: 10, nome: 'João Pereira' }
+                    { id: 1, nome: 'Ana Silva', status: 'PRESENTE' },
+                    { id: 2, nome: 'Bruno Costa', status: 'PRESENTE' },
+                    { id: 3, nome: 'Carla Souza', status: 'PRESENTE' },
+                    { id: 4, nome: 'Diego Oliveira', status: 'PRESENTE' },
+                    { id: 21, nome: 'Úrsula Monteiro', status: 'PRESENTE' },
+                    { id: 5, nome: 'Eduarda Lima', status: 'PRESENTE' },
+                    { id: 6, nome: 'Felipe Souza', status: 'PRESENTE' },
+                    { id: 7, nome: 'Gabriela Rocha', status: 'PRESENTE' },
+                    { id: 8, nome: 'Henrique Alves', status: 'PRESENTE' },
+                    { id: 9, nome: 'Isabela Martins', status: 'PRESENTE' },
+                    { id: 10, nome: 'João Pereira', status: 'PRESENTE' },
+                    { id: 11, nome: 'Larissa Ferreira', status: 'PRESENTE' },
+                    { id: 12, nome: 'Miguel Rodrigues', status: 'PRESENTE' },
+                    { id: 13, nome: 'Natália Almeida', status: 'PRESENTE' },
+                    { id: 14, nome: 'Otávio Barbosa', status: 'PRESENTE' }
                 ];
                 
-                this.atualizarListaAlunos(alunosDemo);
+                this.alunos = alunosDemo;
+                this.renderizarAlunos();
+                this.atualizarContador();
                 
-                setTimeout(() => this.simularChamada('TUTOR'), 5000);
-                setTimeout(() => this.simularChamada('DIRETOR'), 15000);
-                setTimeout(() => this.simularChamada('PARENTE'), 25000);
+                // Simular chamadas automáticas
+                setTimeout(() => this.simularChamada('TUTOR'), 3000);
+                setTimeout(() => this.simularChamada('DIRETOR'), 10000);
+                setTimeout(() => this.simularChamada('PARENTE'), 18000);
+                setTimeout(() => this.simularChamada('TUTOR'), 25000);
             }
 
             simularChamada(tipo) {
-                const alunos = this.alunos.filter(a => !this.horariosChamada[a.id]);
-                if (alunos.length === 0) return;
+                const alunosDisponiveis = this.alunos.filter(a => !this.horariosChamada[a.id]);
+                if (alunosDisponiveis.length === 0) return;
                 
-                const aluno = alunos[Math.floor(Math.random() * alunos.length)];
+                const aluno = alunosDisponiveis[Math.floor(Math.random() * alunosDisponiveis.length)];
                 const mensagem = {
                     tipo: 'NOVA_CHAMADA',
                     alunoId: aluno.id,
@@ -477,12 +514,35 @@
                     tipoSolicitante: tipo
                 };
                 
+                console.log(`📢 Simulando chamada para ${aluno.nome} (${tipo})`);
                 this.processarNovaChamada(mensagem);
+                
+                // Simular confirmação automática após 3 segundos
+                setTimeout(() => {
+                    this.processarConfirmacaoChamada({
+                        alunoId: aluno.id,
+                        alunoNome: aluno.nome
+                    });
+                }, 3000);
             }
 
             simularWebSocket() {
-                console.log('WebSocket simulado para demonstração');
+                console.log('🔌 WebSocket simulado para demonstração');
                 this.atualizarStatusConexao('🟢', 'Online (Demo)');
+            }
+
+            async fazerRequisicao(endpoint) {
+                const url = `${this.BACKEND_URL}${endpoint}`;
+                const config = {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${this.token}`
+                    }
+                };
+
+                console.log('🌐 Fazendo requisição para:', url);
+                const response = await fetch(url, config);
+                return response;
             }
 
             atualizarHeader() {
@@ -490,56 +550,6 @@
                 const userInfo = this.username ? ` | ${this.username}` : '';
                 document.getElementById('periodoSala').textContent = 
                     `${this.salaInfo.codigo} | ${this.salaInfo.periodo}${userInfo}`;
-            }
-
-            async carregarAlunosPresentes() {
-                if (this.modoDemo) return;
-                
-                try {
-                    let response;
-                    const escolaId = this.escolaId || 1;
-                    
-                    // Tentar diferentes endpoints
-                    try {
-                        response = await this.fazerRequisicao(`/api/salas/${this.salaId}/alunos/presentes`);
-                    } catch (error1) {
-                        try {
-                            response = await this.fazerRequisicao(`/api/alunos/presentes?salaId=${this.salaId}`);
-                        } catch (error2) {
-                            response = await this.fazerRequisicao(`/api/presencas/sala/${this.salaId}`);
-                        }
-                    }
-                    
-                    const data = await response.json();
-                    this.processarDadosAlunos(data);
-                    
-                } catch (error) {
-                    console.warn('Não foi possível carregar alunos presentes:', error);
-                    // Manter dados atuais em caso de erro
-                }
-            }
-
-            processarDadosAlunos(data) {
-                let alunos;
-                if (data.content) alunos = data.content;
-                else if (data.alunos) alunos = data.alunos;
-                else if (Array.isArray(data)) alunos = data;
-                else alunos = [];
-
-                this.alunos = alunos.map(aluno => ({
-                    id: aluno.id || aluno.alunoId,
-                    nome: aluno.nome || aluno.alunoNome || 'Aluno',
-                    salaId: aluno.salaId || this.salaId
-                }));
-
-                this.renderizarAlunos();
-                this.atualizarContador();
-            }
-
-            atualizarListaAlunos(alunos) {
-                this.alunos = alunos;
-                this.renderizarAlunos();
-                this.atualizarContador();
             }
 
             renderizarAlunos() {
@@ -558,17 +568,16 @@
                     card.setAttribute('data-aluno-id', aluno.id);
                     card.innerHTML = `
                         <div class="aluno-nome">${aluno.nome}</div>
-                        <div class="aluno-horario">${horarioChamada ? `Chamado: ${horarioChamada}` : ''}</div>
+                        <div class="aluno-horario">${horarioChamada ? `Chamado: ${horarioChamada}` : 'Presente'}</div>
                     `;
                     grid.appendChild(card);
                 });
             }
 
             iniciarWebSocket() {
-                if (this.modoDemo) return;
+                if (this.modoDemo || !this.backendOnline) return;
                 
                 try {
-                    // Verificar se WebSocket é suportado
                     if (!window.WebSocket) {
                         console.warn('WebSocket não suportado');
                         this.atualizarStatusConexao('🟡', 'WS Não Suportado');
@@ -578,7 +587,7 @@
                     this.socket = new WebSocket(this.WS_URL);
                     
                     this.socket.onopen = () => {
-                        console.log('Conectado ao WebSocket');
+                        console.log('✅ Conectado ao WebSocket');
                         this.atualizarStatusConexao('🟢', 'Online');
                         this.socket.send(JSON.stringify({
                             tipo: 'REGISTRAR_SALA',
@@ -599,8 +608,10 @@
                     this.socket.onclose = (event) => {
                         console.log('WebSocket fechado:', event.code, event.reason);
                         this.atualizarStatusConexao('🔴', 'Offline');
-                        // Tentar reconectar após 5 segundos
-                        setTimeout(() => this.iniciarWebSocket(), 5000);
+                        
+                        if (this.backendOnline) {
+                            setTimeout(() => this.iniciarWebSocket(), 5000);
+                        }
                     };
                     
                     this.socket.onerror = (error) => {
@@ -615,7 +626,7 @@
             }
 
             processarMensagemWebSocket(mensagem) {
-                console.log('Mensagem WebSocket:', mensagem);
+                console.log('📨 Mensagem WebSocket:', mensagem);
                 
                 switch (mensagem.tipo) {
                     case 'NOVA_CHAMADA':
@@ -628,7 +639,7 @@
                         this.processarSaidaAluno(mensagem);
                         break;
                     case 'ATUALIZAR_PRESENCA':
-                        this.carregarAlunosPresentes();
+                        this.carregarDadosReais(); // Recarregar dados reais
                         break;
                     default:
                         console.log('Tipo de mensagem não reconhecido:', mensagem.tipo);
@@ -645,14 +656,18 @@
                     this.atualizarHorarioCard(alunoCard, horarioAtual);
                     this.aplicarDestaqueChamada(alunoCard, mensagem.tipoSolicitante);
                 }
+                
+                console.log(`🔔 Nova chamada: ${mensagem.alunoNome} - ${mensagem.tipoSolicitante}`);
             }
 
             processarConfirmacaoChamada(mensagem) {
                 this.removerAluno(mensagem.alunoId);
+                console.log(`✅ Chamada confirmada: ${mensagem.alunoNome}`);
             }
 
             processarSaidaAluno(mensagem) {
                 this.removerAluno(mensagem.alunoId);
+                console.log(`🚪 Saída registrada: ${mensagem.alunoNome}`);
             }
 
             aplicarDestaqueChamada(alunoCard, tipoSolicitante) {
@@ -664,30 +679,10 @@
                     case 'AMIGO': classeCor = 'token'; break;
                     case 'DIRETOR': classeCor = 'diretor'; break;
                 }
-                alunoCard.classList.add(classeCor, 'destaque');
-                setTimeout(() => alunoCard.classList.remove('destaque'), 5000);
-            }
-
-            async fazerRequisicao(endpoint, options = {}) {
-                const url = `${this.BACKEND_URL}${endpoint}`;
-                const config = {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${this.token}`
-                    },
-                    ...options
-                };
-
-                console.log('Fazendo requisição para:', url);
-                const response = await fetch(url, config);
-                
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    console.error('Erro na resposta:', response.status, errorText);
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                if (classeCor) {
+                    alunoCard.classList.add(classeCor, 'destaque');
+                    setTimeout(() => alunoCard.classList.remove('destaque'), 5000);
                 }
-                
-                return response;
             }
 
             determinarPeriodo() {
@@ -703,8 +698,9 @@
             }
 
             atualizarContador() {
-                document.getElementById('contadorAlunos').textContent = 
-                    `${this.alunos.length}/${this.salaInfo.totalAlunos || this.alunos.length}`;
+                const total = this.salaInfo.totalAlunos || this.alunos.length;
+                const presentes = this.alunos.length;
+                document.getElementById('contadorAlunos').textContent = `${presentes}/${total}`;
             }
 
             atualizarHora() {
@@ -731,7 +727,7 @@
                     oscillator.start(audioContext.currentTime);
                     oscillator.stop(audioContext.currentTime + 0.3);
                 } catch (error) {
-                    console.warn('Áudio não suportado');
+                    console.warn('🔇 Áudio não suportado');
                 }
             }
 
