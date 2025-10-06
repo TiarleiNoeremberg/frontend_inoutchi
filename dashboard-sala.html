@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard Sala - InOutChi</title>
     <style>
-        /* [MANTIDO O MESMO CSS] */
         * {
             margin: 0;
             padding: 0;
@@ -181,25 +180,13 @@
             padding: 2rem;
         }
 
-        .demo-mode {
-            background: #fffbeb;
-            border: 1px solid #f59e0b;
-            color: #b45309;
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            margin-left: 1rem;
-            font-size: 0.9rem;
-        }
-
-        .connection-info {
-            background: #dbeafe;
-            border: 1px solid #3b82f6;
-            color: #1e40af;
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            margin: 0.5rem 2rem;
+        .error-state {
             text-align: center;
-            font-size: 0.9rem;
+            color: #dc2626;
+            padding: 2rem;
+            background: #fef2f2;
+            border-radius: 8px;
+            margin: 1rem;
         }
 
         @media (max-height: 800px) {
@@ -251,19 +238,14 @@
                     <span>Offline</span>
                 </div>
             </div>
-            <div class="demo-mode" id="demoModeIndicator" style="display: none;">Modo Demonstração</div>
             <button class="logout-btn" onclick="salaDashboard.logout()">Sair</button>
         </div>
     </header>
 
-    <div id="connectionInfo" class="connection-info" style="display: none;">
-        💡 Modo demonstração ativo - Dados simulados
-    </div>
-
     <div class="container">
         <div class="alunos-grid" id="alunosGrid">
             <div class="loading">
-                Inicializando dashboard...
+                Carregando dados da sala...
             </div>
         </div>
     </div>
@@ -271,11 +253,9 @@
     <script>
         class SalaDashboard {
             constructor() {
-                // CONFIGURAÇÕES
                 this.BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
                 this.WS_URL = 'wss://inoutchi-cd92743c8443.herokuapp.com/ws';
                 
-                // ENDPOINT REAL - ÚNICO NECESSÁRIO
                 this.ENDPOINT_ALUNOS_PRESENTES = '/api/diretores/salas/{salaId}/alunos?presentes=true';
                 
                 this.token = localStorage.getItem('access_token');
@@ -285,14 +265,9 @@
                 this.salaInfo = {};
                 this.socket = null;
                 this.horariosChamada = {};
-                this.salaId = 1; // Default, será atualizado
-                this.escolaId = 1;
-                this.modoDemo = false;
-                this.backendOnline = false;
+                this.salaId = null;
                 
                 console.log('=== INICIALIZANDO DASHBOARD SALA ===');
-                console.log('Token:', this.token ? 'Presente' : 'Ausente');
-                console.log('Username:', this.username);
                 
                 this.verificarAutenticacao();
             }
@@ -306,257 +281,124 @@
 
             async verificarAutenticacao() {
                 if (!this.token || !this.tokenExpiry) {
-                    console.log('Token ou expiry não encontrados');
-                    this.mostrarErroAutenticacao('Sessão não encontrada. Redirecionando para login...');
+                    this.mostrarErro('Sessão não encontrada. Redirecionando para login...');
                     setTimeout(() => this.redirecionarParaLogin(), 2000);
                     return;
                 }
 
                 if (new Date().getTime() > parseInt(this.tokenExpiry)) {
-                    console.log('Token expirado');
-                    this.mostrarErroAutenticacao('Sessão expirada. Redirecionando para login...');
+                    this.mostrarErro('Sessão expirada. Redirecionando para login...');
                     setTimeout(() => this.redirecionarParaLogin(), 2000);
                     return;
                 }
 
                 try {
                     const userRole = await this.getUserRole();
-                    console.log('User Roles:', userRole);
                     
                     if (!userRole.includes('ROLE_SALA')) {
-                        this.mostrarErroAutenticacao('Acesso negado. Você não tem permissão para acessar esta área.');
+                        this.mostrarErro('Acesso negado. Você não tem permissão para acessar esta área.');
                         return;
                     }
                     
-                    // Determinar salaId do username
                     this.determinarSalaId();
-                    
-                    // Tentar carregar dados reais do backend
-                    await this.carregarDadosReais();
+                    await this.inicializarDashboard();
                     
                 } catch (error) {
-                    console.error('Erro ao carregar dados reais:', error);
-                    this.iniciarModoDemonstracao();
+                    this.mostrarErro('Erro ao inicializar dashboard: ' + error.message);
                 }
             }
 
             async getUserRole() {
                 try {
                     const payload = JSON.parse(atob(this.token.split('.')[1]));
-                    console.log('JWT Payload:', payload);
-                    return payload.authorities || payload.roles || ['ROLE_SALA'];
+                    return payload.authorities || payload.roles || [];
                 } catch (error) {
-                    console.error('Erro ao decodificar JWT:', error);
-                    return ['ROLE_SALA'];
+                    throw new Error('Token inválido');
                 }
             }
 
             determinarSalaId() {
-                // Extrair número da sala do username (ex: "sala01@gmail.com" -> 1)
                 if (this.username) {
                     const salaMatch = this.username.match(/sala(\d+)/i);
                     this.salaId = salaMatch ? parseInt(salaMatch[1]) : 1;
+                } else {
+                    this.salaId = 1;
                 }
-                console.log('Sala ID determinado como:', this.salaId);
+                console.log('Sala ID:', this.salaId);
             }
 
-            async carregarDadosReais() {
+            async inicializarDashboard() {
                 try {
-                    console.log('🔄 Tentando carregar dados reais do backend...');
+                    await this.carregarDadosSala();
+                    this.iniciarWebSocket();
+                    this.atualizarHora();
+                    setInterval(() => this.atualizarHora(), 1000);
+                    setInterval(() => this.carregarDadosSala(), 30000);
                     
+                } catch (error) {
+                    throw new Error('Falha ao inicializar serviços: ' + error.message);
+                }
+            }
+
+            async carregarDadosSala() {
+                try {
                     const endpoint = this.ENDPOINT_ALUNOS_PRESENTES.replace('{salaId}', this.salaId);
                     const response = await this.fazerRequisicao(endpoint);
                     
                     if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
+                        throw new Error(`Erro HTTP: ${response.status}`);
                     }
                     
                     const data = await response.json();
-                    console.log('✅ Dados reais carregados:', data);
-                    
-                    // Processar dados da sala
-                    this.processarInfoSala(data);
-                    
-                    // Processar lista de alunos
-                    this.processarAlunosPresentes(data);
-                    
-                    this.backendOnline = true;
-                    this.iniciarServicosReais();
+                    this.processarDadosSala(data);
                     
                 } catch (error) {
-                    console.warn('❌ Não foi possível carregar dados reais:', error);
-                    throw error; // Propaga para cair no modo demonstração
+                    console.error('Erro ao carregar dados:', error);
+                    this.mostrarErro('Falha ao carregar dados da sala');
                 }
             }
 
-            processarInfoSala(data) {
+            processarDadosSala(data) {
+                // Processar informações da sala
                 this.salaInfo = {
                     id: data.salaId,
-                    nome: data.salaNome || `Sala ${this.salaId}`,
-                    codigo: data.salaNome || `S${this.salaId}`,
-                    periodo: this.determinarPeriodo(),
+                    nome: data.salaNome,
                     totalAlunos: data.totalPresentes + data.totalAusentes,
                     totalPresentes: data.totalPresentes,
                     totalAusentes: data.totalAusentes
                 };
-                
-                this.atualizarHeader();
-            }
 
-            processarAlunosPresentes(data) {
+                // Processar lista de alunos
                 if (data.alunos && Array.isArray(data.alunos)) {
                     this.alunos = data.alunos.map(aluno => ({
                         id: aluno.id,
                         nome: aluno.nome,
-                        imgUrl: aluno.imgUrl,
-                        dataAniversario: aluno.dataAniversario,
-                        escolaId: aluno.escolaId,
-                        salaId: aluno.salaId,
                         status: aluno.status
                     }));
-                    
-                    this.renderizarAlunos();
-                    this.atualizarContador();
-                    
-                    console.log(`✅ ${this.alunos.length} alunos presentes carregados`);
                 } else {
-                    throw new Error('Estrutura de dados inválida');
+                    this.alunos = [];
                 }
+
+                this.atualizarInterface();
             }
 
-            iniciarServicosReais() {
-                console.log('🚀 Iniciando serviços com dados reais');
-                
-                this.iniciarWebSocket();
-                this.atualizarHora();
-                setInterval(() => this.atualizarHora(), 1000);
-                
-                // Atualizar lista a cada 30 segundos
-                setInterval(() => this.carregarDadosReais(), 30000);
-                
-                console.log('✅ Dashboard inicializado com dados reais');
-            }
-
-            iniciarModoDemonstracao() {
-                console.log('=== INICIANDO MODO DEMONSTRAÇÃO ===');
-                this.modoDemo = true;
-                this.backendOnline = false;
-                
-                document.getElementById('demoModeIndicator').style.display = 'block';
-                document.getElementById('connectionInfo').style.display = 'block';
-                
-                // Configurar informações básicas da sala
-                this.configurarSalaPadrao();
-                this.carregarDadosDemonstracao();
-                this.atualizarHora();
-                
-                // Iniciar atualizações
-                setInterval(() => this.atualizarHora(), 1000);
-                this.simularWebSocket();
-                
-                console.log('✅ Dashboard inicializado em modo demonstração');
-            }
-
-            configurarSalaPadrao() {
-                this.salaInfo = {
-                    id: this.salaId,
-                    nome: `Sala ${this.salaId} - ${this.determinarPeriodo()}`,
-                    codigo: `S${this.salaId}`,
-                    periodo: this.determinarPeriodo(),
-                    totalAlunos: 25,
-                    totalPresentes: 15,
-                    totalAusentes: 10
-                };
-                
+            atualizarInterface() {
                 this.atualizarHeader();
-            }
-
-            carregarDadosDemonstracao() {
-                // Usar dados similares aos do endpoint real para demonstração
-                const alunosDemo = [
-                    { id: 1, nome: 'Ana Silva', status: 'PRESENTE' },
-                    { id: 2, nome: 'Bruno Costa', status: 'PRESENTE' },
-                    { id: 3, nome: 'Carla Souza', status: 'PRESENTE' },
-                    { id: 4, nome: 'Diego Oliveira', status: 'PRESENTE' },
-                    { id: 21, nome: 'Úrsula Monteiro', status: 'PRESENTE' },
-                    { id: 5, nome: 'Eduarda Lima', status: 'PRESENTE' },
-                    { id: 6, nome: 'Felipe Souza', status: 'PRESENTE' },
-                    { id: 7, nome: 'Gabriela Rocha', status: 'PRESENTE' },
-                    { id: 8, nome: 'Henrique Alves', status: 'PRESENTE' },
-                    { id: 9, nome: 'Isabela Martins', status: 'PRESENTE' },
-                    { id: 10, nome: 'João Pereira', status: 'PRESENTE' },
-                    { id: 11, nome: 'Larissa Ferreira', status: 'PRESENTE' },
-                    { id: 12, nome: 'Miguel Rodrigues', status: 'PRESENTE' },
-                    { id: 13, nome: 'Natália Almeida', status: 'PRESENTE' },
-                    { id: 14, nome: 'Otávio Barbosa', status: 'PRESENTE' }
-                ];
-                
-                this.alunos = alunosDemo;
                 this.renderizarAlunos();
                 this.atualizarContador();
-                
-                // Simular chamadas automáticas
-                setTimeout(() => this.simularChamada('TUTOR'), 3000);
-                setTimeout(() => this.simularChamada('DIRETOR'), 10000);
-                setTimeout(() => this.simularChamada('PARENTE'), 18000);
-                setTimeout(() => this.simularChamada('TUTOR'), 25000);
-            }
-
-            simularChamada(tipo) {
-                const alunosDisponiveis = this.alunos.filter(a => !this.horariosChamada[a.id]);
-                if (alunosDisponiveis.length === 0) return;
-                
-                const aluno = alunosDisponiveis[Math.floor(Math.random() * alunosDisponiveis.length)];
-                const mensagem = {
-                    tipo: 'NOVA_CHAMADA',
-                    alunoId: aluno.id,
-                    alunoNome: aluno.nome,
-                    tipoSolicitante: tipo
-                };
-                
-                console.log(`📢 Simulando chamada para ${aluno.nome} (${tipo})`);
-                this.processarNovaChamada(mensagem);
-                
-                // Simular confirmação automática após 3 segundos
-                setTimeout(() => {
-                    this.processarConfirmacaoChamada({
-                        alunoId: aluno.id,
-                        alunoNome: aluno.nome
-                    });
-                }, 3000);
-            }
-
-            simularWebSocket() {
-                console.log('🔌 WebSocket simulado para demonstração');
-                this.atualizarStatusConexao('🟢', 'Online (Demo)');
-            }
-
-            async fazerRequisicao(endpoint) {
-                const url = `${this.BACKEND_URL}${endpoint}`;
-                const config = {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${this.token}`
-                    }
-                };
-
-                console.log('🌐 Fazendo requisição para:', url);
-                const response = await fetch(url, config);
-                return response;
             }
 
             atualizarHeader() {
-                document.getElementById('nomeSala').textContent = this.salaInfo.nome;
-                const userInfo = this.username ? ` | ${this.username}` : '';
+                document.getElementById('nomeSala').textContent = this.salaInfo.nome || `Sala ${this.salaId}`;
                 document.getElementById('periodoSala').textContent = 
-                    `${this.salaInfo.codigo} | ${this.salaInfo.periodo}${userInfo}`;
+                    `${this.salaInfo.nome || 'Sala'} | ${this.determinarPeriodo()} | ${this.username}`;
             }
 
             renderizarAlunos() {
                 const grid = document.getElementById('alunosGrid');
                 
                 if (this.alunos.length === 0) {
-                    grid.innerHTML = '<div class="empty-state">Nenhum aluno presente</div>';
+                    grid.innerHTML = '<div class="empty-state">Nenhum aluno presente na sala</div>';
                     return;
                 }
                 
@@ -575,19 +417,11 @@
             }
 
             iniciarWebSocket() {
-                if (this.modoDemo || !this.backendOnline) return;
-                
                 try {
-                    if (!window.WebSocket) {
-                        console.warn('WebSocket não suportado');
-                        this.atualizarStatusConexao('🟡', 'WS Não Suportado');
-                        return;
-                    }
-
                     this.socket = new WebSocket(this.WS_URL);
                     
                     this.socket.onopen = () => {
-                        console.log('✅ Conectado ao WebSocket');
+                        console.log('Conectado ao WebSocket');
                         this.atualizarStatusConexao('🟢', 'Online');
                         this.socket.send(JSON.stringify({
                             tipo: 'REGISTRAR_SALA',
@@ -605,13 +439,10 @@
                         }
                     };
                     
-                    this.socket.onclose = (event) => {
-                        console.log('WebSocket fechado:', event.code, event.reason);
+                    this.socket.onclose = () => {
+                        console.log('WebSocket fechado');
                         this.atualizarStatusConexao('🔴', 'Offline');
-                        
-                        if (this.backendOnline) {
-                            setTimeout(() => this.iniciarWebSocket(), 5000);
-                        }
+                        setTimeout(() => this.iniciarWebSocket(), 5000);
                     };
                     
                     this.socket.onerror = (error) => {
@@ -626,7 +457,7 @@
             }
 
             processarMensagemWebSocket(mensagem) {
-                console.log('📨 Mensagem WebSocket:', mensagem);
+                console.log('Mensagem WebSocket:', mensagem);
                 
                 switch (mensagem.tipo) {
                     case 'NOVA_CHAMADA':
@@ -639,10 +470,8 @@
                         this.processarSaidaAluno(mensagem);
                         break;
                     case 'ATUALIZAR_PRESENCA':
-                        this.carregarDadosReais(); // Recarregar dados reais
+                        this.carregarDadosSala();
                         break;
-                    default:
-                        console.log('Tipo de mensagem não reconhecido:', mensagem.tipo);
                 }
             }
 
@@ -656,18 +485,14 @@
                     this.atualizarHorarioCard(alunoCard, horarioAtual);
                     this.aplicarDestaqueChamada(alunoCard, mensagem.tipoSolicitante);
                 }
-                
-                console.log(`🔔 Nova chamada: ${mensagem.alunoNome} - ${mensagem.tipoSolicitante}`);
             }
 
             processarConfirmacaoChamada(mensagem) {
                 this.removerAluno(mensagem.alunoId);
-                console.log(`✅ Chamada confirmada: ${mensagem.alunoNome}`);
             }
 
             processarSaidaAluno(mensagem) {
                 this.removerAluno(mensagem.alunoId);
-                console.log(`🚪 Saída registrada: ${mensagem.alunoNome}`);
             }
 
             aplicarDestaqueChamada(alunoCard, tipoSolicitante) {
@@ -685,6 +510,17 @@
                 }
             }
 
+            async fazerRequisicao(endpoint) {
+                const url = `${this.BACKEND_URL}${endpoint}`;
+                const response = await fetch(url, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${this.token}`
+                    }
+                });
+                return response;
+            }
+
             determinarPeriodo() {
                 const hora = new Date().getHours();
                 if (hora < 12) return 'Matutino';
@@ -698,7 +534,7 @@
             }
 
             atualizarContador() {
-                const total = this.salaInfo.totalAlunos || this.alunos.length;
+                const total = this.salaInfo.totalAlunos || 0;
                 const presentes = this.alunos.length;
                 document.getElementById('contadorAlunos').textContent = `${presentes}/${total}`;
             }
@@ -727,7 +563,7 @@
                     oscillator.start(audioContext.currentTime);
                     oscillator.stop(audioContext.currentTime + 0.3);
                 } catch (error) {
-                    console.warn('🔇 Áudio não suportado');
+                    console.warn('Áudio não suportado');
                 }
             }
 
@@ -742,17 +578,16 @@
                 const horarioElement = alunoCard.querySelector('.aluno-horario');
                 if (horarioElement) {
                     horarioElement.textContent = `Chamado: ${horario}`;
-                    horarioElement.style.color = 'inherit';
                 }
             }
 
-            mostrarErroAutenticacao(mensagem) {
+            mostrarErro(mensagem) {
                 const grid = document.getElementById('alunosGrid');
                 grid.innerHTML = `
-                    <div class="auth-error">
-                        <div style="font-size: 1.5rem; margin-bottom: 1rem;">🔐</div>
+                    <div class="error-state">
+                        <div style="font-size: 1.5rem; margin-bottom: 1rem;">⚠️</div>
                         <div style="font-size: 1.2rem; margin-bottom: 0.5rem;">${mensagem}</div>
-                        <button onclick="salaDashboard.redirecionarParaLogin()">Ir para Login</button>
+                        <button onclick="salaDashboard.redirecionarParaLogin()" style="padding: 0.5rem 1rem; background: #dc2626; color: white; border: none; border-radius: 6px; cursor: pointer;">Ir para Login</button>
                     </div>
                 `;
             }
@@ -773,7 +608,6 @@
             }
         }
 
-        // Inicializar quando a página carregar
         document.addEventListener('DOMContentLoaded', () => {
             window.salaDashboard = new SalaDashboard();
         });
