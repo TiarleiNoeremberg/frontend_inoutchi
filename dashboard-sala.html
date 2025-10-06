@@ -401,6 +401,11 @@
                     return;
                 }
 
+                console.log('🔐 Token sendo usado:', this.token ? 'PRESENTE' : 'AUSENTE');
+                console.log('🎯 Sala ID:', this.salaId);
+                console.log('👤 Usuário ID:', this.currentUser?.id);
+                console.log('🔑 Roles:', this.currentUser?.roles);
+
                 try {
                     await this.carregarUsuario();
                     
@@ -432,14 +437,30 @@
                     console.log('🔌 Conectando ao WebSocket STOMP...');
                     this.atualizarStatusWebSocket('connecting', 'Conectando...');
                     
-                    // Usar SockJS para conexão
+                    // CONFIGURAÇÃO CORRIGIDA - Adicionar headers de autenticação
                     const socket = new SockJS(this.WS_URL);
                     this.stompClient = new StompJs.Client({
                         webSocketFactory: () => socket,
                         reconnectDelay: 5000,
                         heartbeatIncoming: 4000,
                         heartbeatOutgoing: 4000,
-                        debug: (str) => console.log('STOMP:', str)
+                        debug: (str) => {
+                            // Filtrar logs desnecessários para melhor debugging
+                            if (str.includes('CONNECT') || str.includes('ERROR') || str.includes('CLOSE')) {
+                                console.log('STOMP:', str);
+                            }
+                        },
+                        // 🔑 ADICIONAR HEADERS DE AUTENTICAÇÃO
+                        connectHeaders: {
+                            'Authorization': `Bearer ${this.token}`
+                        },
+                        // Tentar reconexão mais agressiva
+                        connectionTimeout: 5000,
+                        // Melhor tratamento de erro
+                        onWebSocketClose: (event) => {
+                            console.log('🔌 WebSocket fechado:', event);
+                            this.atualizarStatusWebSocket('disconnected', 'Conexão Fechada');
+                        }
                     });
                     
                     this.stompClient.onConnect = (frame) => {
@@ -447,7 +468,9 @@
                         this.reconnectAttempts = 0;
                         this.atualizarStatusWebSocket('connected', 'WebSocket Online');
                         
-                        // Inscrever nos tópicos específicos da sua implementação
+                        // 🔄 VERIFICAR SE O USUÁRIO TEM ACESSO À SALA
+                        this.verificarAcessoWebSocket();
+                        
                         this.inscreverNosTopicos();
                         
                         this.mostrarNotificacao(
@@ -459,12 +482,34 @@
                     
                     this.stompClient.onStompError = (frame) => {
                         console.error('❌ Erro STOMP:', frame);
-                        this.atualizarStatusWebSocket('error', 'Erro STOMP');
+                        
+                        // 🎯 DETECTAR ERRO DE AUTORIZAÇÃO ESPECIFICAMENTE
+                        if (frame.headers?.message?.includes('401') || frame.toString().includes('401')) {
+                            console.error('🚫 Erro 401 - Não autorizado para WebSocket');
+                            this.atualizarStatusWebSocket('error', 'Não Autorizado');
+                            this.mostrarNotificacao(
+                                'Erro de Autenticação',
+                                'Reconectando com novas credenciais...',
+                                'error'
+                            );
+                            // Tentar renovar token e reconectar
+                            setTimeout(() => this.renovarTokenEConectar(), 2000);
+                        } else {
+                            this.atualizarStatusWebSocket('error', 'Erro STOMP');
+                        }
                     };
                     
                     this.stompClient.onWebSocketError = (error) => {
                         console.error('❌ Erro WebSocket:', error);
-                        this.atualizarStatusWebSocket('error', 'Erro Conexão');
+                        
+                        // 🎯 DETECTAR ERRO 401 NO WEBSOCKET
+                        if (error.target?.url?.includes('/ws/info') || error.type === 'error') {
+                            console.error('🚫 Falha na autenticação WebSocket (401)');
+                            this.atualizarStatusWebSocket('error', 'Falha na Autenticação');
+                        } else {
+                            this.atualizarStatusWebSocket('error', 'Erro Conexão');
+                        }
+                        
                         this.tentarReconexao();
                     };
                     
@@ -482,23 +527,101 @@
                 }
             }
 
+            async renovarTokenEConectar() {
+                try {
+                    console.log('🔄 Tentando renovar token...');
+                    
+                    const refreshToken = localStorage.getItem('refresh_token');
+                    if (!refreshToken) {
+                        throw new Error('Refresh token não encontrado');
+                    }
+                    
+                    const response = await fetch(`${this.BACKEND_URL}/api/auth/refresh-token`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ refreshToken })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('Falha ao renovar token');
+                    }
+                    
+                    const data = await response.json();
+                    
+                    // Atualizar tokens
+                    this.token = data.access_token;
+                    localStorage.setItem('access_token', data.access_token);
+                    localStorage.setItem('token_expiry', (new Date().getTime() + (data.expires_in * 1000)).toString());
+                    
+                    if (data.refresh_token) {
+                        localStorage.setItem('refresh_token', data.refresh_token);
+                    }
+                    
+                    console.log('✅ Token renovado com sucesso');
+                    
+                    // Reconectar WebSocket com novo token
+                    if (this.stompClient) {
+                        this.stompClient.deactivate();
+                    }
+                    setTimeout(() => this.iniciarWebSocketStomp(), 1000);
+                    
+                } catch (error) {
+                    console.error('❌ Erro ao renovar token:', error);
+                    this.mostrarNotificacao(
+                        'Erro de Autenticação',
+                        'Faça login novamente',
+                        'error'
+                    );
+                    setTimeout(() => this.redirecionarParaLogin(), 3000);
+                }
+            }
+
+            verificarAcessoWebSocket() {
+                if (!this.stompClient || !this.stompClient.connected) return;
+                
+                // Enviar mensagem de teste para verificar permissões
+                this.stompClient.publish({
+                    destination: `/app/sala/${this.salaId}/verificar-acesso`,
+                    body: JSON.stringify({ userId: this.currentUser?.id, salaId: this.salaId }),
+                    headers: { 'Authorization': `Bearer ${this.token}` }
+                });
+            }
+
             inscreverNosTopicos() {
                 if (!this.stompClient || !this.stompClient.connected) {
                     console.error('❌ STOMP client não conectado');
                     return;
                 }
 
-                // Tópico para notificações gerais da sala (conforme seu backend)
-                this.stompClient.subscribe(`/topic/sala/${this.salaId}`, (message) => {
-                    this.processarMensagemWebSocket(JSON.parse(message.body));
-                });
+                try {
+                    // Tópico principal da sala
+                    const subscription1 = this.stompClient.subscribe(
+                        `/topic/sala/${this.salaId}`, 
+                        (message) => {
+                            this.processarMensagemWebSocket(JSON.parse(message.body));
+                        },
+                        { 'Authorization': `Bearer ${this.token}` } // 🔑 Headers na subscription
+                    );
 
-                // Tópico específico para chamadas (conforme seu backend)
-                this.stompClient.subscribe(`/topic/sala/${this.salaId}/chamadas`, (message) => {
-                    this.processarMensagemWebSocket(JSON.parse(message.body));
-                });
+                    // Tópico de chamadas
+                    const subscription2 = this.stompClient.subscribe(
+                        `/topic/sala/${this.salaId}/chamadas`, 
+                        (message) => {
+                            this.processarMensagemWebSocket(JSON.parse(message.body));
+                        },
+                        { 'Authorization': `Bearer ${this.token}` } // 🔑 Headers na subscription
+                    );
 
-                console.log(`✅ Inscrito nos tópicos da sala ${this.salaId}`);
+                    console.log(`✅ Inscrito nos tópicos da sala ${this.salaId}`);
+                    
+                    // Guardar subscriptions para gerenciamento
+                    this.subscriptions = [subscription1, subscription2];
+                    
+                } catch (error) {
+                    console.error('❌ Erro ao inscrever nos tópicos:', error);
+                }
             }
 
             processarMensagemWebSocket(mensagem) {
