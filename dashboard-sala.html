@@ -200,6 +200,103 @@
             font-size: 0.9rem;
         }
 
+        .websocket-status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            z-index: 1000;
+            transition: all 0.3s ease;
+        }
+
+        .websocket-connected {
+            background: #10b981;
+            color: white;
+        }
+
+        .websocket-connecting {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .websocket-disconnected {
+            background: #ef4444;
+            color: white;
+        }
+
+        .websocket-error {
+            background: #dc2626;
+            color: white;
+        }
+
+        .notification-toast {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            border-left: 4px solid #10b981;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 1001;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            max-width: 400px;
+            animation: slideIn 0.3s ease;
+        }
+
+        .notification-toast.error {
+            border-left-color: #ef4444;
+        }
+
+        .notification-toast.warning {
+            border-left-color: #f59e0b;
+        }
+
+        .notification-toast.info {
+            border-left-color: #3b82f6;
+        }
+
+        .notification-icon {
+            font-size: 1.2rem;
+        }
+
+        .notification-content {
+            flex: 1;
+        }
+
+        .notification-title {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        .notification-message {
+            font-size: 0.9rem;
+            color: #64748b;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-50%) translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
         @media (max-height: 800px) {
             .aluno-card {
                 padding: 0.6rem 0.3rem;
@@ -229,6 +326,10 @@
     </style>
 </head>
 <body>
+    <div id="websocketStatus" class="websocket-status websocket-disconnected" style="display: none;">
+        🔴 WebSocket Offline
+    </div>
+
     <header class="header">
         <div class="sala-info">
             <h1 id="nomeSala">Dashboard Sala</h1>
@@ -269,15 +370,22 @@
         class SalaDashboard {
             constructor() {
                 this.BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
+                this.WS_URL = 'wss://inoutchi-cd92743c8443.herokuapp.com/ws';
                 this.ENDPOINT_ALUNOS_PRESENTES = '/api/diretores/salas/{salaId}/alunos?presentes=true';
                 
-                // VERIFICAÇÃO IDÊNTICA AO SEU INDEX.HTML
+                // WebSocket configuration
+                this.socket = null;
+                this.reconnectAttempts = 0;
+                this.maxReconnectAttempts = 5;
+                this.reconnectInterval = 3000; // 3 seconds
+                this.heartbeatInterval = null;
+                
+                // Verificação de token
                 this.token = localStorage.getItem('access_token');
                 this.tokenExpiry = localStorage.getItem('token_expiry');
                 
-                console.log('=== INICIALIZANDO DASHBOARD SALA ===');
+                console.log('=== INICIALIZANDO DASHBOARD SALA COM WEBSOCKET ===');
                 console.log('Token:', this.token ? 'PRESENTE' : 'AUSENTE');
-                console.log('Token Expiry:', this.tokenExpiry);
                 
                 this.alunos = [];
                 this.salaInfo = {};
@@ -289,7 +397,6 @@
             }
 
             async inicializar() {
-                // VERIFICAÇÃO IDÊNTICA AO SEU CÓDIGO QUE FUNCIONA
                 if (!this.token || !this.tokenExpiry || new Date().getTime() > parseInt(this.tokenExpiry)) {
                     console.log('REDIRECIONANDO: Token inválido ou expirado');
                     this.mostrarErro('Sessão expirada ou inexistente. Faça login novamente.');
@@ -298,27 +405,24 @@
                 }
 
                 try {
-                    // MESMA LÓGICA DO SEU CÓDIGO: CARREGAR USUÁRIO PRIMEIRO
                     await this.carregarUsuario();
                     
-                    // VERIFICAR SE TEM ROLE_SALA - COMO NO SEU CÓDIGO
                     if (!this.currentUser.roles.includes('ROLE_SALA')) {
                         this.mostrarErro('Acesso negado. Esta área é exclusiva para salas.');
                         return;
                     }
                     
-                    // DETERMINAR SALA DO USERNAME - COMO NO SEU CÓDIGO
                     this.determinarSalaId();
-                    
-                    // CARREGAR DADOS DA SALA
                     await this.carregarDadosSala();
                     
-                    // CONFIGURAR ATUALIZAÇÕES
+                    // INICIAR WEBSOCKET APÓS CARREGAR DADOS INICIAIS
+                    this.iniciarWebSocket();
+                    
                     this.atualizarHora();
                     setInterval(() => this.atualizarHora(), 1000);
                     setInterval(() => this.carregarDadosSala(), 30000);
                     
-                    console.log('✅ Dashboard sala inicializado com sucesso!');
+                    console.log('✅ Dashboard sala inicializado com WebSocket!');
                     
                 } catch (error) {
                     console.error('❌ Erro ao inicializar:', error);
@@ -326,11 +430,319 @@
                 }
             }
 
+            iniciarWebSocket() {
+                try {
+                    console.log('🔌 Conectando ao WebSocket...');
+                    this.atualizarStatusWebSocket('connecting', 'Conectando...');
+                    
+                    this.socket = new WebSocket(this.WS_URL);
+                    
+                    this.socket.onopen = () => {
+                        console.log('✅ WebSocket conectado com sucesso!');
+                        this.reconnectAttempts = 0;
+                        this.atualizarStatusWebSocket('connected', 'WebSocket Online');
+                        
+                        // Registrar sala no WebSocket
+                        this.registrarSalaNoWebSocket();
+                        
+                        // Iniciar heartbeat
+                        this.iniciarHeartbeat();
+                        
+                        this.mostrarNotificacao(
+                            'WebSocket Conectado',
+                            'Conexão em tempo real estabelecida',
+                            'success'
+                        );
+                    };
+                    
+                    this.socket.onmessage = (event) => {
+                        this.processarMensagemWebSocket(event);
+                    };
+                    
+                    this.socket.onclose = (event) => {
+                        console.log('🔌 WebSocket fechado:', event.code, event.reason);
+                        this.atualizarStatusWebSocket('disconnected', 'WebSocket Offline');
+                        this.pararHeartbeat();
+                        
+                        // Tentar reconectar se não foi um fechamento normal
+                        if (event.code !== 1000) {
+                            this.tentarReconexao();
+                        }
+                    };
+                    
+                    this.socket.onerror = (error) => {
+                        console.error('❌ Erro WebSocket:', error);
+                        this.atualizarStatusWebSocket('error', 'Erro WebSocket');
+                        this.mostrarNotificacao(
+                            'Erro de Conexão',
+                            'Falha na conexão WebSocket',
+                            'error'
+                        );
+                    };
+                    
+                } catch (error) {
+                    console.error('❌ Erro ao conectar WebSocket:', error);
+                    this.atualizarStatusWebSocket('error', 'Erro de Conexão');
+                }
+            }
+
+            registrarSalaNoWebSocket() {
+                if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                    const mensagem = {
+                        tipo: 'REGISTRAR_SALA',
+                        salaId: this.salaId,
+                        token: this.token,
+                        timestamp: new Date().toISOString()
+                    };
+                    
+                    this.socket.send(JSON.stringify(mensagem));
+                    console.log('📨 Sala registrada no WebSocket:', mensagem);
+                }
+            }
+
+            iniciarHeartbeat() {
+                // Enviar heartbeat a cada 30 segundos para manter conexão ativa
+                this.heartbeatInterval = setInterval(() => {
+                    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                        const heartbeat = {
+                            tipo: 'HEARTBEAT',
+                            salaId: this.salaId,
+                            timestamp: new Date().toISOString()
+                        };
+                        
+                        this.socket.send(JSON.stringify(heartbeat));
+                        console.log('💓 Heartbeat enviado');
+                    }
+                }, 30000);
+            }
+
+            pararHeartbeat() {
+                if (this.heartbeatInterval) {
+                    clearInterval(this.heartbeatInterval);
+                    this.heartbeatInterval = null;
+                }
+            }
+
+            tentarReconexao() {
+                if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                    this.reconnectAttempts++;
+                    const delay = this.reconnectInterval * this.reconnectAttempts;
+                    
+                    console.log(`🔄 Tentativa ${this.reconnectAttempts} de reconexão em ${delay}ms...`);
+                    
+                    this.mostrarNotificacao(
+                        'Reconectando...',
+                        `Tentativa ${this.reconnectAttempts} de ${this.maxReconnectAttempts}`,
+                        'warning'
+                    );
+                    
+                    setTimeout(() => {
+                        this.iniciarWebSocket();
+                    }, delay);
+                } else {
+                    console.error('❌ Máximo de tentativas de reconexão atingido');
+                    this.mostrarNotificacao(
+                        'Conexão Perdida',
+                        'Não foi possível reconectar. Recarregue a página.',
+                        'error'
+                    );
+                }
+            }
+
+            processarMensagemWebSocket(event) {
+                try {
+                    const mensagem = JSON.parse(event.data);
+                    console.log('📨 Mensagem WebSocket recebida:', mensagem);
+                    
+                    switch (mensagem.tipo) {
+                        case 'NOVA_CHAMADA':
+                            this.processarNovaChamada(mensagem);
+                            break;
+                            
+                        case 'CONFIRMACAO_CHAMADA':
+                            this.processarConfirmacaoChamada(mensagem);
+                            break;
+                            
+                        case 'SAIDA_ALUNO':
+                            this.processarSaidaAluno(mensagem);
+                            break;
+                            
+                        case 'ATUALIZAR_PRESENCA':
+                            this.processarAtualizacaoPresenca(mensagem);
+                            break;
+                            
+                        case 'HEARTBEAT_ACK':
+                            console.log('💓 Heartbeat confirmado pelo servidor');
+                            break;
+                            
+                        case 'ERRO':
+                            this.processarErroWebSocket(mensagem);
+                            break;
+                            
+                        default:
+                            console.log('📨 Mensagem WebSocket não reconhecida:', mensagem);
+                    }
+                    
+                } catch (error) {
+                    console.error('❌ Erro ao processar mensagem WebSocket:', error);
+                }
+            }
+
+            processarNovaChamada(mensagem) {
+                console.log('🔔 Nova chamada recebida:', mensagem);
+                
+                const horarioAtual = this.obterHorarioAtual();
+                this.horariosChamada[mensagem.alunoId] = horarioAtual;
+                
+                // Tocar som de notificação
+                this.tocarSomNotificacao();
+                
+                // Mostrar notificação visual
+                this.mostrarNotificacao(
+                    'Nova Chamada!',
+                    `${mensagem.alunoNome} - ${this.formatarTipoSolicitante(mensagem.tipoSolicitante)}`,
+                    'info'
+                );
+                
+                // Atualizar interface
+                const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
+                if (alunoCard) {
+                    this.atualizarHorarioCard(alunoCard, horarioAtual);
+                    this.aplicarDestaqueChamada(alunoCard, mensagem.tipoSolicitante);
+                }
+                
+                // Atualizar contador se necessário
+                this.atualizarContador();
+            }
+
+            processarConfirmacaoChamada(mensagem) {
+                console.log('✅ Confirmação de chamada:', mensagem);
+                
+                this.mostrarNotificacao(
+                    'Chamada Confirmada',
+                    `${mensagem.alunoNome} saiu da escola`,
+                    'success'
+                );
+                
+                this.removerAluno(mensagem.alunoId);
+            }
+
+            processarSaidaAluno(mensagem) {
+                console.log('🚪 Saída de aluno:', mensagem);
+                
+                this.mostrarNotificacao(
+                    'Saída Registrada',
+                    `${mensagem.alunoNome} saiu da escola`,
+                    'warning'
+                );
+                
+                this.removerAluno(mensagem.alunoId);
+            }
+
+            processarAtualizacaoPresenca(mensagem) {
+                console.log('🔄 Atualização de presença:', mensagem);
+                
+                // Recarregar dados da sala quando houver atualização de presença
+                this.carregarDadosSala();
+                
+                this.mostrarNotificacao(
+                    'Presença Atualizada',
+                    'Lista de alunos atualizada',
+                    'info'
+                );
+            }
+
+            processarErroWebSocket(mensagem) {
+                console.error('❌ Erro do WebSocket:', mensagem);
+                
+                this.mostrarNotificacao(
+                    'Erro no Sistema',
+                    mensagem.mensagem || 'Erro desconhecido',
+                    'error'
+                );
+            }
+
+            formatarTipoSolicitante(tipo) {
+                const tipos = {
+                    'TUTOR': 'Tutor',
+                    'DIRETOR': 'Diretor',
+                    'PARENTE': 'Família',
+                    'AMIGO': 'Amigo'
+                };
+                return tipos[tipo] || tipo;
+            }
+
+            atualizarStatusWebSocket(status, mensagem) {
+                const statusElement = document.getElementById('websocketStatus');
+                const statusConexao = document.getElementById('statusConexao');
+                
+                if (statusElement) {
+                    statusElement.style.display = 'block';
+                    statusElement.className = `websocket-status websocket-${status}`;
+                    statusElement.textContent = this.getStatusIcon(status) + ' ' + mensagem;
+                }
+                
+                if (statusConexao) {
+                    statusConexao.innerHTML = `<span>${this.getStatusIcon(status)}</span><span>${mensagem}</span>`;
+                }
+            }
+
+            getStatusIcon(status) {
+                const icons = {
+                    'connected': '🟢',
+                    'connecting': '🟡',
+                    'disconnected': '🔴',
+                    'error': '🔴'
+                };
+                return icons[status] || '⚪';
+            }
+
+            mostrarNotificacao(titulo, mensagem, tipo = 'info') {
+                // Remover notificação anterior se existir
+                const notificacaoAnterior = document.getElementById('webSocketNotification');
+                if (notificacaoAnterior) {
+                    notificacaoAnterior.remove();
+                }
+                
+                const notificacao = document.createElement('div');
+                notificacao.id = 'webSocketNotification';
+                notificacao.className = `notification-toast ${tipo}`;
+                
+                const icon = this.getNotificationIcon(tipo);
+                
+                notificacao.innerHTML = `
+                    <div class="notification-icon">${icon}</div>
+                    <div class="notification-content">
+                        <div class="notification-title">${titulo}</div>
+                        <div class="notification-message">${mensagem}</div>
+                    </div>
+                `;
+                
+                document.body.appendChild(notificacao);
+                
+                // Auto-remover após 5 segundos
+                setTimeout(() => {
+                    if (notificacao.parentNode) {
+                        notificacao.remove();
+                    }
+                }, 5000);
+            }
+
+            getNotificationIcon(tipo) {
+                const icons = {
+                    'success': '✅',
+                    'error': '❌',
+                    'warning': '⚠️',
+                    'info': 'ℹ️'
+                };
+                return icons[tipo] || 'ℹ️';
+            }
+
+            // ... [MANTIDOS OS MÉTODOS EXISTENTES] ...
             async carregarUsuario() {
                 try {
                     console.log('👤 Carregando informações do usuário...');
                     
-                    // MESMO ENDPOINT DO SEU CÓDIGO QUE FUNCIONA
                     const response = await fetch(`${this.BACKEND_URL}/api/users/me`, {
                         headers: {
                             'Authorization': `Bearer ${this.token}`,
@@ -346,7 +758,6 @@
                     
                     console.log('✅ Dados do usuário carregados:', this.currentUser);
                     
-                    // MOSTRAR INFORMAÇÕES DO USUÁRIO CONECTADO
                     this.mostrarInfoUsuario();
                     
                 } catch (error) {
@@ -362,7 +773,6 @@
             }
 
             determinarSalaId() {
-                // MESMA LÓGICA DO SEU SISTEMA - EXTRAIR SALA DO USERNAME/EMAIL
                 const username = this.currentUser?.username || this.currentUser?.email || '';
                 
                 if (username) {
@@ -432,7 +842,6 @@
                 this.atualizarHeader();
                 this.renderizarAlunos();
                 this.atualizarContador();
-                this.atualizarStatusConexao();
             }
 
             atualizarHeader() {
@@ -460,15 +869,25 @@
                     card.setAttribute('data-aluno-id', aluno.id);
                     card.innerHTML = `
                         <div class="aluno-nome">${aluno.nome}</div>
-                        <div class="aluno-horario">${horarioChamada ? `Chamado: ${horarioChamada}` : 'Presente'}</div>
+                        <div class="aluno-horario">${horarioChamada ? `Chamado: ${horarioAtual}` : 'Presente'}</div>
                     `;
                     grid.appendChild(card);
                 });
             }
 
-            atualizarStatusConexao() {
-                document.getElementById('statusConexao').innerHTML = 
-                    '<span>🟢</span><span>Online</span>';
+            aplicarDestaqueChamada(alunoCard, tipoSolicitante) {
+                alunoCard.classList.remove('tutor', 'token', 'diretor', 'destaque');
+                let classeCor = '';
+                switch (tipoSolicitante) {
+                    case 'TUTOR': classeCor = 'tutor'; break;
+                    case 'PARENTE':
+                    case 'AMIGO': classeCor = 'token'; break;
+                    case 'DIRETOR': classeCor = 'diretor'; break;
+                }
+                if (classeCor) {
+                    alunoCard.classList.add(classeCor, 'destaque');
+                    setTimeout(() => alunoCard.classList.remove('destaque'), 5000);
+                }
             }
 
             determinarPeriodo() {
@@ -495,6 +914,38 @@
                     `${agora.getHours().toString().padStart(2, '0')}:${agora.getMinutes().toString().padStart(2, '0')}`;
             }
 
+            tocarSomNotificacao() {
+                try {
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+                    oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+                    oscillator.frequency.setValueAtTime(600, audioContext.currentTime + 0.1);
+                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+                    oscillator.start(audioContext.currentTime);
+                    oscillator.stop(audioContext.currentTime + 0.3);
+                } catch (error) {
+                    console.warn('🔇 Áudio não suportado');
+                }
+            }
+
+            atualizarHorarioCard(alunoCard, horario) {
+                const horarioElement = alunoCard.querySelector('.aluno-horario');
+                if (horarioElement) {
+                    horarioElement.textContent = `Chamado: ${horario}`;
+                }
+            }
+
+            removerAluno(alunoId) {
+                this.alunos = this.alunos.filter(aluno => aluno.id !== alunoId);
+                delete this.horariosChamada[alunoId];
+                this.renderizarAlunos();
+                this.atualizarContador();
+            }
+
             mostrarErro(mensagem) {
                 const grid = document.getElementById('alunosGrid');
                 grid.innerHTML = `
@@ -507,7 +958,11 @@
             }
 
             redirecionarParaLogin() {
-                // MESMA LIMPEZA DO SEU CÓDIGO
+                // Fechar WebSocket antes de sair
+                if (this.socket) {
+                    this.socket.close(1000, 'Logout usuário');
+                }
+                
                 localStorage.removeItem('access_token');
                 localStorage.removeItem('token_expiry');
                 localStorage.removeItem('refresh_token');
