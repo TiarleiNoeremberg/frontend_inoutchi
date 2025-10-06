@@ -401,6 +401,8 @@
                     return;
                 }
 
+                await this.testarWebSocketDisponivel();
+
                 try {
                     await this.carregarUsuario();
                     
@@ -412,9 +414,9 @@
                     this.determinarSalaId();
                     await this.carregarDadosSala();
                     
-                    // 🎯 DESCOBRIR URL DO WEBSOCKET PRIMEIRO
-                    this.WS_URL = await this.descobrirUrlWebSocket();
-                    console.log('🎯 Usando URL WebSocket:', this.WS_URL);
+                    // 🎯 USAR URL DIRETA - REMOVER A DESCOBERTA
+                    this.WS_URL = 'https://inoutchi-cd92743c8443.herokuapp.com/ws-sala';
+                    console.log('🎯 URL WebSocket definida:', this.WS_URL);
                     
                     // INICIAR WEBSOCKET
                     this.iniciarWebSocketStomp();
@@ -431,55 +433,36 @@
                 }
             }
 
-            async descobrirUrlWebSocket() {
+            async testarWebSocketDisponivel() {
                 try {
-                    console.log('🔍 Descobrindo URL WebSocket correta...');
+                    console.log('🧪 Testando disponibilidade do WebSocket...');
                     
-                    // Tentativas de URLs comuns para WebSocket STOMP
-                    const tentativas = [
-                        this.WS_URL.replace('https://', 'wss://').replace('/ws', '/websocket'),
-                        this.WS_URL.replace('https://', 'wss://') + '/websocket',
-                        this.WS_URL.replace('https://', 'wss://').replace('/ws', '/ws/websocket'),
-                        this.WS_URL.replace('https://', 'wss://') + '/ws',
-                        'wss://' + new URL(this.BACKEND_URL).host + '/websocket'
-                    ];
-
-                    for (let i = 0; i < tentativas.length; i++) {
-                        const url = tentativas[i];
-                        console.log(`🔗 Tentativa ${i + 1}: ${url}`);
-                        
-                        try {
-                            // Testar conexão WebSocket
-                            const testSocket = new WebSocket(url);
-                            
-                            return new Promise((resolve) => {
-                                testSocket.onopen = () => {
-                                    console.log(`✅ URL válida encontrada: ${url}`);
-                                    testSocket.close();
-                                    resolve(url);
-                                };
-                                
-                                testSocket.onerror = () => {
-                                    console.log(`❌ URL inválida: ${url}`);
-                                    if (i === tentativas.length - 1) {
-                                        resolve(tentativas[0]); // Fallback para primeira tentativa
-                                    }
-                                };
-                            });
-                            
-                        } catch (error) {
-                            console.log(`❌ Erro na URL ${url}:`, error.message);
+                    // Testar se o endpoint /ws-sala está respondendo
+                    const response = await fetch('https://inoutchi-cd92743c8443.herokuapp.com/ws-sala/info', {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${this.token}`
                         }
+                    });
+                    
+                    console.log('📡 Status do endpoint /ws-sala:', response.status);
+                    
+                    if (response.status === 200) {
+                        console.log('✅ Endpoint WebSocket está disponível');
+                    } else {
+                        console.warn('⚠️ Endpoint WebSocket retornou status:', response.status);
                     }
                     
-                    return tentativas[0]; // Fallback
-                    
                 } catch (error) {
-                    console.error('❌ Erro ao descobrir URL WebSocket:', error);
-                    return this.WS_URL.replace('https://', 'wss://').replace('/ws', '/websocket');
+                    console.error('❌ Endpoint WebSocket não disponível:', error.message);
+                    console.log('💡 Possíveis causas:');
+                    console.log('   1. WebSocket não configurado no Heroku');
+                    console.log('   2. CORS não configurado para WebSocket');
+                    console.log('   3. Endpoint /ws-sala não existe');
                 }
             }
 
+            
             ativarSala() {
                 if (!this.stompClient || !this.stompClient.connected) {
                     console.error('❌ STOMP não conectado para ativar sala');
@@ -505,9 +488,9 @@
                     console.log('🔌 Conectando ao WebSocket STOMP...');
                     this.atualizarStatusWebSocket('connecting', 'Conectando...');
 
-                    // 🎯 URL CORRETA
-                    const wsUrl = `${this.BACKEND_URL}/ws-sala`;
-                    console.log('🔗 Conectando em:', wsUrl);
+                    // 🎯 URL CORRETA - SockJS com endpoint /ws-sala
+                    const wsUrl = 'https://inoutchi-cd92743c8443.herokuapp.com/ws-sala';
+                    console.log('🔗 Conectando SockJS em:', wsUrl);
                     
                     const socket = new SockJS(wsUrl);
                     
@@ -517,6 +500,7 @@
                         heartbeatIncoming: 4000,
                         heartbeatOutgoing: 4000,
                         debug: (str) => {
+                            // Logs importantes apenas
                             if (str.includes('CONNECT') || str.includes('ERROR') || str.includes('connected')) {
                                 console.log('STOMP:', str);
                             }
@@ -533,9 +517,10 @@
                         this.reconnectAttempts = 0;
                         this.atualizarStatusWebSocket('connected', 'WebSocket Online');
                         
-                        // 🎯 ATIVAR A SALA PRIMEIRO
+                        // Ativar a sala
                         this.ativarSala();
                         
+                        // Inscrever nos tópicos
                         this.inscreverNosTopicos();
                         
                         this.mostrarNotificacao(
@@ -545,7 +530,37 @@
                         );
                     };
                     
-                    // ... resto do código igual
+                    this.stompClient.onStompError = (frame) => {
+                        console.error('❌ Erro STOMP:', frame);
+                        const errorMessage = frame.headers?.message || frame.toString();
+                        
+                        if (errorMessage.includes('401') || errorMessage.includes('unauthorized')) {
+                            console.error('🚫 Erro de autenticação STOMP');
+                            this.atualizarStatusWebSocket('error', 'Não Autorizado');
+                            this.mostrarNotificacao(
+                                'Erro de Autenticação',
+                                'Token inválido para WebSocket',
+                                'error'
+                            );
+                        } else {
+                            this.atualizarStatusWebSocket('error', 'Erro STOMP');
+                        }
+                    };
+                    
+                    this.stompClient.onWebSocketError = (error) => {
+                        console.error('❌ Erro WebSocket:', error);
+                        this.atualizarStatusWebSocket('error', 'Erro Conexão');
+                        this.tentarReconexao();
+                    };
+                    
+                    this.stompClient.onDisconnect = () => {
+                        console.log('🔌 WebSocket desconectado');
+                        this.atualizarStatusWebSocket('disconnected', 'WebSocket Offline');
+                    };
+                    
+                    // Conectar
+                    this.stompClient.activate();
+                    
                 } catch (error) {
                     console.error('❌ Erro ao conectar WebSocket:', error);
                     this.atualizarStatusWebSocket('error', 'Erro de Conexão');
