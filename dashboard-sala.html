@@ -401,11 +401,6 @@
                     return;
                 }
 
-                console.log('🔐 Token sendo usado:', this.token ? 'PRESENTE' : 'AUSENTE');
-                console.log('🎯 Sala ID:', this.salaId);
-                console.log('👤 Usuário ID:', this.currentUser?.id);
-                console.log('🔑 Roles:', this.currentUser?.roles);
-
                 try {
                     await this.carregarUsuario();
                     
@@ -417,14 +412,18 @@
                     this.determinarSalaId();
                     await this.carregarDadosSala();
                     
-                    // INICIAR WEBSOCKET STOMP APÓS CARREGAR DADOS INICIAIS
+                    // 🎯 DESCOBRIR URL DO WEBSOCKET PRIMEIRO
+                    this.WS_URL = await this.descobrirUrlWebSocket();
+                    console.log('🎯 Usando URL WebSocket:', this.WS_URL);
+                    
+                    // INICIAR WEBSOCKET
                     this.iniciarWebSocketStomp();
                     
                     this.atualizarHora();
                     setInterval(() => this.atualizarHora(), 1000);
                     setInterval(() => this.carregarDadosSala(), 30000);
                     
-                    console.log('✅ Dashboard sala inicializado com WebSocket STOMP!');
+                    console.log('✅ Dashboard sala inicializado com WebSocket!');
                     
                 } catch (error) {
                     console.error('❌ Erro ao inicializar:', error);
@@ -432,49 +431,103 @@
                 }
             }
 
+            async descobrirUrlWebSocket() {
+                try {
+                    console.log('🔍 Descobrindo URL WebSocket correta...');
+                    
+                    // Tentativas de URLs comuns para WebSocket STOMP
+                    const tentativas = [
+                        this.WS_URL.replace('https://', 'wss://').replace('/ws', '/websocket'),
+                        this.WS_URL.replace('https://', 'wss://') + '/websocket',
+                        this.WS_URL.replace('https://', 'wss://').replace('/ws', '/ws/websocket'),
+                        this.WS_URL.replace('https://', 'wss://') + '/ws',
+                        'wss://' + new URL(this.BACKEND_URL).host + '/websocket'
+                    ];
+
+                    for (let i = 0; i < tentativas.length; i++) {
+                        const url = tentativas[i];
+                        console.log(`🔗 Tentativa ${i + 1}: ${url}`);
+                        
+                        try {
+                            // Testar conexão WebSocket
+                            const testSocket = new WebSocket(url);
+                            
+                            return new Promise((resolve) => {
+                                testSocket.onopen = () => {
+                                    console.log(`✅ URL válida encontrada: ${url}`);
+                                    testSocket.close();
+                                    resolve(url);
+                                };
+                                
+                                testSocket.onerror = () => {
+                                    console.log(`❌ URL inválida: ${url}`);
+                                    if (i === tentativas.length - 1) {
+                                        resolve(tentativas[0]); // Fallback para primeira tentativa
+                                    }
+                                };
+                            });
+                            
+                        } catch (error) {
+                            console.log(`❌ Erro na URL ${url}:`, error.message);
+                        }
+                    }
+                    
+                    return tentativas[0]; // Fallback
+                    
+                } catch (error) {
+                    console.error('❌ Erro ao descobrir URL WebSocket:', error);
+                    return this.WS_URL.replace('https://', 'wss://').replace('/ws', '/websocket');
+                }
+            }
+
             iniciarWebSocketStomp() {
                 try {
                     console.log('🔌 Conectando ao WebSocket STOMP...');
                     this.atualizarStatusWebSocket('connecting', 'Conectando...');
+
+                    // 🎯 USAR WEBSOCKET NATIVO - SEM SOCKJS
+                    // Converter https:// para wss:// e ajustar a URL
+                    const wsUrl = this.WS_URL
+                        .replace('https://', 'wss://')
+                        .replace('/ws', '/websocket'); // ou o endpoint correto do seu backend
+
+                    console.log('🔗 Tentando conectar em:', wsUrl);
                     
-                    // CONFIGURAÇÃO CORRIGIDA - Adicionar headers de autenticação
-                    const socket = new SockJS(this.WS_URL);
+                    // 🚨 SOLUÇÃO: WebSocket nativo com token como query parameter
+                    const socket = new WebSocket(`${wsUrl}?token=${encodeURIComponent(this.token)}`);
+                    
                     this.stompClient = new StompJs.Client({
                         webSocketFactory: () => socket,
                         reconnectDelay: 5000,
                         heartbeatIncoming: 4000,
                         heartbeatOutgoing: 4000,
                         debug: (str) => {
-                            // Filtrar logs desnecessários para melhor debugging
-                            if (str.includes('CONNECT') || str.includes('ERROR') || str.includes('CLOSE')) {
+                            // Logs apenas para debug importante
+                            if (str.includes('CONNECT') || str.includes('ERROR') || str.includes('connected')) {
                                 console.log('STOMP:', str);
                             }
                         },
-                        // 🔑 ADICIONAR HEADERS DE AUTENTICAÇÃO
+                        // 🔑 Headers de autenticação para STOMP
                         connectHeaders: {
-                            'Authorization': `Bearer ${this.token}`
+                            'Authorization': `Bearer ${this.token}`,
+                            'sala-id': this.salaId.toString(),
+                            'user-id': this.currentUser?.id?.toString(),
+                            'X-Username': this.currentUser?.nome || 'sala'
                         },
-                        // Tentar reconexão mais agressiva
-                        connectionTimeout: 5000,
-                        // Melhor tratamento de erro
-                        onWebSocketClose: (event) => {
-                            console.log('🔌 WebSocket fechado:', event);
-                            this.atualizarStatusWebSocket('disconnected', 'Conexão Fechada');
-                        }
+                        // Configurações otimizadas
+                        connectionTimeout: 10000,
+                        logRawCommunication: false
                     });
                     
                     this.stompClient.onConnect = (frame) => {
-                        console.log('✅ WebSocket STOMP conectado:', frame);
+                        console.log('✅ WebSocket STOMP conectado com sucesso!', frame);
                         this.reconnectAttempts = 0;
                         this.atualizarStatusWebSocket('connected', 'WebSocket Online');
-                        
-                        // 🔄 VERIFICAR SE O USUÁRIO TEM ACESSO À SALA
-                        this.verificarAcessoWebSocket();
                         
                         this.inscreverNosTopicos();
                         
                         this.mostrarNotificacao(
-                            'WebSocket Conectado',
+                            'Conectado',
                             'Conexão em tempo real estabelecida',
                             'success'
                         );
@@ -482,34 +535,21 @@
                     
                     this.stompClient.onStompError = (frame) => {
                         console.error('❌ Erro STOMP:', frame);
+                        const errorMessage = frame.headers?.message || frame.toString();
                         
-                        // 🎯 DETECTAR ERRO DE AUTORIZAÇÃO ESPECIFICAMENTE
-                        if (frame.headers?.message?.includes('401') || frame.toString().includes('401')) {
-                            console.error('🚫 Erro 401 - Não autorizado para WebSocket');
+                        if (errorMessage.includes('401') || errorMessage.includes('unauthorized')) {
+                            console.error('🚫 Erro de autenticação STOMP');
                             this.atualizarStatusWebSocket('error', 'Não Autorizado');
-                            this.mostrarNotificacao(
-                                'Erro de Autenticação',
-                                'Reconectando com novas credenciais...',
-                                'error'
-                            );
-                            // Tentar renovar token e reconectar
-                            setTimeout(() => this.renovarTokenEConectar(), 2000);
+                            this.renovarTokenEConectar();
                         } else {
                             this.atualizarStatusWebSocket('error', 'Erro STOMP');
+                            this.tentarReconexao();
                         }
                     };
                     
                     this.stompClient.onWebSocketError = (error) => {
                         console.error('❌ Erro WebSocket:', error);
-                        
-                        // 🎯 DETECTAR ERRO 401 NO WEBSOCKET
-                        if (error.target?.url?.includes('/ws/info') || error.type === 'error') {
-                            console.error('🚫 Falha na autenticação WebSocket (401)');
-                            this.atualizarStatusWebSocket('error', 'Falha na Autenticação');
-                        } else {
-                            this.atualizarStatusWebSocket('error', 'Erro Conexão');
-                        }
-                        
+                        this.atualizarStatusWebSocket('error', 'Erro Conexão');
                         this.tentarReconexao();
                     };
                     
@@ -517,13 +557,28 @@
                         console.log('🔌 WebSocket desconectado');
                         this.atualizarStatusWebSocket('disconnected', 'WebSocket Offline');
                     };
+
+                    // 🎯 CONFIGURAR EVENTOS DIRETOS DO WEBSOCKET
+                    socket.onopen = () => {
+                        console.log('🔗 Conexão WebSocket aberta - aguardando STOMP...');
+                    };
+
+                    socket.onerror = (error) => {
+                        console.error('❌ Erro na conexão WebSocket:', error);
+                        this.atualizarStatusWebSocket('error', 'Falha na Conexão');
+                    };
+
+                    socket.onclose = (event) => {
+                        console.log('🔌 WebSocket fechado:', event.code, event.reason);
+                    };
                     
                     // Conectar
                     this.stompClient.activate();
                     
                 } catch (error) {
-                    console.error('❌ Erro ao conectar WebSocket:', error);
-                    this.atualizarStatusWebSocket('error', 'Erro de Conexão');
+                    console.error('❌ Erro ao inicializar WebSocket:', error);
+                    this.atualizarStatusWebSocket('error', 'Erro de Inicialização');
+                    this.tentarReconexao();
                 }
             }
 
