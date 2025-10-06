@@ -291,12 +291,6 @@
             }
         }
 
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-            100% { transform: scale(1); }
-        }
-
         @media (max-height: 800px) {
             .aluno-card {
                 padding: 0.6rem 0.3rem;
@@ -366,25 +360,28 @@
         </div>
     </div>
 
+    <!-- Incluir SockJS e STOMP -->
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
+
     <script>
         class SalaDashboard {
             constructor() {
                 this.BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
-                this.WS_URL = 'wss://inoutchi-cd92743c8443.herokuapp.com/ws';
+                this.WS_URL = 'https://inoutchi-cd92743c8443.herokuapp.com/ws';
                 this.ENDPOINT_ALUNOS_PRESENTES = '/api/diretores/salas/{salaId}/alunos?presentes=true';
                 
-                // WebSocket configuration
-                this.socket = null;
+                // WebSocket STOMP configuration
+                this.stompClient = null;
                 this.reconnectAttempts = 0;
                 this.maxReconnectAttempts = 5;
-                this.reconnectInterval = 3000; // 3 seconds
-                this.heartbeatInterval = null;
+                this.reconnectInterval = 3000;
                 
                 // Verificação de token
                 this.token = localStorage.getItem('access_token');
                 this.tokenExpiry = localStorage.getItem('token_expiry');
                 
-                console.log('=== INICIALIZANDO DASHBOARD SALA COM WEBSOCKET ===');
+                console.log('=== INICIALIZANDO DASHBOARD SALA COM WEBSOCKET STOMP ===');
                 console.log('Token:', this.token ? 'PRESENTE' : 'AUSENTE');
                 
                 this.alunos = [];
@@ -415,14 +412,14 @@
                     this.determinarSalaId();
                     await this.carregarDadosSala();
                     
-                    // INICIAR WEBSOCKET APÓS CARREGAR DADOS INICIAIS
-                    this.iniciarWebSocket();
+                    // INICIAR WEBSOCKET STOMP APÓS CARREGAR DADOS INICIAIS
+                    this.iniciarWebSocketStomp();
                     
                     this.atualizarHora();
                     setInterval(() => this.atualizarHora(), 1000);
                     setInterval(() => this.carregarDadosSala(), 30000);
                     
-                    console.log('✅ Dashboard sala inicializado com WebSocket!');
+                    console.log('✅ Dashboard sala inicializado com WebSocket STOMP!');
                     
                 } catch (error) {
                     console.error('❌ Erro ao inicializar:', error);
@@ -430,23 +427,28 @@
                 }
             }
 
-            iniciarWebSocket() {
+            iniciarWebSocketStomp() {
                 try {
-                    console.log('🔌 Conectando ao WebSocket...');
+                    console.log('🔌 Conectando ao WebSocket STOMP...');
                     this.atualizarStatusWebSocket('connecting', 'Conectando...');
                     
-                    this.socket = new WebSocket(this.WS_URL);
+                    // Usar SockJS para conexão
+                    const socket = new SockJS(this.WS_URL);
+                    this.stompClient = new StompJs.Client({
+                        webSocketFactory: () => socket,
+                        reconnectDelay: 5000,
+                        heartbeatIncoming: 4000,
+                        heartbeatOutgoing: 4000,
+                        debug: (str) => console.log('STOMP:', str)
+                    });
                     
-                    this.socket.onopen = () => {
-                        console.log('✅ WebSocket conectado com sucesso!');
+                    this.stompClient.onConnect = (frame) => {
+                        console.log('✅ WebSocket STOMP conectado:', frame);
                         this.reconnectAttempts = 0;
                         this.atualizarStatusWebSocket('connected', 'WebSocket Online');
                         
-                        // Registrar sala no WebSocket
-                        this.registrarSalaNoWebSocket();
-                        
-                        // Iniciar heartbeat
-                        this.iniciarHeartbeat();
+                        // Inscrever nos tópicos específicos da sua implementação
+                        this.inscreverNosTopicos();
                         
                         this.mostrarNotificacao(
                             'WebSocket Conectado',
@@ -455,30 +457,24 @@
                         );
                     };
                     
-                    this.socket.onmessage = (event) => {
-                        this.processarMensagemWebSocket(event);
+                    this.stompClient.onStompError = (frame) => {
+                        console.error('❌ Erro STOMP:', frame);
+                        this.atualizarStatusWebSocket('error', 'Erro STOMP');
                     };
                     
-                    this.socket.onclose = (event) => {
-                        console.log('🔌 WebSocket fechado:', event.code, event.reason);
-                        this.atualizarStatusWebSocket('disconnected', 'WebSocket Offline');
-                        this.pararHeartbeat();
-                        
-                        // Tentar reconectar se não foi um fechamento normal
-                        if (event.code !== 1000) {
-                            this.tentarReconexao();
-                        }
-                    };
-                    
-                    this.socket.onerror = (error) => {
+                    this.stompClient.onWebSocketError = (error) => {
                         console.error('❌ Erro WebSocket:', error);
-                        this.atualizarStatusWebSocket('error', 'Erro WebSocket');
-                        this.mostrarNotificacao(
-                            'Erro de Conexão',
-                            'Falha na conexão WebSocket',
-                            'error'
-                        );
+                        this.atualizarStatusWebSocket('error', 'Erro Conexão');
+                        this.tentarReconexao();
                     };
+                    
+                    this.stompClient.onDisconnect = () => {
+                        console.log('🔌 WebSocket desconectado');
+                        this.atualizarStatusWebSocket('disconnected', 'WebSocket Offline');
+                    };
+                    
+                    // Conectar
+                    this.stompClient.activate();
                     
                 } catch (error) {
                     console.error('❌ Erro ao conectar WebSocket:', error);
@@ -486,105 +482,47 @@
                 }
             }
 
-            registrarSalaNoWebSocket() {
-                if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-                    const mensagem = {
-                        tipo: 'REGISTRAR_SALA',
-                        salaId: this.salaId,
-                        token: this.token,
-                        timestamp: new Date().toISOString()
-                    };
-                    
-                    this.socket.send(JSON.stringify(mensagem));
-                    console.log('📨 Sala registrada no WebSocket:', mensagem);
+            inscreverNosTopicos() {
+                if (!this.stompClient || !this.stompClient.connected) {
+                    console.error('❌ STOMP client não conectado');
+                    return;
                 }
+
+                // Tópico para notificações gerais da sala (conforme seu backend)
+                this.stompClient.subscribe(`/topic/sala/${this.salaId}`, (message) => {
+                    this.processarMensagemWebSocket(JSON.parse(message.body));
+                });
+
+                // Tópico específico para chamadas (conforme seu backend)
+                this.stompClient.subscribe(`/topic/sala/${this.salaId}/chamadas`, (message) => {
+                    this.processarMensagemWebSocket(JSON.parse(message.body));
+                });
+
+                console.log(`✅ Inscrito nos tópicos da sala ${this.salaId}`);
             }
 
-            iniciarHeartbeat() {
-                // Enviar heartbeat a cada 30 segundos para manter conexão ativa
-                this.heartbeatInterval = setInterval(() => {
-                    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-                        const heartbeat = {
-                            tipo: 'HEARTBEAT',
-                            salaId: this.salaId,
-                            timestamp: new Date().toISOString()
-                        };
+            processarMensagemWebSocket(mensagem) {
+                console.log('📨 Mensagem WebSocket recebida:', mensagem);
+                
+                switch (mensagem.tipo) {
+                    case 'NOVA_CHAMADA':
+                        this.processarNovaChamada(mensagem);
+                        break;
                         
-                        this.socket.send(JSON.stringify(heartbeat));
-                        console.log('💓 Heartbeat enviado');
-                    }
-                }, 30000);
-            }
-
-            pararHeartbeat() {
-                if (this.heartbeatInterval) {
-                    clearInterval(this.heartbeatInterval);
-                    this.heartbeatInterval = null;
-                }
-            }
-
-            tentarReconexao() {
-                if (this.reconnectAttempts < this.maxReconnectAttempts) {
-                    this.reconnectAttempts++;
-                    const delay = this.reconnectInterval * this.reconnectAttempts;
-                    
-                    console.log(`🔄 Tentativa ${this.reconnectAttempts} de reconexão em ${delay}ms...`);
-                    
-                    this.mostrarNotificacao(
-                        'Reconectando...',
-                        `Tentativa ${this.reconnectAttempts} de ${this.maxReconnectAttempts}`,
-                        'warning'
-                    );
-                    
-                    setTimeout(() => {
-                        this.iniciarWebSocket();
-                    }, delay);
-                } else {
-                    console.error('❌ Máximo de tentativas de reconexão atingido');
-                    this.mostrarNotificacao(
-                        'Conexão Perdida',
-                        'Não foi possível reconectar. Recarregue a página.',
-                        'error'
-                    );
-                }
-            }
-
-            processarMensagemWebSocket(event) {
-                try {
-                    const mensagem = JSON.parse(event.data);
-                    console.log('📨 Mensagem WebSocket recebida:', mensagem);
-                    
-                    switch (mensagem.tipo) {
-                        case 'NOVA_CHAMADA':
-                            this.processarNovaChamada(mensagem);
-                            break;
-                            
-                        case 'CONFIRMACAO_CHAMADA':
-                            this.processarConfirmacaoChamada(mensagem);
-                            break;
-                            
-                        case 'SAIDA_ALUNO':
-                            this.processarSaidaAluno(mensagem);
-                            break;
-                            
-                        case 'ATUALIZAR_PRESENCA':
-                            this.processarAtualizacaoPresenca(mensagem);
-                            break;
-                            
-                        case 'HEARTBEAT_ACK':
-                            console.log('💓 Heartbeat confirmado pelo servidor');
-                            break;
-                            
-                        case 'ERRO':
-                            this.processarErroWebSocket(mensagem);
-                            break;
-                            
-                        default:
-                            console.log('📨 Mensagem WebSocket não reconhecida:', mensagem);
-                    }
-                    
-                } catch (error) {
-                    console.error('❌ Erro ao processar mensagem WebSocket:', error);
+                    case 'CONFIRMACAO_CHAMADA':
+                        this.processarConfirmacaoChamada(mensagem);
+                        break;
+                        
+                    case 'REMOCAO_CHAMADA':
+                        this.processarRemocaoChamada(mensagem);
+                        break;
+                        
+                    case 'SAIDA_ALUNO':
+                        this.processarSaidaAluno(mensagem);
+                        break;
+                        
+                    default:
+                        console.log('📨 Mensagem WebSocket não reconhecida:', mensagem);
                 }
             }
 
@@ -604,15 +542,19 @@
                     'info'
                 );
                 
-                // Atualizar interface
-                const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
-                if (alunoCard) {
-                    this.atualizarHorarioCard(alunoCard, horarioAtual);
-                    this.aplicarDestaqueChamada(alunoCard, mensagem.tipoSolicitante);
+                // Aplicar cor personalizada se fornecida
+                if (mensagem.cor) {
+                    this.aplicarDestaqueComCor(mensagem.alunoId, mensagem.cor);
+                } else {
+                    // Atualizar interface com destaque padrão
+                    const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
+                    if (alunoCard) {
+                        this.atualizarHorarioCard(alunoCard, horarioAtual);
+                        this.aplicarDestaqueChamada(alunoCard, mensagem.tipoSolicitante);
+                    }
                 }
                 
-                // Atualizar contador se necessário
-                this.atualizarContador();
+                console.log(`✅ Chamada processada para ${mensagem.alunoNome}`);
             }
 
             processarConfirmacaoChamada(mensagem) {
@@ -620,11 +562,23 @@
                 
                 this.mostrarNotificacao(
                     'Chamada Confirmada',
-                    `${mensagem.alunoNome} saiu da escola`,
+                    `Chamada confirmada para o aluno`,
                     'success'
                 );
                 
-                this.removerAluno(mensagem.alunoId);
+                this.removerDestaqueChamada(mensagem.alunoId);
+            }
+
+            processarRemocaoChamada(mensagem) {
+                console.log('🗑️ Remoção de chamada:', mensagem);
+                
+                this.mostrarNotificacao(
+                    'Chamada Removida',
+                    `Chamada removida da lista`,
+                    'warning'
+                );
+                
+                this.removerDestaqueChamada(mensagem.alunoId);
             }
 
             processarSaidaAluno(mensagem) {
@@ -639,29 +593,65 @@
                 this.removerAluno(mensagem.alunoId);
             }
 
-            processarAtualizacaoPresenca(mensagem) {
-                console.log('🔄 Atualização de presença:', mensagem);
-                
-                // Recarregar dados da sala quando houver atualização de presença
-                this.carregarDadosSala();
-                
-                this.mostrarNotificacao(
-                    'Presença Atualizada',
-                    'Lista de alunos atualizada',
-                    'info'
-                );
+            aplicarDestaqueComCor(alunoId, cor) {
+                const alunoCard = document.querySelector(`[data-aluno-id="${alunoId}"]`);
+                if (alunoCard) {
+                    // Remove classes anteriores
+                    alunoCard.classList.remove('tutor', 'token', 'diretor', 'destaque');
+                    
+                    // Aplica cor personalizada
+                    alunoCard.style.background = this.hexParaRgba(cor, 0.1);
+                    alunoCard.style.borderColor = cor;
+                    alunoCard.style.color = this.contrastColor(cor);
+                    
+                    // Aplica destaque
+                    alunoCard.classList.add('destaque');
+                    
+                    const horarioAtual = this.obterHorarioAtual();
+                    this.atualizarHorarioCard(alunoCard, horarioAtual);
+                    
+                    setTimeout(() => {
+                        alunoCard.classList.remove('destaque');
+                        alunoCard.style.background = '';
+                        alunoCard.style.borderColor = '';
+                        alunoCard.style.color = '';
+                    }, 5000);
+                }
             }
 
-            processarErroWebSocket(mensagem) {
-                console.error('❌ Erro do WebSocket:', mensagem);
-                
-                this.mostrarNotificacao(
-                    'Erro no Sistema',
-                    mensagem.mensagem || 'Erro desconhecido',
-                    'error'
-                );
+            hexParaRgba(hex, alpha) {
+                const r = parseInt(hex.slice(1, 3), 16);
+                const g = parseInt(hex.slice(3, 5), 16);
+                const b = parseInt(hex.slice(5, 7), 16);
+                return `rgba(${r}, ${g}, ${b}, ${alpha})`;
             }
 
+            contrastColor(hex) {
+                const r = parseInt(hex.slice(1, 3), 16);
+                const g = parseInt(hex.slice(3, 5), 16);
+                const b = parseInt(hex.slice(5, 7), 16);
+                const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+                return brightness > 128 ? '#000000' : '#FFFFFF';
+            }
+
+            removerDestaqueChamada(alunoId) {
+                delete this.horariosChamada[alunoId];
+                
+                const alunoCard = document.querySelector(`[data-aluno-id="${alunoId}"]`);
+                if (alunoCard) {
+                    alunoCard.classList.remove('tutor', 'token', 'diretor', 'destaque');
+                    alunoCard.style.background = '';
+                    alunoCard.style.borderColor = '';
+                    alunoCard.style.color = '';
+                    
+                    const horarioElement = alunoCard.querySelector('.aluno-horario');
+                    if (horarioElement) {
+                        horarioElement.textContent = 'Presente';
+                    }
+                }
+            }
+
+            // ... [MANTIDOS OS MÉTODOS EXISTENTES] ...
             formatarTipoSolicitante(tipo) {
                 const tipos = {
                     'TUTOR': 'Tutor',
@@ -670,6 +660,32 @@
                     'AMIGO': 'Amigo'
                 };
                 return tipos[tipo] || tipo;
+            }
+
+            tentarReconexao() {
+                if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                    this.reconnectAttempts++;
+                    const delay = this.reconnectInterval * this.reconnectAttempts;
+                    
+                    console.log(`🔄 Tentativa ${this.reconnectAttempts} de reconexão em ${delay}ms...`);
+                    
+                    this.mostrarNotificacao(
+                        'Reconectando...',
+                        `Tentativa ${this.reconnectAttempts} de ${this.maxReconnectAttempts}`,
+                        'warning'
+                    );
+                    
+                    setTimeout(() => {
+                        this.iniciarWebSocketStomp();
+                    }, delay);
+                } else {
+                    console.error('❌ Máximo de tentativas de reconexão atingido');
+                    this.mostrarNotificacao(
+                        'Conexão Perdida',
+                        'Não foi possível reconectar. Recarregue a página.',
+                        'error'
+                    );
+                }
             }
 
             atualizarStatusWebSocket(status, mensagem) {
@@ -738,7 +754,7 @@
                 return icons[tipo] || 'ℹ️';
             }
 
-            // ... [MANTIDOS OS MÉTODOS EXISTENTES] ...
+            // ... [MANTIDOS TODOS OS OUTROS MÉTODOS EXISTENTES] ...
             async carregarUsuario() {
                 try {
                     console.log('👤 Carregando informações do usuário...');
@@ -869,7 +885,7 @@
                     card.setAttribute('data-aluno-id', aluno.id);
                     card.innerHTML = `
                         <div class="aluno-nome">${aluno.nome}</div>
-                        <div class="aluno-horario">${horarioChamada ? `Chamado: ${horarioAtual}` : 'Presente'}</div>
+                        <div class="aluno-horario">${horarioChamada ? `Chamado: ${horarioChamada}` : 'Presente'}</div>
                     `;
                     grid.appendChild(card);
                 });
@@ -959,8 +975,8 @@
 
             redirecionarParaLogin() {
                 // Fechar WebSocket antes de sair
-                if (this.socket) {
-                    this.socket.close(1000, 'Logout usuário');
+                if (this.stompClient) {
+                    this.stompClient.deactivate();
                 }
                 
                 localStorage.removeItem('access_token');
