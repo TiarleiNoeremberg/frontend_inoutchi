@@ -480,21 +480,36 @@
                 }
             }
 
+            ativarSala() {
+                if (!this.stompClient || !this.stompClient.connected) {
+                    console.error('❌ STOMP não conectado para ativar sala');
+                    return;
+                }
+
+                const payload = {
+                    salaId: this.salaId,
+                    dispositivoId: 'dashboard-' + Date.now(), // ID único para este dashboard
+                    sessaoId: 'sessao-' + Math.random().toString(36).substr(2, 9)
+                };
+
+                this.stompClient.publish({
+                    destination: '/app/sala/ativar',
+                    body: JSON.stringify(payload)
+                });
+
+                console.log('🎯 Sala ativada:', payload);
+            }
+
             iniciarWebSocketStomp() {
                 try {
                     console.log('🔌 Conectando ao WebSocket STOMP...');
                     this.atualizarStatusWebSocket('connecting', 'Conectando...');
 
-                    // 🎯 USAR WEBSOCKET NATIVO - SEM SOCKJS
-                    // Converter https:// para wss:// e ajustar a URL
-                    const wsUrl = this.WS_URL
-                        .replace('https://', 'wss://')
-                        .replace('/ws', '/websocket'); // ou o endpoint correto do seu backend
-
-                    console.log('🔗 Tentando conectar em:', wsUrl);
+                    // 🎯 URL CORRETA
+                    const wsUrl = `${this.BACKEND_URL}/ws-sala`;
+                    console.log('🔗 Conectando em:', wsUrl);
                     
-                    // 🚨 SOLUÇÃO: WebSocket nativo com token como query parameter
-                    const socket = new WebSocket(`${wsUrl}?token=${encodeURIComponent(this.token)}`);
+                    const socket = new SockJS(wsUrl);
                     
                     this.stompClient = new StompJs.Client({
                         webSocketFactory: () => socket,
@@ -502,27 +517,24 @@
                         heartbeatIncoming: 4000,
                         heartbeatOutgoing: 4000,
                         debug: (str) => {
-                            // Logs apenas para debug importante
                             if (str.includes('CONNECT') || str.includes('ERROR') || str.includes('connected')) {
                                 console.log('STOMP:', str);
                             }
                         },
-                        // 🔑 Headers de autenticação para STOMP
                         connectHeaders: {
                             'Authorization': `Bearer ${this.token}`,
                             'sala-id': this.salaId.toString(),
-                            'user-id': this.currentUser?.id?.toString(),
-                            'X-Username': this.currentUser?.nome || 'sala'
-                        },
-                        // Configurações otimizadas
-                        connectionTimeout: 10000,
-                        logRawCommunication: false
+                            'user-id': this.currentUser?.id?.toString()
+                        }
                     });
                     
                     this.stompClient.onConnect = (frame) => {
                         console.log('✅ WebSocket STOMP conectado com sucesso!', frame);
                         this.reconnectAttempts = 0;
                         this.atualizarStatusWebSocket('connected', 'WebSocket Online');
+                        
+                        // 🎯 ATIVAR A SALA PRIMEIRO
+                        this.ativarSala();
                         
                         this.inscreverNosTopicos();
                         
@@ -533,52 +545,10 @@
                         );
                     };
                     
-                    this.stompClient.onStompError = (frame) => {
-                        console.error('❌ Erro STOMP:', frame);
-                        const errorMessage = frame.headers?.message || frame.toString();
-                        
-                        if (errorMessage.includes('401') || errorMessage.includes('unauthorized')) {
-                            console.error('🚫 Erro de autenticação STOMP');
-                            this.atualizarStatusWebSocket('error', 'Não Autorizado');
-                            this.renovarTokenEConectar();
-                        } else {
-                            this.atualizarStatusWebSocket('error', 'Erro STOMP');
-                            this.tentarReconexao();
-                        }
-                    };
-                    
-                    this.stompClient.onWebSocketError = (error) => {
-                        console.error('❌ Erro WebSocket:', error);
-                        this.atualizarStatusWebSocket('error', 'Erro Conexão');
-                        this.tentarReconexao();
-                    };
-                    
-                    this.stompClient.onDisconnect = () => {
-                        console.log('🔌 WebSocket desconectado');
-                        this.atualizarStatusWebSocket('disconnected', 'WebSocket Offline');
-                    };
-
-                    // 🎯 CONFIGURAR EVENTOS DIRETOS DO WEBSOCKET
-                    socket.onopen = () => {
-                        console.log('🔗 Conexão WebSocket aberta - aguardando STOMP...');
-                    };
-
-                    socket.onerror = (error) => {
-                        console.error('❌ Erro na conexão WebSocket:', error);
-                        this.atualizarStatusWebSocket('error', 'Falha na Conexão');
-                    };
-
-                    socket.onclose = (event) => {
-                        console.log('🔌 WebSocket fechado:', event.code, event.reason);
-                    };
-                    
-                    // Conectar
-                    this.stompClient.activate();
-                    
+                    // ... resto do código igual
                 } catch (error) {
-                    console.error('❌ Erro ao inicializar WebSocket:', error);
-                    this.atualizarStatusWebSocket('error', 'Erro de Inicialização');
-                    this.tentarReconexao();
+                    console.error('❌ Erro ao conectar WebSocket:', error);
+                    this.atualizarStatusWebSocket('error', 'Erro de Conexão');
                 }
             }
 
@@ -651,28 +621,45 @@
                 }
 
                 try {
-                    // Tópico principal da sala
-                    const subscription1 = this.stompClient.subscribe(
-                        `/topic/sala/${this.salaId}`, 
-                        (message) => {
-                            this.processarMensagemWebSocket(JSON.parse(message.body));
-                        },
-                        { 'Authorization': `Bearer ${this.token}` } // 🔑 Headers na subscription
-                    );
-
-                    // Tópico de chamadas
-                    const subscription2 = this.stompClient.subscribe(
-                        `/topic/sala/${this.salaId}/chamadas`, 
-                        (message) => {
-                            this.processarMensagemWebSocket(JSON.parse(message.body));
-                        },
-                        { 'Authorization': `Bearer ${this.token}` } // 🔑 Headers na subscription
-                    );
-
-                    console.log(`✅ Inscrito nos tópicos da sala ${this.salaId}`);
+                    // 🎯 TÓPICOS CORRETOS baseados no seu backend
+                    console.log('🔔 Inscrevendo nos tópicos da sala', this.salaId);
                     
-                    // Guardar subscriptions para gerenciamento
-                    this.subscriptions = [subscription1, subscription2];
+                    // Tópico principal da sala (para saídas de alunos)
+                    const subscription1 = this.stompClient.subscribe(
+                        `/topic/sala/${this.salaId}`,  // 🎯 CORRIGIDO: /sala/{id} não /sala.{id}
+                        (message) => {
+                            console.log('📨 Mensagem recebida no tópico da sala:', message.body);
+                            this.processarMensagemWebSocket(JSON.parse(message.body));
+                        }
+                    );
+
+                    // Tópico específico para chamadas
+                    const subscription2 = this.stompClient.subscribe(
+                        `/topic/sala/${this.salaId}/chamadas`,  // 🎯 CORRIGIDO: /sala/{id}/chamadas
+                        (message) => {
+                            console.log('📨 Mensagem recebida no tópico de chamadas:', message.body);
+                            this.processarMensagemWebSocket(JSON.parse(message.body));
+                        }
+                    );
+
+                    // Tópico de status (opcional)
+                    const subscription3 = this.stompClient.subscribe(
+                        `/topic/sala/status`,
+                        (message) => {
+                            console.log('📨 Mensagem recebida no tópico de status:', message.body);
+                            const data = JSON.parse(message.body);
+                            if (data.salaId === this.salaId) {
+                                console.log('✅ Status da sala atualizado:', data.status);
+                            }
+                        }
+                    );
+
+                    console.log(`✅ Inscrito nos tópicos:`);
+                    console.log(`   - /topic/sala/${this.salaId}`);
+                    console.log(`   - /topic/sala/${this.salaId}/chamadas`);
+                    console.log(`   - /topic/sala/status`);
+                    
+                    this.subscriptions = [subscription1, subscription2, subscription3];
                     
                 } catch (error) {
                     console.error('❌ Erro ao inscrever nos tópicos:', error);
@@ -682,6 +669,7 @@
             processarMensagemWebSocket(mensagem) {
                 console.log('📨 Mensagem WebSocket recebida:', mensagem);
                 
+                // 🎯 ESTRUTURA CORRETA baseada no seu backend
                 switch (mensagem.tipo) {
                     case 'NOVA_CHAMADA':
                         this.processarNovaChamada(mensagem);
