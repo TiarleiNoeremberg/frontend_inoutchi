@@ -286,19 +286,19 @@
     <script>
         class SalaDashboard {
             constructor() {
-                // CONFIGURAÇÕES - AJUSTE AQUI!
-                this.BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com'; // URL do seu backend Spring
-                this.WS_URL = 'https://tiarleinoeremberg.github.io/frontend_inoutchi/dashboard-sala.html'; // URL WebSocket
+                // CONFIGURAÇÕES CORRIGIDAS
+                this.BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
+                this.WS_URL = 'wss://inoutchi-cd92743c8443.herokuapp.com/ws'; // URL WebSocket corrigida
                 
                 this.token = localStorage.getItem('access_token');
                 this.tokenExpiry = localStorage.getItem('token_expiry');
-                this.username = localStorage.getItem('username') || localStorage.getItem('user_email');
+                this.username = this.obterUsername();
                 this.alunos = [];
                 this.salaInfo = {};
                 this.socket = null;
                 this.horariosChamada = {};
-                this.salaId = 1; // Default
-                this.escolaId = 1; // Default
+                this.salaId = 1;
+                this.escolaId = 1;
                 this.modoDemo = false;
                 
                 console.log('Token:', this.token ? 'Presente' : 'Ausente');
@@ -306,6 +306,14 @@
                 console.log('Token Expiry:', this.tokenExpiry);
                 
                 this.verificarAutenticacao();
+            }
+
+            obterUsername() {
+                // Tenta obter username de várias fontes possíveis
+                return localStorage.getItem('username') || 
+                       localStorage.getItem('user_email') || 
+                       localStorage.getItem('email') ||
+                       'Usuário Sala';
             }
 
             async verificarAutenticacao() {
@@ -324,7 +332,6 @@
                     return;
                 }
 
-                // Verificar ROLE no token JWT
                 try {
                     const userRole = await this.getUserRole();
                     console.log('User Roles:', userRole);
@@ -350,16 +357,16 @@
                     // Decodificar JWT token
                     const payload = JSON.parse(atob(this.token.split('.')[1]));
                     console.log('JWT Payload:', payload);
-                    return payload.authorities || [];
+                    return payload.authorities || payload.roles || ['ROLE_SALA'];
                 } catch (error) {
                     console.error('Erro ao decodificar JWT:', error);
-                    return ['ROLE_SALA']; // Fallback para desenvolvimento
+                    return ['ROLE_SALA'];
                 }
             }
 
             async obterInfoSala() {
                 try {
-                    // Extrair número da sala do username (ex: "sala01@gmail.com" -> 1)
+                    // Extrair número da sala do username
                     if (this.username) {
                         const salaMatch = this.username.match(/sala(\d+)/i);
                         this.salaId = salaMatch ? parseInt(salaMatch[1]) : 1;
@@ -367,17 +374,26 @@
                     
                     console.log('Sala ID definido como:', this.salaId);
                     
-                    // Buscar informações da sala da API
-                    const response = await this.fazerRequisicao(`/api/salas/${this.salaId}`);
-                    const salaData = await response.json();
+                    // Tentar diferentes endpoints para obter informações da sala
+                    let salaData;
+                    try {
+                        // Endpoint 1
+                        const response = await this.fazerRequisicao(`/api/salas/${this.salaId}`);
+                        salaData = await response.json();
+                    } catch (error) {
+                        console.warn('Endpoint 1 falhou, tentando endpoint alternativo...');
+                        // Endpoint 2
+                        const response = await this.fazerRequisicao(`/api/sala/${this.salaId}`);
+                        salaData = await response.json();
+                    }
                     
                     this.salaInfo = {
-                        id: salaData.id,
-                        nome: salaData.nome || `Sala ${this.salaId}`,
-                        codigo: salaData.codigo || `S${this.salaId}`,
-                        escolaId: salaData.escola?.id || 1,
+                        id: salaData.id || this.salaId,
+                        nome: salaData.nome || salaData.descricao || `Sala ${this.salaId}`,
+                        codigo: salaData.codigo || salaData.numero || `S${this.salaId}`,
+                        escolaId: salaData.escolaId || salaData.escola?.id || 1,
                         periodo: this.determinarPeriodo(),
-                        totalAlunos: salaData.totalAlunos || 30
+                        totalAlunos: salaData.totalAlunos || salaData.capacidade || 30
                     };
                     
                     this.escolaId = this.salaInfo.escolaId;
@@ -412,7 +428,6 @@
                 this.modoDemo = true;
                 document.getElementById('demoModeIndicator').style.display = 'block';
                 
-                // Dados de demonstração
                 this.salaInfo = {
                     id: 1,
                     nome: 'Sala 1A - Matutino',
@@ -426,12 +441,10 @@
                 this.atualizarHora();
                 setInterval(() => this.atualizarHora(), 1000);
                 
-                // Simular WebSocket para demonstração
                 this.simularWebSocket();
             }
 
             carregarDadosDemonstracao() {
-                // Dados simulados para demonstração
                 const alunosDemo = [
                     { id: 1, nome: 'Ana Silva' },
                     { id: 2, nome: 'Bruno Oliveira' },
@@ -442,14 +455,11 @@
                     { id: 7, nome: 'Gabriela Rocha' },
                     { id: 8, nome: 'Henrique Alves' },
                     { id: 9, nome: 'Isabela Martins' },
-                    { id: 10, nome: 'João Pereira' },
-                    { id: 11, nome: 'Larissa Ferreira' },
-                    { id: 12, nome: 'Miguel Rodrigues' }
+                    { id: 10, nome: 'João Pereira' }
                 ];
                 
                 this.atualizarListaAlunos(alunosDemo);
                 
-                // Simular chamadas automáticas
                 setTimeout(() => this.simularChamada('TUTOR'), 5000);
                 setTimeout(() => this.simularChamada('DIRETOR'), 15000);
                 setTimeout(() => this.simularChamada('PARENTE'), 25000);
@@ -483,25 +493,29 @@
             }
 
             async carregarAlunosPresentes() {
-                if (this.modoDemo) return; // Não carregar em modo demo
+                if (this.modoDemo) return;
                 
                 try {
                     let response;
                     const escolaId = this.escolaId || 1;
                     
-                    // Tentar endpoints
+                    // Tentar diferentes endpoints
                     try {
-                        response = await this.fazerRequisicao(`/api/diretores/salas/${this.salaId}/alunos?presentes=true`);
-                    } catch (error) {
-                        response = await this.fazerRequisicao(`/api/alunos/${escolaId}/presentes`);
+                        response = await this.fazerRequisicao(`/api/salas/${this.salaId}/alunos/presentes`);
+                    } catch (error1) {
+                        try {
+                            response = await this.fazerRequisicao(`/api/alunos/presentes?salaId=${this.salaId}`);
+                        } catch (error2) {
+                            response = await this.fazerRequisicao(`/api/presencas/sala/${this.salaId}`);
+                        }
                     }
                     
                     const data = await response.json();
                     this.processarDadosAlunos(data);
                     
                 } catch (error) {
-                    console.error('Erro ao carregar alunos:', error);
-                    // Não mostrar erro se for 404, apenas manter dados atuais
+                    console.warn('Não foi possível carregar alunos presentes:', error);
+                    // Manter dados atuais em caso de erro
                 }
             }
 
@@ -514,10 +528,16 @@
 
                 this.alunos = alunos.map(aluno => ({
                     id: aluno.id || aluno.alunoId,
-                    nome: aluno.nome || aluno.alunoNome,
+                    nome: aluno.nome || aluno.alunoNome || 'Aluno',
                     salaId: aluno.salaId || this.salaId
                 }));
 
+                this.renderizarAlunos();
+                this.atualizarContador();
+            }
+
+            atualizarListaAlunos(alunos) {
+                this.alunos = alunos;
                 this.renderizarAlunos();
                 this.atualizarContador();
             }
@@ -544,11 +564,17 @@
                 });
             }
 
-            // [MÉTODOS WebSocket - CORRIGIDOS]
             iniciarWebSocket() {
                 if (this.modoDemo) return;
                 
                 try {
+                    // Verificar se WebSocket é suportado
+                    if (!window.WebSocket) {
+                        console.warn('WebSocket não suportado');
+                        this.atualizarStatusConexao('🟡', 'WS Não Suportado');
+                        return;
+                    }
+
                     this.socket = new WebSocket(this.WS_URL);
                     
                     this.socket.onopen = () => {
@@ -570,20 +596,21 @@
                         }
                     };
                     
-                    this.socket.onclose = () => {
-                        console.log('WebSocket fechado');
+                    this.socket.onclose = (event) => {
+                        console.log('WebSocket fechado:', event.code, event.reason);
                         this.atualizarStatusConexao('🔴', 'Offline');
+                        // Tentar reconectar após 5 segundos
                         setTimeout(() => this.iniciarWebSocket(), 5000);
                     };
                     
                     this.socket.onerror = (error) => {
                         console.error('Erro WebSocket:', error);
-                        this.atualizarStatusConexao('🟡', 'Erro');
+                        this.atualizarStatusConexao('🟡', 'Erro Conexão');
                     };
                     
                 } catch (error) {
                     console.error('Erro ao conectar WebSocket:', error);
-                    this.atualizarStatusConexao('🔴', 'WebSocket Error');
+                    this.atualizarStatusConexao('🔴', 'WS Error');
                 }
             }
 
@@ -603,6 +630,8 @@
                     case 'ATUALIZAR_PRESENCA':
                         this.carregarAlunosPresentes();
                         break;
+                    default:
+                        console.log('Tipo de mensagem não reconhecido:', mensagem.tipo);
                 }
             }
 
@@ -639,7 +668,6 @@
                 setTimeout(() => alunoCard.classList.remove('destaque'), 5000);
             }
 
-            // [MÉTODOS AUXILIARES]
             async fazerRequisicao(endpoint, options = {}) {
                 const url = `${this.BACKEND_URL}${endpoint}`;
                 const config = {
@@ -654,6 +682,8 @@
                 const response = await fetch(url, config);
                 
                 if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Erro na resposta:', response.status, errorText);
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 
@@ -736,6 +766,7 @@
                 localStorage.removeItem('token_expiry');
                 localStorage.removeItem('username');
                 localStorage.removeItem('user_email');
+                localStorage.removeItem('email');
                 window.location.href = 'index.html';
             }
 
