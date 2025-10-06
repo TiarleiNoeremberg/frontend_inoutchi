@@ -189,6 +189,17 @@
             margin: 1rem;
         }
 
+        .login-info {
+            background: #dbeafe;
+            border: 1px solid #3b82f6;
+            color: #1e40af;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            margin: 0.5rem 2rem;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+
         @media (max-height: 800px) {
             .aluno-card {
                 padding: 0.6rem 0.3rem;
@@ -242,6 +253,10 @@
         </div>
     </header>
 
+    <div id="loginInfo" class="login-info" style="display: none;">
+        🔐 Conectado como: <span id="userEmail"></span>
+    </div>
+
     <div class="container">
         <div class="alunos-grid" id="alunosGrid">
             <div class="loading">
@@ -256,7 +271,7 @@
                 this.BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
                 this.ENDPOINT_ALUNOS_PRESENTES = '/api/diretores/salas/{salaId}/alunos?presentes=true';
                 
-                // VERIFICAÇÃO SIMPLES E DIRETA COMO NO CÓDIGO QUE FUNCIONA
+                // VERIFICAÇÃO IDÊNTICA AO SEU INDEX.HTML
                 this.token = localStorage.getItem('access_token');
                 this.tokenExpiry = localStorage.getItem('token_expiry');
                 
@@ -274,7 +289,7 @@
             }
 
             async inicializar() {
-                // VERIFICAÇÃO IDÊNTICA AO CÓDIGO QUE FUNCIONA
+                // VERIFICAÇÃO IDÊNTICA AO SEU CÓDIGO QUE FUNCIONA
                 if (!this.token || !this.tokenExpiry || new Date().getTime() > parseInt(this.tokenExpiry)) {
                     console.log('REDIRECIONANDO: Token inválido ou expirado');
                     this.mostrarErro('Sessão expirada ou inexistente. Faça login novamente.');
@@ -283,13 +298,19 @@
                 }
 
                 try {
-                    // CARREGAR INFORMAÇÕES DO USUÁRIO PRIMEIRO - COMO NO CÓDIGO QUE FUNCIONA
+                    // MESMA LÓGICA DO SEU CÓDIGO: CARREGAR USUÁRIO PRIMEIRO
                     await this.carregarUsuario();
                     
-                    // DEPOIS DETERMINAR A SALA
+                    // VERIFICAR SE TEM ROLE_SALA - COMO NO SEU CÓDIGO
+                    if (!this.currentUser.roles.includes('ROLE_SALA')) {
+                        this.mostrarErro('Acesso negado. Esta área é exclusiva para salas.');
+                        return;
+                    }
+                    
+                    // DETERMINAR SALA DO USERNAME - COMO NO SEU CÓDIGO
                     this.determinarSalaId();
                     
-                    // FINALMENTE CARREGAR OS DADOS
+                    // CARREGAR DADOS DA SALA
                     await this.carregarDadosSala();
                     
                     // CONFIGURAR ATUALIZAÇÕES
@@ -297,7 +318,7 @@
                     setInterval(() => this.atualizarHora(), 1000);
                     setInterval(() => this.carregarDadosSala(), 30000);
                     
-                    console.log('✅ Dashboard inicializado com sucesso!');
+                    console.log('✅ Dashboard sala inicializado com sucesso!');
                     
                 } catch (error) {
                     console.error('❌ Erro ao inicializar:', error);
@@ -309,6 +330,7 @@
                 try {
                     console.log('👤 Carregando informações do usuário...');
                     
+                    // MESMO ENDPOINT DO SEU CÓDIGO QUE FUNCIONA
                     const response = await fetch(`${this.BACKEND_URL}/api/users/me`, {
                         headers: {
                             'Authorization': `Bearer ${this.token}`,
@@ -324,8 +346,8 @@
                     
                     console.log('✅ Dados do usuário carregados:', this.currentUser);
                     
-                    // ATUALIZAR HEADER COM INFORMAÇÕES REAIS DO USUÁRIO
-                    this.atualizarHeaderUsuario();
+                    // MOSTRAR INFORMAÇÕES DO USUÁRIO CONECTADO
+                    this.mostrarInfoUsuario();
                     
                 } catch (error) {
                     console.error('❌ Erro ao carregar usuário:', error);
@@ -333,8 +355,14 @@
                 }
             }
 
+            mostrarInfoUsuario() {
+                const userEmail = this.currentUser?.email || this.currentUser?.username || 'Usuário';
+                document.getElementById('userEmail').textContent = userEmail;
+                document.getElementById('loginInfo').style.display = 'block';
+            }
+
             determinarSalaId() {
-                // USAR O USERNAME DO USUÁRIO REAL CARREGADO DA API
+                // MESMA LÓGICA DO SEU SISTEMA - EXTRAIR SALA DO USERNAME/EMAIL
                 const username = this.currentUser?.username || this.currentUser?.email || '';
                 
                 if (username) {
@@ -345,14 +373,6 @@
                     this.salaId = 1;
                     console.log('🎯 Sala ID padrão (fallback):', this.salaId);
                 }
-            }
-
-            atualizarHeaderUsuario() {
-                const nomeUsuario = this.currentUser?.nome || this.currentUser?.username || 'Usuário';
-                const emailUsuario = this.currentUser?.email || '';
-                
-                document.getElementById('periodoSala').textContent = 
-                    `${this.salaId ? `Sala ${this.salaId}` : 'Sala'} | ${this.determinarPeriodo()} | ${nomeUsuario}`;
             }
 
             async carregarDadosSala() {
@@ -387,7 +407,6 @@
             }
 
             processarDadosSala(data) {
-                // Processar informações da sala
                 this.salaInfo = {
                     id: data.salaId,
                     nome: data.salaNome,
@@ -396,7 +415,6 @@
                     totalAusentes: data.totalAusentes
                 };
 
-                // Processar lista de alunos
                 if (data.alunos && Array.isArray(data.alunos)) {
                     this.alunos = data.alunos.map(aluno => ({
                         id: aluno.id,
@@ -414,10 +432,16 @@
                 this.atualizarHeader();
                 this.renderizarAlunos();
                 this.atualizarContador();
+                this.atualizarStatusConexao();
             }
 
             atualizarHeader() {
                 document.getElementById('nomeSala').textContent = this.salaInfo.nome || `Sala ${this.salaId}`;
+                
+                const periodo = this.determinarPeriodo();
+                const userInfo = this.currentUser?.username ? ` | ${this.currentUser.username}` : '';
+                document.getElementById('periodoSala').textContent = 
+                    `${this.salaInfo.nome || 'Sala'} | ${periodo}${userInfo}`;
             }
 
             renderizarAlunos() {
@@ -440,6 +464,11 @@
                     `;
                     grid.appendChild(card);
                 });
+            }
+
+            atualizarStatusConexao() {
+                document.getElementById('statusConexao').innerHTML = 
+                    '<span>🟢</span><span>Online</span>';
             }
 
             determinarPeriodo() {
@@ -478,8 +507,10 @@
             }
 
             redirecionarParaLogin() {
+                // MESMA LIMPEZA DO SEU CÓDIGO
                 localStorage.removeItem('access_token');
                 localStorage.removeItem('token_expiry');
+                localStorage.removeItem('refresh_token');
                 window.location.href = 'index.html';
             }
 
