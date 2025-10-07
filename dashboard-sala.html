@@ -418,6 +418,13 @@
                     this.WS_URL = 'https://inoutchi-cd92743c8443.herokuapp.com/ws-sala';
                     console.log('🎯 URL WebSocket definida:', this.WS_URL);
                     
+                    // 🎯 VERIFICAR TOKEN ANTES DE CONECTAR WEBSOCKET
+                    await this.verificarToken();
+                    
+                    this.WS_URL = 'https://inoutchi-cd92743c8443.herokuapp.com/ws-sala';
+                    console.log('🎯 URL WebSocket definida:', this.WS_URL);
+
+                    await this.testarWebSocketDisponivel();
                     // INICIAR WEBSOCKET
                     this.iniciarWebSocketStomp();
                     
@@ -488,28 +495,41 @@
                     console.log('🔌 Conectando ao WebSocket STOMP...');
                     this.atualizarStatusWebSocket('connecting', 'Conectando...');
 
-                    // 🎯 URL CORRETA - SockJS com endpoint /ws-sala
-                    const wsUrl = 'https://inoutchi-cd92743c8443.herokuapp.com/ws-sala';
-                    console.log('🔗 Conectando SockJS em:', wsUrl);
+                    // 🎯 CONFIGURAR SockJS COM HEADERS DE AUTENTICAÇÃO
+                    const socket = new SockJS('https://inoutchi-cd92743c8443.herokuapp.com/ws-sala');
                     
-                    const socket = new SockJS(wsUrl);
+                    // 🚨 INTERCEPTAR A CONEXÃO SockJS PARA ADICIONAR HEADERS
+                    socket.onopen = () => {
+                        console.log('🔗 SockJS connection opened');
+                    };
                     
+                    socket.onclose = (event) => {
+                        console.log('🔌 SockJS connection closed:', event);
+                    };
+                    
+                    // 🎯 CONFIGURAÇÃO STOMP COM HEADERS PERSONALIZADOS
                     this.stompClient = new StompJs.Client({
                         webSocketFactory: () => socket,
                         reconnectDelay: 5000,
                         heartbeatIncoming: 4000,
                         heartbeatOutgoing: 4000,
                         debug: (str) => {
-                            // Logs importantes apenas
                             if (str.includes('CONNECT') || str.includes('ERROR') || str.includes('connected')) {
                                 console.log('STOMP:', str);
                             }
                         },
+                        // 🔑 HEADERS DE AUTENTICAÇÃO CRÍTICOS
                         connectHeaders: {
                             'Authorization': `Bearer ${this.token}`,
-                            'sala-id': this.salaId.toString(),
-                            'user-id': this.currentUser?.id?.toString()
-                        }
+                            'X-User-Id': this.currentUser?.id?.toString(),
+                            'X-Sala-Id': this.salaId.toString(),
+                            'X-Username': this.currentUser?.nome || 'sala',
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json'
+                        },
+                        // Configurações adicionais
+                        connectionTimeout: 10000,
+                        logRawCommunication: true // Ativar para debug detalhado
                     });
                     
                     this.stompClient.onConnect = (frame) => {
@@ -533,15 +553,19 @@
                     this.stompClient.onStompError = (frame) => {
                         console.error('❌ Erro STOMP:', frame);
                         const errorMessage = frame.headers?.message || frame.toString();
+                        console.error('🔍 Detalhes do erro STOMP:', errorMessage);
                         
                         if (errorMessage.includes('401') || errorMessage.includes('unauthorized')) {
-                            console.error('🚫 Erro de autenticação STOMP');
+                            console.error('🚫 Erro 401 - Autenticação falhou no STOMP');
                             this.atualizarStatusWebSocket('error', 'Não Autorizado');
                             this.mostrarNotificacao(
                                 'Erro de Autenticação',
-                                'Token inválido para WebSocket',
+                                'Falha na autenticação WebSocket',
                                 'error'
                             );
+                            
+                            // Tentar renovar token
+                            setTimeout(() => this.renovarTokenEConectar(), 2000);
                         } else {
                             this.atualizarStatusWebSocket('error', 'Erro STOMP');
                         }
@@ -550,7 +574,9 @@
                     this.stompClient.onWebSocketError = (error) => {
                         console.error('❌ Erro WebSocket:', error);
                         this.atualizarStatusWebSocket('error', 'Erro Conexão');
-                        this.tentarReconexao();
+                        
+                        // Tentar reconexão após erro
+                        setTimeout(() => this.tentarReconexao(), 3000);
                     };
                     
                     this.stompClient.onDisconnect = () => {
@@ -559,6 +585,7 @@
                     };
                     
                     // Conectar
+                    console.log('🔑 Enviando token para conexão STOMP...');
                     this.stompClient.activate();
                     
                 } catch (error) {
@@ -616,6 +643,37 @@
                     );
                     setTimeout(() => this.redirecionarParaLogin(), 3000);
                 }
+            }
+
+            verificarToken() {
+                console.log('🔐 Verificando token...');
+                console.log('   - Token presente:', !!this.token);
+                console.log('   - Token expiry:', this.tokenExpiry);
+                console.log('   - Tempo atual:', new Date().getTime());
+                console.log('   - Token válido:', new Date().getTime() < parseInt(this.tokenExpiry));
+                console.log('   - Token (primeiros 20 chars):', this.token ? this.token.substring(0, 20) + '...' : 'NULL');
+                
+                // Testar token com uma requisição simples
+                fetch(`${this.BACKEND_URL}/api/users/me`, {
+                    headers: {
+                        'Authorization': `Bearer ${this.token}`,
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(response => {
+                    console.log('✅ Token testado - Status:', response.status);
+                    if (!response.ok) {
+                        throw new Error(`Token inválido: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(user => {
+                    console.log('✅ Token válido para usuário:', user.nome);
+                })
+                .catch(error => {
+                    console.error('❌ Token inválido:', error);
+                    this.renovarTokenEConectar();
+                });
             }
 
             verificarAcessoWebSocket() {
@@ -846,10 +904,7 @@
             tentarReconexao() {
                 if (this.reconnectAttempts < this.maxReconnectAttempts) {
                     this.reconnectAttempts++;
-                    const delay = Math.min(
-                        this.reconnectInterval * Math.pow(1.5, this.reconnectAttempts - 1),
-                        30000 // max 30 segundos
-                );
+                    const delay = Math.min(this.reconnectInterval * this.reconnectAttempts, 30000);
                     
                     console.log(`🔄 Tentativa ${this.reconnectAttempts} de reconexão em ${delay}ms...`);
                     
@@ -860,6 +915,9 @@
                     );
                     
                     setTimeout(() => {
+                        if (this.stompClient) {
+                            this.stompClient.deactivate();
+                        }
                         this.iniciarWebSocketStomp();
                     }, delay);
                 } else {
@@ -869,6 +927,7 @@
                         'Não foi possível reconectar. Recarregue a página.',
                         'error'
                     );
+                    this.atualizarStatusWebSocket('error', 'Falha na Conexão');
                 }
             }
 
