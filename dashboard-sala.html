@@ -697,52 +697,63 @@
                     // 🎯 TÓPICOS CORRETOS baseados no seu backend
                     console.log('🔔 Inscrevendo nos tópicos da sala', this.salaId);
                     
-                    // Tópico principal da sala (para saídas de alunos)
+                    // Tópico para chamadas (onde notificarNovaChamada envia)
                     const subscription1 = this.stompClient.subscribe(
-                        `/topic/sala/${this.salaId}`,  // 🎯 CORRIGIDO: /sala/{id} não /sala.{id}
-                        (message) => {
-                            console.log('📨 Mensagem recebida no tópico da sala:', message.body);
-                            this.processarMensagemWebSocket(JSON.parse(message.body));
-                        }
-                    );
-
-                    // Tópico específico para chamadas
-                    const subscription2 = this.stompClient.subscribe(
-                        //`/topic/sala/${this.salaId}/chamadas`,  // 🎯 CORRIGIDO: /sala/{id}/chamadas
-                        `/topic/sala/${this.salaId}`,  // Minha tentativa de corrigir
+                        `/topic/sala/${this.salaId}/chamadas`,
                         (message) => {
                             console.log('📨 Mensagem recebida no tópico de chamadas:', message.body);
                             this.processarMensagemWebSocket(JSON.parse(message.body));
                         }
                     );
 
-                    // Tópico de status (opcional)
-                    const subscription3 = this.stompClient.subscribe(
-                        `/topic/sala/status`,
+                    // Tópico principal da sala (para saídas de alunos)
+                    const subscription2 = this.stompClient.subscribe(
+                        `/topic/sala/${this.salaId}`,
                         (message) => {
-                            console.log('📨 Mensagem recebida no tópico de status:', message.body);
-                            const data = JSON.parse(message.body);
-                            if (data.salaId === this.salaId) {
-                                console.log('✅ Status da sala atualizado:', data.status);
-                            }
+                            console.log('📨 Mensagem recebida no tópico da sala:', message.body);
+                            this.processarMensagemWebSocket(JSON.parse(message.body));
                         }
                     );
 
-                    console.log(`✅ Inscrito nos tópicos:`);
-                    console.log(`   - /topic/sala/${this.salaId}`);
-                    console.log(`   - /topic/sala/${this.salaId}/chamadas`);
-                    console.log(`   - /topic/sala/status`);
                     
-                    this.subscriptions = [subscription1, subscription2, subscription3];
+
+                    console.log(`✅ Inscrito nos tópicos: /topic/sala/${this.salaId}/chamadas e /topic/sala/${this.salaId}`);
+                    this.subscriptions = [subscription1, subscription2];
                     
                 } catch (error) {
                     console.error('❌ Erro ao inscrever nos tópicos:', error);
                 }
             }
 
+            atualizarAlunoPresente(alunoId, alunoNome, horario) {
+                // Verificar se o aluno já está na lista
+                const alunoExistente = this.alunos.find(a => a.id === alunoId);
+
+                if (!alunoExistente) {
+                    // Adicionar aluno à lista local
+                    this.alunos.push({
+                        id: alunoId,
+                        nome: alunoNome,
+                        status: 'PRESENTE'
+                    });
+
+                    console.log(`✅ Aluno ${alunoNome} adicionado instantaneamente via WebSocket`);
+                } else {
+                    console.log(`✅ Aluno ${alunoNome} já está na lista, atualizando...`);
+                }
+
+                // Atualizar contador
+                this.atualizarContador();
+
+                // Renderizar alunos (atualiza a interface)
+                this.renderizarAlunos();
+            }
+
             processarMensagemWebSocket(mensagem) {
                 console.log('⚡ [WEBSOCKET] Mensagem recebida:', new Date().toISOString(), mensagem);
-                
+                console.log('   Tipo:', mensagem.tipo);
+                console.log('   Conteúdo:', mensagem);
+
                 switch (mensagem.tipo) {
                     case 'NOVA_CHAMADA':
                         console.log('🎯 Processando NOVA_CHAMADA para aluno:', mensagem.alunoNome);
@@ -766,10 +777,13 @@
             }
 
             processarNovaChamada(mensagem) {
-                console.log('🔔 Nova chamada recebida:', mensagem);
+                console.log('🔔 Nova chamada recebida via WebSocket:', mensagem);
                 
                 const horarioAtual = this.obterHorarioAtual();
                 this.horariosChamada[mensagem.alunoId] = horarioAtual;
+
+                // 🎯 ATUALIZAR IMEDIATAMENTE A INTERFACE - SEM AGUARDAR POLLING
+                this.atualizarAlunoPresente(mensagem.alunoId, mensagem.alunoNome, horarioAtual);
                 
                 // Tocar som de notificação
                 this.tocarSomNotificacao();
@@ -791,6 +805,7 @@
                         this.atualizarHorarioCard(alunoCard, horarioAtual);
                         this.aplicarDestaqueChamada(alunoCard, mensagem.tipoSolicitante);
                     }
+                    
                 }
                 
                 console.log(`✅ Chamada processada para ${mensagem.alunoNome}`);
@@ -820,19 +835,48 @@
                 this.removerDestaqueChamada(mensagem.alunoId);
             }
 
+            tocarSomAlerta() {
+                try {
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+
+                    // 🎯 SOM MAIS GRAVE E URGENTE PARA SAÍDA
+                    oscillator.frequency.setValueAtTime(300, audioContext.currentTime);
+                    oscillator.frequency.setValueAtTime(250, audioContext.currentTime + 0.1);
+                    oscillator.frequency.setValueAtTime(200, audioContext.currentTime + 0.2);
+
+                    gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+
+                    oscillator.start(audioContext.currentTime);
+                    oscillator.stop(audioContext.currentTime + 0.5);
+
+                    console.log('🔊 Som de alerta de saída executado');
+                } catch (error) {
+                    console.warn('🔇 Áudio de alerta não suportado');
+                }
+            }
+
             processarSaidaAluno(mensagem) {
                 console.log('🚪 Saída de aluno recebida via WebSocket:', mensagem);
-                
+
+                // 🎯 TOCAR SOM DE ALERTA PARA SAÍDA
+                this.tocarSomAlerta();
+
                 // Remover aluno da lista local
                 this.removerAluno(mensagem.alunoId);
-                
+
                 // Mostrar notificação
                 this.mostrarNotificacao(
                     'Saída Registrada',
                     `${mensagem.alunoNome} saiu da escola`,
                     'warning'
                 );
-                
+
                 console.log(`✅ Aluno ${mensagem.alunoNome} removido instantaneamente via WebSocket`);
             }
 
