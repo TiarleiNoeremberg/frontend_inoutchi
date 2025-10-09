@@ -27,25 +27,22 @@
             justify-content: space-between;
             align-items: center;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            min-height: 80px; /* Garante altura mínima */
         }
 
         .sala-info h1 {
-            font-size: 2rem; /* Aumentei um pouco o tamanho */
-            font-weight: 700; /* Bold mais forte */
-            margin: 0;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.2); /* Adiciona destaque */
+            font-size: 1.8rem;
+            font-weight: 600;
         }
 
-        .sala-info {
-            /* Ocupa todo o espaço disponível, empurrando o user-info para a direita */
-            flex: 1;
+        .sala-info .periodo {
+            font-size: 1rem;
+            opacity: 0.9;
         }
 
         .user-info {
             display: flex;
             align-items: center;
-            gap: 1.5rem;
+            gap: 1rem;
         }
 
         .logout-btn {
@@ -56,40 +53,22 @@
             border-radius: 6px;
             cursor: pointer;
             transition: all 0.3s ease;
-            font-weight: 500;
         }
 
         .logout-btn:hover {
             background: rgba(255,255,255,0.3);
-            transform: translateY(-1px);
         }
 
         .status-info {
             display: flex;
-            gap: 1.5rem;
-            font-size: 1rem;
-            background: rgba(255,255,255,0.1);
-            padding: 0.75rem 1.25rem;
-            border-radius: 8px;
-            backdrop-filter: blur(10px);
-            min-width: 220px; /* Reduzimos a largura já que removemos um item */
-            justify-content: space-between;
-            box-sizing: border-box;
-        }
-
-        .status-item.hora {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            min-width: 90px;
-            justify-content: center;
-            font-weight: 600; /* Opcional: pode deixar um pouco mais destacado */
+            gap: 2rem;
+            font-size: 1.1rem;
         }
 
         .status-item {
             display: flex;
             align-items: center;
             gap: 0.5rem;
-            font-weight: 500;
-            white-space: nowrap;
         }
 
         .container {
@@ -210,6 +189,49 @@
             margin: 1rem;
         }
 
+        .login-info {
+            background: #dbeafe;
+            border: 1px solid #3b82f6;
+            color: #1e40af;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            margin: 0.5rem 2rem;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+
+        .websocket-status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            z-index: 1000;
+            transition: all 0.3s ease;
+        }
+
+        .websocket-connected {
+            background: #10b981;
+            color: white;
+        }
+
+        .websocket-connecting {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .websocket-disconnected {
+            background: #ef4444;
+            color: white;
+        }
+
+        .websocket-error {
+            background: #dc2626;
+            color: white;
+        }
+
         .notification-toast {
             position: fixed;
             top: 20px;
@@ -297,17 +319,25 @@
         }
     </style>
 </head>
-<body>    
+<body>
+    <div id="websocketStatus" class="websocket-status websocket-disconnected" style="display: none;">
+        🔴 WebSocket Offline
+    </div>
+
     <header class="header">
         <div class="sala-info">
-            <!-- Removemos o h1 antigo e usamos o h1 para o período -->
-            <h1 id="periodoSala">Carregando...</h1>
+            <h1 id="nomeSala">Dashboard Sala</h1>
+            <div class="periodo" id="periodoSala">Carregando...</div>
         </div>
         <div class="user-info">
             <div class="status-info">
-                <div class="status-item hora">
+                <div class="status-item">
+                    <span>👥</span>
+                    <span id="contadorAlunos">0/0</span>
+                </div>
+                <div class="status-item">
                     <span>🕒</span>
-                    <span id="horaAtual">--:--:--</span>
+                    <span id="horaAtual">--:--</span>
                 </div>
                 <div class="status-item" id="statusConexao">
                     <span>🔴</span>
@@ -317,6 +347,11 @@
             <button class="logout-btn" onclick="salaDashboard.logout()">Sair</button>
         </div>
     </header>
+
+    <div id="loginInfo" class="login-info" style="display: none;">
+        🔐 Conectado como: <span id="userEmail"></span>
+    </div>
+
     <div class="container">
         <div class="alunos-grid" id="alunosGrid">
             <div class="loading">
@@ -378,6 +413,10 @@
                     
                     this.determinarSalaId();
                     await this.carregarDadosSala();
+                    
+                    // 🎯 USAR URL DIRETA - REMOVER A DESCOBERTA
+                    this.WS_URL = 'https://inoutchi-cd92743c8443.herokuapp.com/ws-sala';
+                    console.log('🎯 URL WebSocket definida:', this.WS_URL);
                     
                     // 🎯 VERIFICAR TOKEN ANTES DE CONECTAR WEBSOCKET
                     await this.verificarToken();
@@ -453,58 +492,105 @@
 
             iniciarWebSocketStomp() {
                 try {
-                    console.log('🔌 Iniciando conexão WebSocket STOMP...');
-                    console.log('🔑 Token:', this.token ? `${this.token.substring(0, 20)}...` : 'NULL');
-                    
-                    // 🎯 CONFIGURAÇÃO SIMPLES E DIRETA
+                    console.log('🔌 Conectando ao WebSocket STOMP...');
+                    this.atualizarStatusWebSocket('connecting', 'Conectando...');
+
+                    // 🎯 CONFIGURAR SockJS COM HEADERS DE AUTENTICAÇÃO
                     const socket = new SockJS('https://inoutchi-cd92743c8443.herokuapp.com/ws-sala');
                     
-                    this.stompClient = Stomp.over(socket);
-                    
-                    // 🎯 CONFIGURAR DEBUG
-                    this.stompClient.debug = function(str) {
-                        if (str.includes('CONNECT') || str.includes('ERROR') || str.includes('connected')) {
-                            console.log('🔍 STOMP:', str);
-                        }
+                    // 🚨 INTERCEPTAR A CONEXÃO SockJS PARA ADICIONAR HEADERS
+                    socket.onopen = () => {
+                        console.log('🔗 SockJS connection opened');
                     };
                     
-                    // 🎯 HEADERS DE CONEXÃO
-                    const headers = {
-                        'Authorization': `Bearer ${this.token}`,
-                        'X-Sala-Id': this.salaId?.toString() || '1',
-                        'X-User-Id': this.currentUser?.id?.toString() || 'unknown',
-                        'X-Username': this.currentUser?.nome || 'sala'
+                    socket.onclose = (event) => {
+                        console.log('🔌 SockJS connection closed:', event);
                     };
                     
-                    console.log('🔑 Enviando headers:', headers);
-                    
-                    // 🎯 TENTAR CONEXÃO
-                    this.stompClient.connect(headers, 
-                        (frame) => {
-                            console.log('✅✅✅ CONEXÃO STOMP ESTABELECIDA!');
-                            console.log('📊 Frame:', frame);
-                            
-                            this.reconnectAttempts = 0;
-                            this.atualizarStatusWebSocket('connected', 'WebSocket Online');
-                            
-                            // Inscrever nos tópicos
-                            this.inscreverNosTopicos();
-                            
-                            this.mostrarNotificacao('Conectado', 'WebSocket conectado com sucesso', 'success');
+                    // 🎯 CONFIGURAÇÃO STOMP COM HEADERS PERSONALIZADOS
+                    this.stompClient = new StompJs.Client({
+                        webSocketFactory: () => socket,
+                        reconnectDelay: 5000,
+                        heartbeatIncoming: 4000,
+                        heartbeatOutgoing: 4000,
+                        debug: (str) => {
+                            if (str.includes('CONNECT') || str.includes('ERROR') || str.includes('connected')) {
+                                console.log('STOMP:', str);
+                            }
                         },
-                        (error) => {
-                            console.error('❌ ERRO NA CONEXÃO STOMP:', error);
+                        // 🔑 HEADERS DE AUTENTICAÇÃO CRÍTICOS
+                        connectHeaders: {
+                            'Authorization': `Bearer ${this.token}`,
+                            'X-User-Id': this.currentUser?.id?.toString(),
+                            'X-Sala-Id': this.salaId.toString(),
+                            'X-Username': this.currentUser?.nome || 'sala',
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json'
+                        },
+                        // Configurações adicionais
+                        connectionTimeout: 10000,
+                        logRawCommunication: true // Ativar para debug detalhado
+                    });
+                    
+                    this.stompClient.onConnect = (frame) => {
+                        console.log('✅ WebSocket STOMP conectado com sucesso!', frame);
+                        this.reconnectAttempts = 0;
+                        this.atualizarStatusWebSocket('connected', 'WebSocket Online');
+                        
+                        // Ativar a sala
+                        this.ativarSala();
+                        
+                        // Inscrever nos tópicos
+                        this.inscreverNosTopicos();
+                        
+                        this.mostrarNotificacao(
+                            'Conectado',
+                            'Conexão em tempo real estabelecida',
+                            'success'
+                        );
+                    };
+                    
+                    this.stompClient.onStompError = (frame) => {
+                        console.error('❌ Erro STOMP:', frame);
+                        const errorMessage = frame.headers?.message || frame.toString();
+                        console.error('🔍 Detalhes do erro STOMP:', errorMessage);
+                        
+                        if (errorMessage.includes('401') || errorMessage.includes('unauthorized')) {
+                            console.error('🚫 Erro 401 - Autenticação falhou no STOMP');
+                            this.atualizarStatusWebSocket('error', 'Não Autorizado');
+                            this.mostrarNotificacao(
+                                'Erro de Autenticação',
+                                'Falha na autenticação WebSocket',
+                                'error'
+                            );
                             
-                            // Tentar reconexão em 5 segundos
-                            setTimeout(() => {
-                                console.log('🔄 Tentando reconexão...');
-                                this.iniciarWebSocketStomp();
-                            }, 5000);
+                            // Tentar renovar token
+                            setTimeout(() => this.renovarTokenEConectar(), 2000);
+                        } else {
+                            this.atualizarStatusWebSocket('error', 'Erro STOMP');
                         }
-                    );
+                    };
+                    
+                    this.stompClient.onWebSocketError = (error) => {
+                        console.error('❌ Erro WebSocket:', error);
+                        this.atualizarStatusWebSocket('error', 'Erro Conexão');
+                        
+                        // Tentar reconexão após erro
+                        setTimeout(() => this.tentarReconexao(), 3000);
+                    };
+                    
+                    this.stompClient.onDisconnect = () => {
+                        console.log('🔌 WebSocket desconectado');
+                        this.atualizarStatusWebSocket('disconnected', 'WebSocket Offline');
+                    };
+                    
+                    // Conectar
+                    console.log('🔑 Enviando token para conexão STOMP...');
+                    this.stompClient.activate();
                     
                 } catch (error) {
-                    console.error('❌ Erro ao iniciar WebSocket:', error);
+                    console.error('❌ Erro ao conectar WebSocket:', error);
+                    this.atualizarStatusWebSocket('error', 'Erro de Conexão');
                 }
             }
 
@@ -589,94 +675,109 @@
                     this.renovarTokenEConectar();
                 });
             }
-            
+
+            verificarAcessoWebSocket() {
+                if (!this.stompClient || !this.stompClient.connected) return;
+                
+                // Enviar mensagem de teste para verificar permissões
+                this.stompClient.publish({
+                    destination: `/app/sala/${this.salaId}/verificar-acesso`,
+                    body: JSON.stringify({ userId: this.currentUser?.id, salaId: this.salaId }),
+                    headers: { 'Authorization': `Bearer ${this.token}` }
+                });
+            }
+
             inscreverNosTopicos() {
                 if (!this.stompClient || !this.stompClient.connected) {
-                    console.error('❌ STOMP client não está conectado');
+                    console.error('❌ STOMP client não conectado');
                     return;
                 }
-                
-                console.log('📨 Inscrevendo nos tópicos...');
-                
-                // Tópico para receber solicitações de saída
-                const subscription = this.stompClient.subscribe(`/topic/sala/${this.salaId}`, 
-                    (message) => {
-                        console.log('📨 Mensagem recebida:', message.body);
-                        this.processarMensagemSaida(JSON.parse(message.body));
-                    },
-                    { 'Authorization': `Bearer ${this.token}` }
-                );
-                
-                console.log('✅ Inscrito no tópico:', subscription.id);
+
+                try {
+                    // 🎯 TÓPICOS CORRETOS baseados no seu backend
+                    console.log('🔔 Inscrevendo nos tópicos da sala', this.salaId);
+                    
+                    // Tópico principal da sala (para saídas de alunos)
+                    const subscription1 = this.stompClient.subscribe(
+                        `/topic/sala/${this.salaId}`,  // 🎯 CORRIGIDO: /sala/{id} não /sala.{id}
+                        (message) => {
+                            console.log('📨 Mensagem recebida no tópico da sala:', message.body);
+                            this.processarMensagemWebSocket(JSON.parse(message.body));
+                        }
+                    );
+
+                    // Tópico específico para chamadas
+                    const subscription2 = this.stompClient.subscribe(
+                        `/topic/sala/${this.salaId}/chamadas`,  // 🎯 CORRIGIDO: /sala/{id}/chamadas
+                        (message) => {
+                            console.log('📨 Mensagem recebida no tópico de chamadas:', message.body);
+                            this.processarMensagemWebSocket(JSON.parse(message.body));
+                        }
+                    );
+
+                    // Tópico de status (opcional)
+                    const subscription3 = this.stompClient.subscribe(
+                        `/topic/sala/status`,
+                        (message) => {
+                            console.log('📨 Mensagem recebida no tópico de status:', message.body);
+                            const data = JSON.parse(message.body);
+                            if (data.salaId === this.salaId) {
+                                console.log('✅ Status da sala atualizado:', data.status);
+                            }
+                        }
+                    );
+
+                    console.log(`✅ Inscrito nos tópicos:`);
+                    console.log(`   - /topic/sala/${this.salaId}`);
+                    console.log(`   - /topic/sala/${this.salaId}/chamadas`);
+                    console.log(`   - /topic/sala/status`);
+                    
+                    this.subscriptions = [subscription1, subscription2, subscription3];
+                    
+                } catch (error) {
+                    console.error('❌ Erro ao inscrever nos tópicos:', error);
+                }
             }
-
-            atualizarAlunoPresente(alunoId, alunoNome, horario) {
-            // Verificar se o aluno já está na lista
-            const alunoExistente = this.alunos.find(a => a.id === alunoId);
-
-            if (!alunoExistente) {
-                // Adicionar aluno à lista local
-                this.alunos.push({
-                    id: alunoId,
-                    nome: alunoNome,
-                    status: 'PRESENTE'
-                });
-
-                // Manter a lista ordenada alfabeticamente
-                this.alunos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-
-                console.log(`✅ Aluno ${alunoNome} adicionado instantaneamente via WebSocket`);
-            } else {
-                console.log(`✅ Aluno ${alunoNome} já está na lista, atualizando...`);
-            }
-
-            // Renderizar alunos (atualiza a interface)
-            this.renderizarAlunos();
-        }
 
             processarMensagemWebSocket(mensagem) {
-                console.log('⚡ [WEBSOCKET] Mensagem recebida:', new Date().toISOString(), mensagem);
-                console.log('   Tipo:', mensagem.tipo);
-                console.log('   Conteúdo:', mensagem);
-
+                console.log('📨 Mensagem WebSocket recebida:', mensagem);
+                
+                // 🎯 ESTRUTURA CORRETA baseada no seu backend
                 switch (mensagem.tipo) {
                     case 'NOVA_CHAMADA':
-                        console.log('🎯 Processando NOVA_CHAMADA para aluno:', mensagem.alunoNome);
                         this.processarNovaChamada(mensagem);
                         break;
-                    case 'SAIDA_ALUNO':
-                        console.log('🎯 Processando SAIDA_ALUNO para aluno:', mensagem.alunoNome);
-                        this.processarSaidaAluno(mensagem);
-                        break;
+                        
                     case 'CONFIRMACAO_CHAMADA':
-                        console.log('🎯 Processando CONFIRMACAO_CHAMADA para aluno:', mensagem.alunoId);
                         this.processarConfirmacaoChamada(mensagem);
                         break;
+                        
                     case 'REMOCAO_CHAMADA':
-                        console.log('🎯 Processando REMOCAO_CHAMADA para aluno:', mensagem.alunoId);
                         this.processarRemocaoChamada(mensagem);
                         break;
+                        
+                    case 'SAIDA_ALUNO':
+                        this.processarSaidaAluno(mensagem);
+                        break;
+                        
                     default:
                         console.log('📨 Mensagem WebSocket não reconhecida:', mensagem);
                 }
             }
 
             processarNovaChamada(mensagem) {
-                console.log('🔔 Nova chamada recebida via WebSocket:', mensagem);
+                console.log('🔔 Nova chamada recebida:', mensagem);
                 
                 const horarioAtual = this.obterHorarioAtual();
                 this.horariosChamada[mensagem.alunoId] = horarioAtual;
-
-                // 🎯 ATUALIZAR IMEDIATAMENTE A INTERFACE - SEM AGUARDAR POLLING
-                this.atualizarAlunoPresente(mensagem.alunoId, mensagem.alunoNome, horarioAtual);
                 
                 // Tocar som de notificação
                 this.tocarSomNotificacao();
                 
                 // Mostrar notificação visual
                 this.mostrarNotificacao(
-                    'Presente na Escola',
-                    `${mensagem.alunoNome}`,
+                    'Nova Chamada!',
+                    `${mensagem.alunoNome} - ${this.formatarTipoSolicitante(mensagem.tipoSolicitante)}`,
                     'info'
                 );
                 
@@ -690,7 +791,6 @@
                         this.atualizarHorarioCard(alunoCard, horarioAtual);
                         this.aplicarDestaqueChamada(alunoCard, mensagem.tipoSolicitante);
                     }
-                    
                 }
                 
                 console.log(`✅ Chamada processada para ${mensagem.alunoNome}`);
@@ -720,49 +820,16 @@
                 this.removerDestaqueChamada(mensagem.alunoId);
             }
 
-            tocarSomAlerta() {
-                try {
-                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    const oscillator = audioContext.createOscillator();
-                    const gainNode = audioContext.createGain();
-
-                    oscillator.connect(gainNode);
-                    gainNode.connect(audioContext.destination);
-
-                    // 🎯 SOM MAIS GRAVE E URGENTE PARA SAÍDA
-                    oscillator.frequency.setValueAtTime(300, audioContext.currentTime);
-                    oscillator.frequency.setValueAtTime(250, audioContext.currentTime + 0.1);
-                    oscillator.frequency.setValueAtTime(200, audioContext.currentTime + 0.2);
-
-                    gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
-                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-
-                    oscillator.start(audioContext.currentTime);
-                    oscillator.stop(audioContext.currentTime + 0.5);
-
-                    console.log('🔊 Som de alerta de saída executado');
-                } catch (error) {
-                    console.warn('🔇 Áudio de alerta não suportado');
-                }
-            }
-
             processarSaidaAluno(mensagem) {
-                console.log('🚪 Saída de aluno recebida via WebSocket:', mensagem);
-
-                // 🎯 TOCAR SOM DE ALERTA PARA SAÍDA
-                this.tocarSomAlerta();
-
-                // Remover aluno da lista local
-                this.removerAluno(mensagem.alunoId);
-
-                // Mostrar notificação
+                console.log('🚪 Saída de aluno:', mensagem);
+                
                 this.mostrarNotificacao(
-                    'Saída Confirmada',
+                    'Saída Registrada',
                     `${mensagem.alunoNome} saiu da escola`,
                     'warning'
                 );
-
-                console.log(`✅ Aluno ${mensagem.alunoNome} removido instantaneamente via WebSocket`);
+                
+                this.removerAluno(mensagem.alunoId);
             }
 
             aplicarDestaqueComCor(alunoId, cor) {
@@ -865,7 +932,15 @@
             }
 
             atualizarStatusWebSocket(status, mensagem) {
+                const statusElement = document.getElementById('websocketStatus');
                 const statusConexao = document.getElementById('statusConexao');
+                
+                if (statusElement) {
+                    statusElement.style.display = 'block';
+                    statusElement.className = `websocket-status websocket-${status}`;
+                    statusElement.textContent = this.getStatusIcon(status) + ' ' + mensagem;
+                }
+                
                 if (statusConexao) {
                     statusConexao.innerHTML = `<span>${this.getStatusIcon(status)}</span><span>${mensagem}</span>`;
                 }
@@ -882,7 +957,10 @@
             }
 
             mostrarNotificacao(titulo, mensagem, tipo = 'info') {
-                
+                // Limitar notificações em sequência
+                if (this.notificationQueue.length > 3) {
+                    return;
+                }
                 // Remover notificação anterior se existir
                 const notificacaoAnterior = document.getElementById('webSocketNotification');
                 if (notificacaoAnterior) {
@@ -942,11 +1020,19 @@
                     this.currentUser = await response.json();
                     
                     console.log('✅ Dados do usuário carregados:', this.currentUser);
-                                        
+                    
+                    this.mostrarInfoUsuario();
+                    
                 } catch (error) {
                     console.error('❌ Erro ao carregar usuário:', error);
                     throw new Error('Não foi possível carregar informações do usuário');
                 }
+            }
+
+            mostrarInfoUsuario() {
+                const userEmail = this.currentUser?.email || this.currentUser?.username || 'Usuário';
+                document.getElementById('userEmail').textContent = userEmail;
+                document.getElementById('loginInfo').style.display = 'block';
             }
 
             determinarSalaId() {
@@ -996,18 +1082,18 @@
             processarDadosSala(data) {
                 this.salaInfo = {
                     id: data.salaId,
-                    nome: data.salaNome
+                    nome: data.salaNome,
+                    totalAlunos: data.totalPresentes + data.totalAusentes,
+                    totalPresentes: data.totalPresentes,
+                    totalAusentes: data.totalAusentes
                 };
 
                 if (data.alunos && Array.isArray(data.alunos)) {
-                    // Ordenar alunos alfabeticamente pelo nome
-                    this.alunos = data.alunos
-                        .map(aluno => ({
-                            id: aluno.id,
-                            nome: aluno.nome,
-                            status: aluno.status
-                        }))
-                        .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')); // Ordenação alfabética em português
+                    this.alunos = data.alunos.map(aluno => ({
+                        id: aluno.id,
+                        nome: aluno.nome,
+                        status: aluno.status
+                    }));
                 } else {
                     this.alunos = [];
                 }
@@ -1018,15 +1104,16 @@
             atualizarInterface() {
                 this.atualizarHeader();
                 this.renderizarAlunos();
+                this.atualizarContador();
             }
 
             atualizarHeader() {
+                document.getElementById('nomeSala').textContent = this.salaInfo.nome || `Sala ${this.salaId}`;
+                
                 const periodo = this.determinarPeriodo();
                 const userInfo = this.currentUser?.username ? ` | ${this.currentUser.username}` : '';
-                
-                // Agora usamos apenas uma linha com tudo
-                const textoCompleto = `${this.salaInfo.nome || `Sala ${this.salaId}`} | ${periodo}${userInfo}`;
-                document.getElementById('periodoSala').textContent = textoCompleto;
+                document.getElementById('periodoSala').textContent = 
+                    `${this.salaInfo.nome || 'Sala'} | ${periodo}${userInfo}`;
             }
 
             renderizarAlunos() {
@@ -1078,14 +1165,16 @@
                 return `${agora.getHours().toString().padStart(2, '0')}:${agora.getMinutes().toString().padStart(2, '0')}`;
             }
 
+            atualizarContador() {
+                const total = this.salaInfo.totalAlunos || 0;
+                const presentes = this.alunos.length;
+                document.getElementById('contadorAlunos').textContent = `${presentes}/${total}`;
+            }
+
             atualizarHora() {
                 const agora = new Date();
-                const horas = agora.getHours().toString().padStart(2, '0');
-                const minutos = agora.getMinutes().toString().padStart(2, '0');
-                const segundos = agora.getSeconds().toString().padStart(2, '0');
-                
-                document.getElementById('horaAtual').innerHTML = 
-                    `${horas}:${minutos}<span style="opacity: 0.8;">:${segundos}</span>`;
+                document.getElementById('horaAtual').textContent = 
+                    `${agora.getHours().toString().padStart(2, '0')}:${agora.getMinutes().toString().padStart(2, '0')}`;
             }
 
             tocarSomNotificacao() {
@@ -1114,16 +1203,10 @@
             }
 
             removerAluno(alunoId) {
-                // Remover da lista local
                 this.alunos = this.alunos.filter(aluno => aluno.id !== alunoId);
-                
-                // A lista já estará ordenada após a remoção, pois removemos um item da lista ordenada
-                
-                // Remover do histórico de horários de chamada
                 delete this.horariosChamada[alunoId];
-                
-                // Renderizar novamente
                 this.renderizarAlunos();
+                this.atualizarContador();
             }
 
             mostrarErro(mensagem) {
