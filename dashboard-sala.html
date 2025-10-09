@@ -453,84 +453,58 @@
 
             iniciarWebSocketStomp() {
                 try {
-                    console.log('🔌 Conectando ao WebSocket STOMP...');
-                    this.atualizarStatusWebSocket('connecting', 'Conectando...');
-
-                    // 🎯 CONFIGURAR SockJS COM TRANSPORTES PERSONALIZADOS
-                    const transports = [];
+                    console.log('🔌 Iniciando conexão WebSocket STOMP...');
+                    console.log('🔑 Token:', this.token ? `${this.token.substring(0, 20)}...` : 'NULL');
                     
-                    // Criar factory personalizada para SockJS
-                    const socketFactory = () => {
-                        const sock = new SockJS('https://inoutchi-cd92743c8443.herokuapp.com/ws-sala', null, {
-                            transports: ['websocket', 'xhr-streaming', 'xhr-polling'],
-                            // 🔑 CONFIGURAÇÃO CRÍTICA: headers para todas as requisições SockJS
-                            headers: {
-                                'Authorization': `Bearer ${this.token}`,
-                                'X-User-Id': this.currentUser?.id?.toString(),
-                                'X-Sala-Id': this.salaId.toString()
-                            }
-                        });
-
-                        // 🚨 INTERCEPTAR TODAS AS REQUISIÇÕES SOCKJS
-                        sock.onopen = () => {
-                            console.log('🔗 SockJS connection opened');
-                        };
-                        
-                        sock.onclose = (event) => {
-                            console.log('🔌 SockJS connection closed:', event);
-                        };
-                        
-                        // Interceptar a criação de transportes para adicionar headers
-                        const originalTransportFactory = sock._transportFactory;
-                        sock._transportFactory = function(transportName, transUrl) {
-                            const transport = originalTransportFactory.call(this, transportName, transUrl);
-                            
-                            // Adicionar headers a todos os transportes
-                            if (transport && transport.url) {
-                                console.log(`🚀 Configurando transporte: ${transportName}`);
-                                
-                                // Para transportes XHR, adicionar headers
-                                if (transportName === 'xhr-streaming' || transportName === 'xhr-polling') {
-                                    const originalSend = transport.send;
-                                    transport.send = function(payload) {
-                                        this.xhr.setRequestHeader('Authorization', `Bearer ${this.token}`);
-                                        this.xhr.setRequestHeader('X-User-Id', this.currentUser?.id?.toString());
-                                        this.xhr.setRequestHeader('X-Sala-Id', this.salaId.toString());
-                                        return originalSend.call(this, payload);
-                                    };
-                                }
-                            }
-                            return transport;
-                        };
-                        
-                        return sock;
-                    };
-
-                    // 🎯 CONFIGURAÇÃO STOMP COM SOCKJS PERSONALIZADO
-                    this.stompClient = new StompJs.Client({
-                        webSocketFactory: socketFactory,
-                        reconnectDelay: 5000,
-                        heartbeatIncoming: 4000,
-                        heartbeatOutgoing: 4000,
-                        debug: (str) => {
-                            if (str.includes('CONNECT') || str.includes('ERROR') || str.includes('connected')) {
-                                console.log('STOMP:', str);
-                            }
-                        },
-                        // 🔑 HEADERS DE AUTENTICAÇÃO PARA CONEXÃO STOMP
-                        connectHeaders: {
-                            'Authorization': `Bearer ${this.token}`,
-                            'X-User-Id': this.currentUser?.id?.toString(),
-                            'X-Sala-Id': this.salaId.toString(),
-                            'X-Username': this.currentUser?.nome || 'sala'
+                    // 🎯 CONFIGURAÇÃO SIMPLES E DIRETA
+                    const socket = new SockJS('https://inoutchi-cd92743c8443.herokuapp.com/ws-sala');
+                    
+                    this.stompClient = Stomp.over(socket);
+                    
+                    // 🎯 CONFIGURAR DEBUG
+                    this.stompClient.debug = function(str) {
+                        if (str.includes('CONNECT') || str.includes('ERROR') || str.includes('connected')) {
+                            console.log('🔍 STOMP:', str);
                         }
-                    });
-
-                    // ... o restante do seu código permanece igual ...
+                    };
+                    
+                    // 🎯 HEADERS DE CONEXÃO
+                    const headers = {
+                        'Authorization': `Bearer ${this.token}`,
+                        'X-Sala-Id': this.salaId?.toString() || '1',
+                        'X-User-Id': this.currentUser?.id?.toString() || 'unknown',
+                        'X-Username': this.currentUser?.nome || 'sala'
+                    };
+                    
+                    console.log('🔑 Enviando headers:', headers);
+                    
+                    // 🎯 TENTAR CONEXÃO
+                    this.stompClient.connect(headers, 
+                        (frame) => {
+                            console.log('✅✅✅ CONEXÃO STOMP ESTABELECIDA!');
+                            console.log('📊 Frame:', frame);
+                            
+                            this.reconnectAttempts = 0;
+                            this.atualizarStatusWebSocket('connected', 'WebSocket Online');
+                            
+                            // Inscrever nos tópicos
+                            this.inscreverNosTopicos();
+                            
+                            this.mostrarNotificacao('Conectado', 'WebSocket conectado com sucesso', 'success');
+                        },
+                        (error) => {
+                            console.error('❌ ERRO NA CONEXÃO STOMP:', error);
+                            
+                            // Tentar reconexão em 5 segundos
+                            setTimeout(() => {
+                                console.log('🔄 Tentando reconexão...');
+                                this.iniciarWebSocketStomp();
+                            }, 5000);
+                        }
+                    );
                     
                 } catch (error) {
-                    console.error('❌ Erro ao conectar WebSocket:', error);
-                    this.atualizarStatusWebSocket('error', 'Erro de Conexão');
+                    console.error('❌ Erro ao iniciar WebSocket:', error);
                 }
             }
 
@@ -618,40 +592,22 @@
             
             inscreverNosTopicos() {
                 if (!this.stompClient || !this.stompClient.connected) {
-                    console.error('❌ STOMP client não conectado');
+                    console.error('❌ STOMP client não está conectado');
                     return;
                 }
-
-                try {
-                    // 🎯 TÓPICOS CORRETOS baseados no seu backend
-                    console.log('🔔 Inscrevendo nos tópicos da sala', this.salaId);
-                    
-                    // Tópico para chamadas (onde notificarNovaChamada envia)
-                    const subscription1 = this.stompClient.subscribe(
-                        `/topic/sala/${this.salaId}/chamadas`,
-                        (message) => {
-                            console.log('📨 Mensagem recebida no tópico de chamadas:', message.body);
-                            this.processarMensagemWebSocket(JSON.parse(message.body));
-                        }
-                    );
-
-                    // Tópico principal da sala (para saídas de alunos)
-                    const subscription2 = this.stompClient.subscribe(
-                        `/topic/sala/${this.salaId}`,
-                        (message) => {
-                            console.log('📨 Mensagem recebida no tópico da sala:', message.body);
-                            this.processarMensagemWebSocket(JSON.parse(message.body));
-                        }
-                    );
-
-                    
-
-                    console.log(`✅ Inscrito nos tópicos: /topic/sala/${this.salaId}/chamadas e /topic/sala/${this.salaId}`);
-                    this.subscriptions = [subscription1, subscription2];
-                    
-                } catch (error) {
-                    console.error('❌ Erro ao inscrever nos tópicos:', error);
-                }
+                
+                console.log('📨 Inscrevendo nos tópicos...');
+                
+                // Tópico para receber solicitações de saída
+                const subscription = this.stompClient.subscribe(`/topic/sala/${this.salaId}`, 
+                    (message) => {
+                        console.log('📨 Mensagem recebida:', message.body);
+                        this.processarMensagemSaida(JSON.parse(message.body));
+                    },
+                    { 'Authorization': `Bearer ${this.token}` }
+                );
+                
+                console.log('✅ Inscrito no tópico:', subscription.id);
             }
 
             atualizarAlunoPresente(alunoId, alunoNome, horario) {
