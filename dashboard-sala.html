@@ -456,21 +456,59 @@
                     console.log('🔌 Conectando ao WebSocket STOMP...');
                     this.atualizarStatusWebSocket('connecting', 'Conectando...');
 
-                    // 🎯 CONFIGURAR SockJS COM HEADERS DE AUTENTICAÇÃO
-                    const socket = new SockJS('https://inoutchi-cd92743c8443.herokuapp.com/ws-sala');
+                    // 🎯 CONFIGURAR SockJS COM TRANSPORTES PERSONALIZADOS
+                    const transports = [];
                     
-                    // 🚨 INTERCEPTAR A CONEXÃO SockJS PARA ADICIONAR HEADERS
-                    socket.onopen = () => {
-                        console.log('🔗 SockJS connection opened');
+                    // Criar factory personalizada para SockJS
+                    const socketFactory = () => {
+                        const sock = new SockJS('https://inoutchi-cd92743c8443.herokuapp.com/ws-sala', null, {
+                            transports: ['websocket', 'xhr-streaming', 'xhr-polling'],
+                            // 🔑 CONFIGURAÇÃO CRÍTICA: headers para todas as requisições SockJS
+                            headers: {
+                                'Authorization': `Bearer ${this.token}`,
+                                'X-User-Id': this.currentUser?.id?.toString(),
+                                'X-Sala-Id': this.salaId.toString()
+                            }
+                        });
+
+                        // 🚨 INTERCEPTAR TODAS AS REQUISIÇÕES SOCKJS
+                        sock.onopen = () => {
+                            console.log('🔗 SockJS connection opened');
+                        };
+                        
+                        sock.onclose = (event) => {
+                            console.log('🔌 SockJS connection closed:', event);
+                        };
+                        
+                        // Interceptar a criação de transportes para adicionar headers
+                        const originalTransportFactory = sock._transportFactory;
+                        sock._transportFactory = function(transportName, transUrl) {
+                            const transport = originalTransportFactory.call(this, transportName, transUrl);
+                            
+                            // Adicionar headers a todos os transportes
+                            if (transport && transport.url) {
+                                console.log(`🚀 Configurando transporte: ${transportName}`);
+                                
+                                // Para transportes XHR, adicionar headers
+                                if (transportName === 'xhr-streaming' || transportName === 'xhr-polling') {
+                                    const originalSend = transport.send;
+                                    transport.send = function(payload) {
+                                        this.xhr.setRequestHeader('Authorization', `Bearer ${this.token}`);
+                                        this.xhr.setRequestHeader('X-User-Id', this.currentUser?.id?.toString());
+                                        this.xhr.setRequestHeader('X-Sala-Id', this.salaId.toString());
+                                        return originalSend.call(this, payload);
+                                    };
+                                }
+                            }
+                            return transport;
+                        };
+                        
+                        return sock;
                     };
-                    
-                    socket.onclose = (event) => {
-                        console.log('🔌 SockJS connection closed:', event);
-                    };
-                    
-                    // 🎯 CONFIGURAÇÃO STOMP COM HEADERS PERSONALIZADOS
+
+                    // 🎯 CONFIGURAÇÃO STOMP COM SOCKJS PERSONALIZADO
                     this.stompClient = new StompJs.Client({
-                        webSocketFactory: () => socket,
+                        webSocketFactory: socketFactory,
                         reconnectDelay: 5000,
                         heartbeatIncoming: 4000,
                         heartbeatOutgoing: 4000,
@@ -479,75 +517,16 @@
                                 console.log('STOMP:', str);
                             }
                         },
-                        // 🔑 HEADERS DE AUTENTICAÇÃO CRÍTICOS
+                        // 🔑 HEADERS DE AUTENTICAÇÃO PARA CONEXÃO STOMP
                         connectHeaders: {
                             'Authorization': `Bearer ${this.token}`,
                             'X-User-Id': this.currentUser?.id?.toString(),
                             'X-Sala-Id': this.salaId.toString(),
-                            'X-Username': this.currentUser?.nome || 'sala',
-                            'Accept': 'application/json',
-                            'Content-Type': 'application/json'
-                        },
-                        // Configurações adicionais
-                        connectionTimeout: 10000,
-                        logRawCommunication: true // Ativar para debug detalhado
-                    });
-                    
-                    this.stompClient.onConnect = (frame) => {
-                        console.log('✅ WebSocket STOMP conectado com sucesso!', frame);
-                        this.reconnectAttempts = 0;
-                        this.atualizarStatusWebSocket('connected', 'WebSocket Online');
-                        
-                        // Ativar a sala
-                        this.ativarSala();
-                        
-                        // Inscrever nos tópicos
-                        this.inscreverNosTopicos();
-                        
-                        this.mostrarNotificacao(
-                            'Conectado',
-                            'Conexão em tempo real estabelecida',
-                            'success'
-                        );
-                    };
-                    
-                    this.stompClient.onStompError = (frame) => {
-                        console.error('❌ Erro STOMP:', frame);
-                        const errorMessage = frame.headers?.message || frame.toString();
-                        console.error('🔍 Detalhes do erro STOMP:', errorMessage);
-                        
-                        if (errorMessage.includes('401') || errorMessage.includes('unauthorized')) {
-                            console.error('🚫 Erro 401 - Autenticação falhou no STOMP');
-                            this.atualizarStatusWebSocket('error', 'Não Autorizado');
-                            this.mostrarNotificacao(
-                                'Erro de Autenticação',
-                                'Falha na autenticação WebSocket',
-                                'error'
-                            );
-                            
-                            // Tentar renovar token
-                            setTimeout(() => this.renovarTokenEConectar(), 2000);
-                        } else {
-                            this.atualizarStatusWebSocket('error', 'Erro STOMP');
+                            'X-Username': this.currentUser?.nome || 'sala'
                         }
-                    };
-                    
-                    this.stompClient.onWebSocketError = (error) => {
-                        console.error('❌ Erro WebSocket:', error);
-                        this.atualizarStatusWebSocket('error', 'Erro Conexão');
-                        
-                        // Tentar reconexão após erro
-                        setTimeout(() => this.tentarReconexao(), 3000);
-                    };
-                    
-                    this.stompClient.onDisconnect = () => {
-                        console.log('🔌 WebSocket desconectado');
-                        this.atualizarStatusWebSocket('disconnected', 'WebSocket Offline');
-                    };
-                    
-                    // Conectar
-                    console.log('🔑 Enviando token para conexão STOMP...');
-                    this.stompClient.activate();
+                    });
+
+                    // ... o restante do seu código permanece igual ...
                     
                 } catch (error) {
                     console.error('❌ Erro ao conectar WebSocket:', error);
