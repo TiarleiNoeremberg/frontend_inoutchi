@@ -295,6 +295,45 @@
                 font-size: 0.75rem;
             }
         }
+
+        /* ESTADO PENDENTE - AGUARDANDO CONFIRMAÇÃO */
+        .aluno-card.pendente {
+            background: #fffbeb !important;
+            border-color: #f59e0b !important;
+            color: #b45309 !important;
+            animation: pulse-pendente 2s infinite;
+        }
+
+        .aluno-card.pendente .aluno-horario {
+            color: #b45309 !important;
+            font-weight: 600;
+        }
+
+        @keyframes pulse-pendente {
+            0% {
+                box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+            }
+            70% {
+                box-shadow: 0 0 0 10px rgba(245, 158, 11, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+            }
+        }
+
+        /* ESTADO CONFIRMADO - TRANSITÓRIO */
+        .aluno-card.confirmado {
+            background: #ecfdf5 !important;
+            border-color: #10b981 !important;
+            color: #047857 !important;
+            transition: all 0.5s ease;
+        }
+
+        .aluno-card.confirmado .aluno-horario {
+            color: #047857 !important;
+            font-weight: 600;
+        }
+
     </style>
 </head>
 <body>    
@@ -709,9 +748,13 @@
                         console.log('🎯 Processando NOVA_CHAMADA para aluno:', mensagem.alunoNome);
                         this.processarNovaChamada(mensagem);
                         break;
-                    case 'SAIDA_ALUNO':
-                        console.log('🎯 Processando SAIDA_ALUNO para aluno:', mensagem.alunoNome);
-                        this.processarSaidaAluno(mensagem);
+                    case 'SAIDA_PENDENTE': // ← NOVO: Aluno em estado de aguardando confirmação
+                        console.log('🎯 Processando SAIDA_PENDENTE para aluno:', mensagem.alunoNome);
+                        this.processarSaidaPendente(mensagem);
+                        break;
+                    case 'SAIDA_CONFIRMADA': // ← NOVO: Saída confirmada (automática ou manual)
+                        console.log('🎯 Processando SAIDA_CONFIRMADA para aluno:', mensagem.alunoNome);
+                        this.processarSaidaConfirmada(mensagem);
                         break;
                     case 'CONFIRMACAO_CHAMADA':
                         console.log('🎯 Processando CONFIRMACAO_CHAMADA para aluno:', mensagem.alunoId);
@@ -723,6 +766,72 @@
                         break;
                     default:
                         console.log('📨 Mensagem WebSocket não reconhecida:', mensagem);
+                }
+            }
+
+            processarSaidaConfirmada(mensagem) {
+                console.log('✅ Saída confirmada para aluno:', mensagem.alunoNome);
+                
+                // 🎯 TOCAR SOM DE CONFIRMAÇÃO
+                this.tocarSomConfirmacao();
+                
+                // Remover aluno da lista local
+                this.removerAluno(mensagem.alunoId);
+                
+                // Mostrar notificação com tipo de confirmação
+                const tipoConfirmacao = mensagem.tipoConfirmacao === 'AUTOMATICA' ? 'automática' : 'manual';
+                this.mostrarNotificacao(
+                    'Saída Confirmada',
+                    `${mensagem.alunoNome} - Saída ${tipoConfirmacao}`,
+                    'success'
+                );
+                
+                console.log(`✅ Aluno ${mensagem.alunoNome} removido da lista (${tipoConfirmacao})`);
+            }
+
+            processarSaidaPendente(mensagem) {
+                console.log('🟡 Saída pendente para aluno:', mensagem.alunoNome);
+                
+                // 🎯 ATUALIZAR O CARD DO ALUNO PARA ESTADO "AGUARDANDO CONFIRMAÇÃO"
+                this.atualizarAlunoPendente(mensagem.alunoId, mensagem.alunoNome, mensagem.tutorNome);
+                
+                // Tocar som de alerta diferente
+                this.tocarSomAlertaPendente();
+                
+                // Mostrar notificação
+                this.mostrarNotificacao(
+                    'Saída Solicitada',
+                    `${mensagem.alunoNome} - Aguardando confirmação do tutor`,
+                    'warning'
+                );
+                
+                console.log(`🟡 Aluno ${mensagem.alunoNome} em estado de aguardando confirmação`);
+            }
+
+            atualizarAlunoPendente(alunoId, alunoNome, tutorNome) {
+                const alunoCard = document.querySelector(`[data-aluno-id="${alunoId}"]`);
+                
+                if (alunoCard) {
+                    // Remove classes anteriores e aplica estado pendente
+                    alunoCard.classList.remove('tutor', 'token', 'diretor', 'destaque');
+                    alunoCard.classList.add('pendente');
+                    
+                    // Atualiza o texto para mostrar estado pendente
+                    const horarioElement = alunoCard.querySelector('.aluno-horario');
+                    if (horarioElement) {
+                        horarioElement.textContent = 'Aguardando Confirmação';
+                        horarioElement.style.fontWeight = '600';
+                        horarioElement.style.color = '#b45309';
+                    }
+                    
+                    // Aplica estilo visual para estado pendente
+                    alunoCard.style.background = '#fffbeb';
+                    alunoCard.style.borderColor = '#f59e0b';
+                    alunoCard.style.color = '#b45309';
+                    
+                    console.log(`🟡 Card do aluno ${alunoNome} atualizado para estado pendente`);
+                } else {
+                    console.warn(`Aluno ${alunoNome} não encontrado na lista para atualizar como pendente`);
                 }
             }
 
@@ -808,6 +917,58 @@
                     console.log('🔊 Som de alerta de saída executado');
                 } catch (error) {
                     console.warn('🔇 Áudio de alerta não suportado');
+                }
+            }
+
+            tocarSomConfirmacao() {
+                try {
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+
+                    // 🎯 SOM POSITIVO PARA CONFIRMAÇÃO
+                    oscillator.frequency.setValueAtTime(600, audioContext.currentTime);
+                    oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.1);
+                    oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.2);
+
+                    gainNode.gain.setValueAtTime(0.4, audioContext.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.6);
+
+                    oscillator.start(audioContext.currentTime);
+                    oscillator.stop(audioContext.currentTime + 0.6);
+
+                    console.log('🔊 Som de confirmação executado');
+                } catch (error) {
+                    console.warn('🔇 Áudio de confirmação não suportado');
+                }
+            }
+
+            tocarSomAlertaPendente() {
+                try {
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+
+                    // 🎯 SOM MAIS SUAVE PARA ESTADO PENDENTE
+                    oscillator.frequency.setValueAtTime(400, audioContext.currentTime);
+                    oscillator.frequency.setValueAtTime(500, audioContext.currentTime + 0.1);
+                    oscillator.frequency.setValueAtTime(400, audioContext.currentTime + 0.2);
+
+                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+
+                    oscillator.start(audioContext.currentTime);
+                    oscillator.stop(audioContext.currentTime + 0.5);
+
+                    console.log('🔊 Som de alerta pendente executado');
+                } catch (error) {
+                    console.warn('🔇 Áudio de alerta pendente não suportado');
                 }
             }
 
@@ -1184,16 +1345,32 @@
             }
 
             removerAluno(alunoId) {
-                // Remover da lista local
-                this.alunos = this.alunos.filter(aluno => aluno.id !== alunoId);
-                
-                // A lista já estará ordenada após a remoção, pois removemos um item da lista ordenada
-                
-                // Remover do histórico de horários de chamada
-                delete this.horariosChamada[alunoId];
-                
-                // Renderizar novamente
-                this.renderizarAlunos();
+                // 🎯 ADICIONAR ANIMAÇÃO DE SAÍDA ANTES DE REMOVER
+                const alunoCard = document.querySelector(`[data-aluno-id="${alunoId}"]`);
+                if (alunoCard) {
+                    // Animação de confirmação antes de remover
+                    alunoCard.classList.remove('pendente');
+                    alunoCard.classList.add('confirmado');
+                    
+                    // Aguardar animação antes de remover
+                    setTimeout(() => {
+                        // Remover da lista local
+                        this.alunos = this.alunos.filter(aluno => aluno.id !== alunoId);
+                        
+                        // Remover do histórico de horários de chamada
+                        delete this.horariosChamada[alunoId];
+                        
+                        // Renderizar novamente
+                        this.renderizarAlunos();
+                        
+                        console.log(`✅ Aluno ${alunoId} removido com animação`);
+                    }, 1000);
+                } else {
+                    // Fallback: remover sem animação se o card não for encontrado
+                    this.alunos = this.alunos.filter(aluno => aluno.id !== alunoId);
+                    delete this.horariosChamada[alunoId];
+                    this.renderizarAlunos();
+                }
             }
 
             mostrarErro(mensagem) {
