@@ -1101,21 +1101,22 @@
         }
         
         
-        async function registrarSaida(alunoId, responsavelNome, responsavelTipo) {
+        // 🟡 NOVA FUNÇÃO: Solicitação de saída (PENDENTE) - substitui a antiga registrarSaida
+        async function solicitarSaidaPendente(alunoId, responsavelNome, responsavelTipo) {
             try {
-                console.log('🚀 Iniciando registro de saída...');
+                console.log('🚀 SOLICITANDO saída (pendente)...');
                 
                 if (!currentUser.tutorId) {
                     throw new Error('ID do tutor não disponível');
                 }
                 
-                const responsavelId = currentUser.tutorId;
+                const solicitanteId = currentUser.tutorId;
                 
-                console.log('📋 Dados da requisição:', { 
+                console.log('📋 Dados da solicitação:', { 
                     alunoId, 
-                    responsavelId,
-                    responsavelNome, 
-                    responsavelTipo 
+                    solicitanteId,
+                    solicitanteNome: responsavelNome, 
+                    solicitanteTipo: responsavelTipo 
                 });
 
                 const coords = await getCurrentLocationWithoutValidation();
@@ -1124,24 +1125,31 @@
                     throw new Error('Não foi possível obter a localização');
                 }
 
-                console.log('📍 Coordenadas obtidas para registro:', coords);
+                console.log('📍 Coordenadas obtidas para SOLICITAÇÃO:', coords);
+
+                // 🎯 OBTER escolaId do aluno
+                const aluno = students.find(s => s.id === alunoId);
+                if (!aluno || !aluno.escolaId) {
+                    throw new Error('Escola do aluno não identificada');
+                }
 
                 const requestData = {
                     alunoId: alunoId,
-                    responsavelId: responsavelId,
-                    responsavelNome: responsavelNome,
-                    responsavelTipo: responsavelTipo,
+                    solicitanteId: solicitanteId,
+                    solicitanteNome: responsavelNome,
+                    solicitanteTipo: responsavelTipo,
+                    escolaId: aluno.escolaId,
                     latitude: coords.latitude,
                     longitude: coords.longitude
                 };
 
-                console.log('📤 Estrutura final da requisição:', JSON.stringify(requestData, null, 2));
+                console.log('📤 Estrutura final da SOLICITAÇÃO:', JSON.stringify(requestData, null, 2));
 
                 const accessToken = localStorage.getItem('access_token');
                 
-                console.log('🔄 Enviando requisição para /api/presencas/saida...');
+                console.log('🔄 Enviando SOLICITAÇÃO para /api/presencas/saida/solicitar...');
                 
-                const response = await fetch(`${BACKEND_URL}/api/presencas/saida`, {
+                const response = await fetch(`${BACKEND_URL}/api/presencas/saida/solicitar`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
@@ -1156,7 +1164,7 @@
                     const errorText = await response.text();
                     console.error('❌ Erro na resposta:', errorText);
                     
-                    let errorMessage = `Erro ${response.status}: ${errorText || 'Falha no registro'}`;
+                    let errorMessage = `Erro ${response.status}: ${errorText || 'Falha na solicitação'}`;
                     
                     try {
                         const errorData = JSON.parse(errorText);
@@ -1171,20 +1179,20 @@
                 }
 
                 const result = await response.json();
-                console.log('✅ Registro de saída realizado com sucesso:', result);
+                console.log('✅ SOLICITAÇÃO de saída realizada com sucesso:', result);
 
-                showAlert('Saída registrada com sucesso!', 'success');
+                showAlert('Solicitação de saída enviada! O aluno será monitorado por 3 minutos.', 'success');
                 
+                // Atualiza a lista de alunos (o status continua como PRESENTE)
                 setTimeout(() => {
                     refreshStudentsData();
                 }, 1000);
 
-                    } catch (error) {
-                console.error('❌ Erro no registro de saída:', error);
-                showAlert(`Erro ao registrar saída: ${error.message}`, 'error');
+            } catch (error) {
+                console.error('❌ Erro na SOLICITAÇÃO de saída:', error);
+                showAlert(`Erro ao solicitar saída: ${error.message}`, 'error');
             } finally {
                 console.log('🔒 Finally executado - escondendo loading e fechando modal');
-                // Garante que o loading seja escondido
                 hideModalLoading();
                 closeModal();
             }
@@ -1610,15 +1618,15 @@
                         console.log('🎯 Chamando registrarEntrada...');
                         await registrarEntrada(studentId, responsavelNome, responsavelTipo);
                     } else {
-                        console.log('🎯 Chamando registrarSaida...');
-                        await registrarSaida(studentId, responsavelNome, responsavelTipo);
+                        // 🟡 CORREÇÃO CRÍTICA: Agora chama SOLICITAÇÃO em vez de confirmação
+                        console.log('🎯 Chamando solicitarSaidaPendente...');
+                        await solicitarSaidaPendente(studentId, responsavelNome, responsavelTipo);
                     }
                     
-                    console.log('🎯 Registro concluído com sucesso');
+                    console.log('🎯 Ação concluída com sucesso');
                     
                 } catch (error) {
                     console.error('❌ Erro no registro:', error);
-                    // Esconde o loading em caso de erro
                     hideModalLoading();
                 }
             });
@@ -1923,6 +1931,8 @@
                 updateButton.title = "Clique para atualizar a lista de alunos e históricos";
             }
         }
+
+
 
         function startStudentsAutoRefresh() {
             if (studentsAutoRefreshInterval) {
