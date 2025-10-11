@@ -762,6 +762,15 @@
                 width: 100%;
             }
         }
+
+        .btn-warning {
+            background-color: var(--warning-color);
+            color: white;
+        }
+
+        .btn-warning:hover {
+            background-color: #e67e22;
+        }
         
 
     </style>
@@ -2140,29 +2149,29 @@
 
         function renderStudents() {
             studentList.innerHTML = '';
-            
+
             if (students.length === 0) {
                 studentList.innerHTML = '<li style="padding: 15px; text-align: center; color: #666;">Nenhum aluno vinculado</li>';
                 return;
             }
-            
+
             students.forEach(student => {
                 const li = document.createElement('li');
                 li.className = 'student-item';
-                
+
                 const statusClass = student.status === 'PRESENTE' ? 'status-present' : 'status-absent';
                 const statusText = student.status === 'PRESENTE' ? 'Presente' : 'Ausente';
-                
+
                 const isSelected = student.id === selectedStudentId;
                 if (isSelected) {
                     li.style.backgroundColor = '#f8f9fa';
                     li.style.borderLeft = `4px solid ${student.status === 'PRESENTE' ? 'var(--success-color)' : 'var(--primary-color)'}`;
                 }
-                
+
                 li.innerHTML = `
                     <div class="student-info">
-                        <span class="student-name">${student.nome || 'Aluno'} ${isSelected ? '' : ''}</span>
-                        <span class="student-class">${student.salaNome || 'Sala não informada'}</span>
+                        <span class="student-name">${student.nome||'Aluno'} ${isSelected ? '' : ''}</span>
+                        <span class="student-class">${student.salaNome||'Sala não informada'}</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                         <div style="display: flex; align-items: center; height: 36px;">
@@ -2177,17 +2186,64 @@
                                     <i class="fas fa-sign-out-alt"></i> Saída
                                 </button>`
                             }
+                            <!-- Botão de confirmação manual de saída -->
+                            ${student.status === 'PRESENTE' ? 
+                                `<button class="btn btn-warning" onclick="confirmarSaidaManual(${student.id}, '${student.nome}')">
+                                    <i class="fas fa-check-circle"></i> Confirmar Saída
+                                </button>` : ''
+                            }
                             <button class="btn btn-primary" onclick="viewStudentHistory(${student.id}, '${student.nome}')">
                                 <i class="fas fa-history"></i> Histórico
                             </button>
                         </div>
                     </div>
                 `;
-                
+
                 studentList.appendChild(li);
             });
-            
+
             console.log('🕒 Lista de alunos renderizada:', new Date().toLocaleTimeString());
+        }
+
+        async function confirmarSaidaManual(alunoId, alunoNome) {
+            try {
+                console.log('🎯 Confirmando saída manual para aluno:', alunoId);
+
+                const accessToken = localStorage.getItem('access_token');
+
+                // Verifica se o usuário tem permissão
+                if (!currentUser || !currentUser.tutorId) {
+                    throw new Error('Usuário não autorizado');
+                }
+
+                const tutorId = currentUser.tutorId;
+
+                // Envia a requisição para confirmar a saída manual
+                const response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.mensagem || 'Erro ao confirmar saída');
+                }
+
+                const result = await response.json();
+                console.log('✅ Saída confirmada manualmente:', result);
+
+                showAlert('Saída confirmada manualmente com sucesso!', 'success');
+
+                // Atualiza a lista de alunos
+                refreshStudentsData();
+
+            } catch (error) {
+                console.error('❌ Erro ao confirmar saída manual:', error);
+                showAlert(`Erro ao confirmar saída: ${error.message}`, 'error');
+            }
         }
 
         window.loadHistory = async function(studentId = null) {
