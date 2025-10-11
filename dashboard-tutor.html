@@ -761,7 +761,36 @@
                 width: 100%;
             }
         }
+
+        /* 🎯 STATUS PARA SAÍDA PENDENTE */
+        .status-warning {
+            background-color: rgba(243, 156, 18, 0.2) !important;
+            color: #e67e22 !important;
+            border: 2px solid #f39c12 !important;
+            font-weight: 600;
+        }
         
+        /* 🎯 BOTÃO DE CONFIRMAÇÃO */
+        .btn-confirm {
+            background-color: #27ae60;
+            color: white;
+        }
+
+        .btn-confirm:hover {
+            background-color: #219a52;
+            transform: translateY(-1px);
+        }
+
+        /* 🎯 BOTÃO DE SOLICITAÇÃO (laranja) */
+        .btn-warning {
+            background-color: #f39c12;
+            color: white;
+        }
+
+        .btn-warning:hover {
+            background-color: #e67e22;
+            transform: translateY(-1px);
+        }
 
     </style>
 </head>
@@ -946,6 +975,8 @@
         let geofenceValidated = false;
         let lastValidatedCoords = null;
         let autoCloseTimeout = null;
+
+        let alunosComSaidaPendente = [];
 
 
         function showModalLoading(mainText = "Processando...", subText = "Aguarde um momento") {
@@ -1158,15 +1189,6 @@
                     body: JSON.stringify(requestData)
                 });
 
-                console.log('🔍 VERIFICAÇÃO DOS DADOS ENVIADOS:');
-                console.log('   - alunoId:', alunoId);
-                console.log('   - solicitanteId:', solicitanteId);
-                console.log('   - solicitanteNome:', responsavelNome);
-                console.log('   - escolaId:', aluno.escolaId);
-                console.log('   - latitude:', coords.latitude);
-                console.log('   - longitude:', coords.longitude);
-                console.log('   - aluno tem sala?:', aluno.salaNome ? 'SIM' : 'NÃO');
-
                 console.log('📥 Resposta da API recebida:', response.status, response.statusText);
 
                 if (!response.ok) {
@@ -1190,6 +1212,9 @@
                 const result = await response.json();
                 console.log('✅ SOLICITAÇÃO de saída realizada com sucesso:', result);
 
+                // 🎯 ADICIONAR À LISTA DE PENDENTES APÓS SUCESSO
+                adicionarAlunoSaidaPendente(alunoId);
+                
                 showAlert('Solicitação de saída enviada! O aluno será monitorado por 3 minutos.', 'success');
                 
                 // Atualiza a lista de alunos (o status continua como PRESENTE)
@@ -1202,6 +1227,115 @@
                 showAlert(`Erro ao solicitar saída: ${error.message}`, 'error');
             } finally {
                 console.log('🔒 Finally executado - escondendo loading e fechando modal');
+                hideModalLoading();
+                closeModal();
+            }
+        }
+
+        // 🎯 FUNÇÕES PARA GERENCIAR ALUNOS COM SAÍDA PENDENTE
+        function adicionarAlunoSaidaPendente(alunoId) {
+            if (!alunosComSaidaPendente.includes(alunoId)) {
+                alunosComSaidaPendente.push(alunoId);
+                console.log(`🟡 Aluno ${alunoId} adicionado à lista de saída pendente`);
+                renderStudents(); // Re-renderiza para mostrar o botão CONFIRMAR
+            }
+        }
+
+        function removerAlunoSaidaPendente(alunoId) {
+            alunosComSaidaPendente = alunosComSaidaPendente.filter(id => id !== alunoId);
+            console.log(`✅ Aluno ${alunoId} removido da lista de saída pendente`);
+            renderStudents(); // Re-renderiza para remover o botão CONFIRMAR
+        }
+
+        // 🎯 FUNÇÃO: Confirmar saída pendente
+        async function confirmarSaidaPendente(alunoId, responsavelNome, responsavelTipo) {
+            try {
+                console.log('✅ CONFIRMANDO saída pendente...');
+                
+                if (!currentUser.tutorId) {
+                    throw new Error('ID do tutor não disponível');
+                }
+                
+                const solicitanteId = currentUser.tutorId;
+                
+                console.log('📋 Dados da confirmação:', { 
+                    alunoId, 
+                    solicitanteId,
+                    solicitanteNome: responsavelNome, 
+                    solicitanteTipo: responsavelTipo 
+                });
+
+                // Obter localização atual para a confirmação
+                const coords = await getCurrentLocationWithoutValidation();
+                
+                if (!coords) {
+                    throw new Error('Não foi possível obter a localização para confirmação');
+                }
+
+                console.log('📍 Coordenadas obtidas para CONFIRMAÇÃO:', coords);
+
+                const requestData = {
+                    alunoId: alunoId,
+                    solicitanteId: solicitanteId,
+                    solicitanteNome: responsavelNome,
+                    solicitanteTipo: responsavelTipo,
+                    latitude: coords.latitude,
+                    longitude: coords.longitude
+                };
+
+                console.log('📤 Estrutura final da CONFIRMAÇÃO:', JSON.stringify(requestData, null, 2));
+
+                const accessToken = localStorage.getItem('access_token');
+                
+                console.log('🔄 Enviando CONFIRMAÇÃO para /api/presencas/saida/confirmar...');
+                
+                const response = await fetch(`${BACKEND_URL}/api/presencas/saida/confirmar`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestData)
+                });
+
+                console.log('📥 Resposta da API recebida:', response.status, response.statusText);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('❌ Erro na resposta:', errorText);
+                    
+                    let errorMessage = `Erro ${response.status}: ${errorText || 'Falha na confirmação'}`;
+                    
+                    try {
+                        const errorData = JSON.parse(errorText);
+                        if (errorData.mensagem) {
+                            errorMessage = errorData.mensagem;
+                        }
+                    } catch (e) {
+                        // Mantém a mensagem original se não for JSON
+                    }
+                    
+                    throw new Error(errorMessage);
+                }
+
+                const result = await response.json();
+                console.log('✅ CONFIRMAÇÃO de saída realizada com sucesso:', result);
+
+                // 🎯 REMOVER DA LISTA DE PENDENTES
+                removerAlunoSaidaPendente(alunoId);
+                
+                showAlert('Saída confirmada com sucesso! A sala foi notificada.', 'success');
+                
+                // Atualiza a lista de alunos
+                setTimeout(() => {
+                    refreshStudentsData();
+                }, 1000);
+
+            } catch (error) {
+                console.error('❌ Erro na CONFIRMAÇÃO de saída:', error);
+                showAlert(`Erro ao confirmar saída: ${error.message}`, 'error');
+            } finally {
+                console.log('🔒 Finally executado - escondendo loading');
                 hideModalLoading();
                 closeModal();
             }
@@ -2135,6 +2269,67 @@
                     Total de alunos: ${students.length}
                 </div>
             `;
+        }
+
+        function renderStudents() {
+            studentList.innerHTML = '';
+            
+            if (students.length === 0) {
+                studentList.innerHTML = '<li style="padding: 15px; text-align: center; color: #666;">Nenhum aluno vinculado</li>';
+                return;
+            }
+            
+            students.forEach(student => {
+                const li = document.createElement('li');
+                li.className = 'student-item';
+                
+                // 🎯 VERIFICAR SE O ALUNO TEM SAÍDA PENDENTE
+                const hasPendingExit = alunosComSaidaPendente.includes(student.id);
+                const statusClass = hasPendingExit ? 'status-warning' : 
+                                (student.status === 'PRESENTE' ? 'status-present' : 'status-absent');
+                const statusText = hasPendingExit ? 'Saída Pendente' : 
+                                (student.status === 'PRESENTE' ? 'Presente' : 'Ausente');
+                
+                const isSelected = student.id === selectedStudentId;
+                if (isSelected) {
+                    li.style.backgroundColor = '#f8f9fa';
+                    li.style.borderLeft = `4px solid ${hasPendingExit ? '#f39c12' : (student.status === 'PRESENTE' ? '#2ecc71' : '#3498db')}`;
+                }
+                
+                li.innerHTML = `
+                    <div class="student-info">
+                        <span class="student-name">${student.nome || 'Aluno'}</span>
+                        <span class="student-class">${student.salaNome || 'Sala não informada'}</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                        <div style="display: flex; align-items: center; height: 36px;">
+                            <span class="status-badge ${statusClass}">${statusText}</span>
+                        </div>
+                        <div class="action-buttons">
+                            ${hasPendingExit ? 
+                                /* 🎯 BOTÃO CONFIRMAR SAÍDA - Aparece quando há saída pendente */
+                                `<button class="btn btn-confirm" onclick="openActionModal(${student.id}, 'confirmar_saida', '${student.nome}')">
+                                    <i class="fas fa-check-circle"></i> Confirmar
+                                </button>` : 
+                                (student.status !== 'PRESENTE' ? 
+                                    `<button class="btn btn-success" onclick="openActionModal(${student.id}, 'entrada', '${student.nome}')">
+                                        <i class="fas fa-sign-in-alt"></i> Entrada
+                                    </button>` : 
+                                    `<button class="btn btn-warning" onclick="openActionModal(${student.id}, 'saida', '${student.nome}')">
+                                        <i class="fas fa-sign-out-alt"></i> Saída
+                                    </button>`)
+                            }
+                            <button class="btn btn-primary" onclick="viewStudentHistory(${student.id}, '${student.nome}')">
+                                <i class="fas fa-history"></i> Histórico
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                studentList.appendChild(li);
+            });
+            
+            console.log('🕒 Lista de alunos renderizada:', new Date().toLocaleTimeString());
         }
 
         function renderStudents() {
