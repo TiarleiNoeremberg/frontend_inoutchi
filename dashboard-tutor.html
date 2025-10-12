@@ -874,6 +874,7 @@
 
     <script>
         const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
+
     let currentUser = null;
     let students = [];
     let selectedStudentId = null;
@@ -898,6 +899,8 @@
     let geofenceValidated = false;
     let lastValidatedCoords = null;
     let autoCloseTimeout = null;
+
+    let alunosData = []; // Guardar os dados dos alunos localmente
 
     function showModalLoading(mainText = "Processando...", subText = "Aguarde um momento") {
         const modalLoading = document.getElementById('modalLoading');
@@ -932,22 +935,7 @@
     }
 
     function hideModalLoading() {
-        const modalLoading = document.getElementById('modalLoading');
-        if (modalLoading) {
-            modalLoading.style.display = 'none';
-
-            const confirmBtn = document.getElementById('confirmActionBtn');
-            if (confirmBtn) {
-                confirmBtn.classList.remove('btn-loading');
-            }
-
-            const closeBtn = document.querySelector('.close-modal');
-            if (closeBtn) {
-                closeBtn.disabled = false;
-                closeBtn.style.opacity = '1';
-                closeBtn.style.pointerEvents = 'auto';
-            }
-        }
+        document.getElementById('modal-spinner').style.display = 'none';
     }
 
     async function registrarEntrada(alunoId, responsavelNome, responsavelTipo) {
@@ -1011,22 +999,74 @@
         }
     }
 
+    function closeModal() {
+        document.getElementById('confirmation-modal').style.display = 'none';
+    }
+
+    function showModalLoading() {
+        document.getElementById('modal-spinner').style.display = 'block';
+        document.getElementById('confirm-button').disabled = true;
+    }
+
     function openModal(type, alunoId, alunoNome) {
         const modal = document.getElementById('confirmation-modal');
         const modalTitle = document.getElementById('modal-title');
         const confirmButton = document.getElementById('confirm-button');
+        const locationStatus = document.getElementById('location-status');
+        
+        locationStatus.innerHTML = 'Obtendo localização... <div class="spinner-border spinner-border-sm" role="status"></div>';
+        confirmButton.disabled = true;
 
         if (type === 'entrada') {
-            modalTitle.textContent = `Confirmar Entrada de ${alunoNome}?`;
-            // O botão de confirmação no modal chama registrarEntrada
+            modalTitle.textContent = `Confirmar Entrada de ${alunoNome}`;
             confirmButton.onclick = () => registrarEntrada(alunoId);
         } else if (type === 'saida') {
-            modalTitle.textContent = `Solicitar Saída de ${alunoNome}?`;
-            // O botão de confirmação no modal AGORA chama solicitarSaida
+            modalTitle.textContent = `Solicitar Saída de ${alunoNome}`;
             confirmButton.onclick = () => solicitarSaida(alunoId);
         }
 
         modal.style.display = 'block';
+
+        // Validação de geofence é feita dentro de getCurrentLocation,
+        // que deve habilitar o botão ou mostrar erro.
+        getCurrentLocation().then(coords => {
+            locationStatus.innerHTML = '<i class="fas fa-check-circle text-success"></i> Dentro da área permitida.';
+            confirmButton.disabled = false;
+        }).catch(error => {
+            locationStatus.innerHTML = `<i class="fas fa-times-circle text-danger"></i> ${error.message}`;
+            confirmButton.disabled = true;
+        });
+    }
+
+    async function registrarEntrada(alunoId) {
+        showModalLoading();
+        try {
+            const coords = await getCurrentLocation(); // Assume que esta função já valida a geofence
+            const accessToken = localStorage.getItem('access_token');
+            
+            const response = await fetch(`${BACKEND_URL}/api/presencas/entrada`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    alunoId: alunoId,
+                    latitude: coords.latitude,
+                    longitude: coords.longitude
+                })
+            });
+
+            if (!response.ok) throw new Error((await response.json()).mensagem || 'Erro ao registrar entrada.');
+            
+            showAlert('Entrada registrada com sucesso!', 'success');
+            
+            // PONTO CRÍTICO DA CORREÇÃO!
+            refreshStudentsData(); 
+
+        } catch (error) {
+            showAlert(error.message, 'error');
+        } finally {
+            hideModalLoading();
+            closeModal();
+        }
     }
 
     /**
@@ -1034,98 +1074,78 @@
      * conforme o status de presença de cada um.
      * @param {Array} alunos - A lista de alunos vinda do backend.
      */
+    // 2. FUNÇÃO PARA MONTAR A TABELA (A Lógica Central)
+    // Decide qual botão mostrar para cada aluno.
     function displayAlunos(alunos) {
-        const container = document.getElementById('students-container');
-        container.innerHTML = ''; // Limpa a lista antes de recriar
+        const tableBody = document.getElementById('students-table-body');
+        tableBody.innerHTML = '';
 
         if (!alunos || alunos.length === 0) {
-            container.innerHTML = '<p>Nenhum aluno vinculado a este tutor.</p>';
+            tableBody.innerHTML = '<tr><td colspan="5" class="text-center">Nenhum aluno vinculado.</td></tr>';
             return;
         }
 
         alunos.forEach(aluno => {
-            const studentCard = document.createElement('div');
-            studentCard.className = 'student-card mb-3';
-            // Adiciona a classe 'presente' se o aluno estiver na escola
-            if (aluno.status === 'PRESENTE' || aluno.status === 'AGUARDANDO_CONFIRMACAO') {
-                studentCard.classList.add('presente');
-            }
-
             let buttonsHtml = '';
-            // --- Lógica dos Botões (A PARTE MAIS IMPORTANTE) ---
+            // Usamos o status que vem do backend (PresencaStatus)
+            const status = aluno.status || 'AUSENTE'; 
 
-            // Status 1: Aluno está ausente. Mostrar botão de ENTRADA.
-            if (aluno.status === 'AUSENTE') {
-                buttonsHtml = `<button class="btn btn-success" onclick="abrirModalEntrada(${aluno.id}, '${aluno.nome}')">Entrada</button>`;
+            // ***** A LÓGICA REFINADA *****
+            if (status === 'PRESENTE') {
+                // Aluno na escola -> só pode solicitar a saída.
+                buttonsHtml = `<button class="btn btn-warning" onclick="openModal('saida', ${aluno.id}, '${aluno.nome}')">Solicitar Saída</button>`;
+            } else if (status === 'AGUARDANDO_CONFIRMACAO') {
+                // Saída solicitada -> DEVE confirmar manualmente.
+                buttonsHtml = `<button class="btn btn-success" onclick="confirmarSaidaManual(${aluno.id})">Confirmar Saída</button>`;
+            } else { // AUSENTE ou outro
+                // Aluno fora da escola -> só pode registrar a entrada.
+                buttonsHtml = `<button class="btn btn-primary" onclick="openModal('entrada', ${aluno.id}, '${aluno.nome}')">Entrada</button>`;
             }
-            // Status 2: Aluno está presente. Mostrar botão de SAÍDA.
-            else if (aluno.status === 'PRESENTE') {
-                buttonsHtml = `<button class="btn btn-warning" onclick="abrirModalSaida(${aluno.id}, '${aluno.nome}')">Saída</button>`;
-            }
-            // Status 3: Saída foi solicitada. Mostrar botão de CONFIRMAR SAÍDA.
-            else if (aluno.status === 'AGUARDANDO_CONFIRMACAO') {
-                buttonsHtml = `<button class="btn btn-primary" onclick="confirmarSaidaManual(${aluno.id}, '${aluno.nome}')">Confirmar Saída</button>`;
-            }
+            // ***** FIM DA LÓGICA *****
 
-            // Monta o HTML do card do aluno
-            studentCard.innerHTML = `
-                <div class="card">
-                    <div class="card-body d-flex justify-content-between align-items-center">
-                        <div>
-                            <h5 class="card-title">${aluno.nome}</h5>
-                            <p class="card-text">Status: <strong>${aluno.status.replace('_', ' ')}</strong></p>
-                        </div>
-                        <div class="student-actions">
-                            ${buttonsHtml}
-                        </div>
-                    </div>
-                </div>
+            const row = `
+                <tr>
+                    <td>${aluno.id}</td>
+                    <td><img src="${aluno.imgUrl || 'img/default-avatar.png'}" alt="Foto de ${aluno.nome}" class="student-avatar"></td>
+                    <td>${aluno.nome}</td>
+                    <td><span class="badge ${status === 'PRESENTE' ? 'bg-success' : (status === 'AGUARDANDO_CONFIRMACAO' ? 'bg-info text-dark' : 'bg-secondary')}">${status.replace('_', ' ')}</span></td>
+                    <td>${buttonsHtml}</td>
+                </tr>
             `;
-            container.appendChild(studentCard);
+            tableBody.innerHTML += row;
         });
     }
 
     async function solicitarSaida(alunoId) {
-    showModalLoading();
-    try {
-        const coords = await getCurrentLocationWithoutValidation();
-        if (!coords) throw new Error('Não foi possível obter a localização');
+        showModalLoading();
+        try {
+            const coords = await getCurrentLocation(); // Assume que esta função já valida a geofence
+            const accessToken = localStorage.getItem('access_token');
+            
+            const response = await fetch(`${BACKEND_URL}/api/presencas/saida/solicitar`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    alunoId: alunoId,
+                    latitude: coords.latitude,
+                    longitude: coords.longitude
+                })
+            });
 
-        const accessToken = localStorage.getItem('access_token');
-        
-        // Usamos o endpoint de SOLICITAÇÃO que criamos
-        const response = await fetch(`${BACKEND_URL}/api/presencas/saida/solicitar`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                alunoId: alunoId,
-                // O backend já sabe quem é o tutor pelo token, não precisamos enviar
-                latitude: coords.latitude,
-                longitude: coords.longitude
-            })
-        });
+            if (!response.ok) throw new Error((await response.json()).mensagem || 'Erro ao solicitar saída.');
 
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.mensagem || 'Falha ao solicitar a saída');
+            showAlert('Solicitação de saída registrada. Confirme na tela principal.', 'info');
+            
+            // ATUALIZA A TELA APÓS A SOLICITAÇÃO
+            refreshStudentsData();
+
+        } catch (error) {
+            showAlert(error.message, 'error');
+        } finally {
+            hideModalLoading();
+            closeModal();
         }
-
-        const result = await response.json();
-        showAlert('Solicitação de saída registrada com sucesso! Confirme a saída na tela principal.', 'info');
-        
-        // ATUALIZA A TELA para mostrar o botão "Confirmar Saída"
-        refreshStudentsData();
-
-    } catch (error) {
-        showAlert(`Erro: ${error.message}`, 'error');
-    } finally {
-        hideModalLoading();
-        closeModal();
     }
-}
 
     async function solicitarSaidaPendente(alunoId, responsavelNome, responsavelTipo) {
         try {
@@ -1586,10 +1606,30 @@
         }, STUDENTS_REFRESH_INTERVAL);
     }
 
+    // 1. FUNÇÃO PRINCIPAL PARA BUSCAR E REDESENHAR
+    // Chamada quando a página carrega e após cada ação.
     async function refreshStudentsData() {
-        if (Date.now() - lastStudentsUpdate < MIN_UPDATE_INTERVAL) return;
-        lastStudentsUpdate = Date.now();
-        await loadStudents();
+        try {
+            const accessToken = localStorage.getItem('access_token');
+            if (!accessToken) {
+                window.location.href = 'index.html'; // Redireciona se não estiver logado
+                return;
+            }
+
+            const response = await fetch(`${BACKEND_URL}/api/tutores/meus-alunos`, {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
+
+            if (!response.ok) {
+                throw new Error('Falha ao buscar os dados dos alunos.');
+            }
+
+            alunosData = await response.json();
+            displayAlunos(alunosData); // A mágica acontece aqui!
+
+        } catch (error) {
+            showAlert(error.message, 'error');
+        }
     }
 
     async function loadUserInfo() {
@@ -1717,8 +1757,13 @@
         });
     }
 
-    async function confirmarSaidaManual(alunoId, alunoNome) {
+    async function confirmarSaidaManual(alunoId) {
+        // Encontre o aluno na sua lista de alunos para obter o nome
+        const aluno = alunos.find(a => a.id === alunoId);
+        const alunoNome = aluno ? aluno.nome : 'o aluno selecionado';
+
         if (!confirm(`Deseja confirmar manualmente a saída de ${alunoNome}? Esta ação não pode ser desfeita.`)) return;
+
         try {
             const accessToken = localStorage.getItem('access_token');
             const response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`, {
@@ -1802,13 +1847,10 @@
         historyTableBody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 20px; color: #666;">${message}</td></tr>`;
     }
 
-    function showAlert(message, type) {
-        alertBox.textContent = message;
-        alertBox.className = `alert alert-${type === 'error' ? 'error' : 'success'}`;
-        alertBox.style.display = 'block';
-        setTimeout(() => {
-            alertBox.style.display = 'none';
-        }, 5000);
+    function showAlert(message, type = 'info') {
+        // Implemente sua lógica de alerta aqui
+        console.log(`ALERTA (${type}): ${message}`);
+        alert(message);
     }
 
     function showContent() {
@@ -1905,6 +1947,9 @@
             getLocationBtn.addEventListener('click', getCurrentLocation);
         }
     });
+
+    // PONTO DE ENTRADA - Inicia tudo quando a página é carregada
+    window.onload = refreshStudentsData;
 
     </script>
 </body>
