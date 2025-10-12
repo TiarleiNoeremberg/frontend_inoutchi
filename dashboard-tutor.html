@@ -1011,6 +1011,122 @@
         }
     }
 
+    function openModal(type, alunoId, alunoNome) {
+        const modal = document.getElementById('confirmation-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const confirmButton = document.getElementById('confirm-button');
+
+        if (type === 'entrada') {
+            modalTitle.textContent = `Confirmar Entrada de ${alunoNome}?`;
+            // O botão de confirmação no modal chama registrarEntrada
+            confirmButton.onclick = () => registrarEntrada(alunoId);
+        } else if (type === 'saida') {
+            modalTitle.textContent = `Solicitar Saída de ${alunoNome}?`;
+            // O botão de confirmação no modal AGORA chama solicitarSaida
+            confirmButton.onclick = () => solicitarSaida(alunoId);
+        }
+
+        modal.style.display = 'block';
+    }
+
+    /**
+     * Renderiza a lista de alunos na interface, ajustando os botões de ação
+     * conforme o status de presença de cada um.
+     * @param {Array} alunos - A lista de alunos vinda do backend.
+     */
+    function displayAlunos(alunos) {
+        const container = document.getElementById('students-container');
+        container.innerHTML = ''; // Limpa a lista antes de recriar
+
+        if (!alunos || alunos.length === 0) {
+            container.innerHTML = '<p>Nenhum aluno vinculado a este tutor.</p>';
+            return;
+        }
+
+        alunos.forEach(aluno => {
+            const studentCard = document.createElement('div');
+            studentCard.className = 'student-card mb-3';
+            // Adiciona a classe 'presente' se o aluno estiver na escola
+            if (aluno.status === 'PRESENTE' || aluno.status === 'AGUARDANDO_CONFIRMACAO') {
+                studentCard.classList.add('presente');
+            }
+
+            let buttonsHtml = '';
+            // --- Lógica dos Botões (A PARTE MAIS IMPORTANTE) ---
+
+            // Status 1: Aluno está ausente. Mostrar botão de ENTRADA.
+            if (aluno.status === 'AUSENTE') {
+                buttonsHtml = `<button class="btn btn-success" onclick="abrirModalEntrada(${aluno.id}, '${aluno.nome}')">Entrada</button>`;
+            }
+            // Status 2: Aluno está presente. Mostrar botão de SAÍDA.
+            else if (aluno.status === 'PRESENTE') {
+                buttonsHtml = `<button class="btn btn-warning" onclick="abrirModalSaida(${aluno.id}, '${aluno.nome}')">Saída</button>`;
+            }
+            // Status 3: Saída foi solicitada. Mostrar botão de CONFIRMAR SAÍDA.
+            else if (aluno.status === 'AGUARDANDO_CONFIRMACAO') {
+                buttonsHtml = `<button class="btn btn-primary" onclick="confirmarSaidaManual(${aluno.id}, '${aluno.nome}')">Confirmar Saída</button>`;
+            }
+
+            // Monta o HTML do card do aluno
+            studentCard.innerHTML = `
+                <div class="card">
+                    <div class="card-body d-flex justify-content-between align-items-center">
+                        <div>
+                            <h5 class="card-title">${aluno.nome}</h5>
+                            <p class="card-text">Status: <strong>${aluno.status.replace('_', ' ')}</strong></p>
+                        </div>
+                        <div class="student-actions">
+                            ${buttonsHtml}
+                        </div>
+                    </div>
+                </div>
+            `;
+            container.appendChild(studentCard);
+        });
+    }
+
+    async function solicitarSaida(alunoId) {
+    showModalLoading();
+    try {
+        const coords = await getCurrentLocationWithoutValidation();
+        if (!coords) throw new Error('Não foi possível obter a localização');
+
+        const accessToken = localStorage.getItem('access_token');
+        
+        // Usamos o endpoint de SOLICITAÇÃO que criamos
+        const response = await fetch(`${BACKEND_URL}/api/presencas/saida/solicitar`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                alunoId: alunoId,
+                // O backend já sabe quem é o tutor pelo token, não precisamos enviar
+                latitude: coords.latitude,
+                longitude: coords.longitude
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.mensagem || 'Falha ao solicitar a saída');
+        }
+
+        const result = await response.json();
+        showAlert('Solicitação de saída registrada com sucesso! Confirme a saída na tela principal.', 'info');
+        
+        // ATUALIZA A TELA para mostrar o botão "Confirmar Saída"
+        refreshStudentsData();
+
+    } catch (error) {
+        showAlert(`Erro: ${error.message}`, 'error');
+    } finally {
+        hideModalLoading();
+        closeModal();
+    }
+}
+
     async function solicitarSaidaPendente(alunoId, responsavelNome, responsavelTipo) {
         try {
             // ================== CORREÇÃO AQUI ==================
