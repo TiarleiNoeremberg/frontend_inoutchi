@@ -1128,19 +1128,18 @@
 }
 
     async function solicitarSaidaPendente(alunoId, responsavelNome, responsavelTipo) {
+        // A função já começa mostrando o loading, o que é ótimo.
+        showModalLoading('Solicitando saída...', 'Comunicando com o servidor');
+
         try {
-            // ================== CORREÇÃO AQUI ==================
-            // O objeto currentUser tem 'id', não 'tutorId'.
             if (!currentUser.id) {
                 throw new Error('ID do tutor não disponível');
             }
             const solicitanteId = currentUser.id;
-            // ================== FIM DA CORREÇÃO ==================
 
             const coords = await getCurrentLocationWithoutValidation();
-
             if (!coords) {
-                throw new Error('Não foi possível obter a localização');
+                throw new Error('Não foi possível obter a localização para a solicitação');
             }
 
             const aluno = students.find(s => s.id === alunoId);
@@ -1160,6 +1159,8 @@
 
             const accessToken = localStorage.getItem('access_token');
 
+            // <<< PONTO CHAVE DA MUDANÇA >>>
+            // Usamos 'await' para esperar a resposta da API. O código só continua depois que a API responde.
             const response = await fetch(`${BACKEND_URL}/api/presencas/saida/solicitar`, {
                 method: 'POST',
                 headers: {
@@ -1179,16 +1180,21 @@
                 throw new Error(errorMessage);
             }
 
+            // A API respondeu com sucesso!
             const result = await response.json();
-            showAlert('Solicitação de saída enviada! O aluno será monitorado por 3 minutos.', 'success');
+            
+            showAlert('Solicitação de saída enviada com sucesso! Confirme a saída na tela.', 'success');
 
-            setTimeout(() => {
-                refreshStudentsData();
-            }, 1000);
+            // <<< SEGUNDO PONTO CHAVE DA MUDANÇA >>>
+            // Agora que a API TERMINOU, chamamos a atualização dos dados IMEDIATAMENTE.
+            // Não precisamos mais do setTimeout.
+            await refreshStudentsData();
 
         } catch (error) {
+            // Se algo der errado, mostramos o erro.
             showAlert(`Erro ao solicitar saída: ${error.message}`, 'error');
         } finally {
+            // Independentemente de sucesso ou falha, escondemos o loading e fechamos o modal.
             hideModalLoading();
             closeModal();
         }
@@ -1685,14 +1691,16 @@
             const li = document.createElement('li');
             li.className = 'student-item';
 
-            const status = student.status || 'AUSENTE'; // Garante que temos um status
+            const status = student.status || 'AUSENTE';
+            const statusText = status.replace(/_/g, ' '); // Troca _ por espaço, ex: 'AGUARDANDO_CONFIRMACAO' -> 'AGUARDANDO CONFIRMACAO'
             const isSelected = student.id === selectedStudentId;
+
             if (isSelected) {
                 li.style.backgroundColor = '#f0f4f8';
                 li.style.borderLeft = `4px solid var(--primary-color)`;
             }
 
-            // <<< INÍCIO DA CORREÇÃO DA LÓGICA DOS BOTÕES >>>
+            // <<< LÓGICA REFINADA E CENTRALIZADA >>>
             let actionButtons = '';
             
             // CENÁRIO 1: Aluno está presente. A única ação primária é SOLICITAR a saída.
@@ -1701,13 +1709,13 @@
             
             // CENÁRIO 2: Saída foi solicitada. A única ação primária é CONFIRMAR a saída.
             } else if (status === 'AGUARDANDO_CONFIRMACAO') {
-                actionButtons = `<button class="btn btn-warning" onclick="confirmarSaidaManual(${student.id}, '${student.nome}')"><i class="fas fa-check-circle"></i> Confirmar</button>`;
+                actionButtons = `<button class="btn btn-warning" onclick="confirmarSaidaManual(${student.id}, '${student.nome}')"><i class="fas fa-check-circle"></i> Confirmar Saída</button>`;
             
             // CENÁRIO 3 (Default): Aluno está ausente. A única ação primária é REGISTRAR a entrada.
             } else { // 'AUSENTE' ou qualquer outro estado
                 actionButtons = `<button class="btn btn-success" onclick="openActionModal(${student.id}, 'entrada', '${student.nome}')"><i class="fas fa-sign-in-alt"></i> Entrada</button>`;
             }
-            // <<< FIM DA CORREÇÃO DA LÓGICA DOS BOTÕES >>>
+            // <<< FIM DA LÓGICA REFINADA >>>
 
             li.innerHTML = `
                 <div class="student-info">
@@ -1716,7 +1724,7 @@
                 </div>
                 <div class="student-actions-container">
                     <div class="status-container">
-                        <span class="status-badge ${status === 'PRESENTE' ? 'status-present' : 'status-absent'}">${status.replace('_', ' ')}</span>
+                        <span class="status-badge ${status === 'PRESENTE' ? 'status-present' : 'status-absent'}">${statusText}</span>
                     </div>
                     <div class="action-buttons">
                         ${actionButtons}
