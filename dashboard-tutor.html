@@ -772,6 +772,11 @@
             background-color: #e67e22;
         }
         
+        .status-warning {
+            background-color: rgba(243, 156, 18, 0.15);
+            color: var(--warning-color);
+            border-color: rgba(243, 156, 18, 0.3);
+        }
 
     </style>
 </head>
@@ -957,7 +962,10 @@
         let lastValidatedCoords = null;
         let autoCloseTimeout = null;
 
+        // URL base da sua API
+        const API_URL = '/api';
 
+        
         function showModalLoading(mainText = "Processando...", subText = "Aguarde um momento") {
             const modalLoading = document.getElementById('modalLoading');
             const loadingText = document.getElementById('modalLoadingText');
@@ -1109,8 +1117,95 @@
                 closeModal();
             }
         }
+
+        /**
+         * Carrega os dados dos alunos do backend usando o ID do tutor autenticado.
+         * Esta é agora a ÚNICA função responsável por buscar dados dos alunos.
+         * PRESSUPOSTO: A sua API em /api/tutores/{id}/alunos retorna um campo booleano "saidaPendente" para cada aluno.
+         */
+        async function loadStudents() {
+            if (!currentUser || !currentUser.tutorId) {
+                showAlert("Não foi possível identificar o tutor para carregar os alunos. Tente recarregar a página.", "error");
+                return;
+            }
+
+            console.log(`Carregando alunos para o tutor ID: ${currentUser.tutorId}...`);
+            studentList.innerHTML = '<li><div class="loading-spinner" style="margin: 20px auto;"></div><p style="text-align:center;">Buscando alunos...</p></li>';
+
+            try {
+                const accessToken = localStorage.getItem('access_token');
+                // Usamos o tutorId do usuário autenticado, que é mais seguro e preciso que o nome.
+                const response = await fetch(`${BACKEND_URL}/api/tutores/${currentUser.tutorId}/alunos`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        throw new Error(`Nenhum aluno encontrado para o tutor logado.`);
+                    }
+                    const errorData = await response.json().catch(() => ({ message: response.statusText }));
+                    throw new Error(errorData.message || `Erro na requisição`);
+                }
+                
+                const fetchedStudents = await response.json();
+
+                // O backend deve retornar a lista de alunos com o status e a flag 'saidaPendente'.
+                students = Array.isArray(fetchedStudents) ? fetchedStudents : [];
+                
+                lastStudentsUpdate = Date.now();
+                renderStudents(); // Chama a nova e única função de renderização
+                updatePresenceSummary();
+                updateLastUpdateIndicator();
+
+            } catch (error) {
+                console.error('Falha ao carregar alunos:', error);
+                studentList.innerHTML = `<li class="student-item" style="color: var(--danger-color); justify-content: center; padding: 20px;">${error.message}</li>`;
+                presenceSummary.innerHTML = '<p>Não foi possível carregar o resumo.</p>';
+            }
+        }
         
-        
+        /**
+         * Função para SOLICITAR a saída de um aluno.
+         */
+        async function solicitarSaida(alunoId) {
+            console.log(`Solicitando saída para o aluno ID: ${alunoId}`);
+            try {
+                const position = await new Promise((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(resolve, reject);
+                });
+                const { latitude, longitude } = position.coords;
+
+                const response = await fetch(`${API_URL}/presencas/saida/solicitar`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        // IMPORTANTE: Assumindo que o token é enviado para autenticação
+                        // 'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                    },
+                    body: JSON.stringify({
+                        alunoId: alunoId,
+                        latitude: latitude,
+                        longitude: longitude,
+                        // Outros campos podem ser necessários dependendo da sua API
+                    })
+                });
+
+                const result = await response.json();
+                if (result.sucesso) {
+                    alert('Solicitação de saída enviada com sucesso! O status será atualizado.');
+                    loadStudents(); // Recarrega para refletir a mudança no botão
+                } else {
+                    alert(`Erro ao solicitar saída: ${result.mensagem || 'Erro desconhecido'}`);
+                }
+            } catch (error) {
+                console.error('Erro na geolocalização ou na API de solicitação:', error);
+                alert('Não foi possível obter sua localização para solicitar a saída.');
+            }
+        }
+
         // 🟡 NOVA FUNÇÃO: Solicitação de saída (PENDENTE) - substitui a antiga registrarSaida
         async function solicitarSaidaPendente(alunoId, responsavelNome, responsavelTipo) {
             try {
@@ -1799,61 +1894,6 @@
             }
         }
 
-        async function updateStudentsStatusFromHistory() {
-            try {
-                const accessToken = localStorage.getItem('access_token');
-                
-                if (!students || students.length === 0) {
-                    return;
-                }
-                
-                console.log('🔄 Verificando status real dos alunos...');
-                
-                const updatedStudents = await Promise.all(
-                    students.map(async (student) => {
-                        try {
-                            const response = await fetch(`${BACKEND_URL}/api/presencas/historico/${student.id}?size=1`, {
-                                headers: {
-                                    'Authorization': `Bearer ${accessToken}`,
-                                    'Content-Type': 'application/json'
-                                }
-                            });
-                            
-                            if (response.ok) {
-                                const result = await response.json();
-                                
-                                if (result.sucesso && result.dados && result.dados.length > 0) {
-                                    const ultimoRegistro = result.dados[0];
-                                    
-                                    if (ultimoRegistro.entradaAt && !ultimoRegistro.saidaAt) {
-                                        return { ...student, status: 'PRESENTE' };
-                                    } else {
-                                        return { ...student, status: 'AUSENTE' };
-                                    }
-                                }
-                            }
-                            
-                            return { ...student, status: 'AUSENTE' };
-                            
-                        } catch (error) {
-                            console.error(`Erro ao verificar status do aluno ${student.id}:`, error);
-                            return student;
-                        }
-                    })
-                );
-                
-                students = updatedStudents;
-                renderStudents();
-                updatePresenceSummary();
-                updateLastUpdateIndicator();
-                
-                console.log('✅ Status dos alunos atualizado');
-                
-            } catch (error) {
-                console.error('❌ Erro ao atualizar status dos alunos:', error);
-            }
-        }
-
         function updateLastUpdateIndicator() {
             const indicator = document.getElementById('lastUpdateIndicator');
             if (indicator) {
@@ -1910,9 +1950,7 @@
                 }
                 
                 await loadStudents();
-
-                await updateStudentsStatusFromHistory();
-
+                
                 setInterval(updateStudentsStatusFromHistory, 30000);
                 
                 startStudentsAutoRefresh();
@@ -2043,73 +2081,6 @@
             }
         }
 
-        async function loadStudents() {
-            try {
-                const accessToken = localStorage.getItem('access_token');
-                
-                if (!tutorName) {
-                    throw new Error('Nome do tutor não disponível');
-                }
-                
-                console.log('📋 Carregando alunos do tutor:', tutorName);
-                
-                const response = await fetch(`${BACKEND_URL}/api/tutores/${encodeURIComponent(tutorName)}/alunos`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-
-                const data = await response.json();
-                console.log('✅ Resposta completa da API:', data);
-                
-                if (!data || !data.id || !data.nome) {
-                    throw new Error('Dados do tutor incompletos na resposta da API');
-                }
-                
-                if (!data.alunos || !Array.isArray(data.alunos)) {
-                    throw new Error('Estrutura de alunos inválida na resposta da API');
-                }
-                
-                console.log(`🎯 Encontrado tutor ${data.nome} (ID: ${data.id}) com ${data.alunos.length} aluno(s)`);
-                
-                currentUser.tutorId = data.id;
-                
-                students = data.alunos.map(aluno => {
-                    console.log('👤 Aluno:', aluno);
-                    
-                    if (!aluno.id || !aluno.nome) {
-                        throw new Error('Dados incompletos do aluno');
-                    }
-                    
-                    return {
-                        id: aluno.id,
-                        nome: aluno.nome,
-                        salaNome: aluno.salaNome,
-                        escolaId: aluno.escolaId,
-                        status: aluno.status || 'AUSENTE'
-                    };
-                });
-                
-                console.log('✅ Alunos processados:', students);
-                console.log('✅ ID do tutor capturado:', currentUser.tutorId);
-                
-                renderStudents();
-                updatePresenceSummary();
-                updateLastUpdateIndicator();
-                
-            } catch (error) {
-                console.error('❌ Erro ao carregar alunos:', error);
-                showAlert('Erro ao carregar lista de alunos: ' + error.message, 'error');
-                students = [];
-                renderStudents();
-                updatePresenceSummary();
-            }
-        }
 
         function updatePresenceSummary() {
             if (students.length === 0) {
@@ -2147,11 +2118,15 @@
             `;
         }
 
+        /**
+         * Renderiza a lista de alunos na tela com a lógica de botões correta.
+         * Esta é agora a ÚNICA função responsável por criar o HTML dos alunos.
+         */
         function renderStudents() {
             studentList.innerHTML = '';
 
-            if (students.length === 0) {
-                studentList.innerHTML = '<li style="padding: 15px; text-align: center; color: #666;">Nenhum aluno vinculado</li>';
+            if (!students || students.length === 0) {
+                studentList.innerHTML = '<li style="padding: 15px; text-align: center; color: #666;">Nenhum aluno vinculado.</li>';
                 return;
             }
 
@@ -2159,42 +2134,64 @@
                 const li = document.createElement('li');
                 li.className = 'student-item';
 
-                const statusClass = student.status === 'PRESENTE' ? 'status-present' : 'status-absent';
-                const statusText = student.status === 'PRESENTE' ? 'Presente' : 'Ausente';
+                const isPresent = student.status === 'PRESENTE';
+                // LÓGICA CRÍTICA: Verificamos a flag 'saidaPendente' que deve vir da API.
+                const isExitPending = student.saidaPendente === true;
 
-                const isSelected = student.id === selectedStudentId;
-                if (isSelected) {
-                    li.style.backgroundColor = '#f8f9fa';
-                    li.style.borderLeft = `4px solid ${student.status === 'PRESENTE' ? 'var(--success-color)' : 'var(--primary-color)'}`;
+                let statusText = 'Ausente';
+                let statusClass = 'status-absent';
+                if (isPresent) {
+                    if (isExitPending) {
+                        statusText = 'Saída Pendente';
+                        statusClass = 'status-warning'; // Novo estilo para destaque
+                    } else {
+                        statusText = 'Presente';
+                        statusClass = 'status-present';
+                    }
+                }
+
+                let actionButtonsHTML = '';
+
+                if (!isPresent) {
+                    // ALUNO AUSENTE: Só pode registrar entrada.
+                    actionButtonsHTML = `
+                        <button class="btn btn-success" onclick="openActionModal(${student.id}, 'entrada', '${student.nome}')">
+                            <i class="fas fa-sign-in-alt"></i> Entrada
+                        </button>
+                    `;
+                } else {
+                    // ALUNO PRESENTE:
+                    if (isExitPending) {
+                        // SAÍDA SOLICITADA: Tutor deve confirmar.
+                        actionButtonsHTML = `
+                            <button class="btn btn-warning" onclick="confirmarSaidaManual(${student.id}, '${student.nome}')">
+                                <i class="fas fa-check-circle"></i> Confirmar Saída
+                            </button>
+                        `;
+                    } else {
+                        // APENAS PRESENTE: Tutor pode solicitar a saída.
+                        actionButtonsHTML = `
+                            <button class="btn btn-danger" onclick="openActionModal(${student.id}, 'saida', '${student.nome}')">
+                                <i class="fas fa-sign-out-alt"></i> Solicitar Saída
+                            </button>
+                        `;
+                    }
                 }
 
                 li.innerHTML = `
                     <div class="student-info">
-                        <span class="student-name">${student.nome||'Aluno'} ${isSelected ? '' : ''}</span>
-                        <span class="student-class">${student.salaNome||'Sala não informada'}</span>
+                        <span class="student-name">${student.nome || 'Aluno'}</span>
+                        <span class="student-class">${student.salaNome || 'Sala não informada'}</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                         <div style="display: flex; align-items: center; height: 36px;">
                             <span class="status-badge ${statusClass}">${statusText}</span>
                         </div>
                         <div class="action-buttons">
-                            ${student.status !== 'PRESENTE' ? 
-                                `<button class="btn btn-success" onclick="openActionModal(${student.id}, 'entrada', '${student.nome}')">
-                                    <i class="fas fa-sign-in-alt"></i> Entrada
-                                </button>` : 
-                                `<button class="btn btn-danger" onclick="openActionModal(${student.id}, 'saida', '${student.nome}')">
-                                    <i class="fas fa-sign-out-alt"></i> Saída
-                                </button>`
-                            }
-                            <!-- Botão de confirmação manual de saída -->
-                            ${student.status === 'PRESENTE' ? 
-                                `<button class="btn btn-warning" onclick="confirmarSaidaManual(${student.id}, '${student.nome}')">
-                                    <i class="fas fa-check-circle"></i> Confirmar Saída
-                                </button>` : ''
-                            }
+                            ${actionButtonsHTML}
                             <button class="btn btn-primary" onclick="viewStudentHistory(${student.id}, '${student.nome}')">
                                 <i class="fas fa-history"></i> Histórico
-                            </button>
+                            </button> MESSAGE
                         </div>
                     </div>
                 `;
@@ -2202,7 +2199,72 @@
                 studentList.appendChild(li);
             });
 
-            console.log('🕒 Lista de alunos renderizada:', new Date().toLocaleTimeString());
+            console.log('✅ Lista de alunos renderizada com a lógica correta:', new Date().toLocaleTimeString());
+        }
+
+        /**
+         * Renderiza a lista de alunos na tela, mostrando o botão correto.
+         * ÚNICA RESPONSABILIDADE: Lógica de apresentação (criar HTML).
+         */
+        function renderStudents(alunos) {
+            const studentList = document.getElementById('student-list');
+            studentList.innerHTML = ''; // Limpa a lista antes de renderizar
+
+            if (!alunos || alunos.length === 0) {
+                studentList.innerHTML = '<p>Nenhum aluno vinculado a este tutor.</p>';
+                return;
+            }
+
+            alunos.forEach(aluno => {
+                const studentCard = document.createElement('div');
+                studentCard.className = 'student-card';
+
+                let buttonHtml = '';
+                // Verifica o campo 'saidaPendente' para decidir qual botão mostrar
+                if (aluno.saidaPendente) {
+                    buttonHtml = `<button class="btn-confirm" onclick="confirmarSaida(${aluno.id})">Confirmar Saída</button>`;
+                } else {
+                    buttonHtml = `<button class="btn-request" onclick="solicitarSaida(${aluno.id})">Solicitar Saída</button>`;
+                }
+
+                studentCard.innerHTML = `
+                    <h4>${aluno.nome}</h4>
+                    <p>Escola: ${aluno.escolaNome || 'Não informada'}</p>
+                    <p>Sala: ${aluno.salaNome || 'Não informada'}</p>
+                    <p>Status: <strong>${aluno.status}</strong></p>
+                    <div class="card-actions">
+                        ${buttonHtml}
+                    </div>
+                `;
+                studentList.appendChild(studentCard);
+            });
+        }
+
+        /**
+         * Função para CONFIRMAR a saída de um aluno.
+         */
+        async function confirmarSaida(alunoId) {
+            console.log(`Confirmando a saída para o aluno ID: ${alunoId}`);
+            try {
+                const response = await fetch(`${API_URL}/presencas/confirmar-saida?alunoId=${alunoId}`, {
+                    method: 'POST',
+                    headers: {
+                        // IMPORTANTE: Assumindo que o token é enviado para autenticação
+                        // 'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                    }
+                });
+
+                const result = await response.json();
+                if (result.sucesso) {
+                    alert('Saída confirmada com sucesso!');
+                    loadStudents(); // Recarrega a lista
+                } else {
+                    alert(`Erro ao confirmar saída: ${result.erro || 'Erro desconhecido'}`);
+                }
+            } catch (error) {
+                console.error('Erro na API de confirmação:', error);
+                alert('Ocorreu um erro ao tentar confirmar a saída.');
+            }
         }
 
         async function confirmarSaidaManual(alunoId, alunoNome) {
@@ -2574,7 +2636,7 @@
             
             initializeDashboard();
         });
-
+        
     </script>
 </body>
 </html>
