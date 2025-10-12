@@ -1128,9 +1128,6 @@
 }
 
     async function solicitarSaidaPendente(alunoId, responsavelNome, responsavelTipo) {
-        // A função já começa mostrando o loading, o que é ótimo.
-        showModalLoading('Solicitando saída...', 'Comunicando com o servidor');
-
         try {
             if (!currentUser.id) {
                 throw new Error('ID do tutor não disponível');
@@ -1139,7 +1136,7 @@
 
             const coords = await getCurrentLocationWithoutValidation();
             if (!coords) {
-                throw new Error('Não foi possível obter a localização para a solicitação');
+                throw new Error('Não foi possível obter a localização');
             }
 
             const aluno = students.find(s => s.id === alunoId);
@@ -1158,9 +1155,6 @@
             };
 
             const accessToken = localStorage.getItem('access_token');
-
-            // <<< PONTO CHAVE DA MUDANÇA >>>
-            // Usamos 'await' para esperar a resposta da API. O código só continua depois que a API responde.
             const response = await fetch(`${BACKEND_URL}/api/presencas/saida/solicitar`, {
                 method: 'POST',
                 headers: {
@@ -1180,21 +1174,26 @@
                 throw new Error(errorMessage);
             }
 
-            // A API respondeu com sucesso!
-            const result = await response.json();
-            
-            showAlert('Solicitação de saída enviada com sucesso! Confirme a saída na tela.', 'success');
+            // Resposta de sucesso do backend!
+            showAlert('Solicitação de saída enviada! Confirme a saída na tela principal.', 'success');
 
-            // <<< SEGUNDO PONTO CHAVE DA MUDANÇA >>>
-            // Agora que a API TERMINOU, chamamos a atualização dos dados IMEDIATAMENTE.
-            // Não precisamos mais do setTimeout.
-            await refreshStudentsData();
+            // ===== INÍCIO DA MUDANÇA CRUCIAL =====
+            // 1. Encontre o aluno no nosso array local 'students'
+            const studentIndex = students.findIndex(s => s.id === alunoId);
+
+            if (studentIndex !== -1) {
+                // 2. Atualize o status dele DIRETAMENTE no array
+                students[studentIndex].status = 'AGUARDANDO_CONFIRMACAO';
+                
+                // 3. Chame a função para redesenhar a lista IMEDIATAMENTE com o novo status
+                renderStudents();
+            }
+            // ===== FIM DA MUDANÇA CRUCIAL =====
 
         } catch (error) {
-            // Se algo der errado, mostramos o erro.
             showAlert(`Erro ao solicitar saída: ${error.message}`, 'error');
         } finally {
-            // Independentemente de sucesso ou falha, escondemos o loading e fechamos o modal.
+            // A lógica de fechar o modal e esconder o loading permanece.
             hideModalLoading();
             closeModal();
         }
