@@ -962,7 +962,7 @@
     let geofenceValidated = false;
     let lastValidatedCoords = null;
     let autoCloseTimeout = null;
-
+     
     function showModalLoading(mainText = "Processando...", subText = "Aguarde um momento") {
         const modalLoading = document.getElementById('modalLoading');
         const loadingText = document.getElementById('modalLoadingText');
@@ -1842,47 +1842,58 @@
             `;
             studentList.appendChild(li);
         });
-        }
+    }
 
-    async function confirmarSaidaManual(alunoId, alunoNome) {
-        if (!confirm(`Deseja confirmar manualmente a saída de ${alunoNome}? Esta ação não pode ser desfeita.`))
-            return;
+    let confirmExitStudent = { id: null, nome: '' };
 
+    // 2.1) Função para abrir o modal, preenchendo a mensagem
+    function openConfirmExitModal(alunoId, alunoNome) {
+        confirmExitStudent.id = alunoId;
+        confirmExitStudent.nome = alunoNome;
+        // Monta a frase com o nome do aluno
+        document.getElementById('confirmExitMessage').textContent =
+            `Deseja confirmar manualmente a saída de ${alunoNome}? Esta ação não pode ser desfeita.`;
+        // Exibe o modal (flex, grid ou como seu CSS esperar)
+        document.getElementById('confirmExitModal').style.display = 'flex';
+    }
+
+    // 2.2) Função para fechar o modal sem confirmar
+    function closeConfirmExitModal() {
+        document.getElementById('confirmExitModal').style.display = 'none';
+    }
+
+    // 2.3) Listener do botão “Confirmar” dentro do modal
+    document
+    .getElementById('confirmExitOk')
+    .addEventListener('click', async () => {
         try {
-            const accessToken = localStorage.getItem('access_token');
-            const response = await fetch(
-                `${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`
-                    }
-                }
-            );
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.mensagem || 'Erro ao confirmar saída');
+        // Usa os dados que guardamos em confirmExitStudent
+        const { id: alunoId, nome: alunoNome } = confirmExitStudent;
+        const accessToken = localStorage.getItem('access_token');
+        const res = await fetch(
+            `${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`,
+            {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${accessToken}` }
             }
-
-            showAlert('Saída confirmada manualmente com sucesso!', 'success');
-
-            // ——————————————————————————————
-            // REMOVER A SAÍDA PENDENTE E RE-RENDERIZAR
-            pendingExitStudents.delete(alunoId);
-            // atualiza também o status no array local
-            const idx = students.findIndex(s => s.id === alunoId);
-            if (idx !== -1) {
-                students[idx].status = 'AUSENTE';
-            }
-            renderStudents();
-            updatePresenceSummary();
-            updateLastUpdateIndicator();
-            // ——————————————————————————————
-
-        } catch (error) {
-            showAlert(`Erro: ${error.message}`, 'error');
+        );
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.mensagem || `Status ${res.status}`);
         }
+        showAlert(`Saída de ${alunoNome} confirmada!`, 'success');
+        await refreshStudentsData();
+        } catch (e) {
+        showAlert(`Erro ao confirmar saída: ${e.message}`, 'error');
+        } finally {
+        closeConfirmExitModal();
+        }
+    });
+
+    function confirmarSaidaManual(alunoId, alunoNome) {
+    // só abre o modal, a confirmação de fato
+    // já corre lá no listener de #confirmExitOk
+    openConfirmExitModal(alunoId, alunoNome);
     }
 
     async function loadHistory(studentId = null) {
@@ -2051,5 +2062,24 @@
     });
 
     </script>
+
+    <div class="modal" id="confirmExitModal">
+        <div class="modal-content">
+            <div class="modal-header">
+            <h3>Confirmar Saída</h3>
+            <button class="close-modal" onclick="closeConfirmExitModal()">×</button>
+            </div>
+            <div class="modal-body">
+            <p id="confirmExitMessage"></p>
+            </div>
+            <div class="modal-footer">
+            <button class="btn" onclick="closeConfirmExitModal()" style="font-size:13px;">Cancelar</button>
+            <button class="btn btn-warning" id="confirmExitOk" style="font-size:13px;">
+                <i class="fas fa-check-circle"></i> Confirmar
+            </button>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>
