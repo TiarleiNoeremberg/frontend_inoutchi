@@ -162,107 +162,7 @@
 
         /* Student List Mobile - MODIFICADO */
         .student-list {
-            list-style-type: none;
-            padding: 0;
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 20px;
-        }
-
-        .student-card {
-            background-color: #fff;
-            border-radius: 10px;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.07);
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            transition: transform 0.2s, box-shadow 0.2s;
-            border-left: 5px solid #007bff; /* Azul padrão */
-        }
-
-        .student-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.1);
-        }
-
-        .student-details {
-            margin-bottom: 20px;
-        }
-
-        .student-name {
-            font-size: 1.2rem;
-            font-weight: 600;
-            color: #343a40;
-            margin: 0 0 5px 0;
-        }
-
-        .student-status {
-            font-size: 0.85rem;
-            font-weight: 500;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .status-present {
-            color: #28a745;
-        }
-
-        .status-absent {
-            color: #6c757d;
-        }
-
-        /* Grupo de botões */
-        .button-group {
-            display: flex;
-            gap: 10px;
-        }
-
-        .button-group button {
-            flex: 1; /* Faz os botões ocuparem o espaço disponível */
-            padding: 12px 15px;
-            border: none;
-            border-radius: 8px;
-            font-size: 0.9rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background-color 0.2s ease;
-        }
-
-        /* Estilos dos botões */
-        .btn-primary {
-            background-color: #007bff;
-            color: white;
-        }
-        .btn-primary:hover {
-            background-color: #0056b3;
-        }
-
-        .btn-secondary {
-            background-color: #6c757d;
-            color: white;
-        }
-        .btn-secondary:hover {
-            background-color: #5a6268;
-        }
-
-        .btn-warning {
-            background-color: #ffc107;
-            color: #212529;
-        }
-
-        .btn-warning:hover {
-            background-color: #e0a800;
-        }
-
-        button:disabled {
-            background-color: #e9ecef;
-            color: #adb5bd;
-            cursor: not-allowed;
-        }
-
-        .student-card.waiting-confirmation {
-            border-left-color: #ffc107; /* Amarelo para espera */
+            list-style: none;
         }
 
         .student-item {
@@ -1299,32 +1199,6 @@
         }
     }
 
-    // Função para exibir o modal de confirmação de ENTRADA
-    function showModalEntrada(studentId, studentName) {
-        const modal = document.getElementById('entrada-modal');
-        if (!modal) return;
-        
-        modal.querySelector('#entrada-modal-text').textContent = `Confirmar a entrada de ${studentName}?`;
-        
-        const confirmBtn = modal.querySelector('#confirm-entrada-btn');
-        confirmBtn.onclick = () => registrarEntrada(studentId); // Chama a função que registra no backend
-        
-        modal.style.display = 'block';
-    }
-
-    // Função para exibir o modal de confirmação de SAÍDA
-    function showModalSaida(studentId, studentName) {
-        const modal = document.getElementById('saida-modal');
-        if (!modal) return;
-        
-        modal.querySelector('#saida-modal-text').textContent = `Deseja solicitar a saída de ${studentName}? A sala será notificada.`;
-
-        const confirmBtn = modal.querySelector('#confirm-saida-btn');
-        confirmBtn.onclick = () => solicitarSaida(studentId); // Chama a função que solicita ao backend
-
-        modal.style.display = 'block';
-    }
-
     async function getCurrentLocationWithoutValidation() {
         return new Promise((resolve) => {
             if (!navigator.geolocation) {
@@ -1810,73 +1684,53 @@
      * garantindo que o botão "Confirmar Saída" apareça sempre que necessário.
      */
     async function renderStudents() {
-        // IMPORTANTE: Garante que estamos selecionando o ID correto do seu HTML, que é 'studentList'
-        const studentList = document.getElementById('studentList');
+        const studentList = document.getElementById('student-list');
+        studentList.innerHTML = '<div class="loader-container"><div class="loader">Carregando alunos...</div></div>';
 
-        if (!studentList) {
-            console.error("FALHA CRÍTICA: O elemento com id='studentList' não foi encontrado no HTML. Não é possível exibir os alunos.");
-            return;
-        }
-
-        studentList.innerHTML = '<div class="loader-container"><div class="loader">Carregando...</div></div>';
-
-        // (O restante do código para buscar dados, como fetchActiveSolicitation, permanece o mesmo)
         const fetchActiveSolicitation = async (alunoId) => {
             try {
                 const accessToken = localStorage.getItem('access_token');
-                const response = await fetch(`${BACKEND_URL}/api/presencas/chamada-ativa/${alunoId}`, {
+                const response = await fetch(`${BACKEND_URL}/api/chamadas/aluno/${alunoId}/status-ativo`, {
                     headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
                 if (!response.ok) return null;
                 const data = await response.json();
-                return (data && data.ativa) ? data : null;
+                // Retorna o objeto da solicitação se houver, ou null
+                return Object.keys(data).length > 0 ? data : null;
             } catch (error) {
-                console.error(`Erro ao buscar status para aluno ${alunoId}:`, error);
+                console.error(`Erro ao buscar status de chamada para aluno ${alunoId}:`, error);
                 return null;
             }
         };
 
-        try {
-            const solicitationPromises = students.map(student =>
-                student.status === 'PRESENTE' ? fetchActiveSolicitation(student.id) : Promise.resolve(null)
-            );
-            const activeSolicitations = await Promise.all(solicitationPromises);
-            studentList.innerHTML = ''; // Limpa o loader
+        const solicitationPromises = students.map(student =>
+            student.status === 'PRESENTE' ? fetchActiveSolicitation(student.id) : Promise.resolve(null)
+        );
 
-            if (students.length === 0) {
-                studentList.innerHTML = '<li class="empty-state">Nenhum aluno vinculado.</li>';
-                return;
+        const activeSolicitations = await Promise.all(solicitationPromises);
+        studentList.innerHTML = ''; // Limpa o loader
+
+        students.forEach((student, index) => {
+            const activeSolicitation = activeSolicitations[index];
+
+            const card = document.createElement('div');
+            card.className = 'student-card';
+            // Adicionamos a classe 'waiting' se uma chamada estiver ativa
+            if (activeSolicitation) {
+                card.classList.add('waiting-confirmation');
             }
 
-            students.forEach((student, index) => {
-                const activeSolicitation = activeSolicitations[index];
-                // Usa 'li' pois nosso container é um 'ul'
-                const card = document.createElement('li'); 
-                card.className = 'student-card';
-
-                if (activeSolicitation) {
-                    card.classList.add('waiting-confirmation');
-                }
-
-                // VERSÃO SEM IMAGEM: HTML muito mais simples
-                card.innerHTML = `
-                    <div class="student-details">
-                        <p class="student-name">${student.nome}</p>
-                        <p class="student-status ${student.status === 'PRESENTE' ? 'status-present' : 'status-absent'}">
-                            ${activeSolicitation ? `Saída Solicitada` : student.status}
-                        </p>
-                    </div>
-                    <div class="button-group">
-                        ${getButtonForStatus(student, activeSolicitation)}
-                    </div>
-                `;
-                studentList.appendChild(card);
-            });
-
-        } catch (error) {
-            console.error('Erro ao renderizar a lista de alunos:', error);
-            studentList.innerHTML = '<li class="error-message">Erro ao carregar os alunos.</li>';
-        }
+            card.innerHTML = `
+                <div class="student-info">
+                    <img src="${student.imgUrl || 'img/default-avatar.png'}" alt="Foto de ${student.nome}">
+                    <p>${student.nome}</p>
+                </div>
+                <div class="button-group">
+                    ${getButtonForStatus(student, activeSolicitation)}
+                </div>
+            `;
+            studentList.appendChild(card);
+        });
     }
 
     /**
