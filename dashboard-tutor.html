@@ -874,6 +874,7 @@
     </div>
 
     <script>
+        const pendingExitStudents = new Set();
         const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
     let currentUser = null;
     let students = [];
@@ -1177,6 +1178,12 @@
 
             // Resposta de sucesso do backend!
             showAlert('Solicitação de saída enviada! Confirme a saída na tela principal.', 'success');
+
+            // marca esse aluno como tendo saída pendente
+            pendingExitStudents.add(alunoId);
+
+            // opcional: força uma renderização imediata
+            renderStudents();
 
             // ===== INÍCIO DA MUDANÇA CRUCIAL =====
             // 1. Encontre o aluno no nosso array local 'students'
@@ -1592,10 +1599,35 @@
         }, STUDENTS_REFRESH_INTERVAL);
     }
 
+    /**
+     * Recarrega a lista de alunos do servidor e reaplica
+     * localmente qualquer saída que ainda esteja pendente de confirmação.
+     */
     async function refreshStudentsData() {
+        // só atualiza se passou o mínimo de intervalo
         if (Date.now() - lastStudentsUpdate < MIN_UPDATE_INTERVAL) return;
         lastStudentsUpdate = Date.now();
-        await loadStudents();
+
+        try {
+            // 1) busca lista nova no servidor (já faz renderStudents/updateSummary/updateIndicator)
+            await loadStudents();
+
+            // 2) reaplica o status pendente para quem tiver saída aguardando
+            students.forEach(s => {
+                if (pendingExitStudents.has(s.id)) {
+                    s.status = 'AGUARDANDO_CONFIRMACAO';
+                }
+            });
+
+            // 3) re-render completo agora que mesclamos o estado
+            renderStudents();
+            updatePresenceSummary();
+            updateLastUpdateIndicator();
+        }
+        catch (e) {
+            console.error('Erro ao atualizar alunos:', e);
+            showAlert(`Erro ao atualizar alunos: ${e.message}`, 'error');
+        }
     }
 
     async function loadUserInfo() {
