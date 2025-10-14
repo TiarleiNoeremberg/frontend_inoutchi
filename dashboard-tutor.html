@@ -1577,24 +1577,27 @@
             await loadUserInfo();
 
             if (!tutorName) {
-                showAlert('Não foi possível identificar o tutor. Faça login novamente.', 'error');
+                showAlert('NÃ£o foi possÃ­vel identificar o tutor. FaÃ§a login novamente.', 'error');
                 setTimeout(() => logout(), 2000);
                 return;
             }
 
+            // 1. Carrega e renderiza os alunos
             await loadStudents();
-            // await updateStudentsStatusFromHistory();
 
-            //setInterval(updateStudentsStatusFromHistory, 30000);
+            // 2. *** CHAMADA DA NOSSA LÓGICA CORRETA ***
+            // Agora que os alunos estão na tela, verificamos seus status reais.
+            await verifyAndApplyPendingStatuses();
+
             startStudentsAutoRefresh();
             setupUpdateButton();
             setupPaginationButtons();
 
-            renderEmptyHistory('Selecione um aluno para visualizar o histórico');
+            renderEmptyHistory('Selecione um aluno para visualizar o histÃ³rico');
 
             showContent();
         } catch (error) {
-            showAlert('Erro ao carregar informações. Tente novamente.', 'error');
+            showAlert('Erro ao carregar informaÃ§Ãµes. Tente novamente.', 'error');
         }
     }
 
@@ -1628,52 +1631,23 @@
      * tratando o backend como a única fonte da verdade.
      */
     async function refreshStudentsData() {
-        // só atualiza se passou o mí­nimo de intervalo
         if (Date.now() - lastStudentsUpdate < MIN_UPDATE_INTERVAL) return;
         lastStudentsUpdate = Date.now();
 
         try {
-            // 1) Busca a lista mais recente de alunos no servidor.
-            // A função loadStudents() já faz renderStudents(), updateSummary(), etc.
+            // 1. Busca e renderiza a lista nova do servidor
             await loadStudents();
 
-            // --- INÍCIO DA NOVA LÓGICA PROFISSIONAL ---
-            // 2) Agora que os alunos estão na tela, vamos verificar o estado real de cada um.
-            // A variável 'students' foi atualizada pela função loadStudents().
-            console.log("Verificando status de saídas pendentes no backend...");
+            // 2. *** CHAMADA DA NOSSA LÓGICA CORRETA ***
+            // Após a atualização, também verificamos os status.
+            await verifyAndApplyPendingStatuses();
 
-            for (const student of students) {
-                // 3) Só nos importam os alunos que constam como 'PRESENTE'.
-                if (student.status === 'PRESENTE') {
-                    try {
-                        // Usamos o endpoint do ChamadaController para saber se há uma saída ativa.
-                        const response = await fetch(`${BACKEND_URL}/api/chamadas/aluno/${student.id}/status-ativo`, {
-                            headers: {
-                                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-                            }
-                        });
-
-                        if (response.ok) {
-                            const chamadaAtiva = await response.json();
-                            
-                            // A API retorna um objeto com 'id' se houver uma chamada ativa.
-                            if (chamadaAtiva && chamadaAtiva.id) {
-                                // Se encontrarmos, chamamos nossa nova função para atualizar a UI.
-                                atualizarUiParaPendente(student.id);
-                            }
-                        }
-                    } catch (e) {
-                        console.error(`Falha ao verificar status de saída para o aluno ${student.id}:`, e);
-                        // A falha em um não deve impedir a verificação dos outros.
-                    }
-                }
-            }
-            console.log("Verificação de status de saídas concluída.");
-            // --- FIM DA NOVA LÓGICA ---
-
+            // A lógica de reaplicar o pendingExitStudents foi removida pois é obsoleta.
+            updatePresenceSummary();
+            updateLastUpdateIndicator();
         }
         catch (e) {
-            console.error('Erro ao atualizar dados dos alunos:', e);
+            console.error('Erro ao atualizar alunos:', e);
             showAlert(`Erro ao atualizar alunos: ${e.message}`, 'error');
         }
     }
@@ -2107,6 +2081,37 @@
             `;
         }
         console.log(`UI do aluno ${alunoId} atualizada para 'Aguardando Confirmação' com base no estado do backend.`);
+    }
+
+    /**
+     * Itera sobre a lista de alunos (já renderizada) e consulta o backend
+     * para aplicar o estado de 'Aguardando Confirmação' onde for necessário.
+     */
+    async function verifyAndApplyPendingStatuses() {
+        console.log("Iniciando verificação de status de saídas pendentes no backend...");
+
+        for (const student of students) { // Usa a variável global 'students'
+            if (student.status === 'PRESENTE') {
+                try {
+                    const response = await fetch(`${BACKEND_URL}/api/chamadas/aluno/${student.id}/status-ativo`, {
+                        headers: {
+                            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+                        }
+                    });
+
+                    if (response.ok) {
+                        const chamadaAtiva = await response.json();
+                        if (chamadaAtiva && chamadaAtiva.id) {
+                            // A função que criamos anteriormente para mudar a UI
+                            atualizarUiParaPendente(student.id);
+                        }
+                    }
+                } catch (e) {
+                    console.error(`Falha ao verificar status de saída para o aluno ${student.id}:`, e);
+                }
+            }
+        }
+        console.log("Verificação de status de saídas concluída.");
     }
 
 
