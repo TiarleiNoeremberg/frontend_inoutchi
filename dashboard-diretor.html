@@ -1090,9 +1090,14 @@
             isValid: false
         };
 
+        let lastLocation = {
+            coords: null,
+            isValid: false
+        };
+
         // Chamar a função de debug quando a página carregar
         document.addEventListener('DOMContentLoaded', function() {
-            setTimeout(debugModalElements, 1000);
+            
         });
 
         // ========== FUNÇÕES GLOBAIS ==========
@@ -1127,15 +1132,9 @@
         //            INÍCIO DO NOVO BLOCO DE CÓDIGO CORRIGIDO
         // =================================================================
 
-        // Variável global para armazenar a última localização obtida
-        let lastLocation = {
-            isValid: false,
-            coords: null
-        };
-
         // NOVA: Reseta o estado da localização no modal
         function resetLocationState() {
-            console.log('ð Resetando estado da localização...');
+            console.log('Resetando estado da localização...');
             lastLocation.isValid = false;
             lastLocation.coords = null;
 
@@ -1224,153 +1223,100 @@
             }
         }
 
-        // ATUALIZADA: Abre o modal para entrada ou SAÍDA de aluno
-        window.openStudentActionModal = function(studentId, action, studentName) {
-            console.log(`ð­ Abrindo modal para aluno: ${studentName}, Ação: ${action}`);
-            
-            const actionModal = document.getElementById('actionModal');
-            // Armazenar dados para uso posterior
-            actionModal.dataset.studentId = studentId;
-            actionModal.dataset.action = action;
-            actionModal.dataset.studentName = studentName;
+        window.openStudentActionModal = async (studentId, studentName, type) => {
+            try {
+                console.log(`🎯 Abrindo modal para aluno: ${studentName}, Ação: ${type}`);
+                const actionModal = document.getElementById('actionModal');
+                const modalTitle = document.getElementById('modalTitle');
+                const modalMessage = document.getElementById('modalMessage');
+                const modalStudentName = document.getElementById('modalStudentName');
+                const getLocationBtn = document.getElementById('getLocationBtn');
+                const confirmBtn = document.getElementById('confirmActionBtn');
 
-            const modalTitle = document.getElementById('modalTitle');
-            const modalMessage = document.getElementById('modalMessage');
-            const modalStudentName = document.getElementById('modalStudentName');
-            const confirmBtn = document.getElementById('confirmActionBtn');
-            const getLocationBtn = document.getElementById('getLocationBtn');
+                // 1. Reseta o estado do modal e da localização usando sua função
+                resetLocationState();
 
-            // Chamar a função de reset que agora existe
-            resetLocationState();
+                // 2. Configura a mensagem do modal
+                modalTitle.textContent = `Registrar ${type === 'entrada' ? 'Entrada' : 'Saída'}`;
+                if (modalStudentName) {
+                    modalStudentName.textContent = studentName;
+                    modalStudentName.style.display = 'inline';
+                    modalMessage.innerHTML = `Deseja registrar ${type === 'entrada' ? 'a entrada' : 'a saída'} do aluno <span id="modalStudentName">${studentName}</span>?`;
+                } else {
+                    modalMessage.textContent = `Deseja registrar ${type === 'entrada' ? 'a entrada' : 'a saída'} do aluno ${studentName}?`;
+                }
 
-            // Configurar textos
-            modalTitle.textContent = action === 'entrada' ? 'Registrar Entrada de Aluno' : 'Solicitar Saída de Aluno';
-            
-            if (modalStudentName) {
-                modalStudentName.textContent = studentName;
+                // 3. Limpa listeners antigos para evitar chamadas duplicadas
+                const newGetLocationBtn = getLocationBtn.cloneNode(true);
+                getLocationBtn.parentNode.replaceChild(newGetLocationBtn, getLocationBtn);
+
+                const newConfirmBtn = confirmBtn.cloneNode(true);
+                confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+
+                // 4. Adiciona os listeners às suas novas funções
+                newGetLocationBtn.addEventListener('click', getUserLocation);
+                newConfirmBtn.addEventListener('click', () => confirmStudentAction(studentId, type, studentName));
+
+                // 5. Exibe o modal
+                actionModal.style.display = 'flex';
+
+                // 6. Obtém a localização automaticamente após um pequeno atraso
+                setTimeout(getUserLocation, 500);
+
+            } catch (error) {
+                console.error('❌ Erro crítico ao abrir modal de ação:', error);
+                showAlert('Um erro inesperado ocorreu ao abrir o modal.', 'error');
             }
-            
-            // Garantir que a mensagem principal seja exibida corretamente
-            if (modalMessage) {
-                modalMessage.innerHTML = `Deseja registrar a ${action === 'entrada' ? 'entrada' : 'solicitação de saída'} do aluno <span id="modalStudentName">${studentName}</span>?`;
-            }
+        };
 
-            // Remover listeners antigos para evitar chamadas duplicadas
-            const newConfirmBtn = confirmBtn.cloneNode(true);
-            confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+        async function confirmStudentAction(studentId, type, studentName) {
+            console.log('✅ Confirmando ação:', { studentId, type, studentName });
 
-            const newGetLocationBtn = getLocationBtn.cloneNode(true);
-            getLocationBtn.parentNode.replaceChild(newGetLocationBtn, getLocationBtn);
-
-            // Adicionar novos listeners
-            newGetLocationBtn.addEventListener('click', getUserLocation);
-            newConfirmBtn.addEventListener('click', confirmStudentAction);
-
-            // Exibir modal
-            actionModal.style.display = 'flex';
-
-            // Obter localização automaticamente
-            setTimeout(getUserLocation, 500);
-        }
-
-        // ATUALIZADA: Confirma a ação (entrada ou saída) do aluno
-        async function confirmStudentAction() {
-            const actionModal = document.getElementById('actionModal');
-            const studentId = actionModal.dataset.studentId;
-            const action = actionModal.dataset.action;
-            const studentName = actionModal.dataset.studentName;
-
-            if (!lastLocation.isValid) {
-                showAlert('Localização inválida. Não é possível confirmar a ação.', 'error');
+            // 1. Valida se a localização foi obtida com sucesso
+            if (!lastLocation.isValid || !lastLocation.coords) {
+                showAlert('Localização inválida. Por favor, obtenha sua localização primeiro.', 'error');
+                console.warn('Tentativa de confirmação sem localização válida.');
                 return;
             }
 
-            const { latitude, longitude } = lastLocation.coords;
-
-            const confirmBtn = document.getElementById('confirmActionBtn');
-            confirmBtn.disabled = true;
-            confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processando...';
-
             try {
-                let response;
-                // Assumindo que seu código já tem uma forma de garantir um token válido
                 const accessToken = localStorage.getItem('access_token');
-                const headers = {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
+                const { latitude, longitude } = lastLocation.coords; // Usa as coordenadas do objeto
+
+                const requestData = {
+                    alunoId: studentId,
+                    responsavelNome: currentUser.nome,
+                    responsavelTipo: 'DIRETOR',
+                    responsavelId: currentDirectorId,
+                    latitude: latitude,
+                    longitude: longitude
                 };
-                
-                const responsavelNome = currentUser?.nome || 'Diretor';
-                const responsavelId = currentDirectorId;
 
-                let endpoint = '';
-                let body = {};
-                let successMessage = '';
-                let method = 'POST';
+                console.log('📦 Enviando dados para o backend:', requestData);
 
-                if (action === 'entrada') {
-                    console.log(`ð Registrando ENTRADA para aluno ${studentId}.`);
-                    endpoint = `${BACKEND_URL}/api/presencas/entrada`;
-                    body = JSON.stringify({
-                        alunoId: parseInt(studentId),
-                        responsavelNome: responsavelNome,
-                        responsavelTipo: 'DIRETOR',
-                        responsavelId: responsavelId,
-                        latitude: latitude,
-                        longitude: longitude
-                    });
-                    successMessage = `Entrada de ${studentName} registrada com sucesso!`;
-
-                } else if (action === 'saida') {
-                    console.log(`ð Solicitando SAÍDA para aluno ${studentId}.`);
-                    endpoint = `${BACKEND_URL}/api/presencas/saida/solicitar`;
-                    body = JSON.stringify({
-                        alunoId: parseInt(studentId),
-                        latitude: latitude,
-                        longitude: longitude
-                    });
-                    successMessage = `Solicitação de saída para ${studentName} enviada com sucesso!`;
-                }
-
-                response = await fetch(endpoint, {
-                    method: method,
-                    headers: headers,
-                    body: body
+                const endpoint = type === 'entrada' ? 'entrada' : 'saida';
+                const response = await fetch(`${BACKEND_URL}/api/presencas/${endpoint}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestData)
                 });
 
-                if (response && response.ok) {
-                    // Tenta converter para JSON, mas não falha se a resposta for vazia (ex: status 200 OK sem corpo)
-                    const result = await response.json().catch(() => ({})); 
-                    console.log('Resposta do servidor:', result);
-                    showAlert(successMessage, 'success');
-                    
-                    closeModal();
-                    // Recarregar a lista para atualizar o status do aluno (importante para a entrada)
-                    setTimeout(() => loadAllStudents(currentStudentsPage), 500);
+                const result = await response.json();
 
-                } else {
-                    const errorText = await response.text();
-                    let errorData = {};
-                    try {
-                       errorData = JSON.parse(errorText);
-                    } catch(e) {
-                       errorData = { message: errorText || `Erro ao processar a ${action}.` };
-                    }
-                    console.error('Falha ao processar ação do aluno:', errorData);
-                    showAlert(errorData.message || errorData.mensagem || `Erro ${response.status}`, 'error');
+                if (!response.ok) {
+                    throw new Error(result.mensagem || `Erro ${response.status}`);
                 }
+
+                showAlert(`Ação de ${type} para ${studentName} registrada com sucesso!`, 'success');
+                closeModal();
+                await loadDashboardData(); // Recarrega os dados
 
             } catch (error) {
-                console.error('Erro crítico na ação do aluno:', error);
-                showAlert('Erro de comunicação com o servidor. Tente novamente.', 'error');
-            } finally {
-                // Garante que o modal feche e o botão seja restaurado
-                closeModal();
-                const finalConfirmBtn = document.getElementById('confirmActionBtn');
-                if(finalConfirmBtn){
-                    finalConfirmBtn.disabled = false;
-                    finalConfirmBtn.innerHTML = '<i class="fas fa-check"></i> Confirmar';
-                }
+                console.error(`❌ Erro ao confirmar a ação de ${type}:`, error);
+                showAlert(error.message || 'Falha ao registrar a ação.', 'error');
             }
         }
         
