@@ -1623,32 +1623,57 @@
     }
 
     /**
-     * Recarrega a lista de alunos do servidor e reaplica
-     * localmente qualquer saída que ainda esteja pendente de confirmação.
+     * Recarrega a lista de alunos do servidor, renderiza e, em seguida,
+     * verifica o status de saída pendente para cada aluno presente,
+     * tratando o backend como a única fonte da verdade.
      */
     async function refreshStudentsData() {
-        // só atualiza se passou o mínimo de intervalo
+        // só atualiza se passou o mí­nimo de intervalo
         if (Date.now() - lastStudentsUpdate < MIN_UPDATE_INTERVAL) return;
         lastStudentsUpdate = Date.now();
 
         try {
-            // 1) busca lista nova no servidor (já faz renderStudents/updateSummary/updateIndicator)
+            // 1) Busca a lista mais recente de alunos no servidor.
+            // A função loadStudents() já faz renderStudents(), updateSummary(), etc.
             await loadStudents();
 
-            // 2) reaplica o status pendente para quem tiver saída aguardando
-            students.forEach(s => {
-                if (pendingExitStudents.has(s.id)) {
-                    s.status = 'AGUARDANDO_CONFIRMACAO';
-                }
-            });
+            // --- INÍCIO DA NOVA LÓGICA PROFISSIONAL ---
+            // 2) Agora que os alunos estão na tela, vamos verificar o estado real de cada um.
+            // A variável 'students' foi atualizada pela função loadStudents().
+            console.log("Verificando status de saídas pendentes no backend...");
 
-            // 3) re-render completo agora que mesclamos o estado
-            renderStudents();
-            updatePresenceSummary();
-            updateLastUpdateIndicator();
+            for (const student of students) {
+                // 3) Só nos importam os alunos que constam como 'PRESENTE'.
+                if (student.status === 'PRESENTE') {
+                    try {
+                        // Usamos o endpoint do ChamadaController para saber se há uma saída ativa.
+                        const response = await fetch(`${BACKEND_URL}/api/chamadas/aluno/${student.id}/status-ativo`, {
+                            headers: {
+                                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+                            }
+                        });
+
+                        if (response.ok) {
+                            const chamadaAtiva = await response.json();
+                            
+                            // A API retorna um objeto com 'id' se houver uma chamada ativa.
+                            if (chamadaAtiva && chamadaAtiva.id) {
+                                // Se encontrarmos, chamamos nossa nova função para atualizar a UI.
+                                atualizarUiParaPendente(student.id);
+                            }
+                        }
+                    } catch (e) {
+                        console.error(`Falha ao verificar status de saída para o aluno ${student.id}:`, e);
+                        // A falha em um não deve impedir a verificação dos outros.
+                    }
+                }
+            }
+            console.log("Verificação de status de saídas concluída.");
+            // --- FIM DA NOVA LÓGICA ---
+
         }
         catch (e) {
-            console.error('Erro ao atualizar alunos:', e);
+            console.error('Erro ao atualizar dados dos alunos:', e);
             showAlert(`Erro ao atualizar alunos: ${e.message}`, 'error');
         }
     }
@@ -2050,6 +2075,40 @@
             getLocationBtn.addEventListener('click', getCurrentLocation);
         }
     });
+
+    //13/10 23:08 - NOVA TENTATIVA USANDO GEMINI 2.5 PRO armazenar estados no banco de dados por meio da API.
+    
+    /**
+     * Altera a UI de um aluno específico para o estado de saída pendente,
+     * refletindo o estado real do backend.
+     * @param {number} alunoId O ID do aluno a ser atualizado.
+     */
+    function atualizarUiParaPendente(alunoId) {
+        // Busca o elemento do aluno na lista pelo seu ID
+        const studentItem = document.querySelector(`.student-item[data-student-id='${alunoId}']`);
+        if (!studentItem) {
+            console.warn(`Tentativa de atualizar UI para pendente, mas aluno ${alunoId} não foi encontrado no DOM.`);
+            return;
+        }
+
+        // Marca o item como 'aguardando' para estilização via CSS
+        studentItem.classList.add('status-awaiting-confirmation');
+
+        // Encontra o container de ações para substituir os botões
+        const actionContainer = studentItem.querySelector('.student-actions');
+        if (actionContainer) {
+            // Este HTML deve ser consistente com o que o WebSocket usaria,
+            // garantindo uma experiência visual uniforme.
+            actionContainer.innerHTML = `
+                <div class="status-text-awaiting">Aguardando Confirmação</div>
+                <button onclick="showConfirmationModal(${alunoId})" class="btn btn-sm btn-confirm">
+                    Confirmar Saída
+                </button>
+            `;
+        }
+        console.log(`UI do aluno ${alunoId} atualizada para 'Aguardando Confirmação' com base no estado do backend.`);
+    }
+
 
     </script>
 </body>
