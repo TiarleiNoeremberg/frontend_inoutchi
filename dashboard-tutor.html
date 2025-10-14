@@ -1574,30 +1574,66 @@
         }
 
         try {
+            // Para uma melhor experiência, podemos ocultar o conteúdo até que tudo esteja pronto
+            loadingElement.style.display = 'block';
+            contentElement.style.display = 'none';
+
             await loadUserInfo();
 
             if (!tutorName) {
-                showAlert('NÃ£o foi possÃ­vel identificar o tutor. FaÃ§a login novamente.', 'error');
+                showAlert('Não foi possível identificar o tutor. Faça login novamente.', 'error');
                 setTimeout(() => logout(), 2000);
                 return;
             }
 
-            // 1. Carrega e renderiza os alunos
+            // ETAPA 1: Carrega os dados dos alunos do servidor e popula o array 'students'.
+            // A função loadStudents() já faz uma renderização inicial, que vamos sobrescrever.
             await loadStudents();
 
-            // 2. *** CHAMADA DA NOSSA LÓGICA CORRETA ***
-            // Agora que os alunos estão na tela, verificamos seus status reais.
-            await verifyAndApplyPendingStatuses();
+            // ETAPA 2: ATUALIZA O MODELO. Itera sobre os alunos no array 'students' e corrige
+            // o status deles verificando no backend se há saídas ativas/pendentes.
+            // Isso é feito em memória, sem tocar no DOM, evitando a condição de corrida.
+            console.log("Iniciando verificação de status de saídas pendentes no backend...");
+            const token = localStorage.getItem('access_token');
+            for (const student of students) {
+                try {
+                    const response = await fetch(`${BACKEND_URL}/api/presencas/aluno/${student.id}/saida-ativa`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (response.ok) {
+                        const saidaAtiva = await response.json();
+                        // Se encontrou uma saída ativa com o status de aguardando, atualiza o status no nosso array
+                        if (saidaAtiva && saidaAtiva.status === 'AGUARDANDO_CONFIRMACAO') {
+                            student.status = 'AGUARDANDO_CONFIRMACAO';
+                        }
+                    }
+                } catch (error) {
+                    console.error(`Erro ao verificar saída ativa para aluno ${student.id}:`, error);
+                }
+            }
+            console.log("Verificação de status de saídas concluída.");
 
+            // ETAPA 3: RENDERIZA. Agora que o array 'students' está 100% correto,
+            // chamamos as funções de renderização para construir a interface de uma só vez.
+            renderStudents();
+            updatePresenceSummary();
+            updateLastUpdateIndicator();
+
+            // ETAPA 4: Finaliza a inicialização do dashboard.
             startStudentsAutoRefresh();
             setupUpdateButton();
             setupPaginationButtons();
+            renderEmptyHistory('Selecione um aluno para visualizar o histórico');
 
-            renderEmptyHistory('Selecione um aluno para visualizar o histÃ³rico');
+            // Exibe o conteúdo principal agora que tudo está pronto
+            loadingElement.style.display = 'none';
+            contentElement.style.display = 'block';
 
-            showContent();
         } catch (error) {
-            showAlert('Erro ao carregar informaÃ§Ãµes. Tente novamente.', 'error');
+            showAlert('Erro ao carregar informações. Tente novamente.', 'error');
+            // Garante que o conteúdo seja exibido mesmo em caso de erro para o usuário não ficar travado no loading
+            loadingElement.style.display = 'none';
+            contentElement.style.display = 'block';
         }
     }
 
