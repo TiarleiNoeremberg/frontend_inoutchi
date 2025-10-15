@@ -1223,100 +1223,107 @@
             }
         }
 
-        window.openStudentActionModal = async (studentId, studentName, type) => {
-            try {
-                console.log(`🎯 Abrindo modal para aluno: ${studentName}, Ação: ${type}`);
-                const actionModal = document.getElementById('actionModal');
-                const modalTitle = document.getElementById('modalTitle');
-                const modalMessage = document.getElementById('modalMessage');
-                const modalStudentName = document.getElementById('modalStudentName');
-                const getLocationBtn = document.getElementById('getLocationBtn');
-                const confirmBtn = document.getElementById('confirmActionBtn');
+        // ATUALIZADA: Abre o modal para entrada ou SAÍDA de aluno (com a assinatura correta)
+        window.openStudentActionModal = function(studentId, type, studentName) {
+            console.log(`🎯 Abrindo modal para aluno: ${studentName}, Ação: ${type}`);
+            
+            const actionModal = document.getElementById('actionModal');
+            // Armazenar dados para uso posterior
+            actionModal.dataset.studentId = studentId;
+            actionModal.dataset.type = type; // Corrigido de 'action' para 'type'
+            actionModal.dataset.studentName = studentName;
 
-                // 1. Reseta o estado do modal e da localização usando sua função
-                resetLocationState();
+            const modalTitle = document.getElementById('modalTitle');
+            const modalMessage = document.getElementById('modalMessage');
+            const confirmBtn = document.getElementById('confirmActionBtn');
+            const getLocationBtn = document.getElementById('getLocationBtn');
 
-                // 2. Configura a mensagem do modal
-                modalTitle.textContent = `Registrar ${type === 'entrada' ? 'Entrada' : 'Saída'}`;
-                if (modalStudentName) {
-                    modalStudentName.textContent = studentName;
-                    modalStudentName.style.display = 'inline';
-                    modalMessage.innerHTML = `Deseja registrar ${type === 'entrada' ? 'a entrada' : 'a saída'} do aluno <span id="modalStudentName">${studentName}</span>?`;
-                } else {
-                    modalMessage.textContent = `Deseja registrar ${type === 'entrada' ? 'a entrada' : 'a saída'} do aluno ${studentName}?`;
-                }
+            // Chamar a função de reset que você já tem
+            resetLocationState();
 
-                // 3. Limpa listeners antigos para evitar chamadas duplicadas
-                const newGetLocationBtn = getLocationBtn.cloneNode(true);
-                getLocationBtn.parentNode.replaceChild(newGetLocationBtn, getLocationBtn);
+            // Configurar textos
+            modalTitle.textContent = type === 'entrada' ? 'Registrar Entrada de Aluno' : 'Solicitar Saída de Aluno';
+            modalMessage.innerHTML = `Deseja registrar a ${type === 'entrada' ? 'entrada' : 'solicitação de saída'} do aluno <strong>${studentName}</strong>?`;
+            
+            // Remover listeners antigos para evitar chamadas duplicadas
+            const newConfirmBtn = confirmBtn.cloneNode(true);
+            confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
 
-                const newConfirmBtn = confirmBtn.cloneNode(true);
-                confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+            const newGetLocationBtn = getLocationBtn.cloneNode(true);
+            getLocationBtn.parentNode.replaceChild(newGetLocationBtn, getLocationBtn);
 
-                // 4. Adiciona os listeners às suas novas funções
-                newGetLocationBtn.addEventListener('click', getUserLocation);
-                newConfirmBtn.addEventListener('click', () => confirmStudentAction(studentId, type, studentName));
+            // Adicionar novos listeners
+            newGetLocationBtn.addEventListener('click', getUserLocation);
+            newConfirmBtn.addEventListener('click', confirmStudentAction);
 
-                // 5. Exibe o modal
-                actionModal.style.display = 'flex';
+            // Exibir modal
+            actionModal.style.display = 'flex';
 
-                // 6. Obtém a localização automaticamente após um pequeno atraso
-                setTimeout(getUserLocation, 500);
+            // Obter localização automaticamente
+            setTimeout(getUserLocation, 500);
+        }
 
-            } catch (error) {
-                console.error('❌ Erro crítico ao abrir modal de ação:', error);
-                showAlert('Um erro inesperado ocorreu ao abrir o modal.', 'error');
-            }
-        };
+        // ATUALIZADA: Confirma a ação (entrada ou saída) do aluno
+        async function confirmStudentAction() {
+            const actionModal = document.getElementById('actionModal');
+            const studentId = actionModal.dataset.studentId;
+            const type = actionModal.dataset.type; // Corrigido de 'action' para 'type'
+            const studentName = actionModal.dataset.studentName;
 
-        async function confirmStudentAction(studentId, type, studentName) {
-            console.log('✅ Confirmando ação:', { studentId, type, studentName });
-
-            // 1. Valida se a localização foi obtida com sucesso
-            if (!lastLocation.isValid || !lastLocation.coords) {
-                showAlert('Localização inválida. Por favor, obtenha sua localização primeiro.', 'error');
-                console.warn('Tentativa de confirmação sem localização válida.');
+            if (!lastLocation.isValid) {
+                showAlert('Localização inválida. Não é possível confirmar a ação.', 'error');
                 return;
             }
+            
+            console.log(`✅ Confirmando ação: {studentId: ${studentId}, type: '${type}', studentName: '${studentName}'}`);
+
+            const confirmBtn = document.getElementById('confirmActionBtn');
+            confirmBtn.disabled = true;
+            confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processando...';
 
             try {
                 const accessToken = localStorage.getItem('access_token');
-                const { latitude, longitude } = lastLocation.coords; // Usa as coordenadas do objeto
+                const { latitude, longitude } = lastLocation.coords;
+                const responsavelNome = currentUser?.nome || 'Diretor';
+                const responsavelId = currentDirectorId;
 
-                const requestData = {
-                    alunoId: studentId,
-                    responsavelNome: currentUser.nome,
+                // O endpoint agora é decidido pelo 'type'
+                const endpoint = `${BACKEND_URL}/api/presencas/${type}`;
+                const body = {
+                    alunoId: parseInt(studentId),
+                    responsavelNome: responsavelNome,
                     responsavelTipo: 'DIRETOR',
-                    responsavelId: currentDirectorId,
+                    responsavelId: responsavelId,
                     latitude: latitude,
                     longitude: longitude
                 };
+                
+                console.log('📦 Enviando dados para o backend:', { endpoint, body });
 
-                console.log('📦 Enviando dados para o backend:', requestData);
-
-                const endpoint = type === 'entrada' ? 'entrada' : 'saida';
-                const response = await fetch(`${BACKEND_URL}/api/presencas/${endpoint}`, {
+                const response = await fetch(endpoint, {
                     method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(requestData)
+                    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
                 });
 
-                const result = await response.json();
-
                 if (!response.ok) {
-                    throw new Error(result.mensagem || `Erro ${response.status}`);
+                    const errorData = await response.json().catch(() => ({ message: `Erro: ${response.statusText}` }));
+                    // O erro do log "Aluno não possui sessão aberta" vem daqui
+                    throw new Error(errorData.message || errorData.error || `Erro ao registrar ${type}.`);
                 }
-
-                showAlert(`Ação de ${type} para ${studentName} registrada com sucesso!`, 'success');
+                
+                showAlert(`${type.charAt(0).toUpperCase() + type.slice(1)} de ${studentName} registrada com sucesso!`, 'success');
                 closeModal();
-                await loadDashboardData(); // Recarrega os dados
+                // Recarrega a lista de alunos para refletir a mudança de status
+                loadAllStudents(currentStudentsPage); 
 
             } catch (error) {
                 console.error(`❌ Erro ao confirmar a ação de ${type}:`, error);
-                showAlert(error.message || 'Falha ao registrar a ação.', 'error');
+                showAlert(error.message, 'error');
+                
+                // Garante que o botão seja reativado mesmo em caso de erro
+                confirmBtn.disabled = false;
+                confirmBtn.innerHTML = '<i class="fas fa-check"></i> Confirmar';
             }
         }
         
@@ -1875,108 +1882,6 @@
             } catch (error) {
                 console.error('💥 Erro na requisição:', error);
                 return 'Erro de conexão';
-            }
-        }
-
-        // FUNÇÃO CORRIGIDA: Renderizar tabela com busca REAL de tutores
-        async function renderStudentsTable(data) {
-            console.log('🎯 Renderizando tabela de alunos com busca REAL de tutores...');
-            
-            const tbody = document.getElementById('studentsTableBody');
-            
-            // Mostrar loading inicial
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="5" style="text-align: center; padding: 40px;">
-                        <div class="loading-spinner" style="width: 30px; height: 30px; margin: 0 auto;"></div>
-                        <p>Carregando alunos e buscando tutores...</p>
-                    </td>
-                </tr>
-            `;
-            
-            if (data.content && data.content.length > 0) {
-                // Renderizar primeiramente os dados básicos
-                let initialHTML = '';
-                
-                data.content.forEach((student, index) => {
-                    const statusClass = student.status === 'PRESENTE' ? 'status-present' : 'status-absent';
-                    const statusText = student.status === 'PRESENTE' ? 'Presente' : 'Ausente';
-                    const safeStudentName = student.nome ? student.nome.replace(/'/g, "\\'") : 'Aluno';
-                    
-                    initialHTML += `
-                        <tr data-student-id="${student.id}">
-                            <td><strong>${student.nome || 'Nome não informado'}</strong></td>
-                            <td>${student.salaNome || student.turma || student.sala || 'Sala não informada'}</td>
-                            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-                            <td id="tutors-cell-${student.id}" style="max-width: 250px; word-wrap: break-word;">
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <div class="loading-spinner" style="width: 16px; height: 16px;"></div>
-                                    <span style="font-size: 12px; color: #666;">Buscando tutores...</span>
-                                </div>
-                            </td>
-                            <td>
-                                <div class="action-buttons">
-                                    ${student.status !== 'PRESENTE' ? 
-                                        `<button class="btn btn-success" onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')">
-                                            <i class="fas fa-sign-in-alt"></i> Entrada
-                                        </button>` : 
-                                        `<button class="btn btn-danger" onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')">
-                                            <i class="fas fa-sign-out-alt"></i> Saída
-                                        </button>`
-                                    }
-                                    <button class="btn btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}', 0)">
-                                        <i class="fas fa-history"></i> Histórico
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                    `;
-                });
-                
-                tbody.innerHTML = initialHTML;
-                
-                console.log(`✅ ${data.content.length} alunos renderizados, iniciando busca de tutores...`);
-                
-                // ✅✅✅ CORREÇÃO: AGORA VAMOS BUSCAR OS TUTORES DE VERDADE ✅✅✅
-                data.content.forEach(async (student, index) => {
-                    try {
-                        console.log(`🔍 Iniciando busca de tutores para: ${student.nome}`);
-                        
-                        // ✅ CHAMAR A FUNÇÃO QUE BUSCA OS TUTORES VIA API
-                        const tutorsHtml = await getStudentTutors(student.id, student.nome);
-                        
-                        // Atualizar a célula específica
-                        const tutorsCell = document.getElementById(`tutors-cell-${student.id}`);
-                        if (tutorsCell) {
-                            tutorsCell.innerHTML = tutorsHtml;
-                            
-                            // Adicionar animação suave
-                            tutorsCell.style.opacity = '0';
-                            setTimeout(() => {
-                                tutorsCell.style.transition = 'opacity 0.3s ease';
-                                tutorsCell.style.opacity = '1';
-                            }, 100);
-                        }
-                        
-                        console.log(`✅ Tutores carregados para ${student.nome}: ${tutorsHtml}`);
-                        
-                    } catch (error) {
-                        console.error(`❌ Erro ao carregar tutores do aluno ${student.nome}:`, error);
-                        const tutorsCell = document.getElementById(`tutors-cell-${student.id}`);
-                        if (tutorsCell) {
-                            tutorsCell.innerHTML = '<span style="color: #666; font-style: italic;">Erro ao carregar tutores</span>';
-                        }
-                    }
-                });
-                
-            } else {
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="5" style="text-align: center; padding: 20px; color: #666;">
-                            Nenhum aluno encontrado
-                        </td>
-                    </tr>
-                `;
             }
         }
 
