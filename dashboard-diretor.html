@@ -3348,50 +3348,6 @@
             }
         }
 
-        
-
-        // Função para garantir autenticação - ADICIONAR ESTA FUNÇÃO
-        async function garantirAutenticacao() {
-            const accessToken = localStorage.getItem('access_token');
-            
-            // Testar se o token atual funciona
-            const authOk = await testarAutenticacao();
-            
-            if (!authOk) {
-                console.log('🔄 Token inválido, tentando renovar...');
-                
-                try {
-                    const refreshToken = localStorage.getItem('refresh_token');
-                    if (refreshToken) {
-                        const refreshResponse = await fetch(`${BACKEND_URL}/api/auth/refresh`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({ refreshToken })
-                        });
-                        
-                        if (refreshResponse.ok) {
-                            const tokenData = await refreshResponse.json();
-                            localStorage.setItem('access_token', tokenData.access_token);
-                            localStorage.setItem('refresh_token', tokenData.refresh_token);
-                            console.log('✅ Token renovado com sucesso!');
-                            return tokenData.access_token;
-                        }
-                    }
-                } catch (error) {
-                    console.error('❌ Falha ao renovar token:', error);
-                }
-                
-                // Se não conseguiu renovar, redirecionar para login
-                console.log('🔐 Redirecionando para login...');
-                window.location.href = 'index.html';
-                return null;
-            }
-            
-            return accessToken;
-        }
-
         // ========== FUNÇÕES DO DIRETOR ==========
 
         // Manter as funções dos botões simples
@@ -3459,88 +3415,6 @@
             console.log('🚀 Abrindo modal para saída do diretor...');
             openDirectorActionModal('saida');
         };
-
-
-        // FUNÇÃO PARA RENOVAR TOKEN
-        async function renovarToken() {
-            try {
-                const refreshToken = localStorage.getItem('refresh_token');
-                if (!refreshToken) {
-                    console.log('❌ Não há refresh token disponível');
-                    return false;
-                }
-                
-                console.log('🔄 Renovando token...');
-                const response = await fetch(`${BACKEND_URL}/api/auth/refresh`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ refreshToken })
-                });
-                
-                if (response.ok) {
-                    const tokenData = await response.json();
-                    localStorage.setItem('access_token', tokenData.access_token);
-                    localStorage.setItem('refresh_token', tokenData.refresh_token);
-                    
-                    // Calcular novo expiry (assumindo 1 hora de validade)
-                    const expiry = new Date().getTime() + (60 * 60 * 1000);
-                    localStorage.setItem('token_expiry', expiry.toString());
-                    
-                    console.log('✅ Token renovado com sucesso!');
-                    return true;
-                } else {
-                    console.log('❌ Falha ao renovar token:', response.status);
-                    return false;
-                }
-            } catch (error) {
-                console.error('❌ Erro ao renovar token:', error);
-                return false;
-            }
-        }
-
-        // Testar se a autenticação está funcionando
-        async function testarAutenticacao() {
-            try {
-                const accessToken = localStorage.getItem('access_token');
-                
-                console.log('🔐 Testando autenticação...');
-                console.log('📝 Token:', accessToken ? accessToken.substring(0, 20) + '...' : 'AUSENTE');
-
-                // Testar endpoint que requer autenticação
-                const testResponse = await fetch(`${BACKEND_URL}/api/users/me`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-
-                console.log('🔐 Status do teste:', testResponse.status);
-                
-                if (testResponse.ok) {
-                    const userData = await testResponse.json();
-                    console.log('✅ Autenticação OK! Usuário:', userData.nome);
-                    return true;
-                } else {
-                    console.log('❌ Autenticação FALHOU! Status:', testResponse.status);
-                    
-                    // Tentar renovar o token se for 401
-                    if (testResponse.status === 401) {
-                        console.log('🔄 Tentando renovar token...');
-                        const renewed = await renovarToken();
-                        return renewed;
-                    }
-                    
-                    return false;
-                }
-                
-            } catch (error) {
-                console.error('❌ Erro no teste de autenticação:', error);
-                return false;
-            }
-        }
-
 
         // ========== FUNÇÕES DE VISUALIZAÇÃO ==========
 
@@ -4101,39 +3975,34 @@
          * do elemento do modal, em vez de depender de argumentos ou variáveis globais.
          */
         async function confirmStudentAction() {
-            // 1. Obtém o botão e o modal.
-            const confirmBtn = document.getElementById('confirmActionBtn');
             const actionModal = document.getElementById('actionModal');
-
-            // 2. Lê os dados que foram armazenados no modal pela função openStudentActionModal.
             const studentId = actionModal.dataset.studentId;
             const type = actionModal.dataset.type;
             const studentName = actionModal.dataset.studentName;
 
-            console.log(`✅ Confirmando ação para ${studentName} (ID: ${studentId}, Ação: ${type})`);
+            console.log(`✅ Confirmando ação: {studentId: ${studentId}, type: '${type}', studentName: '${studentName}'}`);
 
-            // 3. Verifica se os dados necessários estão presentes.
-            if (!studentId || !type || !studentName) {
-                showAlert('Erro: Informações do aluno não encontradas no modal. Não foi possível confirmar.', 'error');
-                console.error('❌ Faltando data attributes no actionModal.');
-                return;
-            }
+            const confirmBtn = document.getElementById('confirmActionBtn');
+            confirmBtn.disabled = true;
+            confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processando...';
 
             try {
                 const latitude = parseFloat(document.getElementById('displayLatitude').textContent);
                 const longitude = parseFloat(document.getElementById('displayLongitude').textContent);
-                
                 if (isNaN(latitude) || isNaN(longitude)) {
                     throw new Error('Localização inválida. Obtenha a localização novamente.');
                 }
-                
-                confirmBtn.disabled = true;
-                confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Registrando...';
 
-                // Garante que o token de acesso é válido antes de fazer a chamada.
+                // ATENÇÃO: Esta chamada agora está segura e não vai mais congelar.
                 const accessToken = await garantirAutenticacao();
+                
+                // Se a autenticação falhar, accessToken será null e a função irá parar.
                 if (!accessToken) {
-                    throw new Error('Sessão inválida. Faça login novamente.');
+                    // A própria garantirAutenticacao já mostra o alerta e redireciona.
+                    // Apenas reabilitamos o botão para evitar que fique travado.
+                    confirmBtn.disabled = false;
+                    confirmBtn.innerHTML = '<i class="fas fa-check"></i> Confirmar';
+                    return; // Interrompe a execução aqui.
                 }
 
                 const requestData = {
@@ -4144,6 +4013,8 @@
                     latitude: latitude,
                     longitude: longitude
                 };
+                
+                console.log('📦 Enviando dados para o backend:', requestData); // << VOCÊ VERÁ ESTE LOG AGORA
                 
                 const endpoint = type === 'entrada' ? 'entrada' : 'saida';
                 const response = await fetch(`${BACKEND_URL}/api/presencas/${endpoint}`, {
@@ -4157,27 +4028,137 @@
                 
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({}));
-                    const errorMessage = errorData.mensagem || errorData.erro || `Erro ${response.status} ao registrar a ação.`;
-                    throw new Error(errorMessage);
+                    throw new Error(errorData.mensagem || `Erro ${response.status} ao registrar.`);
                 }
                 
                 const result = await response.json();
                 showAlert(result.mensagem || 'Ação registrada com sucesso!', 'success');
                 
                 closeModal();
-                await loadAllStudents(currentStudentsPage, document.getElementById('studentSearch')?.value);
+                await loadAllStudents();
                 
             } catch (error) {
-                console.error(`❌ Erro em confirmStudentAction:`, error);
+                console.error(`❌ Erro em confirmStudentAction:`, error.message);
                 showAlert(error.message, 'error');
-                // Reabilita o botão apenas em caso de erro para que o usuário possa tentar novamente.
-                confirmBtn.disabled = false; 
+                confirmBtn.disabled = false;
                 confirmBtn.innerHTML = '<i class="fas fa-check"></i> Confirmar';
             }
         }
 
+
         // =================================================================
         //  FIM DO BLOCO DE CÓDIGO PARA CORREÇÃO
+        // =================================================================
+
+        // =================================================================
+        //  BLOCO DE AUTENTICAÇÃO À PROVA DE FALHAS - SUBSTITUA O ANTERIOR
+        // =================================================================
+
+        /**
+         * Função principal e robusta para garantir um token de acesso válido.
+         * SEMPRE retorna uma string (o token) em caso de sucesso, ou null em caso de falha.
+         * Isso evita o congelamento do 'await'.
+         */
+        async function garantirAutenticacao() {
+            console.log('🛡️ Iniciando verificação de autenticação...');
+
+            try {
+                const accessToken = localStorage.getItem('access_token');
+                if (!accessToken) {
+                    console.log('❌ Token de acesso não encontrado no localStorage.');
+                    throw new Error('Nenhum token de acesso disponível.');
+                }
+
+                // 1. Tenta usar o token atual.
+                const authOk = await testarToken(accessToken);
+                if (authOk) {
+                    console.log('✅ Autenticação bem-sucedida com o token atual.');
+                    return accessToken; // SUCESSO: Retorna o token válido.
+                }
+
+                // 2. Se o teste falhar, tenta renovar o token.
+                console.log('⚠️ Token atual inválido ou expirado. Tentando renovar...');
+                const renewalOk = await renovarToken();
+                if (renewalOk) {
+                    const novoToken = localStorage.getItem('access_token');
+                    console.log('✅ Token renovado com sucesso.');
+                    return novoToken; // SUCESSO: Retorna o novo token.
+                }
+                
+                // 3. Se a renovação falhar, é um erro crítico.
+                console.error('❌ Falha crítica ao renovar o token. Redirecionando para login.');
+                throw new Error('Sua sessão expirou e não pôde ser renovada.');
+
+            } catch (error) {
+                console.error('🔥 Erro no processo de autenticação:', error.message);
+                showAlert(error.message + ' Por favor, faça login novamente.', 'error');
+                
+                // Medida de segurança: deslogar o usuário se a autenticação falhar de forma crítica.
+                setTimeout(() => {
+                    localStorage.removeItem('access_token');
+                    localStorage.removeItem('refresh_token');
+                    localStorage.removeItem('token_expiry');
+                    window.location.href = 'index.html';
+                }, 3000);
+
+                return null; // FALHA: Garante que a função retorne null e não congele.
+            }
+        }
+
+        /**
+         * Função auxiliar que testa um token contra um endpoint protegido.
+         * Retorna true se o token for válido, false caso contrário.
+         */
+        async function testarToken(token) {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/users/me`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                return response.ok; // Retorna true se status for 2xx, false caso contrário.
+            } catch (error) {
+                console.error('🔌 Erro de rede ao testar token:', error);
+                return false; // Falha de rede significa que o token não pôde ser validado.
+            }
+        }
+
+        /**
+         * Função auxiliar que tenta renovar o token usando o refresh_token.
+         * Retorna true em sucesso, false em falha.
+         */
+        async function renovarToken() {
+            const refreshToken = localStorage.getItem('refresh_token');
+            if (!refreshToken) {
+                console.log('❌ Refresh token não encontrado.');
+                return false;
+            }
+
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/auth/refresh`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refreshToken })
+                });
+
+                if (!response.ok) {
+                    console.error('❌ Servidor recusou a renovação do token. Status:', response.status);
+                    return false;
+                }
+
+                const tokenData = await response.json();
+                localStorage.setItem('access_token', tokenData.access_token);
+                localStorage.setItem('refresh_token', tokenData.refresh_token); // Opcional, mas bom para rotação de refresh tokens
+                const expiry = new Date().getTime() + (60 * 60 * 1000); // Assume 1h
+                localStorage.setItem('token_expiry', expiry.toString());
+                return true;
+
+            } catch (error) {
+                console.error('🔌 Erro de rede ao renovar token:', error);
+                return false;
+            }
+        }
+
+        // =================================================================
+        //  FIM DO BLOCO DE AUTENTICAÇÃO
         // =================================================================
 
     </script>
