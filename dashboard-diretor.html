@@ -1299,84 +1299,6 @@
             }
         };
 
-        // ATUALIZADA: Confirma a ação (entrada ou solicitação de saída) lendo os dados do modal
-        async function confirmStudentAction() {
-            const actionModal = document.getElementById('actionModal');
-            // Lê os dados que foram armazenados no Passo 1
-            const studentId = parseInt(actionModal.dataset.studentId);
-            const type = actionModal.dataset.type;
-            const studentName = actionModal.dataset.studentName;
-
-            const latitude = parseFloat(document.getElementById('displayLatitude').textContent);
-            const longitude = parseFloat(document.getElementById('displayLongitude').textContent);
-
-            if (isNaN(latitude) || isNaN(longitude)) {
-                showAlert('Localização inválida. Não é possível confirmar a ação.', 'error');
-                return;
-            }
-
-            console.log(`✅ Confirmando ação: {studentId: ${studentId}, type: '${type}', studentName: '${studentName}'}`);
-
-            const confirmBtn = document.getElementById('confirmActionBtn');
-            confirmBtn.disabled = true;
-            confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processando...';
-
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => {
-                controller.abort();
-                showAlert('O servidor está demorando para responder. Tente novamente.', 'warning');
-            }, 25000);
-
-            const accessToken = localStorage.getItem('access_token');
-            const responsavelNome = currentUser?.nome || 'Diretor';
-            const responsavelId = currentDirectorId;
-
-            try {
-                const endpoint = type === 'entrada' ? 'entrada' : 'saida';
-                const requestData = {
-                    alunoId: studentId,
-                    responsavelNome: responsavelNome,
-                    responsavelTipo: 'DIRETOR',
-                    responsavelId: responsavelId,
-                    latitude: latitude,
-                    longitude: longitude
-                };
-                
-                console.log('📦 Enviando dados para o backend:', requestData);
-
-                const response = await fetch(`${BACKEND_URL}/api/presencas/${endpoint}`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify(requestData),
-                    signal: controller.signal
-                });
-
-                clearTimeout(timeoutId);
-
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ message: `Erro ${response.status}` }));
-                    throw new Error(errorData.mensagem || errorData.erro || `Erro ao registrar ${type}.`);
-                }
-                
-                const result = await response.json();
-                showAlert(result.mensagem || `${type.charAt(0).toUpperCase() + type.slice(1)} registrada com sucesso!`, 'success');
-                
-                closeModal();
-                setTimeout(() => loadAllStudents(currentStudentsPage), 1000);
-
-            } catch (error) {
-                if (error.name === 'AbortError') {
-                    console.error('❌ A requisição excedeu o tempo limite.');
-                } else {
-                    console.error(`❌ Erro ao confirmar a ação de ${type}:`, error);
-                    showAlert(error.message, 'error');
-                }
-            } finally {
-                clearTimeout(timeoutId);
-                // O botão será resetado quando o modal for aberto novamente.
-            }
-        }
-        
         // =================================================================
         //              FIM DO NOVO BLOCO DE CÓDIGO CORRIGIDO
         // =================================================================
@@ -4108,40 +4030,155 @@
             initializeDashboard();
         });
 
-        // AJUSTADA: Abre o modal de ação para entrada ou saída do aluno
-        function openStudentActionModal(studentId, actionType, studentName) {
-            console.log(`🎯 Abrindo modal para aluno: ${studentName}, Ação: ${actionType}`);
+        // =================================================================
+        //  INÍCIO DO BLOCO DE CÓDIGO PARA CORREÇÃO
+        //  Por favor, apague as funções openStudentActionModal e confirmStudentAction
+        //  do seu arquivo e substitua por este bloco inteiro.
+        // =================================================================
 
-            // Armazena a ação atual
-            currentAction = {
-                studentId,
-                type: actionType, // 'entrada' ou 'saida'
-                studentName
-            };
+        /**
+         * ATUALIZADA: Abre o modal de ação do aluno, armazena os dados no próprio modal
+         * e configura os botões de forma segura.
+         */
+        window.openStudentActionModal = function(studentId, type, studentName) {
+            console.log(`🎯 Abrindo modal para aluno: ${studentName}, Ação: ${type}`);
+            
+            try {
+                const actionModal = document.getElementById('actionModal');
+                const modalTitle = document.getElementById('modalTitle');
+                const modalMessage = document.getElementById('modalMessage');
+                const confirmBtn = document.getElementById('confirmActionBtn');
+                const getLocationBtn = document.getElementById('getLocationBtn');
 
-            // Configura o título e o texto do modal
-            const modalTitle = document.getElementById('studentActionModalLabel');
-            const modalBodyText = document.getElementById('modalBodyText');
+                if (!actionModal || !modalTitle || !modalMessage || !confirmBtn || !getLocationBtn) {
+                    console.error('❌ Elementos essenciais do modal não encontrados. A interface pode não ter sido carregada corretamente.');
+                    showAlert('Erro crítico ao abrir o modal. Recarregue a página.', 'error');
+                    return;
+                }
+
+                // 1. Armazena os dados diretamente no elemento do modal para uso posterior.
+                // Isso desacopla a função de confirmação de qualquer variável externa.
+                actionModal.dataset.studentId = studentId;
+                actionModal.dataset.type = type;
+                actionModal.dataset.studentName = studentName;
+
+                // 2. Configura o conteúdo do modal.
+                modalTitle.textContent = type === 'entrada' ? 'Registrar Entrada do Aluno' : 'Registrar Saída do Aluno';
+                modalMessage.innerHTML = `Deseja registrar ${type === 'entrada' ? 'a entrada' : 'a saída'} do aluno <strong>${studentName}</strong>?`;
+
+                // 3. Reseta o estado da geolocalização do modal.
+                const locationStatus = document.getElementById('locationStatus');
+                const coordinatesDisplay = document.getElementById('coordinatesDisplay');
+                if (locationStatus) locationStatus.style.display = 'none';
+                if (coordinatesDisplay) coordinatesDisplay.style.display = 'none';
+                confirmBtn.disabled = true; // Desabilitar confirmação até obter a localização.
+                getLocationBtn.disabled = false;
+                getLocationBtn.innerHTML = '<i class="fas fa-location-arrow"></i> Obter Localização Atual';
+
+                // 4. Recria os botões para remover listeners antigos e evitar chamadas múltiplas.
+                const newGetLocationBtn = getLocationBtn.cloneNode(true);
+                getLocationBtn.parentNode.replaceChild(newGetLocationBtn, getLocationBtn);
+                
+                const newConfirmBtn = confirmBtn.cloneNode(true);
+                confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+
+                // 5. Adiciona os novos listeners. A função de confirmação é chamada SEM argumentos.
+                newGetLocationBtn.addEventListener('click', obterLocalizacaoParaModal);
+                newConfirmBtn.addEventListener('click', confirmStudentAction); // CORRIGIDO: Não passa argumentos.
+
+                // 6. Mostra o modal e busca a localização.
+                actionModal.style.display = 'flex';
+                setTimeout(obterLocalizacaoParaModal, 500); // Obter localização automaticamente.
+
+            } catch (error) {
+                console.error('❌ Erro ao abrir o modal de ação do aluno:', error);
+                showAlert(error.message, 'error');
+            }
+        };
+
+        /**
+         * ATUALIZADA: Confirma a ação do aluno lendo os dados diretamente
+         * do elemento do modal, em vez de depender de argumentos ou variáveis globais.
+         */
+        async function confirmStudentAction() {
+            // 1. Obtém o botão e o modal.
             const confirmBtn = document.getElementById('confirmActionBtn');
+            const actionModal = document.getElementById('actionModal');
 
-            if (actionType === 'entrada') {
-                modalTitle.textContent = `Registrar Entrada de ${studentName}`;
-                modalBodyText.textContent = `Para confirmar a entrada de ${studentName}, por favor, obtenha a sua localização GPS.`;
-                confirmBtn.className = 'btn btn-success';
-                confirmBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Confirmar Entrada';
-            } else {
-                modalTitle.textContent = `Solicitar Saída de ${studentName}`;
-                modalBodyText.textContent = `Para solicitar a saída de ${studentName}, o sistema precisa da sua localização para iniciar o monitoramento.`;
-                confirmBtn.className = 'btn btn-warning'; // Mudei para amarelo para diferenciar
-                confirmBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Solicitar Saída';
+            // 2. Lê os dados que foram armazenados no modal pela função openStudentActionModal.
+            const studentId = actionModal.dataset.studentId;
+            const type = actionModal.dataset.type;
+            const studentName = actionModal.dataset.studentName;
+
+            console.log(`✅ Confirmando ação para ${studentName} (ID: ${studentId}, Ação: ${type})`);
+
+            // 3. Verifica se os dados necessários estão presentes.
+            if (!studentId || !type || !studentName) {
+                showAlert('Erro: Informações do aluno não encontradas no modal. Não foi possível confirmar.', 'error');
+                console.error('❌ Faltando data attributes no actionModal.');
+                return;
             }
 
-            // Reseta o estado da localização antes de mostrar o modal
-            resetLocationState();
+            try {
+                const latitude = parseFloat(document.getElementById('displayLatitude').textContent);
+                const longitude = parseFloat(document.getElementById('displayLongitude').textContent);
+                
+                if (isNaN(latitude) || isNaN(longitude)) {
+                    throw new Error('Localização inválida. Obtenha a localização novamente.');
+                }
+                
+                confirmBtn.disabled = true;
+                confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Registrando...';
 
-            // Mostra o modal
-            $('#studentActionModal').modal('show');
+                // Garante que o token de acesso é válido antes de fazer a chamada.
+                const accessToken = await garantirAutenticacao();
+                if (!accessToken) {
+                    throw new Error('Sessão inválida. Faça login novamente.');
+                }
+
+                const requestData = {
+                    alunoId: parseInt(studentId),
+                    responsavelNome: currentUser.nome,
+                    responsavelTipo: 'DIRETOR',
+                    responsavelId: currentDirectorId,
+                    latitude: latitude,
+                    longitude: longitude
+                };
+                
+                const endpoint = type === 'entrada' ? 'entrada' : 'saida';
+                const response = await fetch(`${BACKEND_URL}/api/presencas/${endpoint}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestData)
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    const errorMessage = errorData.mensagem || errorData.erro || `Erro ${response.status} ao registrar a ação.`;
+                    throw new Error(errorMessage);
+                }
+                
+                const result = await response.json();
+                showAlert(result.mensagem || 'Ação registrada com sucesso!', 'success');
+                
+                closeModal();
+                await loadAllStudents(currentStudentsPage, document.getElementById('studentSearch')?.value);
+                
+            } catch (error) {
+                console.error(`❌ Erro em confirmStudentAction:`, error);
+                showAlert(error.message, 'error');
+                // Reabilita o botão apenas em caso de erro para que o usuário possa tentar novamente.
+                confirmBtn.disabled = false; 
+                confirmBtn.innerHTML = '<i class="fas fa-check"></i> Confirmar';
+            }
         }
+
+        // =================================================================
+        //  FIM DO BLOCO DE CÓDIGO PARA CORREÇÃO
+        // =================================================================
 
     </script>
 </body>
