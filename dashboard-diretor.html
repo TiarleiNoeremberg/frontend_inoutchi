@@ -1162,7 +1162,7 @@
 
         // NOVA: Obtém a localização do usuário para o modal
         async function getUserLocation() {
-            console.log('ð Obtendo localização do usuário...');
+            console.log('Obtendo localização do usuário...');
             const locationStatus = document.getElementById('locationStatus');
             const coordinatesDisplay = document.getElementById('coordinatesDisplay');
             const displayLatitude = document.getElementById('displayLatitude');
@@ -1263,67 +1263,94 @@
             setTimeout(getUserLocation, 500);
         }
 
-        // ATUALIZADA: Confirma a ação (entrada ou saída) do aluno
+        // AJUSTADA: Confirma a ação (entrada ou solicitação de saída)
         async function confirmStudentAction() {
-            const actionModal = document.getElementById('actionModal');
-            const studentId = actionModal.dataset.studentId;
-            const type = actionModal.dataset.type; // Corrigido de 'action' para 'type'
-            const studentName = actionModal.dataset.studentName;
-
-            if (!lastLocation.isValid) {
-                showAlert('Localização inválida. Não é possível confirmar a ação.', 'error');
+            // Validação para garantir que a ação atual está definida
+            if (!currentAction || !currentAction.type) {
+                showAlert('Ação não definida. Por favor, feche o modal e tente novamente.', 'error');
                 return;
             }
             
+            // Validação para garantir que a localização foi obtida
+            if (!lastLocation.isValid || !lastLocation.coords) {
+                showAlert('Localização inválida. Por favor, obtenha a localização antes de confirmar.', 'warning');
+                return;
+            }
+
+            const { studentId, type, studentName } = currentAction;
+            const { latitude, longitude } = lastLocation.coords;
+            
             console.log(`✅ Confirmando ação: {studentId: ${studentId}, type: '${type}', studentName: '${studentName}'}`);
 
+            // UI de carregamento
             const confirmBtn = document.getElementById('confirmActionBtn');
             confirmBtn.disabled = true;
             confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processando...';
 
-            try {
-                const accessToken = localStorage.getItem('access_token');
-                const { latitude, longitude } = lastLocation.coords;
-                const responsavelNome = currentUser?.nome || 'Diretor';
-                const responsavelId = currentDirectorId;
+            // Determina o endpoint e o corpo da requisição
+            let endpoint = '';
+            let body = {};
 
-                // O endpoint agora é decidido pelo 'type'
-                const endpoint = `${BACKEND_URL}/api/presencas/${type}`;
-                const body = {
-                    alunoId: parseInt(studentId),
-                    responsavelNome: responsavelNome,
+            if (type === 'entrada') {
+                endpoint = `${API_BASE_URL}/api/presencas/entrada`;
+                body = {
+                    alunoId: studentId,
+                    responsavelNome: currentUser.nome,
                     responsavelTipo: 'DIRETOR',
-                    responsavelId: responsavelId,
+                    responsavelId: currentUser.id,
                     latitude: latitude,
                     longitude: longitude
                 };
-                
-                console.log('📦 Enviando dados para o backend:', { endpoint, body });
+            } else { // 'saida' agora chama o novo endpoint 'solicitar-saida'
+                endpoint = `${API_BASE_URL}/api/presencas/solicitar-saida`;
+                body = {
+                    alunoId: studentId,
+                    solicitanteId: currentUser.id,
+                    solicitanteNome: currentUser.nome,
+                    tipoSolicitante: 'DIRETOR',
+                    latitude: latitude,
+                    longitude: longitude
+                };
+            }
 
+            console.log('📦 Enviando dados para o backend:', { endpoint, body });
+
+            try {
                 const response = await fetch(endpoint, {
                     method: 'POST',
-                    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`
+                    },
                     body: JSON.stringify(body)
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ message: `Erro: ${response.statusText}` }));
-                    // O erro do log "Aluno não possui sessão aberta" vem daqui
-                    throw new Error(errorData.message || errorData.error || `Erro ao registrar ${type}.`);
+                    const errorData = await response.json();
+                    throw new Error(errorData.mensagem || 'Erro ao processar a solicitação.');
                 }
                 
-                showAlert(`${type.charAt(0).toUpperCase() + type.slice(1)} de ${studentName} registrada com sucesso!`, 'success');
-                closeModal();
-                // Recarrega a lista de alunos para refletir a mudança de status
-                loadAllStudents(currentStudentsPage); 
+                // Sucesso
+                const successMsg = type === 'entrada' 
+                    ? `Entrada de ${studentName} registrada com sucesso!` 
+                    : `Solicitação de saída para ${studentName} enviada! O status será atualizado.`;
+                showAlert(successMsg, 'success');
+                
+                $('#studentActionModal').modal('hide');
+                await loadStudents(); // Recarrega a lista de alunos para refletir a mudança
 
             } catch (error) {
                 console.error(`❌ Erro ao confirmar a ação de ${type}:`, error);
-                showAlert(error.message, 'error');
-                
-                // Garante que o botão seja reativado mesmo em caso de erro
-                confirmBtn.disabled = false;
-                confirmBtn.innerHTML = '<i class="fas fa-check"></i> Confirmar';
+                showAlert(`Erro ao confirmar: ${error.message}`, 'error');
+            } finally {
+                // Restaura o botão de confirmação em caso de erro
+                if (type === 'entrada') {
+                    confirmBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Confirmar Entrada';
+                } else {
+                    confirmBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Solicitar Saída';
+                }
+                // O botão só é re-habilitado se a localização for válida
+                confirmBtn.disabled = !lastLocation.isValid;
             }
         }
         
@@ -4057,6 +4084,41 @@
         document.addEventListener('DOMContentLoaded', function() {
             initializeDashboard();
         });
+
+        // AJUSTADA: Abre o modal de ação para entrada ou saída do aluno
+        function openStudentActionModal(studentId, actionType, studentName) {
+            console.log(`🎯 Abrindo modal para aluno: ${studentName}, Ação: ${actionType}`);
+
+            // Armazena a ação atual
+            currentAction = {
+                studentId,
+                type: actionType, // 'entrada' ou 'saida'
+                studentName
+            };
+
+            // Configura o título e o texto do modal
+            const modalTitle = document.getElementById('studentActionModalLabel');
+            const modalBodyText = document.getElementById('modalBodyText');
+            const confirmBtn = document.getElementById('confirmActionBtn');
+
+            if (actionType === 'entrada') {
+                modalTitle.textContent = `Registrar Entrada de ${studentName}`;
+                modalBodyText.textContent = `Para confirmar a entrada de ${studentName}, por favor, obtenha a sua localização GPS.`;
+                confirmBtn.className = 'btn btn-success';
+                confirmBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Confirmar Entrada';
+            } else {
+                modalTitle.textContent = `Solicitar Saída de ${studentName}`;
+                modalBodyText.textContent = `Para solicitar a saída de ${studentName}, o sistema precisa da sua localização para iniciar o monitoramento.`;
+                confirmBtn.className = 'btn btn-warning'; // Mudei para amarelo para diferenciar
+                confirmBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Solicitar Saída';
+            }
+
+            // Reseta o estado da localização antes de mostrar o modal
+            resetLocationState();
+
+            // Mostra o modal
+            $('#studentActionModal').modal('show');
+        }
 
     </script>
 </body>
