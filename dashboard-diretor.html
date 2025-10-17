@@ -3586,31 +3586,29 @@
                 return [];
             }
             try {
-                const accessToken = await garantirAutenticacao();
+                const accessToken = await getValidToken();
                 if (!accessToken) return alunos;
 
-                // 1. Buscar alunos com saÃ­da ativa
+                // 1. Buscar chamadas ativas e criar um MAPA de alunoId -> chamadaId
                 const activeCallsResponse = await fetch(`${BACKEND_URL}/api/chamadas/escola/${currentSchoolId}/ativas`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
 
-                const activeExitStudentIds = new Set();
+                const activeCallsMap = new Map();
                 if (activeCallsResponse.ok) {
                     const activeCalls = await activeCallsResponse.json();
-                    activeCalls.forEach(call => activeExitStudentIds.add(call.alunoId));
+                    // O DTO agora tem 'alunoId' e 'chamadaId'
+                    activeCalls.forEach(call => {
+                        activeCallsMap.set(call.alunoId, call.chamadaId);
+                    });
+                    console.log('🗺️ Mapa de chamadas ativas criado:', activeCallsMap);
                 } else {
-                    console.error('â Erro ao buscar chamadas ativas.');
+                    console.error('❌ Erro ao buscar chamadas ativas.');
                 }
 
-                // 2. Buscar alunos presentes
+                // 2. Buscar alunos presentes (lógica existente)
                 const presentResponse = await fetch(`${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?size=1000`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
 
                 const alunosPresentesIds = new Set();
@@ -3620,31 +3618,33 @@
                         data.content.forEach(aluno => alunosPresentesIds.add(aluno.id));
                     }
                 } else {
-                    console.error('â Erro ao verificar status de presenÃ§a dos alunos.');
+                    console.error('❌ Erro ao verificar status de presença.');
                     return alunos;
                 }
 
-                // 3. Mapear e definir o status final
+                // 3. Mapear e definir o status final, INCLUINDO chamadaAtivaId
                 return alunos.map(aluno => {
-                    let newStatus;
-                    let statusText;
+                    const alunoComStatus = { ...aluno }; // Copia o aluno para não modificar o original
 
-                    if (activeExitStudentIds.has(aluno.id)) {
-                        newStatus = 'AGUARDANDO_SAIDA';
-                        statusText = 'Aguardando Saída';
+                    if (activeCallsMap.has(aluno.id)) {
+                        // Se o aluno está no mapa de chamadas ativas...
+                        alunoComStatus.status = 'AGUARDANDO_SAIDA';
+                        alunoComStatus.statusText = 'Aguardando Saída';
+                        // ADICIONA O ID DA CHAMADA AO OBJETO DO ALUNO!
+                        alunoComStatus.chamadaAtivaId = activeCallsMap.get(aluno.id);
                     } else if (alunosPresentesIds.has(aluno.id)) {
-                        newStatus = 'PRESENTE';
-                        statusText = 'Presente';
+                        alunoComStatus.status = 'PRESENTE';
+                        alunoComStatus.statusText = 'Presente';
                     } else {
-                        newStatus = 'AUSENTE';
-                        statusText = 'Ausente';
+                        alunoComStatus.status = 'AUSENTE';
+                        alunoComStatus.statusText = 'Ausente';
                     }
-                    return { ...aluno, status: newStatus, statusText: statusText };
+                    return alunoComStatus;
                 });
 
             } catch (error) {
-                console.error('â Erro fatal ao verificar status dos alunos:', error);
-                return alunos;
+                console.error('❌ Erro fatal ao verificar status dos alunos:', error);
+                return alunos; // Em caso de erro, retorna a lista original
             }
         }
 
