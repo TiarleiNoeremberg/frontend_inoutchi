@@ -1903,18 +1903,36 @@
             }
         }
 
-        // FUNÇÃO: Formatar tutores baseado na nova estrutura
+        /**
+         * Função auxiliar para formatar e exibir a lista de tutores de um aluno.
+         * @param {Array} tutores - A lista de objetos de tutores.
+         * @returns {string} - O HTML formatado para exibição.
+         */
         function formatTutorsForDisplay(tutores) {
             if (!tutores || !Array.isArray(tutores) || tutores.length === 0) {
-                return 'Sem tutores vinculados';
+                return '<span style="color: #999;">Sem tutores vinculados</span>';
             }
-            
+
+            // Mapeamento de parentescos para garantir a formatação correta
+            const parentescoMap = {
+                'MAE': 'Mãe', 'MÃE': 'Mãe',
+                'PAI': 'Pai',
+                'IRMAO': 'Irmão', 'IRMÃO': 'Irmão',
+                'PARENTE': 'Parente',
+                'AMIGO': 'Amigo'
+            };
+
             return tutores.map(tutor => {
-                const tutorNome = tutor.nome || 'Tutor';
-                const parentesco = tutor.parentesco || 'Responsável';
-                
-                return `${tutorNome} (${parentesco})`;
-            }).join(', ');
+                const nome = tutor.nome || 'Tutor';
+                const parentesco = tutor.parentesco || '';
+                // Converte o parentesco para o formato correto ou usa o original se não estiver no mapa
+                const parentescoFormatado = parentescoMap[parentesco.toUpperCase()] || parentesco;
+
+                return `<div style="margin: 2px 0;">
+                            <strong>${nome}</strong>
+                            ${parentescoFormatado ? `<span style="color: #666; font-size: 0.9em;"> (${parentescoFormatado})</span>` : ''}
+                        </div>`;
+            }).join('');
         }
 
         // Renderizar histórico do aluno
@@ -2019,87 +2037,42 @@
             if (lastPageBtn) lastPageBtn.onclick = () => loadStudentHistoryPage(currentStudentHistoryTotalPages - 1);
         }
 
-        // FUNÇÃO ATUALIZADA PARA RENDERIZAR A TABELA DE ALUNOS COM STATUS DE 'AGUARDANDO SAÍDA'
+        /**
+         * Função para renderizar a tabela de alunos na interface.
+         * @param {object} data - O objeto contendo os dados dos alunos, geralmente vindo da API.
+         */
         function renderStudentsTable(data) {
-            console.log('🎯 Renderizando tabela de alunos com novo status...');
-            
+            console.log('🎯 Renderizando tabela de alunos com nova estrutura de tutores...');
             const tbody = document.getElementById('studentsTableBody');
             tbody.innerHTML = '';
-            
+
             if (data.content && data.content.length > 0) {
                 data.content.forEach(student => {
                     const tr = document.createElement('tr');
-                    
-                    // Sanitizar o nome do aluno para evitar problemas com aspas
+                    const statusClass = student.status === 'PRESENTE' ? 'status-present' : 'status-absent';
+                    const statusText = student.status === 'PRESENTE' ? 'Presente' : 'Ausente';
+
+                    // Utiliza a nova função auxiliar para formatar a exibição dos tutores
+                    const tutoresHtml = formatTutorsForDisplay(student.tutores);
+
+                    // Sanitiza o nome do aluno para evitar que aspas quebrem o HTML no onclick
                     const safeStudentName = student.nome.replace(/'/g, "\\'");
-                    
-                    // Lógica de Status e Botões de Ação
-                    let statusClass = '';
-                    let statusText = '';
-                    let actionButtons = '';
 
-                    // Define a aparência e os botões com base no status do aluno
-                    switch (student.status) {
-                        case 'PRESENTE':
-                            statusClass = 'status-present';
-                            statusText = 'Presente';
-                            // Botão para iniciar a solicitação de saída
-                            actionButtons = `<button class="btn btn-danger" onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')">
-                                                 <i class="fas fa-sign-out-alt"></i> Saída
-                                             </button>`;
-                            break;
-                        
-                        case 'AGUARDANDO_SAIDA': // <-- NOVO ESTADO
-                            statusClass = 'status-pending'; // Usaremos uma nova classe CSS para a cor amarela/laranja
-                            statusText = 'Aguard. Saída';
-                            // Novo botão que chamará uma função para a confirmação final da saída pelo diretor
-                            actionButtons = `<button class="btn btn-warning" onclick="confirmFinalExit(${student.id}, '${safeStudentName}')">
-                                                 <i class="fas fa-check-circle"></i> Confirmar Saída
-                                             </button>`;
-                            break;
-
-                        default: // Estado 'AUSENTE'
-                            statusClass = 'status-absent';
-                            statusText = 'Ausente';
-                            actionButtons = `<button class="btn btn-success" onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')">
-                                                 <i class="fas fa-sign-in-alt"></i> Entrada
-                                             </button>`;
-                            break;
-                    }
-
-                    // Seção de Tutores (lógica original mantida)
-                    let tutoresHtml = '<span style="color: #999;">Sem tutores</span>';
-                    if (student.tutores && Array.isArray(student.tutores) && student.tutores.length > 0) {
-                        tutoresHtml = student.tutores.map(tutor => {
-                            const nome = tutor.nome || 'Tutor';
-                            const parentesco = tutor.parentesco || '';
-                            let parentescoFormatado = '';
-                            switch(parentesco.toUpperCase()) {
-                                case 'MAE': case 'MÃE': parentescoFormatado = 'Mãe'; break;
-                                case 'PAI': parentescoFormatado = 'Pai'; break;
-                                case 'AVO': case 'AVÔ': parentescoFormatado = 'Avô'; break;
-                                case 'AVÓ': parentescoFormatado = 'Avó'; break;
-                                case 'TIO': parentescoFormatado = 'Tio'; break;
-                                case 'TIA': parentescoFormatado = 'Tia'; break;
-                                case 'RESPONSAVEL': case 'RESPONSÁVEL': parentescoFormatado = 'Responsável'; break;
-                                default: parentescoFormatado = parentesco;
-                            }
-                            return `<div style="margin: 2px 0;">
-                                <strong>${nome}</strong>
-                                ${parentescoFormatado ? `<span style="color: #666; font-size: 0.9em;"> (${parentescoFormatado})</span>` : ''}
-                            </div>`;
-                        }).join('');
-                    }
-                    
-                    // Monta a linha da tabela com os novos botões e status
                     tr.innerHTML = `
                         <td>${student.nome}</td>
-                        <td>${student.salaNome}</td>
+                        <td>${student.salaNome || '-'}</td>
                         <td><span class="status-badge ${statusClass}">${statusText}</span></td>
                         <td>${tutoresHtml}</td>
                         <td>
                             <div class="action-buttons">
-                                ${actionButtons}
+                                ${student.status !== 'PRESENTE' ?
+                                    `<button class="btn btn-success" onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')">
+                                        <i class="fas fa-sign-in-alt"></i> Entrada
+                                    </button>` :
+                                    `<button class="btn btn-danger" onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')">
+                                        <i class="fas fa-sign-out-alt"></i> Saída
+                                    </button>`
+                                }
                                 <button class="btn btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}')">
                                     <i class="fas fa-history"></i> Histórico
                                 </button>
@@ -4003,18 +3976,21 @@
                 let requestData;
                 let successMessage;
 
-                // =================== INÍCIO DA LÓGICA CORRIGIDA ===================
                 if (type === 'saida') {
-                    // ETAPA 1: Ação de SAÍDA agora apenas SOLICITA a saída.
+                    // =================== INÍCIO DA CORREÇÃO ===================
                     console.log('📦 Preparando SOLICITAÇÃO de saída...');
                     endpoint_url = `${BACKEND_URL}/api/chamadas/saida/solicitar`;
                     requestData = {
                         alunoId: parseInt(studentId),
-                        escolaId: currentSchoolId, // Importante: o backend espera o ID da escola
+                        solicitanteId: currentDirectorId, // ENVIANDO O ID DO DIRETOR
+                        solicitanteNome: currentUser.nome, // ENVIANDO O NOME DO DIRETOR
+                        tipoSolicitante: 'DIRETOR', // ENVIANDO O TIPO DE SOLICITANTE
+                        escolaId: currentSchoolId,
                         latitude: latitude,
                         longitude: longitude
                     };
                     successMessage = 'Solicitação de saída enviada! Aguardando confirmação na tabela.';
+                    // =================== FIM DA CORREÇÃO ===================
 
                 } else {
                     // Ação de ENTRADA continua como antes.
@@ -4030,7 +4006,6 @@
                     };
                     successMessage = 'Entrada do aluno registrada com sucesso!';
                 }
-                // =================== FIM DA LÓGICA CORRIGIDA ===================
                 
                 console.log(`📡 Enviando dados para: ${endpoint_url}`, requestData);
                 
@@ -4045,7 +4020,9 @@
                 
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({ erro: 'Erro desconhecido.' }));
-                    throw new Error(errorData.erro || `Erro ${response.status} ao processar a solicitação.`);
+                    // Tentativa de pegar uma mensagem de erro mais específica, como a de validação
+                    const errorMessage = errorData.mensagem || errorData.erro || `Erro ${response.status} ao processar a solicitação.`;
+                    throw new Error(errorMessage);
                 }
                 
                 const result = await response.json();
