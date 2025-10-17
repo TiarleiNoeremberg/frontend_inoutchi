@@ -2019,9 +2019,9 @@
             if (lastPageBtn) lastPageBtn.onclick = () => loadStudentHistoryPage(currentStudentHistoryTotalPages - 1);
         }
 
-        // ATUALIZAR a função renderStudentsTable com a nova extração de tutores
+        // FUNÇÃO ATUALIZADA PARA RENDERIZAR A TABELA DE ALUNOS COM STATUS DE 'AGUARDANDO SAÍDA'
         function renderStudentsTable(data) {
-            console.log('🎯 Renderizando tabela de alunos...');
+            console.log('🎯 Renderizando tabela de alunos com novo status...');
             
             const tbody = document.getElementById('studentsTableBody');
             tbody.innerHTML = '';
@@ -2029,61 +2029,69 @@
             if (data.content && data.content.length > 0) {
                 data.content.forEach(student => {
                     const tr = document.createElement('tr');
-                    const statusClass = student.status === 'PRESENTE' ? 'status-present' : 'status-absent';
-                    const statusText = student.status === 'PRESENTE' ? 'Presente' : 'Ausente';
                     
-                    // ===== SUBSTITUIR A SEÇÃO DE TUTORES =====
+                    // Sanitizar o nome do aluno para evitar problemas com aspas
+                    const safeStudentName = student.nome.replace(/'/g, "\\'");
+                    
+                    // Lógica de Status e Botões de Ação
+                    let statusClass = '';
+                    let statusText = '';
+                    let actionButtons = '';
+
+                    // Define a aparência e os botões com base no status do aluno
+                    switch (student.status) {
+                        case 'PRESENTE':
+                            statusClass = 'status-present';
+                            statusText = 'Presente';
+                            // Botão para iniciar a solicitação de saída
+                            actionButtons = `<button class="btn btn-danger" onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')">
+                                                 <i class="fas fa-sign-out-alt"></i> Saída
+                                             </button>`;
+                            break;
+                        
+                        case 'AGUARDANDO_SAIDA': // <-- NOVO ESTADO
+                            statusClass = 'status-pending'; // Usaremos uma nova classe CSS para a cor amarela/laranja
+                            statusText = 'Aguard. Saída';
+                            // Novo botão que chamará uma função para a confirmação final da saída pelo diretor
+                            actionButtons = `<button class="btn btn-warning" onclick="confirmFinalExit(${student.id}, '${safeStudentName}')">
+                                                 <i class="fas fa-check-circle"></i> Confirmar Saída
+                                             </button>`;
+                            break;
+
+                        default: // Estado 'AUSENTE'
+                            statusClass = 'status-absent';
+                            statusText = 'Ausente';
+                            actionButtons = `<button class="btn btn-success" onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')">
+                                                 <i class="fas fa-sign-in-alt"></i> Entrada
+                                             </button>`;
+                            break;
+                    }
+
+                    // Seção de Tutores (lógica original mantida)
                     let tutoresHtml = '<span style="color: #999;">Sem tutores</span>';
-                    
                     if (student.tutores && Array.isArray(student.tutores) && student.tutores.length > 0) {
-                        // Mapear os tutores formatando nome e parentesco
                         tutoresHtml = student.tutores.map(tutor => {
                             const nome = tutor.nome || 'Tutor';
                             const parentesco = tutor.parentesco || '';
-                            
-                            // Formatar parentesco
                             let parentescoFormatado = '';
                             switch(parentesco.toUpperCase()) {
-                                case 'MAE':
-                                case 'MÃE':
-                                    parentescoFormatado = 'Mãe';
-                                    break;
-                                case 'PAI':
-                                    parentescoFormatado = 'Pai';
-                                    break;
-                                case 'AVO':
-                                case 'AVÔ':
-                                    parentescoFormatado = 'Avô';
-                                    break;
-                                case 'AVÓ':
-                                    parentescoFormatado = 'Avó';
-                                    break;
-                                case 'TIO':
-                                    parentescoFormatado = 'Tio';
-                                    break;
-                                case 'TIA':
-                                    parentescoFormatado = 'Tia';
-                                    break;
-                                case 'RESPONSAVEL':
-                                case 'RESPONSÁVEL':
-                                    parentescoFormatado = 'Responsável';
-                                    break;
-                                default:
-                                    parentescoFormatado = parentesco;
+                                case 'MAE': case 'MÃE': parentescoFormatado = 'Mãe'; break;
+                                case 'PAI': parentescoFormatado = 'Pai'; break;
+                                case 'AVO': case 'AVÔ': parentescoFormatado = 'Avô'; break;
+                                case 'AVÓ': parentescoFormatado = 'Avó'; break;
+                                case 'TIO': parentescoFormatado = 'Tio'; break;
+                                case 'TIA': parentescoFormatado = 'Tia'; break;
+                                case 'RESPONSAVEL': case 'RESPONSÁVEL': parentescoFormatado = 'Responsável'; break;
+                                default: parentescoFormatado = parentesco;
                             }
-                            
-                            // Retornar HTML formatado
                             return `<div style="margin: 2px 0;">
                                 <strong>${nome}</strong>
                                 ${parentescoFormatado ? `<span style="color: #666; font-size: 0.9em;"> (${parentescoFormatado})</span>` : ''}
                             </div>`;
                         }).join('');
                     }
-                    // ==========================================
                     
-                    // Sanitizar o nome do aluno para evitar problemas com aspas
-                    const safeStudentName = student.nome.replace(/'/g, "\\'");
-                    
+                    // Monta a linha da tabela com os novos botões e status
                     tr.innerHTML = `
                         <td>${student.nome}</td>
                         <td>${student.salaNome}</td>
@@ -2091,14 +2099,7 @@
                         <td>${tutoresHtml}</td>
                         <td>
                             <div class="action-buttons">
-                                ${student.status !== 'PRESENTE' ? 
-                                    `<button class="btn btn-success" onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')">
-                                        <i class="fas fa-sign-in-alt"></i> Entrada
-                                    </button>` :
-                                    `<button class="btn btn-danger" onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')">
-                                        <i class="fas fa-sign-out-alt"></i> Saída
-                                    </button>`
-                                }
+                                ${actionButtons}
                                 <button class="btn btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}')">
                                     <i class="fas fa-history"></i> Histórico
                                 </button>
@@ -3971,8 +3972,8 @@
         };
 
         /**
-         * ATUALIZADA: Confirma a ação do aluno lendo os dados diretamente
-         * do elemento do modal, em vez de depender de argumentos ou variáveis globais.
+         * ATUALIZADA: Confirma a ação do aluno. Para 'entrada', registra a presença.
+         * Para 'saída', agora apenas SOLICITA a saída, usando o novo endpoint.
          */
         async function confirmStudentAction() {
             const actionModal = document.getElementById('actionModal');
@@ -3993,31 +3994,47 @@
                     throw new Error('Localização inválida. Obtenha a localização novamente.');
                 }
 
-                // ATENÇÃO: Esta chamada agora está segura e não vai mais congelar.
                 const accessToken = await garantirAutenticacao();
-                
-                // Se a autenticação falhar, accessToken será null e a função irá parar.
                 if (!accessToken) {
-                    // A própria garantirAutenticacao já mostra o alerta e redireciona.
-                    // Apenas reabilitamos o botão para evitar que fique travado.
-                    confirmBtn.disabled = false;
-                    confirmBtn.innerHTML = '<i class="fas fa-check"></i> Confirmar';
-                    return; // Interrompe a execução aqui.
+                    throw new Error("Sessão inválida. Faça o login novamente.");
                 }
 
-                const requestData = {
-                    alunoId: parseInt(studentId),
-                    responsavelNome: currentUser.nome,
-                    responsavelTipo: 'DIRETOR',
-                    responsavelId: currentDirectorId,
-                    latitude: latitude,
-                    longitude: longitude
-                };
+                let endpoint_url;
+                let requestData;
+                let successMessage;
+
+                // =================== INÍCIO DA LÓGICA CORRIGIDA ===================
+                if (type === 'saida') {
+                    // ETAPA 1: Ação de SAÍDA agora apenas SOLICITA a saída.
+                    console.log('📦 Preparando SOLICITAÇÃO de saída...');
+                    endpoint_url = `${BACKEND_URL}/api/chamadas/saida/solicitar`;
+                    requestData = {
+                        alunoId: parseInt(studentId),
+                        escolaId: currentSchoolId, // Importante: o backend espera o ID da escola
+                        latitude: latitude,
+                        longitude: longitude
+                    };
+                    successMessage = 'Solicitação de saída enviada! Aguardando confirmação na tabela.';
+
+                } else {
+                    // Ação de ENTRADA continua como antes.
+                    console.log('📦 Preparando registro de ENTRADA...');
+                    endpoint_url = `${BACKEND_URL}/api/presencas/entrada`;
+                    requestData = {
+                        alunoId: parseInt(studentId),
+                        responsavelNome: currentUser.nome,
+                        responsavelTipo: 'DIRETOR',
+                        responsavelId: currentDirectorId,
+                        latitude: latitude,
+                        longitude: longitude
+                    };
+                    successMessage = 'Entrada do aluno registrada com sucesso!';
+                }
+                // =================== FIM DA LÓGICA CORRIGIDA ===================
                 
-                console.log('📦 Enviando dados para o backend:', requestData); // << VOCÊ VERÁ ESTE LOG AGORA
+                console.log(`📡 Enviando dados para: ${endpoint_url}`, requestData);
                 
-                const endpoint = type === 'entrada' ? 'entrada' : 'saida';
-                const response = await fetch(`${BACKEND_URL}/api/presencas/${endpoint}`, {
+                const response = await fetch(endpoint_url, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
@@ -4027,21 +4044,26 @@
                 });
                 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.mensagem || `Erro ${response.status} ao registrar.`);
+                    const errorData = await response.json().catch(() => ({ erro: 'Erro desconhecido.' }));
+                    throw new Error(errorData.erro || `Erro ${response.status} ao processar a solicitação.`);
                 }
                 
                 const result = await response.json();
-                showAlert(result.mensagem || 'Ação registrada com sucesso!', 'success');
+                showAlert(result.mensagem || successMessage, 'success');
                 
                 closeModal();
-                await loadAllStudents();
+                await loadAllStudents(); // Recarrega a tabela para mostrar o novo status.
                 
             } catch (error) {
-                console.error(`❌ Erro em confirmStudentAction:`, error.message);
+                console.error(`❌ Erro em confirmStudentAction:`, error);
                 showAlert(error.message, 'error');
-                confirmBtn.disabled = false;
-                confirmBtn.innerHTML = '<i class="fas fa-check"></i> Confirmar';
+            } finally {
+                // Garante que o botão seja reabilitado mesmo em caso de erro.
+                const finalConfirmBtn = document.getElementById('confirmActionBtn');
+                if(finalConfirmBtn) {
+                    finalConfirmBtn.disabled = false;
+                    finalConfirmBtn.innerHTML = '<i class="fas fa-check"></i> Confirmar';
+                }
             }
         }
 
@@ -4160,6 +4182,47 @@
         // =================================================================
         //  FIM DO BLOCO DE AUTENTICAÇÃO
         // =================================================================
+
+        /**
+         * ETAPA FINAL: Confirma manualmente a saída de um aluno que está aguardando.
+         * Chamada pelo novo botão "Confirmar Saída" na tabela.
+         */
+        async function confirmarSaidaManual(alunoId, alunoNome) {
+            if (!confirm(`Deseja realmente confirmar a saída do aluno ${alunoNome}?`)) {
+                return;
+            }
+
+            console.log(`➡️ Confirmando saída manual para o aluno ID: ${alunoId}`);
+
+            try {
+                const accessToken = await garantirAutenticacao();
+                if (!accessToken) {
+                    throw new Error("Sessão inválida. Faça o login novamente.");
+                }
+
+                const response = await fetch(`${BACKEND_URL}/api/chamadas/confirmar-manual/${alunoId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ erro: 'Erro ao confirmar saída.' }));
+                    throw new Error(errorData.erro || 'Não foi possível confirmar a saída.');
+                }
+                
+                const result = await response.json();
+                showAlert(result.mensagem || 'Saída confirmada com sucesso!', 'success');
+                
+                await loadAllStudents(); // Recarrega a tabela para refletir o status final.
+
+            } catch (error) {
+                console.error('❌ Erro ao confirmar saída manual:', error);
+                showAlert(error.message, 'error');
+            }
+        }
 
     </script>
 </body>
