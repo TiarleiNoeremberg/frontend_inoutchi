@@ -707,6 +707,11 @@
             overflow-y: auto;
         }
 
+        .status-badge.status-waiting {
+            background-color: #ffc107; /* Amarelo de alerta */
+            color: #333;
+        }
+
     </style>
 </head>
 <body>
@@ -2046,44 +2051,48 @@
             const tbody = document.getElementById('studentsTableBody');
             tbody.innerHTML = '';
 
-            if (data.content && data.content.length > 0) {
-                data.content.forEach(student => {
-                    const tr = document.createElement('tr');
-                    const statusClass = student.status === 'PRESENTE' ? 'status-present' : 'status-absent';
-                    const statusText = student.status === 'PRESENTE' ? 'Presente' : 'Ausente';
+            data.content.forEach((student, index) => {
+                let statusClass = '';
+                const statusText = student.statusText || (student.status === 'PRESENTE' ? 'Presente' : 'Ausente');
 
-                    // Utiliza a nova função auxiliar para formatar a exibição dos tutores
-                    const tutoresHtml = formatTutorsForDisplay(student.tutores);
+                switch(student.status) {
+                    case 'PRESENTE':
+                        statusClass = 'status-present';
+                        break;
+                    case 'AUSENTE':
+                        statusClass = 'status-absent';
+                        break;
+                    case 'AGUARDANDO_SAIDA':
+                        statusClass = 'status-waiting'; // Nova classe CSS
+                        break;
+                    default:
+                        statusClass = 'status-absent';
+                }
 
-                    // Sanitiza o nome do aluno para evitar que aspas quebrem o HTML no onclick
-                    const safeStudentName = student.nome.replace(/'/g, "\\'");
+                const safeStudentName = student.nome ? student.nome.replace(/'/g, "\\'") : 'Aluno';
 
-                    tr.innerHTML = `
-                        <td>${student.nome}</td>
-                        <td>${student.salaNome || '-'}</td>
+                initialHTML += `
+                    <tr data-student-id="${student.id}">
+                        <td><strong>${student.nome || 'Nome nÃ£o informado'}</strong></td>
+                        <td>${student.salaNome || 'N/A'}</td>
                         <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-                        <td>${tutoresHtml}</td>
-                        <td>
-                            <div class="action-buttons">
-                                ${student.status !== 'PRESENTE' ?
-                                    `<button class="btn btn-success" onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')">
-                                        <i class="fas fa-sign-in-alt"></i> Entrada
-                                    </button>` :
-                                    `<button class="btn btn-danger" onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')">
-                                        <i class="fas fa-sign-out-alt"></i> Saída
-                                    </button>`
-                                }
-                                <button class="btn btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}')">
-                                    <i class="fas fa-history"></i> Histórico
-                                </button>
-                            </div>
+                        <td id="tutors-cell-${student.id}" style="max-width: 250px; word-wrap: break-word;">
+                            <div class="loading-spinner-small"></div>
                         </td>
-                    `;
-                    tbody.appendChild(tr);
-                });
-            } else {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Nenhum aluno encontrado</td></tr>';
-            }
+                        <td class="actions-cell">
+                            <button class="btn btn-sm btn-info" onclick="viewStudentHistory(${student.id}, '${safeStudentName}')" title="Ver HistÃ³rico">
+                                <i class="fas fa-history"></i>
+                            </button>
+                            <button class="btn btn-sm btn-success" onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')" title="Registrar Entrada">
+                                <i class="fas fa-sign-in-alt"></i>
+                            </button>
+                            <button class="btn btn-sm btn-danger" onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')" title="Registrar SaÃ­da">
+                                <i class="fas fa-sign-out-alt"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
         }
 
         // Configurar paginação de alunos
@@ -3601,38 +3610,69 @@
         
         // Função otimizada para verificar status de todos os alunos de uma vez
         async function checkAllStudentsStatus(alunos) {
+            if (!alunos || alunos.length === 0) {
+                return [];
+            }
             try {
-                const accessToken = localStorage.getItem('access_token');
-                
-                // Buscar lista de todos os alunos presentes
-                const response = await fetch(`${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?size=1000`, {
+                const accessToken = await garantirAutenticacao();
+                if (!accessToken) return alunos;
+
+                // 1. Buscar alunos com saÃ­da ativa
+                const activeCallsResponse = await fetch(`${BACKEND_URL}/api/chamadas/escola/${currentSchoolId}/ativas`, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
                     }
                 });
 
-                if (response.ok) {
-                    const data = await response.json();
-                    const alunosPresentesIds = new Set();
-                    
+                const activeExitStudentIds = new Set();
+                if (activeCallsResponse.ok) {
+                    const activeCalls = await activeCallsResponse.json();
+                    activeCalls.forEach(call => activeExitStudentIds.add(call.alunoId));
+                } else {
+                    console.error('â Erro ao buscar chamadas ativas.');
+                }
+
+                // 2. Buscar alunos presentes
+                const presentResponse = await fetch(`${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?size=1000`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const alunosPresentesIds = new Set();
+                if (presentResponse.ok) {
+                    const data = await presentResponse.json();
                     if (data.content && Array.isArray(data.content)) {
                         data.content.forEach(aluno => alunosPresentesIds.add(aluno.id));
                     }
-                    
-                    // Atualizar status de cada aluno
-                    return alunos.map(aluno => ({
-                        ...aluno,
-                        status: alunosPresentesIds.has(aluno.id) ? 'PRESENTE' : 'AUSENTE'
-                    }));
+                } else {
+                    console.error('â Erro ao verificar status de presenÃ§a dos alunos.');
+                    return alunos;
                 }
-                
-                // Se der erro, retorna os alunos com status original
-                return alunos;
-                
+
+                // 3. Mapear e definir o status final
+                return alunos.map(aluno => {
+                    let newStatus;
+                    let statusText;
+
+                    if (activeExitStudentIds.has(aluno.id)) {
+                        newStatus = 'AGUARDANDO_SAIDA';
+                        statusText = 'Aguardando Saída';
+                    } else if (alunosPresentesIds.has(aluno.id)) {
+                        newStatus = 'PRESENTE';
+                        statusText = 'Presente';
+                    } else {
+                        newStatus = 'AUSENTE';
+                        statusText = 'Ausente';
+                    }
+                    return { ...aluno, status: newStatus, statusText: statusText };
+                });
+
             } catch (error) {
-                console.error('❌ Erro ao verificar status dos alunos:', error);
-                return alunos; // Retorna os alunos sem alteração
+                console.error('â Erro fatal ao verificar status dos alunos:', error);
+                return alunos;
             }
         }
 
