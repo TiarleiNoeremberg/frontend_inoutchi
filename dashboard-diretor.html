@@ -2027,59 +2027,41 @@
         }
 
         /**
-         * Função para renderizar a tabela de alunos na interface.
-         * @param {object} data - O objeto contendo os dados dos alunos, geralmente vindo da API.
+         * RENDERIZA A TABELA DE ALUNOS COM BOTÕES DE AÇÃO DINÂMICOS.
+         * Substitua a função renderStudentsTable existente por esta.
+         * @param {object} data - Os dados da paginação dos alunos.
          */
         function renderStudentsTable(data) {
-            console.log('🎯 Renderizando tabela de alunos com nova estrutura de tutores...');
+            console.log('🎯 Renderizando tabela de alunos com botões de ação dinâmicos...');
             const tbody = document.getElementById('studentsTableBody');
-            tbody.innerHTML = '';
 
             if (data.content && data.content.length > 0) {
-                let initialHTML = ''; // Corrigido: Declarando a variável
-                data.content.forEach((student, index) => {
-                    let statusClass = '';
-                    const statusText = student.statusText || (student.status === 'PRESENTE' ? 'Presente' : 'Ausente');
-
-                    switch (student.status) {
-                        case 'PRESENTE':
-                            statusClass = 'status-present';
-                            break;
-                        case 'AUSENTE':
-                            statusClass = 'status-absent';
-                            break;
-                        case 'AGUARDANDO_SAIDA':
-                            statusClass = 'status-waiting';
-                            break;
-                        default:
-                            statusClass = 'status-absent';
-                    }
-
+                tbody.innerHTML = data.content.map(student => {
+                    const statusClassMap = {
+                        'PRESENTE': 'status-present',
+                        'AUSENTE': 'status-absent',
+                        'AGUARDANDO_SAIDA': 'status-waiting'
+                    };
+                    const statusClass = statusClassMap[student.status] || 'status-absent';
+                    const statusText = student.statusText || 'N/A';
+                    // Escapa apóstrofos nos nomes dos alunos para evitar erros no HTML
                     const safeStudentName = student.nome ? student.nome.replace(/'/g, "\\'") : 'Aluno';
 
-                    initialHTML += `
+                    // Para cada aluno, cria uma linha da tabela
+                    return `
                         <tr data-student-id="${student.id}">
                             <td><strong>${student.nome || 'Nome não informado'}</strong></td>
                             <td>${student.salaNome || 'N/A'}</td>
                             <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-                            <td id="tutors-cell-${student.id}" style="max-width: 250px; word-wrap: break-word;">
+                            <td id="tutors-cell-${student.id}">
                                 ${student.tutores ? formatTutorsForDisplay(student.tutores) : '<div class="loading-spinner-small"></div>'}
                             </td>
                             <td class="actions-cell">
-                                <button class="btn btn-sm btn-info" onclick="viewStudentHistory(${student.id}, '${safeStudentName}')" title="Ver Histórico">
-                                    <i class="fas fa-history"></i>
-                                </button>
-                                <button class="btn btn-sm btn-success" onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')" title="Registrar Entrada">
-                                    <i class="fas fa-sign-in-alt"></i>
-                                </button>
-                                <button class="btn btn-sm btn-danger" onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')" title="Registrar Saída">
-                                    <i class="fas fa-sign-out-alt"></i>
-                                </button>
+                                ${getActionButtons(student, safeStudentName)}
                             </td>
                         </tr>
                     `;
-                });
-                tbody.innerHTML = initialHTML; // Corrigido: Atribuindo o HTML gerado à tabela
+                }).join('');
             } else {
                 tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px; color: #666;">Nenhum aluno encontrado</td></tr>';
             }
@@ -4228,6 +4210,104 @@
             } catch (error) {
                 console.error('❌ Erro ao confirmar saída manual:', error);
                 showAlert(error.message, 'error');
+            }
+        }
+
+        /**
+         * GERA OS BOTÕES DE AÇÃO PARA CADA ALUNO COM BASE EM SEU STATUS.
+         * Adicione esta nova função ao seu script.
+         * @param {object} student - O objeto do aluno, que deve incluir 'id', 'status' e 'chamadaAtivaId'.
+         * @param {string} safeStudentName - O nome do aluno, sanitizado para uso em chamadas de função JS.
+         * @returns {string} O HTML dos botões de ação.
+         */
+        function getActionButtons(student, safeStudentName) {
+            // O botão de histórico está sempre presente
+            const historyButton = `
+                <button class="btn btn-sm btn-info" onclick="viewStudentHistory(${student.id}, '${safeStudentName}')" title="Ver Histórico">
+                    <i class="fas fa-history"></i>
+                </button>
+            `;
+
+            let actionButtons = '';
+            // Define os botões de ação com base no status do aluno
+            switch (student.status) {
+                case 'PRESENTE':
+                    // Se presente, permite solicitar a saída
+                    actionButtons = `
+                        <button class="btn btn-sm btn-danger" onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')" title="Registrar Saída">
+                            <i class="fas fa-sign-out-alt"></i>
+                        </button>
+                    `;
+                    break;
+                case 'AUSENTE':
+                    // Se ausente, permite registrar a entrada
+                    actionButtons = `
+                        <button class="btn btn-sm btn-success" onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')" title="Registrar Entrada">
+                            <i class="fas fa-sign-in-alt"></i>
+                        </button>
+                    `;
+                    break;
+                case 'AGUARDANDO_SAIDA':
+                    // Se aguardando saída, o diretor pode confirmar a saída.
+                    // O backend deve fornecer 'chamadaAtivaId' no objeto do aluno.
+                    actionButtons = `
+                        <button class="btn btn-sm btn-warning" onclick="confirmStudentExit(${student.id}, ${student.chamadaAtivaId}, '${safeStudentName}')" title="Confirmar Saída do Aluno">
+                            <i class="fas fa-check-circle"></i> Confirmar Saída
+                        </button>
+                    `;
+                    break;
+                default:
+                    // Para outros status ou em caso de erro, não mostra botões de entrada/saída
+                    actionButtons = '';
+                    break;
+            }
+            // Retorna o botão de histórico junto com os botões de ação apropriados
+            return historyButton + actionButtons;
+        }
+
+        /**
+         * FUNÇÃO PARA O DIRETOR CONFIRMAR A SAÍDA DE UM ALUNO.
+         * Adicione esta nova função ao seu script.
+         * @param {number} studentId - O ID do aluno.
+         * @param {number} chamadaId - O ID da chamada ativa que precisa ser confirmada.
+         * @param {string} studentName - O nome do aluno.
+         */
+        async function confirmStudentExit(studentId, chamadaId, studentName) {
+            console.log(`Iniciando confirmação de saída para ${studentName} (Chamada ID: ${chamadaId})`);
+            
+            if (!chamadaId) {
+                showAlert('Erro: ID da chamada não encontrado. Não é possível confirmar a saída.', 'error');
+                return;
+            }
+            
+            const confirmed = confirm(`Deseja realmente confirmar a saída de ${studentName}?`);
+
+            if (confirmed) {
+                try {
+                    const accessToken = await getValidToken(); // Garante um token de autenticação válido
+                    const response = await fetch(`${BACKEND_URL}/api/chamadas/saida/confirmar/${chamadaId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            confirmanteId: currentUserId, // Garanta que 'currentUserId' esteja disponível globalmente
+                            tipoConfirmante: 'DIRETOR'
+                        })
+                    });
+
+                    if (response.ok) {
+                        showAlert(`Saída de ${studentName} confirmada com sucesso!`, 'success');
+                        refreshStudents(); // Recarrega a lista de alunos para atualizar status e botões
+                    } else {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || 'Falha ao confirmar a saída no servidor.');
+                    }
+                } catch (error) {
+                    console.error('Erro ao confirmar a saída do aluno:', error);
+                    showAlert(`Erro ao confirmar saída: ${error.message}`, 'error');
+                }
             }
         }
 
