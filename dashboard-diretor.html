@@ -4275,35 +4275,44 @@
          */
         async function confirmStudentExit(studentId, chamadaId, studentName) {
             console.log(`Iniciando confirmação de saída para ${studentName} (Chamada ID: ${chamadaId})`);
-            
-            if (!chamadaId) {
-                showAlert('Erro: ID da chamada não encontrado. Não é possível confirmar a saída.', 'error');
+
+            // A URL precisa do ID do aluno. Se não tiver, não continue.
+            if (!studentId) {
+                showAlert('Erro: ID do Aluno não encontrado. Não é possível confirmar a saída.', 'error');
                 return;
             }
-            
+
             const confirmed = confirm(`Deseja realmente confirmar a saída de ${studentName}?`);
 
             if (confirmed) {
                 try {
                     const accessToken = localStorage.getItem('access_token');
-                    const response = await fetch(`${BACKEND_URL}/api/chamadas/saida/confirmar/${chamadaId}`, {
+
+                    // CORREÇÃO CRÍTICA AQUI: A variável studentId é inserida na URL.
+                    const response = await fetch(`${BACKEND_URL}/api/chamadas/confirmar-manual/${studentId}`, {
                         method: 'POST',
                         headers: {
                             'Authorization': `Bearer ${accessToken}`,
                             'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            confirmanteId: currentDirectorId,
-                            tipoConfirmante: 'DIRETOR'
-                        })
+                        }
+                        // O body foi removido, pois o backend obtém o ID do diretor pelo token.
                     });
 
                     if (response.ok) {
-                        showAlert(`Saída de ${studentName} confirmada com sucesso!`, 'success');
-                        refreshStudents(); // Recarrega a lista de alunos para atualizar status e botões
+                        const result = await response.json();
+                        showAlert(result.mensagem || `Saída de ${studentName} confirmada com sucesso!`, 'success');
+                        // A função `refreshStudents` precisa ser chamada para atualizar a tela.
+                        // Certifique-se de que ela existe e funciona.
+                        if (typeof refreshStudents === 'function') {
+                            refreshStudents();
+                        } else {
+                            // Se não existir, recarregue a lista principal.
+                            loadAllStudents();
+                        }
                     } else {
-                        const errorData = await response.json();
-                        throw new Error(errorData.message || 'Falha ao confirmar a saída no servidor.');
+                        // Tenta ler a mensagem de erro específica do backend.
+                        const errorData = await response.json().catch(() => ({ message: 'Erro desconhecido no servidor.' }));
+                        throw new Error(errorData.erro || errorData.message || 'Falha ao confirmar a saída no servidor.');
                     }
                 } catch (error) {
                     console.error('Erro ao confirmar a saída do aluno:', error);
