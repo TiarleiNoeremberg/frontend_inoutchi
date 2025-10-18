@@ -3163,15 +3163,13 @@
             try {
                 const accessToken = localStorage.getItem('access_token');
                 
-                // Obter coordenadas dos elementos
                 const latitude = parseFloat(document.getElementById('displayLatitude').textContent);
                 const longitude = parseFloat(document.getElementById('displayLongitude').textContent);
                 
                 if (isNaN(latitude) || isNaN(longitude)) {
-                    throw new Error('Localização não disponível. Obtenha a localização primeiro.');
+                    throw new Error('Localização não disponível. Obtenha a localiza-ção primeiro.');
                 }
                 
-                // Preparar dados
                 const requestData = {
                     alunoId: studentId,
                     responsavelNome: currentUser.nome,
@@ -3183,9 +3181,19 @@
                 
                 console.log('📤 Enviando dados:', requestData);
                 
-                // Fazer requisição
-                const endpoint = type === 'entrada' ? 'entrada' : 'saida';
-                const response = await fetch(`${BACKEND_URL}/api/presencas/${endpoint}`, {
+                // ======================= INÍCIO DA CORREÇÃO =======================
+                // Quando o tipo for 'saida', o diretor deve usar o endpoint de SOLICITAÇÃO,
+                // e não o de saída direta. Isso colocará o aluno no estado 'AGUARDANDO_CONFIRMACAO'.
+                
+                let endpointUrl;
+                if (type === 'entrada') {
+                    endpointUrl = `${BACKEND_URL}/api/presencas/entrada`;
+                } else { // type === 'saida'
+                    endpointUrl = `${BACKEND_URL}/api/presencas/saida/solicitar`;
+                }
+                // ======================== FIM DA CORREÇÃO =========================
+
+                const response = await fetch(endpointUrl, { // Usamos a URL corrigida aqui
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
@@ -3193,39 +3201,37 @@
                     },
                     body: JSON.stringify(requestData)
                 });
-                
+
                 if (response.ok) {
                     const result = await response.json();
                     console.log('✅ Ação registrada com sucesso:', result);
                     
-                    showAlert(`${type === 'entrada' ? 'Entrada' : 'Saída'} registrada com sucesso!`, 'success');
+                    // Mensagem de sucesso mais apropriada para a solicitação
+                    const successMessage = type === 'entrada' ? 'Entrada registrada com sucesso!' : 'Solicitação de saída enviada com sucesso!';
+                    showAlert(successMessage, 'success');
+                    
                     closeModal();
                     
-                    // Atualizar dados
-                    await loadAllStudents(currentStudentsPage, document.getElementById('studentSearch')?.value);
-                    
-                    // Se estiver na aba de visão geral, atualizar também
-                    if (document.getElementById('overview-tab').classList.contains('active')) {
-                        await loadOverviewData();
-                    }
-                    
+                    // Força a atualização da lista de alunos para refletir o novo status
+                    setTimeout(() => {
+                        loadAllStudents(); 
+                    }, 500);
+
                 } else {
                     const errorText = await response.text();
-                    let errorMessage = `Erro ${response.status}: ${response.statusText}`;
-                    
+                    let errorMessage = 'Erro ao registrar ação';
                     try {
                         const errorJson = JSON.parse(errorText);
-                        errorMessage = errorJson.mensagem || errorJson.erro || errorMessage;
+                        errorMessage = errorJson.mensagem || errorJson.erro || `Erro interno do servidor: ${errorText}`;
                     } catch (e) {
-                        // Manter mensagem original
+                        errorMessage = `Erro interno do servidor: ${errorText}`;
                     }
-                    
                     throw new Error(errorMessage);
                 }
                 
             } catch (error) {
                 console.error('❌ Erro ao registrar ação:', error);
-                showAlert(`Erro ao registrar ${type}: ${error.message}`, 'error');
+                showAlert(`❌ Erro ao registrar ação: ${error.message}`, 'error');
             }
         }
 
