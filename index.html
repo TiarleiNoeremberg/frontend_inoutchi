@@ -274,7 +274,7 @@
             loginForm.addEventListener('submit', async function(e) {
                 e.preventDefault();
 
-                const email = document.getElementById('email').value;
+                const email = document.getElementById('email').value.toLowerCase();
                 const password = passwordInput.value;
 
                 if (!email || !password) {
@@ -287,14 +287,14 @@
 
                 try {
                     console.group('Tentativa de Login');
-                    console.log('URL:', BACKEND_URL + '/oauth2/token');
-                    console.log('Email:', email);
+                    console.log('URL do Endpoint:', `${BACKEND_URL}/oauth2/token`);
 
-                    let response = await fetch(`${BACKEND_URL}/oauth2/token`, {
+                    // Realiza uma única chamada à API, sem fallback
+                    const response = await fetch(`${BACKEND_URL}/oauth2/token`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/x-www-form-urlencoded',
-                            'Authorization': 'Basic ' + btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)
+                            'Authorization': 'Basic ' + btoa(`${CLIENT_ID}:${CLIENT_SECRET}`) // Padrão OAuth2
                         },
                         body: new URLSearchParams({
                             'grant_type': 'password',
@@ -304,73 +304,49 @@
                         })
                     });
 
-                    if (!response.ok) {
-                        response = await fetch(`${BACKEND_URL}/oauth2/token`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                            body: new URLSearchParams({
-                                'grant_type': 'password',
-                                'username': email,
-                                'password': password,
-                                'scope': 'read write',
-                                'client_id': CLIENT_ID,
-                                'client_secret': CLIENT_SECRET
-                            })
-                        });
-                    }
+                    // Tenta extrair o JSON da resposta
+                    const data = await response.json().catch(() => null);
 
-                    const responseText = await response.text();
-                    let data;
-                    try { data = JSON.parse(responseText); } catch(e) { throw new Error('Resposta inválida do servidor'); }
-
-                    if (response.ok) {
+                    if (response.ok && data) {
+                        // --- SUCESSO NO LOGIN ---
                         const expiresIn = data.expires_in * 1000;
                         const expiryTime = new Date().getTime() + expiresIn;
 
                         localStorage.setItem('access_token', data.access_token);
                         localStorage.setItem('token_expiry', expiryTime.toString());
+                        localStorage.setItem('refresh_token', data.refresh_token || 'no-refresh-token');
                         
-                        const refreshToken = data.refresh_token || 'no-refresh-token';
-                        localStorage.setItem('refresh_token', refreshToken);
-                        
-                        console.log('Refresh token salvo:', refreshToken);
-                        
-                        // Verificar o ROLE do usuário após login bem-sucedido
-                        try {
-                            const userRole = await getUserRole(data.access_token);
-                            
-                            // Redirecionar com base no ROLE
-                            if (userRole.includes('ROLE_TUTOR')) {
-                                showAlert('Login realizado com sucesso! Redirecionando para área do Tutor...', 'success');
-                                setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
-                            } else if (userRole.includes('ROLE_DIRETOR')) {
-                                showAlert('Login realizado com sucesso! Redirecionando para área do Diretor...', 'success');
-                                setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
-                            } else if (userRole.includes('ROLE_ESCOLA')) {
-                                showAlert('Login realizado com sucesso! Redirecionando para área da Escola...', 'success');
-                                setTimeout(() => { window.location.href = 'dashboard-escola.html'; }, 1500);
-                            } else if (userRole.includes('ROLE_SALA')) {
-                                showAlert('Login realizado com sucesso! Redirecionando para área da Sala...', 'success');
-                                setTimeout(() => { window.location.href = 'dashboard-sala.html'; }, 1500);
-                            } else {
-                                // ROLE não reconhecido, usar dashboard padrão
-                                showAlert('Login realizado com sucesso! Redirecionando...', 'success');
-                                setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
-                            }
-                        } catch (error) {
-                            console.error('Erro ao obter ROLE:', error);
-                            // Em caso de erro, redirecionar para dashboard padrão
-                            showAlert('Login realizado com sucesso! Redirecionando...', 'success');
-                            setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
+                        // Redirecionamento baseado na role do usuário
+                        const userRole = await getUserRole(data.access_token);
+                        if (userRole.includes('ROLE_TUTOR')) {
+                            window.location.href = 'dashboard-tutor.html';
+                        } else if (userRole.includes('ROLE_DIRETOR')) {
+                            window.location.href = 'dashboard-diretor.html';
+                        } else {
+                            // Adicione outros redirecionamentos conforme necessário
+                            window.location.href = 'dashboard.html';
                         }
+                        
+                        showAlert('Login bem-sucedido! Redirecionando...', 'success');
+
                     } else {
-                        const errorMsg = data.error_description || `Erro ${response.status}: ${response.statusText}`;
-                        showAlert(errorMsg, 'error');
+                        // --- FALHA NO LOGIN ---
+                        // ===== INÍCIO DA MELHORIA =====
+                        if (response.status === 401) {
+                            // Erro de autenticação (usuário/senha inválidos)
+                            showAlert('Usuário não cadastrado ou senha incorreta. Verifique os dados inseridos.', 'error');
+                        } else {
+                            // Outros erros (servidor fora, etc.)
+                            const errorMessage = data?.error_description || `Ocorreu um erro inesperado (Status: ${response.status}).`;
+                            showAlert(errorMessage, 'error');
+                        }
+                        // ===== FIM DA MELHORIA =====
                     }
                     console.groupEnd();
+
                 } catch (error) {
-                    console.error('Erro completo:', error);
-                    showAlert('Erro de conexão: ' + error.message, 'error');
+                    console.error('Erro de Conexão:', error);
+                    showAlert('Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.', 'error');
                 } finally {
                     loading.style.display = 'none';
                     loginBtn.disabled = false;
