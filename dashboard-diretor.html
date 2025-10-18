@@ -3897,52 +3897,65 @@
         });
 
         /**
-        * Confirma definitivamente a saída de um aluno que já tem uma solicitação pendente.
-        * Esta função é chamada diretamente pelo botão "Confirmar Saída".
-        */
+         * Abre um modal de confirmação e, se confirmado, envia a requisição 
+         * para confirmar a saída de um aluno que estava 'AGUARDANDO_CONFIRMACAO'.
+         * Utiliza a função 'garantirAutenticacao' para assegurar um token válido.
+         * @param {number} studentId - O ID do aluno.
+         * @param {string} studentName - O nome do aluno para exibição no modal.
+         */
         async function confirmarSaidaAluno(alunoId, alunoNome) {
-            // Usamos um pop-up de confirmação nativo para ser mais rápido e direto.
-            if (!confirm(`Deseja realmente confirmar a saída de ${alunoNome}? Esta ação é definitiva.`)) {
-                return; // O usuário cancelou.
-            }
-
-            console.log(`✅ Confirmando saída final para o aluno: ${alunoNome} (ID: ${alunoId})`);
+            console.log(`✅ Iniciando processo de confirmação de saída para: ${alunoNome} (ID: ${studentId})`);
             
-            try {
-                // Garante que temos um token válido antes de fazer a chamada.
-                const accessToken = await getValidToken(); 
-                if (!accessToken) throw new Error('Token de acesso inválido ou expirado');
+            // Usamos o confirm() nativo para uma confirmação rápida e simples.
+            const isConfirmed = confirm(`Deseja realmente confirmar a saída de ${alunoNome}? Esta ação é definitiva.`);
 
-                // Chama o endpoint que você forneceu.
-                const response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-
-                if (response.ok) {
-                    const result = await response.json();
-                    showAlert(result.mensagem || `Saída de ${alunoNome} confirmada com sucesso!`, 'success');
+            if (isConfirmed) {
+                try {
+                    // ===== CORREÇÃO APLICADA AQUI =====
+                    // Trocamos 'getValidToken' por 'garantirAutenticacao', a função correta neste dashboard.
+                    const accessToken = await garantirAutenticacao(); 
                     
-                    // Recarrega a lista de alunos para atualizar a interface.
-                    await loadAllStudents(); 
-                } else {
-                    // Tenta extrair uma mensagem de erro mais clara do backend.
-                    const errorText = await response.text();
-                    let errorMsg = 'Erro ao confirmar saída';
-                    try {
-                        const errorJson = JSON.parse(errorText);
-                        errorMsg = errorJson.mensagem || errorJson.erro || errorJson.detail || errorMsg;
-                    } catch (e) {
-                        if(errorText) errorMsg = errorText;
+                    if (!accessToken) {
+                        // A própria função 'garantirAutenticacao' já lida com o redirecionamento em caso de falha.
+                        // Apenas lançamos um erro para interromper a execução aqui.
+                        throw new Error('Sessão inválida ou expirada. O redirecionamento para o login deve ocorrer.');
                     }
-                    throw new Error(errorMsg);
+
+                    // A requisição para o backend permanece a mesma.
+                    const response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        console.log('✅ Saída confirmada com sucesso no servidor:', result);
+                        showAlert(`Saída de ${alunoNome} confirmada com sucesso!`, 'success');
+                        
+                        // Recarrega a tabela para que todos vejam a mudança de status do aluno para 'AUSENTE'.
+                        await loadAllStudents(currentStudentsPage);
+
+                    } else {
+                        // O tratamento de erro robusto que você já tinha.
+                        let errorMessage = `Erro ${response.status}`;
+                        try {
+                            const errorData = await response.json();
+                            errorMessage = errorData.mensagem || errorData.erro || errorMessage;
+                        } catch (e) {
+                            errorMessage = `${errorMessage}: ${response.statusText}`;
+                        }
+                        throw new Error(errorMessage);
+                    }
+
+                } catch (error) {
+                    console.error('❌ Erro ao confirmar a saída do aluno:', error);
+                    showAlert(`Erro ao confirmar saída: ${error.message}`, 'error');
                 }
-            } catch (error) {
-                console.error('❌ Erro ao confirmar a saída do aluno:', error);
-                showAlert(`Erro: ${error.message}`, 'error');
+            } else {
+                console.log('🟡 Confirmação de saída cancelada pelo usuário.');
             }
         }
 
