@@ -3167,33 +3167,43 @@
                 const longitude = parseFloat(document.getElementById('displayLongitude').textContent);
                 
                 if (isNaN(latitude) || isNaN(longitude)) {
-                    throw new Error('Localização não disponível. Obtenha a localiza-ção primeiro.');
+                    throw new Error('Localização não disponível. Obtenha a localização primeiro.');
                 }
                 
-                const requestData = {
-                    alunoId: studentId,
-                    responsavelNome: currentUser.nome,
-                    responsavelTipo: 'DIRETOR',
-                    responsavelId: currentDirectorId,
-                    latitude: latitude,
-                    longitude: longitude
-                };
+                // ======================= INÍCIO DA CORREÇÃO =======================
+                let endpointUrl;
+                let requestData;
+
+                if (type === 'entrada') {
+                    endpointUrl = `${BACKEND_URL}/api/presencas/entrada`;
+                    // Payload para o endpoint de ENTRADA
+                    requestData = {
+                        alunoId: studentId,
+                        responsavelId: currentDirectorId,
+                        responsavelNome: currentUser.nome,
+                        responsavelTipo: 'DIRETOR',
+                        latitude: latitude,
+                        longitude: longitude
+                    };
+                } else { // type === 'saida'
+                    endpointUrl = `${BACKEND_URL}/api/presencas/saida/solicitar`;
+                    // Payload para o endpoint de SOLICITAÇÃO DE SAÍDA
+                    // Note a inclusão do 'escolaId' e o uso de 'solicitante'
+                    requestData = {
+                        alunoId: studentId,
+                        solicitanteId: currentDirectorId,
+                        solicitanteNome: currentUser.nome,
+                        solicitanteTipo: 'DIRETOR',
+                        escolaId: currentSchoolId, // <-- CORREÇÃO CRÍTICA
+                        latitude: latitude,
+                        longitude: longitude
+                    };
+                }
+                // ======================== FIM DA CORREÇÃO =========================
                 
                 console.log('📤 Enviando dados:', requestData);
                 
-                // ======================= INÍCIO DA CORREÇÃO =======================
-                // Quando o tipo for 'saida', o diretor deve usar o endpoint de SOLICITAÇÃO,
-                // e não o de saída direta. Isso colocará o aluno no estado 'AGUARDANDO_CONFIRMACAO'.
-                
-                let endpointUrl;
-                if (type === 'entrada') {
-                    endpointUrl = `${BACKEND_URL}/api/presencas/entrada`;
-                } else { // type === 'saida'
-                    endpointUrl = `${BACKEND_URL}/api/presencas/saida/solicitar`;
-                }
-                // ======================== FIM DA CORREÇÃO =========================
-
-                const response = await fetch(endpointUrl, { // Usamos a URL corrigida aqui
+                const response = await fetch(endpointUrl, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
@@ -3206,13 +3216,11 @@
                     const result = await response.json();
                     console.log('✅ Ação registrada com sucesso:', result);
                     
-                    // Mensagem de sucesso mais apropriada para a solicitação
                     const successMessage = type === 'entrada' ? 'Entrada registrada com sucesso!' : 'Solicitação de saída enviada com sucesso!';
                     showAlert(successMessage, 'success');
                     
                     closeModal();
                     
-                    // Força a atualização da lista de alunos para refletir o novo status
                     setTimeout(() => {
                         loadAllStudents(); 
                     }, 500);
@@ -3221,9 +3229,11 @@
                     const errorText = await response.text();
                     let errorMessage = 'Erro ao registrar ação';
                     try {
+                        // Tenta extrair a mensagem de erro JSON do backend
                         const errorJson = JSON.parse(errorText);
-                        errorMessage = errorJson.mensagem || errorJson.erro || `Erro interno do servidor: ${errorText}`;
+                        errorMessage = errorJson.mensagem || errorJson.erro || `Erro interno do servidor.`;
                     } catch (e) {
+                        // Se o erro não for JSON, usa o texto bruto (como o que vimos no log)
                         errorMessage = `Erro interno do servidor: ${errorText}`;
                     }
                     throw new Error(errorMessage);
