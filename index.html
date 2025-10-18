@@ -274,7 +274,8 @@
             loginForm.addEventListener('submit', async function(e) {
                 e.preventDefault();
 
-                const email = document.getElementById('email').value.toLowerCase();
+                // Garante que o email enviado para o backend esteja sempre em minúsculas
+                const email = document.getElementById('email').value.toLowerCase(); 
                 const password = passwordInput.value;
 
                 if (!email || !password) {
@@ -286,6 +287,10 @@
                 loginBtn.disabled = true;
 
                 try {
+                    console.group('Tentativa de Login');
+                    console.log('URL:', BACKEND_URL + '/oauth2/token');
+                    console.log('Email (enviado):', email);
+
                     const response = await fetch(`${BACKEND_URL}/oauth2/token`, {
                         method: 'POST',
                         headers: {
@@ -300,10 +305,10 @@
                         })
                     });
 
-                    const data = await response.json().catch(() => null);
-
-                    if (response.ok && data) {
-                        // --- SUCESSO NO LOGIN ---
+                    // Se a resposta for OK (status 2xx), processa o sucesso
+                    if (response.ok) {
+                        const data = await response.json();
+                        
                         const expiresIn = data.expires_in * 1000;
                         const expiryTime = new Date().getTime() + expiresIn;
 
@@ -311,10 +316,10 @@
                         localStorage.setItem('token_expiry', expiryTime.toString());
                         localStorage.setItem('refresh_token', data.refresh_token || 'no-refresh-token');
                         
+                        // Redireciona com base no ROLE
                         const userRole = await getUserRole(data.access_token);
+                        showAlert('Login realizado com sucesso! Redirecionando...', 'success');
                         
-                        showAlert('Login bem-sucedido! Redirecionando...', 'success');
-
                         if (userRole.includes('ROLE_TUTOR')) {
                             setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
                         } else if (userRole.includes('ROLE_DIRETOR')) {
@@ -328,24 +333,34 @@
                         }
 
                     } else {
-                        // --- FALHA NO LOGIN ---
-                        // ===== INÍCIO DA MODIFICAÇÃO =====
-                        // Agora verificamos pelo status 400 e pelo tipo de erro "invalid_grant"
-                        if (response.status === 400 && data?.error === 'invalid_grant') {
+                        // ===== INÍCIO DA NOVA LÓGICA DE ERRO =====
+                        // Se a resposta NÃO for OK, lemos como texto para evitar erros de parsing.
+                        const errorText = await response.text();
+                        console.error("Resposta de erro do servidor:", errorText); // Log para depuração
+
+                        // Verificamos se o texto de erro contém a mensagem que queremos substituir.
+                        if (errorText.includes("Invalid credentials")) {
                             showAlert('Usuário não cadastrado ou senha incorreta. Verifique os dados inseridos.', 'error');
                         } else {
-                            const errorMessage = data?.error_description || `Ocorreu um erro inesperado (Status: ${response.status}).`;
-                            showAlert(errorMessage, 'error');
+                            // Tenta extrair uma mensagem mais detalhada do JSON, se possível.
+                            try {
+                                const errorJson = JSON.parse(errorText);
+                                showAlert(errorJson.error_description || errorJson.error || 'Ocorreu um erro.', 'error');
+                            } catch (e) {
+                                // Se não for JSON, mostra o texto do erro como fallback.
+                                showAlert(errorText, 'error');
+                            }
                         }
-                        // ===== FIM DA MODIFICAÇÃO =====
+                        // ===== FIM DA NOVA LÓGICA DE ERRO =====
                     }
 
                 } catch (error) {
-                    console.error('Erro de Conexão:', error);
-                    showAlert('Não foi possível conectar ao servidor. Tente novamente.', 'error');
+                    console.error('Erro de conexão ou script:', error);
+                    showAlert('Erro de conexão: ' + error.message, 'error');
                 } finally {
                     loading.style.display = 'none';
                     loginBtn.disabled = false;
+                    console.groupEnd();
                 }
             });
 
