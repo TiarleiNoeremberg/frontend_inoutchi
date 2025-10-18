@@ -1830,49 +1830,68 @@
             if (lastPageBtn) lastPageBtn.onclick = () => loadStudentHistoryPage(currentStudentHistoryTotalPages - 1);
         }
 
-        // NOVA VERSÃO - SIMPLES E DIRETA
+        /**
+         * Renderiza a tabela de alunos, agora tratando os 3 possíveis status:
+         * PRESENTE, AUSENTE e AGUARDANDO_CONFIRMACAO.
+         * A função é síncrona e desenha a tabela de uma só vez com os dados corretos.
+         * @param {object} data - O objeto de paginação da API, contendo a lista de alunos em `data.content`.
+         */
         function renderStudentsTable(data) {
-            console.log('🎨 Renderizando tabela de alunos com dados completos...');
+            console.log('🎨 Renderizando tabela de alunos com status completo...');
             const tbody = document.getElementById('studentsTableBody');
-            tbody.innerHTML = ''; // Limpa a tabela
+            tbody.innerHTML = '';
 
             if (data.content && data.content.length > 0) {
                 data.content.forEach(student => {
                     const tr = document.createElement('tr');
                     tr.setAttribute('data-student-id', student.id);
 
-                    const statusClass = student.status === 'PRESENTE' ? 'status-present' : 'status-absent';
-                    const statusText = student.status === 'PRESENTE' ? 'Presente' : 'Ausente';
-                    const safeStudentName = student.nome.replace(/'/g, "\\'");
-
-                    // Os tutores já estão em 'student.tutores' e são formatados diretamente.
+                    let statusHtml = '';
+                    let actionsHtml = '';
+                    const safeStudentName = student.nome ? student.nome.replace(/'/g, "\\'") : 'Aluno';
                     const tutoresHtml = formatTutorsForDisplay(student.tutores);
+
+                    switch (student.status) {
+                        case 'PRESENTE':
+                            statusHtml = `<span class="status-badge status-present">Presente</span>`;
+                            actionsHtml = `
+                                <button class="btn btn-danger" onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')"><i class="fas fa-sign-out-alt"></i> Saída</button>`;
+                            break;
+                        
+                        case 'AUSENTE':
+                            statusHtml = `<span class="status-badge status-absent">Ausente</span>`;
+                            actionsHtml = `
+                                <button class="btn btn-success" onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')"><i class="fas fa-sign-in-alt"></i> Entrada</button>`;
+                            break;
+
+                        case 'AGUARDANDO_CONFIRMACAO':
+                            // Use uma classe CSS 'status-awaiting' para estilizar (ex: cor laranja/amarela)
+                            statusHtml = `<span class="status-badge status-awaiting">Aguardando</span>`;
+                            actionsHtml = `
+                                <button class="btn btn-warning" onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')"><i class="fas fa-check-circle"></i> Confirmar Saída</button>`;
+                            break;
+
+                        default:
+                            statusHtml = `<span class="status-badge">${student.status || 'Indefinido'}</span>`;
+                            actionsHtml = ``; // Nenhuma ação padrão
+                    }
 
                     tr.innerHTML = `
                         <td><strong>${student.nome || 'Nome não informado'}</strong></td>
                         <td>${student.salaNome || 'Sala não informada'}</td>
-                        <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-                        
-                        <!-- Célula de tutores preenchida instantaneamente -->
-                        <td id="tutors-cell-${student.id}" style="max-width: 250px; word-wrap: break-word;">
-                            ${tutoresHtml}
-                        </td>
-                        
+                        <td>${statusHtml}</td>
+                        <td style="max-width: 250px; word-wrap: break-word;">${tutoresHtml}</td>
                         <td>
                             <div class="action-buttons">
-                                <button class="btn btn-sm ${student.status !== 'PRESENTE' ? 'btn-success' : 'btn-danger'}" onclick="openStudentActionModal(${student.id}, '${student.status !== 'PRESENTE' ? 'entrada' : 'saida'}', '${safeStudentName}')">
-                                    <i class="fas ${student.status !== 'PRESENTE' ? 'fa-sign-in-alt' : 'fa-sign-out-alt'}"></i> ${student.status !== 'PRESENTE' ? 'Entrada' : 'Saída'}
-                                </button>
-                                <button class="btn btn-sm btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}', 0)">
-                                    <i class="fas fa-history"></i> Histórico
-                                </button>
+                                ${actionsHtml}
+                                <button class="btn btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}', 0)"><i class="fas fa-history"></i> Histórico</button>
                             </div>
                         </td>
                     `;
                     tbody.appendChild(tr);
                 });
             } else {
-                tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px; color: #666;">Nenhum aluno encontrado</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px;">Nenhum aluno encontrado</td></tr>`;
             }
         }
 
