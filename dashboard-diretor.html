@@ -1668,107 +1668,7 @@
             }
         }
 
-        // FUNÇÃO CORRIGIDA: Renderizar tabela com busca REAL de tutores
-        async function renderStudentsTable(data) {
-            console.log('🎯 Renderizando tabela de alunos com busca REAL de tutores...');
-            
-            const tbody = document.getElementById('studentsTableBody');
-            
-            // Mostrar loading inicial
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="5" style="text-align: center; padding: 40px;">
-                        <div class="loading-spinner" style="width: 30px; height: 30px; margin: 0 auto;"></div>
-                        <p>Carregando alunos e buscando tutores...</p>
-                    </td>
-                </tr>
-            `;
-            
-            if (data.content && data.content.length > 0) {
-                // Renderizar primeiramente os dados básicos
-                let initialHTML = '';
-                
-                data.content.forEach((student, index) => {
-                    const statusClass = student.status === 'PRESENTE' ? 'status-present' : 'status-absent';
-                    const statusText = student.status === 'PRESENTE' ? 'Presente' : 'Ausente';
-                    const safeStudentName = student.nome ? student.nome.replace(/'/g, "\\'") : 'Aluno';
-                    
-                    initialHTML += `
-                        <tr data-student-id="${student.id}">
-                            <td><strong>${student.nome || 'Nome não informado'}</strong></td>
-                            <td>${student.salaNome || student.turma || student.sala || 'Sala não informada'}</td>
-                            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-                            <td id="tutors-cell-${student.id}" style="max-width: 250px; word-wrap: break-word;">
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <div class="loading-spinner" style="width: 16px; height: 16px;"></div>
-                                    <span style="font-size: 12px; color: #666;">Buscando tutores...</span>
-                                </div>
-                            </td>
-                            <td>
-                                <div class="action-buttons">
-                                    ${student.status !== 'PRESENTE' ? 
-                                        `<button class="btn btn-success" onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')">
-                                            <i class="fas fa-sign-in-alt"></i> Entrada
-                                        </button>` : 
-                                        `<button class="btn btn-danger" onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')">
-                                            <i class="fas fa-sign-out-alt"></i> Saída
-                                        </button>`
-                                    }
-                                    <button class="btn btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}', 0)">
-                                        <i class="fas fa-history"></i> Histórico
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                    `;
-                });
-                
-                tbody.innerHTML = initialHTML;
-                
-                console.log(`✅ ${data.content.length} alunos renderizados, iniciando busca de tutores...`);
-                
-                // ✅✅✅ CORREÇÃO: AGORA VAMOS BUSCAR OS TUTORES DE VERDADE ✅✅✅
-                data.content.forEach(async (student, index) => {
-                    try {
-                        console.log(`🔍 Iniciando busca de tutores para: ${student.nome}`);
-                        
-                        // ✅ CHAMAR A FUNÇÃO QUE BUSCA OS TUTORES VIA API
-                        const tutorsHtml = await getStudentTutors(student.id, student.nome);
-                        
-                        // Atualizar a célula específica
-                        const tutorsCell = document.getElementById(`tutors-cell-${student.id}`);
-                        if (tutorsCell) {
-                            tutorsCell.innerHTML = tutorsHtml;
-                            
-                            // Adicionar animação suave
-                            tutorsCell.style.opacity = '0';
-                            setTimeout(() => {
-                                tutorsCell.style.transition = 'opacity 0.3s ease';
-                                tutorsCell.style.opacity = '1';
-                            }, 100);
-                        }
-                        
-                        console.log(`✅ Tutores carregados para ${student.nome}: ${tutorsHtml}`);
-                        
-                    } catch (error) {
-                        console.error(`❌ Erro ao carregar tutores do aluno ${student.nome}:`, error);
-                        const tutorsCell = document.getElementById(`tutors-cell-${student.id}`);
-                        if (tutorsCell) {
-                            tutorsCell.innerHTML = '<span style="color: #666; font-style: italic;">Erro ao carregar tutores</span>';
-                        }
-                    }
-                });
-                
-            } else {
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="5" style="text-align: center; padding: 20px; color: #666;">
-                            Nenhum aluno encontrado
-                        </td>
-                    </tr>
-                `;
-            }
-        }
+        
 
         // ATUALIZAR a função loadAllStudents para usar o cache
         async function loadAllStudents(page = 0, searchTerm = '') {
@@ -3711,43 +3611,86 @@
             }
         };
         
-        // Função otimizada para verificar status de todos os alunos de uma vez
+        /**
+         * Verifica o status de todos os alunos, agora em duas etapas:
+         * 1. Define o status base (PRESENTE/AUSENTE) de forma otimizada.
+         * 2. Para os alunos presentes, verifica em paralelo se há saídas ativas com status 'AGUARDANDO_CONFIRMACAO'.
+         * Esta abordagem é escalável e busca o estado real diretamente do backend.
+         * @param {Array} alunos - A lista de alunos vinda da API principal.
+         * @returns {Promise<Array>} A lista de alunos com o status final e correto.
+         */
         async function checkAllStudentsStatus(alunos) {
             try {
                 const accessToken = localStorage.getItem('access_token');
                 
-                // Buscar lista de todos os alunos presentes
+                // ETAPA 1: Define o status base (PRESENTE ou AUSENTE)
                 const response = await fetch(`${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?size=1000`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
 
-                if (response.ok) {
-                    const data = await response.json();
-                    const alunosPresentesIds = new Set();
-                    
-                    if (data.content && Array.isArray(data.content)) {
-                        data.content.forEach(aluno => alunosPresentesIds.add(aluno.id));
-                    }
-                    
-                    // Atualizar status de cada aluno
-                    return alunos.map(aluno => ({
-                        ...aluno,
-                        status: alunosPresentesIds.has(aluno.id) ? 'PRESENTE' : 'AUSENTE'
-                    }));
+                if (!response.ok) {
+                    console.error('Erro ao buscar alunos presentes, retornando status original.');
+                    return alunos.map(a => ({ ...a, status: 'AUSENTE' })); // Retorna como ausente em caso de falha
+                }
+
+                const data = await response.json();
+                const alunosPresentesIds = new Set(data.content?.map(aluno => aluno.id) || []);
+                
+                let alunosComStatusBase = alunos.map(aluno => ({
+                    ...aluno,
+                    status: alunosPresentesIds.has(aluno.id) ? 'PRESENTE' : 'AUSENTE'
+                }));
+
+                // ETAPA 2: Verifica o status 'AGUARDANDO_CONFIRMACAO' para os alunos marcados como PRESENTES
+                console.log("Verificando saídas pendentes para alunos presentes...");
+
+                const alunosPresentes = alunosComStatusBase.filter(aluno => aluno.status === 'PRESENTE');
+                if (alunosPresentes.length === 0) {
+                    return alunosComStatusBase; // Se não há ninguém presente, não há o que checar.
                 }
                 
-                // Se der erro, retorna os alunos com status original
-                return alunos;
+                const statusPromises = alunosPresentes.map(aluno =>
+                    fetch(`${BACKEND_URL}/api/presencas/aluno/${aluno.id}/saida-ativa`, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                    }).then(async (res) => {
+                        if (res.ok) {
+                            try {
+                                const saidaAtiva = await res.json();
+                                if (saidaAtiva && saidaAtiva.status === 'AGUARDANDO_CONFIRMACAO') {
+                                    return { alunoId: aluno.id, novoStatus: 'AGUARDANDO_CONFIRMACAO' };
+                                }
+                            } catch (e) {
+                                // Resposta OK mas sem corpo JSON, significa que não há saída ativa. Ignorar.
+                            }
+                        }
+                        return null; // Nenhum status pendente encontrado ou erro na chamada.
+                    })
+                );
+
+                const resultadosStatus = await Promise.all(statusPromises);
+
+                const alunosComStatusPendente = new Map();
+                resultadosStatus.filter(r => r).forEach(resultado => {
+                    alunosComStatusPendente.set(resultado.alunoId, resultado.novoStatus);
+                });
+
+                if (alunosComStatusPendente.size > 0) {
+                    alunosComStatusBase = alunosComStatusBase.map(aluno => {
+                        if (alunosComStatusPendente.has(aluno.id)) {
+                            return { ...aluno, status: alunosComStatusPendente.get(aluno.id) };
+                        }
+                        return aluno;
+                    });
+                }
                 
+                console.log("Verificação de status de alunos concluída.");
+                return alunosComStatusBase;
+
             } catch (error) {
-                console.error('❌ Erro ao verificar status dos alunos:', error);
-                return alunos; // Retorna os alunos sem alteração
+                console.error('Erro crítico ao verificar status dos alunos:', error);
+                return alunos.map(a => ({ ...a, status: 'AUSENTE' })); // Fallback seguro
             }
         }
-
         
         // Visualizar alunos de um tutor
         window.viewTutorStudents = async function(tutorName) {
