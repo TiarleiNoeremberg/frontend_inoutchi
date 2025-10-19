@@ -1151,31 +1151,32 @@
 }
 
     async function solicitarSaidaPendente(alunoId, responsavelNome, responsavelTipo) {
+        showModalLoading('Solicitando saída...', 'Enviando sua localização para o servidor');
+        
+        const studentIndex = students.findIndex(s => s.id === alunoId);
+
         try {
-            if (!currentUser.id) {
-                throw new Error('ID do tutor não disponível');
+            if (!currentUser || !currentUser.id) {
+                throw new Error('ID do tutor não disponível. Faça o login novamente.');
             }
-            const solicitanteId = currentUser.id;
 
             const coords = await getCurrentLocationWithoutValidation();
             if (!coords) {
                 throw new Error('Não foi possível obter a localização');
             }
 
-            const aluno = students.find(s => s.id === alunoId);
-            if (!aluno || !aluno.escolaId) {
-                throw new Error('Escola do aluno não identificada');
-            }
-
+            // Payload correto, correspondendo ao SolicitarSaidaCommand do backend
             const requestData = {
                 alunoId: alunoId,
-                solicitanteId: solicitanteId,
-                solicitanteNome: responsavelNome,
-                solicitanteTipo: responsavelTipo,
-                escolaId: aluno.escolaId,
                 latitude: coords.latitude,
                 longitude: coords.longitude
             };
+
+            // Atualização otimista da UI para uma melhor experiência do usuário
+            if (studentIndex !== -1) {
+                students[studentIndex].status = 'AGUARDANDO_CONFIRMACAO';
+                renderStudents();
+            }
 
             const accessToken = localStorage.getItem('access_token');
             const response = await fetch(`${BACKEND_URL}/api/presencas/saida/solicitar`, {
@@ -1189,40 +1190,25 @@
 
             if (!response.ok) {
                 const errorText = await response.text();
-                let errorMessage = `Erro ${response.status}: ${errorText || 'Falha na solicitação'}`;
+                let errorMessage = `Falha na solicitação (Status: ${response.status})`;
                 try {
                     const errorData = JSON.parse(errorText);
-                    if (errorData.mensagem) errorMessage = errorData.mensagem;
-                } catch (e) { /* Mantém a mensagem original */ }
+                    errorMessage = errorData.erro || errorData.mensagem || errorMessage;
+                } catch (e) { /* Usa a mensagem de erro padrão se a resposta não for JSON */ }
+                
                 throw new Error(errorMessage);
             }
 
-            // Resposta de sucesso do backend!
-            showAlert('Solicitação de saída enviada! Confirme a saída na tela principal.', 'success');
-
-            // marca esse aluno como tendo saída pendente
-            pendingExitStudents.add(alunoId);
-
-            // opcional: força uma renderização imediata
-            renderStudents();
-
-            // ===== INÍCIO DA MUDANÇA CRUCIAL =====
-            // 1. Encontre o aluno no nosso array local 'students'
-            const studentIndex = students.findIndex(s => s.id === alunoId);
-
-            if (studentIndex !== -1) {
-                // 2. Atualize o status dele DIRETAMENTE no array
-                students[studentIndex].status = 'AGUARDANDO_CONFIRMACAO';
-                
-                // 3. Chame a função para redesenhar a lista IMEDIATAMENTE com o novo status
-                renderStudents();
-            }
-            // ===== FIM DA MUDANÇA CRUCIAL =====
+            showAlert('Solicitação de saída enviada com sucesso!', 'success');
 
         } catch (error) {
+            // Se ocorrer um erro, reverte a UI para o estado anterior
+            if (studentIndex !== -1) {
+                students[studentIndex].status = 'PRESENTE';
+                renderStudents();
+            }
             showAlert(`Erro ao solicitar saída: ${error.message}`, 'error');
         } finally {
-            // A lógica de fechar o modal e esconder o loading permanece.
             hideModalLoading();
             closeModal();
         }
