@@ -1150,28 +1150,28 @@
     }
 }
 
+    /**
+    * Unifica e corrige a lógica para solicitar a saída de um aluno.
+    * Realiza uma "Atualização Otimista": assume que a API terá sucesso e atualiza
+    * a interface imediatamente para uma experiência de usuário instantânea.
+    * @param {number} alunoId O ID do aluno.
+    */
     async function solicitarSaidaPendente(alunoId) {
+        showModalLoading('Solicitando Saída...', 'Enviando dados para validação');
         try {
-            // A validação do ID do tutor agora é responsabilidade do backend via token
-            // if (!currentUser.id) {
-            //     throw new Error('ID do tutor nÃ£o disponÃ­vel');
-            // }
-            // const solicitanteId = currentUser.id;
-
-            const coords = await getCurrentLocationWithoutValidation();
-            if (!coords) {
-                throw new Error('Não foi possível obter a localização');
+            if (!currentUser || !currentUser.id) {
+                throw new Error('Dados do tutor não encontrados. Por favor, faça login novamente.');
             }
 
-            // O ID da escola também será obtido pelo backend a partir do aluno
-            // const aluno = students.find(s => s.id === alunoId);
-            // if (!aluno || !aluno.escolaId) {
-            //     throw new Error('Escola do aluno nÃ£o identificada');
-            // }
+            const coords = await getCurrentLocationWithoutValidation();
+            if (!coords) throw new Error('Não foi possível obter sua localização.');
 
-            // Payload alinhado com o DTO do backend (SolicitarSaidaPayload)
+            const aluno = students.find(s => s.id === alunoId);
+            if (!aluno || !aluno.escolaId) throw new Error('Não foi possível identificar a escola do aluno.');
+
             const requestData = {
                 alunoId: alunoId,
+                escolaId: aluno.escolaId,
                 latitude: coords.latitude,
                 longitude: coords.longitude
             };
@@ -1187,23 +1187,30 @@
             });
 
             if (!response.ok) {
-                const errorText = await response.text();
-                let errorMessage = `Erro ${response.status}: ${errorText || 'Falha na solicitação'}`;
-                try {
-                    const errorData = JSON.parse(errorText);
-                    if (errorData.mensagem) errorMessage = errorData.mensagem;
-                } catch (e) { /* MantÃ©m a mensagem original */ }
-                throw new Error(errorMessage);
+                const errorData = await response.json().catch(() => ({ mensagem: `Erro ${response.status}` }));
+                throw new Error(errorData.mensagem);
             }
 
-            // Resposta de sucesso do backend!
-            showAlert('Solicitação de saída enviada! Confirme a saída na tela principal.', 'success');
-            
-            // ATUALIZA A TELA para mostrar o botÃ£o "Confirmar SaÃ­da"
-            refreshStudentsData();
+            showAlert('Solicitação de saída enviada com sucesso!', 'success');
+
+            // ===== ATUALIZAÇÃO IMEDIATA E OTIMISTA DA UI =====
+            const studentIndex = students.findIndex(s => s.id === alunoId);
+            if (studentIndex !== -1) {
+                // 1. Atualiza o estado na nossa "fonte da verdade" local (o array 'students')
+                students[studentIndex].status = 'AGUARDANDO_CONFIRMACAO';
+                
+                // 2. Manda redesenhar a lista de alunos a partir do array atualizado.
+                // Isso garante a mudança visual instantânea.
+                renderStudents();
+            } else {
+                // Caso o aluno não seja encontrado no array (raro), força um refresh completo.
+                await refreshStudentsData();
+            }
 
         } catch (error) {
             showAlert(`Erro ao solicitar saída: ${error.message}`, 'error');
+            // Se a API falhar, é crucial recarregar os dados do servidor para garantir consistência.
+            await refreshStudentsData();
         } finally {
             hideModalLoading();
             closeModal();
@@ -1650,29 +1657,51 @@
     }
 
     /**
-     * Recarrega a lista de alunos do servidor, renderiza e, em seguida,
-     * verifica o status de saída pendente para cada aluno presente,
-     * tratando o backend como a única fonte da verdade.
-     */
+    * Recarrega a lista de alunos do servidor, enriquecendo os dados em memória
+    * antes de renderizar a UI de uma só vez, evitando condições de corrida.
+    */
     async function refreshStudentsData() {
         if (Date.now() - lastStudentsUpdate < MIN_UPDATE_INTERVAL) return;
         lastStudentsUpdate = Date.now();
 
         try {
-            // 1. Busca e renderiza a lista nova do servidor
-            await loadStudents();
+            // 1. Busca os dados base dos alunos
+            if (!tutorName) return;
+            const accessToken = localStorage.getItem('access_token');
+            const response = await fetch(`${BACKEND_URL}/api/tutores/${encodeURIComponent(tutorName)}/alunos`, {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
+            if (!response.ok) throw new Error('Falha ao buscar alunos do servidor.');
+            
+            const serverStudents = await response.json();
 
-            // 2. *** CHAMADA DA NOSSA LÓGICA CORRETA ***
-            // Após a atualização, também verificamos os status.
-            await verifyAndApplyPendingStatuses();
+            // 2. Enriquecimento: Verifica o status de saída pendente para cada aluno EM MEMÓRIA
+            const studentPromises = serverStudents.map(async (student) => {
+                try {
+                    const saidaResponse = await fetch(`${BACKEND_URL}/api/presencas/aluno/${student.id}/saida-ativa`, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                    });
+                    if (saidaResponse.ok) {
+                        const saidaAtiva = await saidaResponse.json();
+                        if (saidaAtiva && saidaAtiva.status === 'AGUARDANDO_CONFIRMACAO') {
+                            student.status = 'AGUARDANDO_CONFIRMACAO';
+                        }
+                    }
+                } catch (e) { /* Ignora falha em um único aluno para não quebrar a lista toda */ }
+                return student;
+            });
+            
+            // 3. Aguarda todas as verificações e atualiza a "fonte da verdade" global
+            students = await Promise.all(studentPromises);
 
-            // A lógica de reaplicar o pendingExitStudents foi removida pois é obsoleta.
+            // 4. Renderiza a UI a partir dos dados 100% corretos
+            renderStudents();
             updatePresenceSummary();
             updateLastUpdateIndicator();
-        }
-        catch (e) {
-            console.error('Erro ao atualizar alunos:', e);
-            showAlert(`Erro ao atualizar alunos: ${e.message}`, 'error');
+
+        } catch (e) {
+            console.error('Erro ao atualizar dados dos alunos:', e);
+            showAlert(e.message, 'error');
         }
     }
 
@@ -2073,71 +2102,6 @@
             getLocationBtn.addEventListener('click', getCurrentLocation);
         }
     });
-
-    //13/10 23:08 - NOVA TENTATIVA USANDO GEMINI 2.5 PRO armazenar estados no banco de dados por meio da API.
-    
-    /**
-     * Altera a UI de um aluno específico para o estado de saída pendente,
-     * refletindo o estado real do backend.
-     * @param {number} alunoId O ID do aluno a ser atualizado.
-     */
-    function atualizarUiParaPendente(alunoId) {
-        // Busca o elemento do aluno na lista pelo seu ID
-        const studentItem = document.querySelector(`.student-item[data-student-id='${alunoId}']`);
-        if (!studentItem) {
-            console.warn(`Tentativa de atualizar UI para pendente, mas aluno ${alunoId} não foi encontrado no DOM.`);
-            return;
-        }
-
-        // Marca o item como 'aguardando' para estilização via CSS
-        studentItem.classList.add('status-awaiting-confirmation');
-
-        // Encontra o container de ações para substituir os botões
-        const actionContainer = studentItem.querySelector('.student-actions');
-        if (actionContainer) {
-            // Este HTML deve ser consistente com o que o WebSocket usaria,
-            // garantindo uma experiência visual uniforme.
-            actionContainer.innerHTML = `
-                <div class="status-text-awaiting">Aguardando Confirmação</div>
-                <button onclick="showConfirmationModal(${alunoId})" class="btn btn-sm btn-confirm">
-                    Confirmar Saída
-                </button>
-            `;
-        }
-        console.log(`UI do aluno ${alunoId} atualizada para 'Aguardando Confirmação' com base no estado do backend.`);
-    }
-
-    /**
-     * Itera sobre a lista de alunos (já renderizada) e consulta o backend
-     * para aplicar o estado de 'Aguardando Confirmação' onde for necessário.
-     */
-    async function verifyAndApplyPendingStatuses() {
-        console.log("Iniciando verificação de status de saídas pendentes no backend...");
-
-        for (const student of students) { // Usa a variável global 'students'
-            if (student.status === 'PRESENTE') {
-                try {
-                    const response = await fetch(`${BACKEND_URL}/api/presencas/aluno/${student.id}/saida-ativa`, {
-                        headers: {
-                            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-                        }
-                    });
-
-                    if (response.ok) {
-                        const chamadaAtiva = await response.json();
-                        if (chamadaAtiva && chamadaAtiva.id) {
-                            // A função que criamos anteriormente para mudar a UI
-                            atualizarUiParaPendente(student.id);
-                        }
-                    }
-                } catch (e) {
-                    console.error(`Falha ao verificar status de saída para o aluno ${student.id}:`, e);
-                }
-            }
-        }
-        console.log("Verificação de status de saídas concluída.");
-    }
-
 
     </script>
 </body>
