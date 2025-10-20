@@ -1150,33 +1150,31 @@
     }
 }
 
-    async function solicitarSaidaPendente(alunoId, responsavelNome, responsavelTipo) {
-        showModalLoading('Solicitando saída...', 'Enviando sua localização para o servidor');
-        
-        const studentIndex = students.findIndex(s => s.id === alunoId);
-
+    async function solicitarSaidaPendente(alunoId) {
         try {
-            if (!currentUser || !currentUser.id) {
-                throw new Error('ID do tutor não disponível. Faça o login novamente.');
-            }
+            // A validação do ID do tutor agora é responsabilidade do backend via token
+            // if (!currentUser.id) {
+            //     throw new Error('ID do tutor nÃ£o disponÃ­vel');
+            // }
+            // const solicitanteId = currentUser.id;
 
             const coords = await getCurrentLocationWithoutValidation();
             if (!coords) {
                 throw new Error('Não foi possível obter a localização');
             }
 
-            // Payload correto, correspondendo ao SolicitarSaidaCommand do backend
+            // O ID da escola também será obtido pelo backend a partir do aluno
+            // const aluno = students.find(s => s.id === alunoId);
+            // if (!aluno || !aluno.escolaId) {
+            //     throw new Error('Escola do aluno nÃ£o identificada');
+            // }
+
+            // Payload alinhado com o DTO do backend (SolicitarSaidaPayload)
             const requestData = {
                 alunoId: alunoId,
                 latitude: coords.latitude,
                 longitude: coords.longitude
             };
-
-            // Atualização otimista da UI para uma melhor experiência do usuário
-            if (studentIndex !== -1) {
-                students[studentIndex].status = 'AGUARDANDO_CONFIRMACAO';
-                renderStudents();
-            }
 
             const accessToken = localStorage.getItem('access_token');
             const response = await fetch(`${BACKEND_URL}/api/presencas/saida/solicitar`, {
@@ -1190,23 +1188,21 @@
 
             if (!response.ok) {
                 const errorText = await response.text();
-                let errorMessage = `Falha na solicitação (Status: ${response.status})`;
+                let errorMessage = `Erro ${response.status}: ${errorText || 'Falha na solicitação'}`;
                 try {
                     const errorData = JSON.parse(errorText);
-                    errorMessage = errorData.erro || errorData.mensagem || errorMessage;
-                } catch (e) { /* Usa a mensagem de erro padrão se a resposta não for JSON */ }
-                
+                    if (errorData.mensagem) errorMessage = errorData.mensagem;
+                } catch (e) { /* MantÃ©m a mensagem original */ }
                 throw new Error(errorMessage);
             }
 
-            showAlert('Solicitação de saída enviada com sucesso!', 'success');
+            // Resposta de sucesso do backend!
+            showAlert('Solicitação de saída enviada! Confirme a saída na tela principal.', 'success');
+            
+            // ATUALIZA A TELA para mostrar o botÃ£o "Confirmar SaÃ­da"
+            refreshStudentsData();
 
         } catch (error) {
-            // Se ocorrer um erro, reverte a UI para o estado anterior
-            if (studentIndex !== -1) {
-                students[studentIndex].status = 'PRESENTE';
-                renderStudents();
-            }
             showAlert(`Erro ao solicitar saída: ${error.message}`, 'error');
         } finally {
             hideModalLoading();
@@ -1373,7 +1369,7 @@
 
     
     function setupConfirmButton(studentId, type) {
-        confirmActionBtn.innerHTML = type === 'entrada' ? '<i class="fas fa-sign-in-alt"></i> Confirmar Entrada' : '<i class="fas fa-sign-out-alt"></i> Confirmar Solicitação';
+        confirmActionBtn.innerHTML = type === 'entrada' ? '<i class="fas fa-sign-in-alt"></i> Confirmar Entrada' : '<i class="fas fa-sign-out-alt"></i> Confirmar SolicitaÃ§Ã£o';
         confirmActionBtn.disabled = true;
 
         // Remove e adiciona o listener para evitar duplicatas
@@ -1386,21 +1382,27 @@
                 showAlert('Erro: Dados do tutor incompletos', 'error');
                 return;
             }
-
-            const responsavelNome = currentUser.nome;
-            const responsavelTipo = currentUser.roles ? currentUser.roles[0].replace('ROLE_', '') : 'TUTOR';
-            const actionText = type === 'entrada' ? 'entrada' : 'saída';
+            
+            const actionText = type === 'entrada' ? 'entrada' : 'saÃ­da';
 
             try {
                 showModalLoading(`Registrando ${actionText}...`, 'Enviando dados para o servidor');
 
                 if (type === 'entrada') {
+                    // A função de entrada permanece inalterada, pois o backend ainda a espera
+                    const responsavelNome = currentUser.nome;
+                    const responsavelTipo = currentUser.roles ? currentUser.roles[0].replace('ROLE_', '') : 'TUTOR';
                     await registrarEntrada(studentId, responsavelNome, responsavelTipo);
                 } else {
-                    await solicitarSaidaPendente(studentId, responsavelNome, responsavelTipo);
+                    // ===== INÍCIO DA MUDANÇA =====
+                    // Chamada simplificada, sem passar dados do responsável
+                    await solicitarSaidaPendente(studentId);
+                    // ===== FIM DA MUDANÇA =====
                 }
             } catch (error) {
+                // Oculta o loading em caso de erro na chamada
                 hideModalLoading();
+                // O showAlert já é chamado dentro das funções de solicitar/registrar
             }
         });
     }
