@@ -1050,58 +1050,48 @@
         }
     }
 
+    /**
+     * Registra a entrada de um aluno e atualiza a UI otimisticamente.
+     */
     async function registrarEntrada(alunoId, responsavelNome, responsavelTipo) {
         try {
             if (!currentUser?.id) throw new Error('ID do tutor não disponível');
-                         
+                            
             const responsavelId = currentUser.id;
-            // ================== FIM DA CORREÇÃO ==================
-
             const coords = await getCurrentLocationWithoutValidation();
-
-            if (!coords) {
-                throw new Error('Não foi possível obter a localização');
-            }
+            if (!coords) throw new Error('Não foi possível obter a localização');
 
             const requestData = {
-                alunoId,
-                responsavelId,
-                responsavelNome,
-                responsavelTipo,
-                latitude: coords.latitude,
-                longitude: coords.longitude
+                alunoId, responsavelId, responsavelNome, responsavelTipo,
+                latitude: coords.latitude, longitude: coords.longitude
             };
 
             const accessToken = localStorage.getItem('access_token');
-
             const response = await fetch(`${BACKEND_URL}/api/presencas/entrada`, {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestData)
             });
 
             if (!response.ok) {
-                const errorText = await response.text();
-                let errorMessage = `Erro ${response.status}: ${errorText || 'Falha no registro'}`;
-                try {
-                    const errorData = JSON.parse(errorText);
-                    if (errorData.mensagem) errorMessage = errorData.mensagem;
-                } catch (e) { /* Mantém a mensagem original */ }
-                throw new Error(errorMessage);
+                const errorData = await response.json().catch(() => ({ mensagem: 'Falha no registro de entrada.' }));
+                throw new Error(errorData.mensagem);
             }
 
-            const result = await response.json();
             showAlert('Entrada registrada com sucesso!', 'success');
 
-            setTimeout(() => {
-                refreshStudentsData();
-            }, 1000);
+            // ===== ATUALIZAÇÃO OTIMISTA IMEDIATA =====
+            const studentIndex = students.findIndex(s => s.id === alunoId);
+            if (studentIndex !== -1) {
+                students[studentIndex].status = 'PRESENTE'; // O estado final é PRESENTE
+                renderStudents(); // Redesenha a lista com o novo estado
+            } else {
+                await refreshStudentsData(); // Fallback: recarrega tudo do servidor
+            }
 
         } catch (error) {
             showAlert(`Erro ao registrar entrada: ${error.message}`, 'error');
+            await refreshStudentsData(); // Em caso de erro, força a sincronização com o backend
         } finally {
             hideModalLoading();
             closeModal();
@@ -1657,26 +1647,42 @@
     }
 
     /**
-    * Recarrega a lista de alunos do servidor, enriquecendo os dados em memória
-    * antes de renderizar a UI de uma só vez, evitando condições de corrida.
-    */
+     * Recarrega a lista de alunos do servidor, enriquecendo os dados em memória
+     * antes de renderizar a UI de uma só vez, evitando condições de corrida.
+     * ESTA É A VERSÃO CORRIGIDA.
+     */
     async function refreshStudentsData() {
         if (Date.now() - lastStudentsUpdate < MIN_UPDATE_INTERVAL) return;
         lastStudentsUpdate = Date.now();
 
         try {
-            // 1. Busca os dados base dos alunos
-            if (!tutorName) return;
+            // ETAPA 1: Carrega os dados base dos alunos do servidor.
+            // O backend já define o status como PRESENTE ou AUSENTE nesta chamada.
+            if (!tutorName) {
+                console.warn("Nome do tutor não encontrado, impossível atualizar alunos.");
+                return;
+            }
             const accessToken = localStorage.getItem('access_token');
             const response = await fetch(`${BACKEND_URL}/api/tutores/${encodeURIComponent(tutorName)}/alunos`, {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             });
-            if (!response.ok) throw new Error('Falha ao buscar alunos do servidor.');
-            
-            const serverStudents = await response.json();
 
-            // 2. Enriquecimento: Verifica o status de saída pendente para cada aluno EM MEMÓRIA
-            const studentPromises = serverStudents.map(async (student) => {
+            if (!response.ok) {
+                throw new Error(`Falha ao buscar alunos do servidor (status: ${response.status}).`);
+            }
+
+            const data = await response.json();
+            
+            // CORREÇÃO CRÍTICA: O array de alunos está dentro da propriedade 'alunos'.
+            if (!data || !Array.isArray(data.alunos)) {
+                console.error("A resposta da API de alunos não continha um array 'alunos'. Resposta:", data);
+                throw new Error("Formato de dados de alunos inesperado recebido do servidor.");
+            }
+            
+            let freshStudents = data.alunos;
+
+            // ETAPA 2: ENRIQUECIMENTO. Sobrepõe o status para AGUARDANDO_CONFIRMACAO se necessário.
+            const studentPromises = freshStudents.map(async (student) => {
                 try {
                     const saidaResponse = await fetch(`${BACKEND_URL}/api/presencas/aluno/${student.id}/saida-ativa`, {
                         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -1687,14 +1693,14 @@
                             student.status = 'AGUARDANDO_CONFIRMACAO';
                         }
                     }
-                } catch (e) { /* Ignora falha em um único aluno para não quebrar a lista toda */ }
+                } catch (e) { /* Ignora erro em um único aluno para não quebrar a lista */ }
                 return student;
             });
-            
-            // 3. Aguarda todas as verificações e atualiza a "fonte da verdade" global
+
+            // Aguarda todas as verificações e atualiza a "fonte da verdade" global.
             students = await Promise.all(studentPromises);
 
-            // 4. Renderiza a UI a partir dos dados 100% corretos
+            // Renderiza a UI a partir dos dados 100% corretos.
             renderStudents();
             updatePresenceSummary();
             updateLastUpdateIndicator();
@@ -2102,6 +2108,72 @@
             getLocationBtn.addEventListener('click', getCurrentLocation);
         }
     });
+
+    /**
+    * Manipula a confirmação final da saída de um aluno, atualizando a UI otimisticamente.
+    * @param {number} alunoId O ID do aluno que está saindo.
+    */
+    async function handleConfirmarSaida(alunoId) {
+        try {
+            const accessToken = localStorage.getItem('access_token');
+            const response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ mensagem: 'Falha ao confirmar a saída.' }));
+                throw new Error(errorData.mensagem);
+            }
+
+            showAlert('Saída confirmada com sucesso!', 'success');
+
+            // ===== ATUALIZAÇÃO OTIMISTA IMEDIATA =====
+            const studentIndex = students.findIndex(s => s.id === alunoId);
+            if (studentIndex !== -1) {
+                students[studentIndex].status = 'AUSENTE'; // O estado final é AUSENTE
+                renderStudents(); // Redesenha a lista com o novo estado
+            } else {
+                await refreshStudentsData(); // Fallback
+            }
+
+        } catch (error) {
+            showAlert(`Erro ao confirmar saída: ${error.message}`, 'error');
+            await refreshStudentsData(); // Sincroniza em caso de erro
+        } finally {
+            closeConfirmExitModal(); // Fecha o pequeno modal de confirmação
+        }
+    }
+
+    /**
+     * Exibe o modal de confirmação final de saída e configura o botão OK.
+     * @param {number} alunoId ID do aluno.
+     */
+    window.showConfirmationModal = function(alunoId) {
+        const modal = document.getElementById('confirmExitModal');
+        const message = document.getElementById('confirmExitMessage');
+        const okButton = document.getElementById('confirmExitOk');
+
+        const student = students.find(s => s.id === alunoId);
+        if (!student) return;
+
+        message.textContent = `Confirmar a saída final do aluno ${student.nome}? Esta ação não pode ser desfeita.`;
+
+        // Remove listeners antigos para evitar chamadas duplicadas
+        const newOkButton = okButton.cloneNode(true);
+        okButton.parentNode.replaceChild(newOkButton, okButton);
+        
+        // Adiciona o listener que chama nossa nova função de lógica
+        newOkButton.onclick = () => handleConfirmarSaida(alunoId);
+
+        modal.style.display = 'flex';
+    }
+
+    // Garanta que você tenha uma função para fechar este modal
+    window.closeConfirmExitModal = function() {
+        const modal = document.getElementById('confirmExitModal');
+        if (modal) modal.style.display = 'none';
+    }
 
     </script>
 </body>
