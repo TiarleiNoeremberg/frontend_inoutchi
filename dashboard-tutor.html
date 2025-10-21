@@ -1910,17 +1910,14 @@
 
     let confirmExitStudent = { id: null, nome: '' };
 
-    /**
-     * 3. Função para fechar o modal nos botões "Cancelar" ou "X".
-     *    Garante que o fechamento manual também use a API correta.
-     */
+    // 2. Esta função que fecha o modal permanece a mesma.
     function closeConfirmExitModal() {
-        const modalEl = document.getElementById('confirmExitModal');
-        if (modalEl && typeof bootstrap !== 'undefined') {
-            const modalInstance = bootstrap.Modal.getInstance(modalEl);
-            if (modalInstance) {
-                modalInstance.hide();
-            }
+        const modal = document.getElementById('confirmExitModal');
+        if (modal) {
+            modal.style.display = 'none';
+            // Reabilita o botão ao fechar, caso tenha sido desabilitado.
+            const confirmBtn = document.getElementById('confirmExitOk');
+            if(confirmBtn) confirmBtn.disabled = false;
         }
     }
 
@@ -1967,30 +1964,70 @@
         }
     });
 
-    // Função que o botão "Confirmar Saída" chama
+    // 3. A função chamada pelo botão na lista de alunos permanece a mesma.
     function confirmarSaidaManual(alunoId, alunoNome) {
-        // Apenas abre o nosso modal customizado. NENHUMA chamada a window.confirm()!
         openConfirmExitModal(alunoId, alunoNome);
     }
 
+    // 1. A função que abre o modal agora também será responsável
+    //    por configurar o botão de confirmação de forma segura.
     function openConfirmExitModal(alunoId, alunoNome) {
-        confirmExitStudent.id = alunoId;
-        confirmExitStudent.nome = alunoNome;
+        // Armazena os dados do aluno para o handler usar
+        const confirmExitStudent = { id: alunoId, nome: alunoNome };
 
-        const modalEl = document.getElementById('confirmExitModal');
-        if (!modalEl) {
-            console.error('Elemento do modal #confirmExitModal não foi encontrado!');
-            return;
+        // Atualiza a mensagem do modal
+        const messageElement = document.getElementById('confirmExitMessage');
+        if (messageElement) {
+            messageElement.textContent = `Tem certeza que deseja confirmar a saída do aluno ${alunoNome}?`;
         }
 
-        // Atualiza a mensagem do modal com o nome do aluno
-        document.getElementById('confirmExitMessage').textContent =
-            `Deseja confirmar manualmente a saída de ${alunoNome}? Esta ação não pode ser desfeita.`;
+        let confirmBtn = document.getElementById('confirmExitOk');
 
-        // Obtém a instância do modal (ou a cria se não existir) e a exibe.
-        // Este é o método robusto usado no painel do diretor.
-        const modalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
-        modalInstance.show();
+        // ** A CORREÇÃO ESTÁ AQUI **
+        // Clonamos o botão para remover com segurança todos os event listeners antigos.
+        // Isso previne a duplicidade de requisições.
+        const newConfirmBtn = confirmBtn.cloneNode(true);
+        confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+        confirmBtn = newConfirmBtn; // A partir de agora, usamos o botão "limpo".
+
+        // Adicionamos o novo e único listener para o clique.
+        confirmBtn.addEventListener('click', async function confirmExitHandler() {
+            // Desabilita o botão imediatamente para prevenir cliques múltiplos
+            this.disabled = true;
+
+            try {
+                const accessToken = localStorage.getItem('access_token');
+                const res = await fetch(
+                    `${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${confirmExitStudent.id}`,
+                    {
+                        method: 'POST',
+                        headers: { Authorization: `Bearer ${accessToken}` }
+                    }
+                );
+
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    throw new Error(errData.mensagem || `Erro ${res.status} ao processar a saída.`);
+                }
+
+                showAlert(`Saída de ${confirmExitStudent.nome} confirmada com sucesso!`, 'success');
+
+                // Força a atualização imediata da lista de alunos, ignorando o cache.
+                lastStudentsUpdate = 0;
+                await refreshStudentsData();
+
+            } catch (e) {
+                showAlert(`Erro ao confirmar saída: ${e.message}`, 'error');
+                // Reabilita o botão em caso de erro para que o usuário possa tentar novamente.
+                this.disabled = false;
+            } finally {
+                // Fecha o modal, independentemente do resultado.
+                closeConfirmExitModal();
+            }
+        });
+
+        // Finalmente, exibe o modal já configurado.
+        document.getElementById('confirmExitModal').style.display = 'flex';
     }
 
     // 1) Abre o modal e prepara o botão de confirmar
