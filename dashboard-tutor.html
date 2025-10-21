@@ -784,19 +784,6 @@
         margin-top: 6px;
         }
 
-        .modal-backdrop {
-            display: none !important;
-        }
-
-        #confirmExitModal, #actionModal, #modal {
-            background-color: transparent !important;
-        }
-
-        body.modal-open {
-            overflow: auto !important;
-            padding-right: 0 !important;
-        }
-
     </style>
 </head>
 <body class="mobile-optimized">
@@ -1923,43 +1910,18 @@
 
     let confirmExitStudent = { id: null, nome: '' };
 
+    /**
+     * 3. Função para fechar o modal nos botões "Cancelar" ou "X".
+     *    Garante que o fechamento manual também use a API correta.
+     */
     function closeConfirmExitModal() {
-        const modalElement = document.getElementById('confirmExitModal');
-        let closedByBootstrap = false;
-
-        // Etapa 1: Tenta fechar da maneira oficial do Bootstrap
-        if (modalElement && typeof bootstrap !== 'undefined') {
-            const modalInstance = bootstrap.Modal.getInstance(modalElement);
+        const modalEl = document.getElementById('confirmExitModal');
+        if (modalEl && typeof bootstrap !== 'undefined') {
+            const modalInstance = bootstrap.Modal.getInstance(modalEl);
             if (modalInstance) {
-                console.log('Instância Bootstrap encontrada. Fechando modal via .hide().');
                 modalInstance.hide();
-                closedByBootstrap = true;
             }
         }
-
-        // Etapa 2: Garantia de limpeza (se o método acima falhar ou for insuficiente)
-        // Esta parte vai "caçar" e remover qualquer backdrop que tenha sobrado.
-        if (!closedByBootstrap) {
-            console.log('Fechando modal manualmente (fallback).');
-            if(modalElement) {
-                modalElement.style.display = 'none';
-            }
-        }
-
-        // Força a remoção de QUALQUER backdrop na tela.
-        const backdrops = document.querySelectorAll('.modal-backdrop');
-        if (backdrops.length > 0) {
-            console.log(`Encontrado(s) ${backdrops.length} backdrop(s). Removendo...`);
-            backdrops.forEach(backdrop => {
-                backdrop.remove();
-            });
-        }
-
-        // Etapa 3: Restaura o corpo da página
-        // Remove classes e estilos que o Bootstrap adiciona e que podem travar o scroll.
-        document.body.classList.remove('modal-open');
-        document.body.style.overflow = '';
-        document.body.style.paddingRight = '';
     }
 
     // 2.3) Listener do botão “Confirmar” dentro do modal
@@ -2009,18 +1971,20 @@
         confirmExitStudent.id = alunoId;
         confirmExitStudent.nome = alunoNome;
 
-        document.getElementById('confirmExitMessage').textContent =
-            `Deseja confirmar manualmente a saÃ­da de ${alunoNome}? Esta aÃ§Ã£o nÃ£o pode ser desfeita.`;
-
-        const modalElement = document.getElementById('confirmExitModal');
-
-        // Garante que a instância do modal seja criada apenas uma vez
-        if (!confirmExitModalInstance) {
-            confirmExitModalInstance = new bootstrap.Modal(modalElement);
+        const modalEl = document.getElementById('confirmExitModal');
+        if (!modalEl) {
+            console.error('Elemento do modal #confirmExitModal não foi encontrado!');
+            return;
         }
 
-        // Usa a instância para mostrar o modal
-        confirmExitModalInstance.show();
+        // Atualiza a mensagem do modal com o nome do aluno
+        document.getElementById('confirmExitMessage').textContent =
+            `Deseja confirmar manualmente a saída de ${alunoNome}? Esta ação não pode ser desfeita.`;
+
+        // Obtém a instância do modal (ou a cria se não existir) e a exibe.
+        // Este é o método robusto usado no painel do diretor.
+        const modalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+        modalInstance.show();
     }
 
     // 1) Abre o modal e prepara o botão de confirmar
@@ -2243,6 +2207,45 @@
             closeConfirmExitModal(); // Fecha o pequeno modal de confirmação
         }
     }
+
+    /**
+     * 2. Listener do botão "Confirmar" DENTRO do modal.
+     *    Executa a ação e, ao final, fecha o modal e o layer corretamente.
+     */
+    document.getElementById('confirmExitOk').addEventListener('click', async () => {
+        const { id: alunoId, nome: alunoNome } = confirmExitStudent;
+        const modalEl = document.getElementById('confirmExitModal');
+
+        // Pega a instância ATIVA do modal para poder fechá-la depois
+        const modalInstance = bootstrap.Modal.getInstance(modalEl);
+
+        try {
+            const accessToken = localStorage.getItem('access_token');
+            const res = await fetch(
+                `${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`,
+                { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }
+            );
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.mensagem || `Status ${res.status}`);
+            }
+            
+            showAlert(`Saída de ${alunoNome} confirmada!`, 'success');
+
+            // Força a atualização da lista de alunos
+            lastStudentsUpdate = 0;
+            await refreshStudentsData();
+
+        } catch (e) {
+            showAlert(`Erro ao confirmar saída: ${e.message}`, 'error');
+        } finally {
+            // ESSENCIAL: Fecha o modal e o layer usando a API do Bootstrap.
+            if (modalInstance) {
+                modalInstance.hide();
+            }
+        }
+    });
 
     /**
      * Exibe o modal de confirmação final de saída e configura o botão OK.
