@@ -1060,6 +1060,29 @@
         </div>
     </div>
 
+    <!-- Modal para Confirmar Ação do Diretor (SAÍDA) -->
+    <div class="modal fade" id="confirmDirectorExitModal" tabindex="-1" aria-labelledby="confirmDirectorExitModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header" style="background-color: #ffc107; color: #333;">
+                    <h5 class="modal-title" id="confirmDirectorExitModalLabel">
+                        <i class="fas fa-exclamation-triangle"></i> Confirmar Saída Manualmente
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p id="confirmDirectorExitMessage">Você tem certeza que deseja confirmar a saída deste aluno? Esta ação é definitiva.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-warning" id="confirmDirectorExitBtn">
+                        <i class="fas fa-check-circle"></i> Sim, Confirmar Saída
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
         let currentUser = null;
@@ -1089,6 +1112,8 @@
             longitude: null,
             isValid: false
         };
+
+        let pendingExitConfirmation = null;
 
         // ========== FUNÇÕES GLOBAIS ==========
 
@@ -1863,8 +1888,8 @@
 
                         case 'AGUARDANDO_CONFIRMACAO':
                             statusHtml = `<span class="status-badge status-awaiting">Aguardando</span>`;
-                            // A chamada correta, passando os parâmetros
-                            actionsHtml = `<button class="btn btn-warning" onclick="confirmarSaidaAluno(${student.id}, '${safeStudentName}')"><i class="fas fa-check-circle"></i> Confirmar Saída</button>`;
+                            // CORREÇÃO FINAL: Chamar a função que abre o MODAL BONITO.
+                            actionsHtml = `<button class="btn btn-warning" onclick="openDirectorConfirmExitModal(${student.id}, '${safeStudentName}')"><i class="fas fa-check-circle"></i> Confirmar Saída</button>`;
                             break;
 
                         default:
@@ -3887,9 +3912,23 @@
             if (contentElement) contentElement.style.display = 'block';
         }
 
-        // Inicializar quando o DOM estiver carregado
+        /**
+         * Listener UNIFICADO que inicializa o dashboard e configura os botões dos modais
+         */
         document.addEventListener('DOMContentLoaded', function() {
+            // 1. Inicializa o dashboard (sua função original)
             initializeDashboard();
+
+            // 2. Configura o botão de confirmação do NOSSO modal de saída
+            const confirmBtn = document.getElementById('confirmDirectorExitBtn');
+            if (confirmBtn) {
+                confirmBtn.addEventListener('click', () => {
+                    // Se uma função de confirmação estiver pendente, execute-a
+                    if (typeof pendingExitConfirmation === 'function') {
+                        pendingExitConfirmation();
+                    }
+                });
+            }
         });
 
         /**
@@ -3952,6 +3991,71 @@
                 }
             } else {
                 console.log('🟡 Confirmação de saída cancelada pelo usuário.');
+            }
+        }
+
+        /**
+         * Função para ABRIR o modal bonito do Bootstrap e preparar a confirmação.
+         * É ESTA função que o botão "Confirmar Saída" deve chamar.
+         */
+        function openDirectorConfirmExitModal(studentId, studentName) {
+            const modalEl = document.getElementById('confirmDirectorExitModal');
+            if (!modalEl) {
+                console.error('O HTML do modal "confirmDirectorExitModal" não foi encontrado!');
+                // Fallback para a janela feia se o modal não existir, para não quebrar a funcionalidade
+                if (confirm(`Deseja realmente confirmar a saída de ${studentName}?`)) {
+                    handleConfirmarSaida(studentId, studentName);
+                }
+                return;
+            }
+
+            // Guarda a função que deve ser executada se o usuário clicar em "Confirmar"
+            pendingExitConfirmation = () => handleConfirmarSaida(studentId, studentName);
+
+            // Personaliza a mensagem
+            const messageEl = modalEl.querySelector('#confirmDirectorExitMessage');
+            messageEl.textContent = `Você tem certeza que deseja confirmar a saída do aluno ${studentName}? Esta ação é definitiva.`;
+
+            // Abre o modal usando a API do Bootstrap
+            const modal = new bootstrap.Modal(modalEl);
+            modal.show();
+        }
+
+        /**
+         * Função que REALMENTE executa a confirmação no backend.
+         * Chamada apenas quando o usuário clica no botão "Sim, Confirmar" do modal bonito.
+         */
+        async function handleConfirmarSaida(alunoId, alunoNome) {
+            console.log(`✅ Processo de confirmação via modal iniciado para: ${alunoNome} (ID: ${alunoId})`);
+            
+            const modalEl = document.getElementById('confirmDirectorExitModal');
+            if (modalEl) {
+                const modal = bootstrap.Modal.getInstance(modalEl);
+                if (modal) modal.hide();
+            }
+
+            try {
+                const accessToken = await garantirAutenticacao();
+                if (!accessToken) throw new Error("Falha na autenticação.");
+
+                const response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+
+                const result = await response.json().catch(() => ({})); // Garante que result nunca seja nulo
+                if (!response.ok) throw new Error(result.mensagem || `Erro ${response.status} do servidor.`);
+
+                showAlert(`Saída de ${alunoNome} confirmada com sucesso!`, 'success');
+                
+                // Força a atualização da lista de alunos para refletir a mudança de status
+                await loadAllStudents(currentStudentsPage, document.getElementById('studentSearch')?.value || '');
+
+            } catch (error) {
+                console.error('❌ Erro ao confirmar saída:', error);
+                showAlert(error.message || 'Erro ao confirmar saída.', 'error');
+            } finally {
+                pendingExitConfirmation = null; // Limpa a ação pendente
             }
         }
 
