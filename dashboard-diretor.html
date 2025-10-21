@@ -1705,7 +1705,7 @@
 
         
 
-        // ATUALIZAR a função loadAllStudents para usar o cache
+        // ATUALIZAR a função loadAllStudents para usar o cache e ordenação avançada
         async function loadAllStudents(page = 0, searchTerm = '') {
             try {
                 console.log('🎯 Carregando lista de alunos...');
@@ -1732,26 +1732,36 @@
                         console.log('🔍 Verificando status dos alunos em lote...');
                         data.content = await checkAllStudentsStatus(data.content);
 
-                        // ===== CORREÇÃO: Ordenar alunos para priorizar o status "AGUARDANDO" =====
-                        console.log('🔄 Ordenando alunos por status...');
-                        data.content.sort((a, b) => {
-                            const aAguardando = a.status === 'AGUARDANDO' || a.status === 'AGUARDANDO_CONFIRMACAO';
-                            const bAguardando = b.status === 'AGUARDANDO' || b.status === 'AGUARDANDO_CONFIRMACAO';
+                        // ===== CORREÇÃO: Ordenar alunos com prioridade múltipla =====
+                        console.log('🔄 Ordenando alunos por status (Aguardando > Presente > Ausente)...');
 
-                            if (aAguardando && !bAguardando) {
-                                return -1; // 'a' (aguardando) vem antes de 'b'
+                        const getStatusPriority = (status) => {
+                            if (status === 'AGUARDANDO' || status === 'AGUARDANDO_CONFIRMACAO') {
+                                return 0; // Prioridade máxima
                             }
-                            if (!aAguardando && bAguardando) {
-                                return 1; // 'b' (aguardando) vem antes de 'a'
+                            if (status === 'PRESENTE') {
+                                return 1; // Prioridade intermediária
                             }
-                            
-                            // Ordena alfabeticamente por nome para manter a consistência
+                            return 2; // Prioridade mais baixa (Ausente, etc.)
+                        };
+
+                        data.content.sort((a, b) => {
+                            const priorityA = getStatusPriority(a.status);
+                            const priorityB = getStatusPriority(b.status);
+
+                            // Se as prioridades forem diferentes, ordena por elas
+                            if (priorityA !== priorityB) {
+                                return priorityA - priorityB;
+                            }
+
+                            // Se as prioridades forem iguais, ordena alfabeticamente por nome
                             if (a.nome && b.nome) {
                                 return a.nome.localeCompare(b.nome);
                             }
                             return 0;
                         });
-                        // =========================================================================
+                        // =================================================================
+
                     }
                     
                     renderStudentsTable(data);
