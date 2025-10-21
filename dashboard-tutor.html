@@ -1782,6 +1782,64 @@
         }
     }
 
+    // =================================================================
+    // INÍCIO DA CORREÇÃO: Lógica de Confirmação de Saída Robusta
+    // =================================================================
+
+    /**
+     * Função para confirmar a saída do aluno.
+     * Ela será chamada pelo modal de confirmação.
+     * @param {number} alunoId O ID do aluno para confirmar a saída.
+     */
+    async function confirmarSaida(alunoId) {
+        // 1. Validação crucial para evitar o erro 'alunoId=null'
+        if (!alunoId) {
+            console.error('confirmarSaida chamada sem alunoId. Ação cancelada.');
+            showAlert('Erro interno: ID do aluno não foi especificado.', 'error');
+            return;
+        }
+
+        console.log(`Iniciando confirmação de saída para o aluno ID: ${alunoId}`);
+        // Usaremos o loading do modal principal se o de confirmação não tiver um.
+        showModalLoading('Confirmando Saída...', 'Enviando confirmação ao servidor');
+
+        try {
+            const accessToken = localStorage.getItem('access_token');
+            
+            // 2. A chamada fetch agora usa o alunoId recebido como parâmetro
+            const response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ message: 'Não foi possível ler a resposta do erro.' }));
+                throw new Error(errorData.mensagem || errorData.message || 'Falha ao confirmar a saída.');
+            }
+
+            const result = await response.json();
+            showAlert('Saída confirmada com sucesso!', 'success');
+            
+            // Fecha o modal de confirmação
+            closeConfirmExitModal();
+
+            // 3. Atualiza a lista de alunos para refletir a mudança de status
+            setTimeout(() => {
+                refreshStudentsData();
+            }, 1500);
+
+        } catch (error) {
+            console.error(`Erro ao confirmar saída para aluno ${alunoId}:`, error);
+            showAlert(`Erro: ${error.message}`, 'error');
+        } finally {
+            // Garante que o spinner de carregamento seja escondido
+            hideModalLoading();
+        }
+    }
+
     async function loadStudents() {
         if (!tutorName) {
             showAlert('Nome do tutor não encontrado.', 'error');
@@ -2368,33 +2426,53 @@
     });
 
     /**
-     * Exibe o modal de confirmação final de saída e configura o botão OK.
-     * @param {number} alunoId ID do aluno.
+     * Exibe o modal de confirmação de saída, garantindo que o listener de clique
+     * seja configurado corretamente para evitar chamadas duplicadas ou com dados nulos.
+     * ESTA FUNÇÃO SUBSTITUI QUALQUER VERSÃO ANTERIOR DE showConfirmationModal.
+     * @param {number} alunoId O ID do aluno.
      */
     window.showConfirmationModal = function(alunoId) {
+        if (!alunoId) {
+            console.error("showConfirmationModal chamado sem alunoId.");
+            return;
+        }
+
         const modal = document.getElementById('confirmExitModal');
-        const message = document.getElementById('confirmExitMessage');
         const okButton = document.getElementById('confirmExitOk');
-
+        const messageElement = document.getElementById('confirmExitMessage');
         const student = students.find(s => s.id === alunoId);
-        if (!student) return;
 
-        message.textContent = `Confirmar a saída final do aluno ${student.nome}? Esta ação não pode ser desfeita.`;
+        if (!modal || !okButton || !messageElement || !student) {
+            console.error('Não foi possível encontrar os elementos do modal de confirmação ou o aluno.');
+            showAlert('Erro ao abrir modal. Tente atualizar a página.', 'error');
+            return;
+        }
 
-        // Remove listeners antigos para evitar chamadas duplicadas
+        // Personaliza a mensagem do modal
+        messageElement.textContent = `Você confirma a saída do aluno ${student.nome}? Esta ação não pode ser desfeita.`;
+
+        // 4. Lógica CRÍTICA para evitar listeners duplicados:
+        // Clonamos o botão para remover quaisquer event listeners antigos.
         const newOkButton = okButton.cloneNode(true);
         okButton.parentNode.replaceChild(newOkButton, okButton);
-        
-        // Adiciona o listener que chama nossa nova função de lógica
-        newOkButton.onclick = () => handleConfirmarSaida(alunoId);
 
+        // Adicionamos um NOVO listener que chama a função 'confirmarSaida' com o ID correto.
+        newOkButton.addEventListener('click', () => {
+            confirmarSaida(alunoId);
+        }, { once: true }); // A opção { once: true } é uma segurança extra para garantir uma única execução.
+
+        // Exibe o modal
         modal.style.display = 'flex';
     }
 
-    // Garanta que você tenha uma função para fechar este modal
+    /**
+     * Fecha o modal de confirmação de saída.
+     */
     window.closeConfirmExitModal = function() {
         const modal = document.getElementById('confirmExitModal');
-        if (modal) modal.style.display = 'none';
+        if (modal) {
+            modal.style.display = 'none';
+        }
     }
 
     // Adicione este bloco no final do seu script
