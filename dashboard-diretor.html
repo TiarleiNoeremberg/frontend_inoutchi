@@ -721,7 +721,7 @@
     <script>
     // =================================================================================
     // ||                                                                             ||
-    // ||         CONTEÚDO COMPLETO E REFATORADO PARA DASHBOARD-DIRETOR.HTML          ||
+    // ||       CONTEÚDO CORRIGIDO E REFATORADO PARA DASHBOARD-DIRETOR.HTML           ||
     // ||                                                                             ||
     // =================================================================================
 
@@ -794,6 +794,7 @@
 
         } catch (error) {
             console.error('Erro fatal na inicialização do dashboard:', error);
+            // CORREÇÃO: A função showAlert agora é segura, mesmo que o elemento não exista.
             showAlert('Não foi possível carregar os dados essenciais. Tente recarregar a página.', 'error');
             showLoading(false);
         }
@@ -846,16 +847,16 @@
      */
     function setupEventListeners() {
         // Ações do Diretor
-        domElements.directorEntryBtn.addEventListener('click', () => openDirectorActionModal('entrada'));
-        domElements.directorExitBtn.addEventListener('click', () => openDirectorActionModal('saida'));
-        domElements.directorGetLocationBtn.addEventListener('click', getDirectorLocation);
-        domElements.confirmDirectorActionButton.addEventListener('click', () => {
+        if (domElements.directorEntryBtn) domElements.directorEntryBtn.addEventListener('click', () => openDirectorActionModal('entrada'));
+        if (domElements.directorExitBtn) domElements.directorExitBtn.addEventListener('click', () => openDirectorActionModal('saida'));
+        if (domElements.directorGetLocationBtn) domElements.directorGetLocationBtn.addEventListener('click', getDirectorLocation);
+        if (domElements.confirmDirectorActionButton) domElements.confirmDirectorActionButton.addEventListener('click', () => {
             const action = domElements.confirmDirectorActionButton.dataset.action;
             confirmDirectorAction(action);
         });
 
         // Busca de Alunos
-        domElements.studentSearchInput.addEventListener('input', (e) => {
+        if (domElements.studentSearchInput) domElements.studentSearchInput.addEventListener('input', (e) => {
             studentState.currentSearchTerm = e.target.value;
             studentState.currentPage = 0; // Reseta a página ao buscar
             loadAllStudents();
@@ -866,25 +867,17 @@
     // AUTENTICAÇÃO E GESTÃO DE USUÁRIO
     // ---------------------------------------------------------------------------------
 
-    /**
-     * Redireciona para a página de login com uma mensagem.
-     */
     function redirectToLogin(message) {
         if (message) alert(message);
         localStorage.clear();
         window.location.href = 'index.html';
     }
 
-    /**
-     * Valida o token atual e o renova se necessário.
-     * @returns {Promise<string|null>} O token de acesso válido ou nulo.
-     */
     async function getValidAccessToken() {
         const accessToken = localStorage.getItem('access_token');
         const expiry = localStorage.getItem('token_expiry');
 
         if (!accessToken || !expiry || new Date().getTime() > parseInt(expiry)) {
-            // Tenta renovar o token
             try {
                 const refreshToken = localStorage.getItem('refresh_token');
                 if (!refreshToken) return null;
@@ -898,7 +891,7 @@
                 if (response.ok) {
                     const tokenData = await response.json();
                     localStorage.setItem('access_token', tokenData.access_token);
-                    localStorage.setItem('token_expiry', new Date().getTime() + tokenData.expires_in * 1000);
+                    localStorage.setItem('token_expiry', new Date().getTime() + (tokenData.expires_in * 1000));
                     console.log("Token renovado com sucesso.");
                     return tokenData.access_token;
                 }
@@ -911,9 +904,6 @@
         return accessToken;
     }
 
-    /**
-     * Carrega as informações do usuário logado (diretor).
-     */
     async function loadUserInfo() {
         const accessToken = await getValidAccessToken();
         if (!accessToken) return redirectToLogin("Sessão expirada.");
@@ -929,11 +919,11 @@
             currentSchoolId = currentUser.escolaId;
 
             if (domElements.userFullName) domElements.userFullName.textContent = currentUser.nome || 'Diretor';
-            // Lógica para avatar, se aplicável.
+            if (domElements.userAvatar) domElements.userAvatar.textContent = (currentUser.nome) ? currentUser.nome.charAt(0).toUpperCase() : 'D';
 
         } catch (error) {
             console.error("Erro em loadUserInfo:", error);
-            throw error; // Propaga para o inicializador tratar
+            throw error;
         }
     }
     
@@ -941,9 +931,6 @@
     // FUNCIONALIDADES DO DIRETOR
     // ---------------------------------------------------------------------------------
 
-    /**
-     * Carrega o status atual do diretor do backend.
-     */
     async function loadDirectorData() {
         if (!directorState.id || !currentSchoolId) return;
         const accessToken = await getValidAccessToken();
@@ -970,9 +957,6 @@
         }
     }
 
-    /**
-     * Atualiza a interface do diretor (status e botões).
-     */
     function updateDirectorUI() {
         const { directorStatus, directorEntryBtn, directorExitBtn } = domElements;
         if (!directorStatus || !directorEntryBtn || !directorExitBtn) return;
@@ -990,26 +974,28 @@
         }
     }
     
-    /**
-     * Abre o modal para registro de entrada ou saída do diretor.
-     * @param {string} action - 'entrada' ou 'saida'.
-     */
     function openDirectorActionModal(action) {
+        if (!domElements.actionModal) return showAlert('Elemento do modal não encontrado.', 'error');
         resetDirectorLocationState();
-        domElements.directorActionTitle.textContent = `Registrar ${action}`;
-        domElements.confirmDirectorActionButton.dataset.action = action;
+        if (domElements.directorActionTitle) domElements.directorActionTitle.textContent = `Registrar ${action}`;
+        if (domElements.confirmDirectorActionButton) domElements.confirmDirectorActionButton.dataset.action = action;
         new bootstrap.Modal(domElements.actionModal).show();
     }
 
-    /**
-     * Obtém a geolocalização do navegador.
-     */
     function getDirectorLocation() {
         const { directorGetLocationBtn, directorLocationStatus } = domElements;
-        directorGetLocationBtn.disabled = true;
-        directorGetLocationBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo...';
-        directorLocationStatus.style.display = 'block';
-        directorLocationStatus.textContent = 'Solicitando permissão de localização...';
+        if (!navigator.geolocation) {
+            return updateDirectorLocationUI('error', 'Geolocalização não é suportada por este navegador.');
+        }
+        
+        if (directorGetLocationBtn) {
+            directorGetLocationBtn.disabled = true;
+            directorGetLocationBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo...';
+        }
+        if (directorLocationStatus) {
+            directorLocationStatus.style.display = 'block';
+            directorLocationStatus.textContent = 'Solicitando permissão de localização...';
+        }
 
         navigator.geolocation.getCurrentPosition(
             (position) => {
@@ -1035,29 +1021,27 @@
         );
     }
     
-    /**
-     * Atualiza a UI relacionada à geolocalização no modal.
-     */
     function updateDirectorLocationUI(status, message) {
         const { directorGetLocationBtn, directorLocationStatus, directorCoordinatesDisplay, directorDisplayLatitude, directorDisplayLongitude } = domElements;
 
-        directorLocationStatus.textContent = message;
-        directorLocationStatus.className = `location-status ${status}`;
+        if (directorLocationStatus) {
+            directorLocationStatus.textContent = message;
+            directorLocationStatus.className = `location-status location-${status}`;
+        }
 
         if (status === 'success') {
-            directorGetLocationBtn.innerHTML = '<i class="fas fa-check"></i> Localização Obtida';
-            directorCoordinatesDisplay.style.display = 'block';
-            directorDisplayLatitude.textContent = directorState.location.latitude.toFixed(6);
-            directorDisplayLongitude.textContent = directorState.location.longitude.toFixed(6);
+            if (directorGetLocationBtn) directorGetLocationBtn.innerHTML = '<i class="fas fa-check"></i> Localização Obtida';
+            if (directorCoordinatesDisplay) directorCoordinatesDisplay.style.display = 'block';
+            if (directorDisplayLatitude) directorDisplayLatitude.textContent = directorState.location.latitude.toFixed(6);
+            if (directorDisplayLongitude) directorDisplayLongitude.textContent = directorState.location.longitude.toFixed(6);
         } else {
-            directorGetLocationBtn.disabled = false;
-            directorGetLocationBtn.innerHTML = '<i class="fas fa-location-arrow"></i> Tentar Novamente';
+            if (directorGetLocationBtn) {
+                directorGetLocationBtn.disabled = false;
+                directorGetLocationBtn.innerHTML = '<i class="fas fa-location-arrow"></i> Tentar Novamente';
+            }
         }
     }
 
-    /**
-     * Reseta o estado e a UI de localização do diretor.
-     */
     function resetDirectorLocationState() {
         directorState.location = { latitude: null, longitude: null, isValid: false };
         const { directorGetLocationBtn, directorLocationStatus, directorCoordinatesDisplay, directorDisplayLatitude, directorDisplayLongitude } = domElements;
@@ -1073,10 +1057,6 @@
         }
     }
 
-    /**
-     * Envia a confirmação de entrada/saída para o backend.
-     * @param {string} action - 'entrada' ou 'saida'.
-     */
     async function confirmDirectorAction(action) {
         if (!directorState.location.isValid) {
             return showAlert('Por favor, obtenha a localização primeiro.', 'error');
@@ -1095,15 +1075,12 @@
         };
 
         try {
-            domElements.confirmDirectorActionButton.disabled = true;
+            if (domElements.confirmDirectorActionButton) domElements.confirmDirectorActionButton.disabled = true;
             const endpoint = (action === 'entrada') ? '/api/presencas/diretor/entrada' : '/api/presencas/diretor/saida';
             
             const response = await fetch(BACKEND_URL + endpoint, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${accessToken}`
-                },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
                 body: JSON.stringify(payload)
             });
 
@@ -1111,15 +1088,15 @@
             if (!response.ok) throw new Error(responseData.mensagem || `Erro ao registrar ${action}.`);
 
             showAlert(`Registro de ${action} realizado com sucesso!`, 'success');
-            bootstrap.Modal.getInstance(domElements.actionModal).hide();
+            const modalInstance = bootstrap.Modal.getInstance(domElements.actionModal);
+            if (modalInstance) modalInstance.hide();
             
-            // Força atualização imediata do status
             await loadDirectorData();
 
         } catch (error) {
             showAlert(error.message, 'error');
         } finally {
-            domElements.confirmDirectorActionButton.disabled = false;
+            if (domElements.confirmDirectorActionButton) domElements.confirmDirectorActionButton.disabled = false;
         }
     }
     
@@ -1127,10 +1104,8 @@
     // GESTÃO DE ABAS E ATUALIZAÇÕES AUTOMÁTICAS
     // ---------------------------------------------------------------------------------
     
-    /**
-     * Configura a navegação por abas e o carregamento de dados correspondente.
-     */
     function setupTabs() {
+        if (!domElements.tabs) return;
         domElements.tabs.forEach(tab => {
             tab.addEventListener('click', () => {
                 const tabName = tab.getAttribute('data-tab');
@@ -1139,11 +1114,8 @@
         });
     }
 
-    /**
-     * Alterna para uma aba específica e carrega seus dados.
-     * @param {string} tabName - O nome da aba (ex: 'overview', 'students').
-     */
     function switchToTab(tabName) {
+        if (!domElements.tabs || !domElements.tabContents) return;
         domElements.tabs.forEach(t => t.classList.remove('active'));
         domElements.tabContents.forEach(tc => tc.classList.remove('active'));
 
@@ -1153,30 +1125,22 @@
         if (activeTab) activeTab.classList.add('active');
         if (activeContent) activeContent.classList.add('active');
 
-        // Carrega os dados da aba selecionada
         switch (tabName) {
             case 'overview': loadOverviewData(); break;
             case 'students': loadAllStudents(); break;
-            case 'tutors': /* loadAllTutors(); */ break; // Implementar se necessário
-            case 'classrooms': /* loadClassrooms(); */ break; // Implementar se necessário
-            case 'history': /* loadHistory(); */ break; // Implementar se necessário
         }
     }
 
-    /**
-     * Inicia o ciclo de atualização automática para dados críticos.
-     */
     function startAutoRefresh() {
         if (autoRefreshIntervalId) clearInterval(autoRefreshIntervalId);
         
         autoRefreshIntervalId = setInterval(() => {
             console.log("Executando atualização automática periódica...");
-            const activeTab = document.querySelector('.tab.active')?.getAttribute('data-tab');
+            const activeTabEl = document.querySelector('.tab.active');
+            const activeTab = activeTabEl ? activeTabEl.getAttribute('data-tab') : 'overview';
             
-            // Sempre atualiza o status do diretor, pois é exibido globalmente
             loadDirectorData();
 
-            // Atualiza dados da aba ativa
             if (activeTab === 'overview') {
                 loadOverviewData();
             } else if (activeTab === 'students') {
@@ -1206,10 +1170,10 @@
             if (!response.ok) return;
             const stats = await response.json();
             
-            domElements.totalStudents.textContent = stats.totalAlunos || 0;
-            domElements.presentStudents.textContent = stats.alunosPresentes || 0;
-            domElements.absentStudents.textContent = stats.alunosAusentes || 0;
-            domElements.totalTutors.textContent = stats.totalTutores || 0;
+            if (domElements.totalStudents) domElements.totalStudents.textContent = stats.totalAlunos || 0;
+            if (domElements.presentStudents) domElements.presentStudents.textContent = stats.alunosPresentes || 0;
+            if (domElements.absentStudents) domElements.absentStudents.textContent = stats.alunosAusentes || 0;
+            if (domElements.totalTutors) domElements.totalTutors.textContent = stats.totalTutores || 0;
 
         } catch (error) {
             console.warn("Não foi possível carregar estatísticas:", error);
@@ -1218,7 +1182,7 @@
 
     async function loadPresentStudents() {
         const accessToken = await getValidAccessToken();
-        if (!accessToken || !currentSchoolId) return;
+        if (!accessToken || !currentSchoolId || !domElements.presentStudentsList) return;
 
         try {
             const response = await fetch(`${BACKEND_URL}/api/escolas/${currentSchoolId}/alunos/presentes`, {
@@ -1268,19 +1232,19 @@
             const data = await response.json();
             renderStudentsTable(data.content);
             
-            // Atualiza estado da paginação
             studentState.totalPages = data.totalPages;
             studentState.totalElements = data.totalElements;
-            // setupStudentsPagination(data); // Implementar renderização da paginação
 
         } catch (error) {
             console.error('Erro ao carregar alunos:', error);
-            domElements.studentsTableBody.innerHTML = `<tr><td colspan="5">${error.message}</td></tr>`;
+            if (domElements.studentsTableBody) domElements.studentsTableBody.innerHTML = `<tr><td colspan="5">${error.message}</td></tr>`;
         }
     }
 
     function renderStudentsTable(students) {
         const tbody = domElements.studentsTableBody;
+        if (!tbody) return;
+
         tbody.innerHTML = '';
         if (!students || students.length === 0) {
             tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Nenhum aluno encontrado.</td></tr>';
@@ -1306,10 +1270,6 @@
         });
     }
 
-    /**
-     * Formata a lista de tutores de um aluno para exibição.
-     * Lida com estruturas de dados inconsistentes.
-     */
     function formatTutorsForDisplay(tutores) {
         if (!tutores || !Array.isArray(tutores) || tutores.length === 0) {
             return '<span style="color: #888;">Sem tutores</span>';
@@ -1328,26 +1288,36 @@
 
     /**
      * Exibe ou oculta a tela de loading.
+     * CORRIGIDO: Verifica se os elementos existem antes de manipulá-los.
      */
     function showLoading(isLoading) {
-        domElements.loading.style.display = isLoading ? 'flex' : 'none';
-        domElements.content.style.display = isLoading ? 'none' : 'block';
+        if (domElements.loading) {
+            domElements.loading.style.display = isLoading ? 'flex' : 'none';
+        }
+        if (domElements.content) {
+            domElements.content.style.display = isLoading ? 'none' : 'block';
+        }
     }
 
     /**
      * Mostra uma mensagem de alerta temporária.
+     * CORRIGIDO: Verifica se o elemento existe e tem um fallback.
      */
     function showAlert(message, type = 'info') {
         const alertBox = domElements.alertBox;
-        alertBox.textContent = message;
-        alertBox.className = `alert alert-${type}`;
-        alertBox.style.display = 'block';
-        setTimeout(() => { alertBox.style.display = 'none'; }, 5000);
+        if (alertBox) {
+            alertBox.textContent = message;
+            alertBox.className = `alert alert-${type}`;
+            alertBox.style.display = 'block';
+            setTimeout(() => { alertBox.style.display = 'none'; }, 5000);
+        } else {
+            console.log(`ALERTA (${type}): ${message}`);
+            if (type === 'error') {
+                alert(message); // Fallback para erros críticos
+            }
+        }
     }
     
-    /**
-     * Função de logout do usuário.
-     */
     window.logout = function() {
         redirectToLogin();
     };
