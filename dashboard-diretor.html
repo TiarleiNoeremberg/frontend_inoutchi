@@ -82,7 +82,6 @@
                                 <tr>
                                     <th>Nome</th>
                                     <th>Sala</th>
-                                    <th>Tutores</th>
                                     <th>Status</th>
                                     <th>Ações</th>
                                 </tr>
@@ -93,35 +92,22 @@
                     <div class="pagination" id="studentsPagination"></div>
                 </div>
 
-                <!-- Salas (Nova) -->
+                <!-- Salas -->
                 <div id="classrooms" class="tab-content">
                     <h2>Salas</h2>
-                    <div id="classroomsList"></div>
+                    <p>Funcionalidade em desenvolvimento.</p>
                 </div>
 
-                <!-- Tutores (Nova) -->
+                <!-- Tutores -->
                 <div id="tutors" class="tab-content">
                      <h2>Tutores</h2>
-                     <div class="table-responsive">
-                        <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>Nome</th>
-                                    <th>Telefone</th>
-                                    <th>Alunos Vinculados</th>
-                                    <th>Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody id="tutorsTableBody"></tbody>
-                        </table>
-                    </div>
-                    <div class="pagination" id="tutorsPagination"></div>
+                     <p>Funcionalidade em desenvolvimento.</p>
                 </div>
 
                 <!-- Histórico -->
                 <div id="history" class="tab-content">
                     <h2>Histórico de Presença</h2>
-                    <div id="historyContent"></div>
+                    <p>Funcionalidade em desenvolvimento.</p>
                 </div>
             </div>
         </main>
@@ -138,10 +124,6 @@
                 <p id="modalMessage"></p>
                 <div class="location-section">
                     <div id="locationStatus" class="location-status"></div>
-                    <div id="coordinatesDisplay" style="display: none;">
-                        <p><strong>Latitude:</strong> <span id="latitude"></span></p>
-                        <p><strong>Longitude:</strong> <span id="longitude"></span></p>
-                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -152,49 +134,21 @@
             </div>
         </div>
     </div>
-
-    <!-- Modal de Detalhes -->
-    <div class="modal" id="detailsModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="detailsModalTitle">Detalhes</h3>
-                <button class="close-modal" onclick="closeDetailsModal()">×</button>
-            </div>
-            <div class="modal-body" id="detailsModalBody"></div>
-            <div class="modal-footer">
-                <button class="btn" onclick="closeDetailsModal()">Fechar</button>
-            </div>
-        </div>
-    </div>
     
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         // =================================================================================
-        // INICIALIZAÇÃO E CONFIGURAÇÕES GLOBAIS
+        // CONFIGURAÇÕES GLOBAIS E INICIALIZAÇÃO
         // =================================================================================
         const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
-        const pageSize = 20;
-
         let currentUser = null;
         let currentSchoolId = null;
         let currentDirectorId = null;
-
-        let currentStudentsPage = 0;
-        let currentTutorsPage = 0;
-
-        // Cache de elementos DOM
+        let directorLocationData = { latitude: null, longitude: null, isValid: false };
         let domElements = {};
 
-        // Cache de localização
-        let directorLocationData = { latitude: null, longitude: null, isValid: false };
-
-        // Adiciona o listener que garante que o DOM está carregado antes de rodar o script
-        document.addEventListener('DOMContentLoaded', () => {
-            initializeDashboard();
-        });
+        document.addEventListener('DOMContentLoaded', initializeDashboard);
 
         async function initializeDashboard() {
-            console.log('Inicializando dashboard do diretor...');
             initializeDOMElements();
             showLoading();
 
@@ -205,21 +159,21 @@
                     return;
                 }
 
-                await loadUserInfo();
-                await loadDirectorData();
-                await loadOverviewData();
-                loadAllStudents(); // Carga inicial
+                // Fluxo de inicialização corrigido
+                await loadUserInfo(accessToken); // Carrega dados do usuário e da escola
+                await loadDirectorStatus(accessToken); // Carrega status de presença do diretor
+                await loadOverviewData(accessToken); // Carrega dados da visão geral
+                
+                loadAllStudents(accessToken); // Carga inicial dos alunos
                 
                 setupEventListeners();
                 showContent();
                 startAutoRefresh();
 
-                console.log('✅ Dashboard inicializado com sucesso!');
-
             } catch (error) {
                 console.error('❌ Erro fatal na inicialização do dashboard:', error);
-                showAlert(`Erro crítico ao carregar o dashboard: ${error.message}. Tente recarregar a página.`, 'error');
-                hideLoading(); // Esconde o loading para mostrar a mensagem de erro
+                showAlert(`Erro crítico ao carregar: ${error.message}. Verifique o console e tente recarregar.`, 'error');
+                hideLoading();
             }
         }
 
@@ -229,15 +183,14 @@
                 'directorStatusBadge', 'directorStatusText', 'directorEntryBtn', 'directorExitBtn',
                 'presentStudentsList', 'totalStudents', 'studentsTableBody', 'studentsPagination',
                 'studentSearch', 'actionModal', 'modalTitle', 'modalMessage', 'locationStatus',
-                'coordinatesDisplay', 'latitude', 'longitude', 'confirmActionBtn', 'detailsModal',
-                'detailsModalTitle', 'detailsModalBody', 'classroomsList', 'tutorsTableBody', 'tutorsPagination'
+                'confirmActionBtn'
             ];
             ids.forEach(id => domElements[id] = document.getElementById(id));
         }
 
         function setupEventListeners() {
             domElements.studentSearch.addEventListener('input', (e) => {
-                loadAllStudents(0, e.target.value);
+                getValidToken().then(token => loadAllStudents(token, 0, e.target.value));
             });
         }
 
@@ -246,11 +199,10 @@
         // =================================================================================
 
         async function getValidToken() {
-            let accessToken = localStorage.getItem('access_token');
+            const accessToken = localStorage.getItem('access_token');
             const expiry = localStorage.getItem('token_expiry');
 
             if (!accessToken || !expiry || new Date().getTime() > parseInt(expiry)) {
-                console.log('Token expirado ou inválido, redirecionando para login.');
                 return null;
             }
             return accessToken;
@@ -266,21 +218,25 @@
             window.location.href = 'index.html';
         };
 
-        async function loadUserInfo() {
+        async function loadUserInfo(accessToken) {
             try {
-                const accessToken = await getValidToken();
                 const response = await fetch(`${BACKEND_URL}/api/users/me`, {
                     headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
 
-                if (!response.ok) throw new Error('Falha ao buscar dados do usuário.');
+                if (!response.ok) {
+                    throw new Error(`Falha ao buscar dados do usuário (Status: ${response.status})`);
+                }
 
                 currentUser = await response.json();
+                
+                // **PONTO CRÍTICO CORRIGIDO**
+                // Captura o ID do diretor e o ID da escola a partir da resposta do /me
                 currentDirectorId = currentUser.id;
                 currentSchoolId = currentUser.escolaId;
 
-                if (!currentSchoolId) {
-                    throw new Error("ID da escola não encontrado para este diretor. Acesso negado.");
+                if (!currentDirectorId || !currentSchoolId) {
+                    throw new Error("Dados essenciais (ID do diretor ou da escola) não foram retornados. O usuário pode não ser um diretor ou não estar configurado corretamente.");
                 }
 
                 domElements.userName.textContent = currentUser.nome.split(' ')[0];
@@ -288,7 +244,7 @@
 
             } catch (error) {
                 console.error('❌ Erro em loadUserInfo:', error);
-                throw error;
+                throw error; // Propaga o erro para ser pego pelo bloco catch principal
             }
         }
 
@@ -296,25 +252,29 @@
         // LÓGICA DO DIRETOR (STATUS E AÇÕES)
         // =================================================================================
 
-        async function loadDirectorData() {
+        async function loadDirectorStatus(accessToken) {
             try {
-                const accessToken = await getValidToken();
+                // Utiliza o currentDirectorId obtido do /me
                 const response = await fetch(`${BACKEND_URL}/api/presencas/diretores/${currentDirectorId}/status`, {
                     headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
-                if (!response.ok) throw new Error('Não foi possível verificar o status do diretor.');
+
+                let isPresent = false;
+                if (response.ok) {
+                    const data = await response.json();
+                    isPresent = data === 'PRESENTE';
+                }
                 
-                const data = await response.json();
-                updateDirectorUI(data.status, data.status === 'PRESENTE');
+                updateDirectorUI(isPresent);
 
             } catch (error) {
-                console.warn('⚠️ Aviso em loadDirectorData:', error.message);
-                updateDirectorUI('AUSENTE', false);
+                console.warn('⚠️ Aviso em loadDirectorStatus:', error.message);
+                updateDirectorUI(false); // Assume ausente em caso de erro
             }
         }
         
-        function updateDirectorUI(status, isPresent) {
-            const statusText = status ? status.replace('_', ' ') : 'Indefinido';
+        function updateDirectorUI(isPresent) {
+            const statusText = isPresent ? 'Presente' : 'Ausente';
             domElements.directorStatusBadge.textContent = statusText;
             domElements.directorStatusText.textContent = statusText;
 
@@ -324,22 +284,20 @@
         }
 
         window.openDirectorActionModal = async function(action) {
-            resetDirectorLocationState();
             const isEntry = action === 'entrada';
             domElements.modalTitle.textContent = isEntry ? 'Registrar Entrada' : 'Registrar Saída';
             domElements.modalMessage.textContent = isEntry 
-                ? 'Para confirmar a entrada, precisamos da sua localização.'
+                ? 'Para confirmar a entrada, precisamos obter sua localização.'
                 : 'Você confirma o registro da sua saída da escola?';
             
             domElements.actionModal.style.display = 'flex';
+            domElements.confirmActionBtn.disabled = true;
 
             if (isEntry) {
                 await getDirectorLocation();
             } else {
-                // Para saída, não precisa de localização, então habilita o botão direto.
-                domElements.confirmActionBtn.disabled = false;
                 domElements.locationStatus.style.display = 'none';
-                domElements.coordinatesDisplay.style.display = 'none';
+                domElements.confirmActionBtn.disabled = false; // Para saída, não precisa de localização
             }
 
             domElements.confirmActionBtn.onclick = () => confirmDirectorAction(action);
@@ -349,28 +307,27 @@
             const isEntry = action === 'entrada';
 
             if (isEntry && !directorLocationData.isValid) {
-                showAlert('Localização inválida ou não obtida. Tente novamente.', 'warning');
+                showAlert('Localização inválida. A entrada não pode ser registrada.', 'warning');
                 return;
             }
 
+            domElements.confirmActionBtn.disabled = true;
+            domElements.confirmActionBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Confirmando...';
+
             try {
                 const accessToken = await getValidToken();
+                const endpoint = isEntry ? '/api/presencas/diretores/entrada' : '/api/presencas/diretores/saida';
                 
-                // CORREÇÃO DEFINITIVA: Payload alinhado com o backend de 22/10
-                const requestData = {
+                const payload = {
                     responsavelId: currentDirectorId,
                     responsavelNome: currentUser.nome,
                     responsavelTipo: 'DIRETOR'
                 };
                 
                 if (isEntry) {
-                    requestData.latitude = directorLocationData.latitude;
-                    requestData.longitude = directorLocationData.longitude;
+                    payload.latitude = directorLocationData.latitude;
+                    payload.longitude = directorLocationData.longitude;
                 }
-                
-                console.log(`📦 Enviando dados para ${action} do diretor:`, requestData);
-                
-                const endpoint = isEntry ? '/api/presencas/diretores/entrada' : '/api/presencas/diretores/saida';
                 
                 const response = await fetch(`${BACKEND_URL}${endpoint}`, {
                     method: 'POST',
@@ -378,7 +335,7 @@
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify(requestData)
+                    body: JSON.stringify(payload)
                 });
                 
                 if (!response.ok) {
@@ -389,24 +346,25 @@
                 showAlert(`✅ ${isEntry ? 'Entrada' : 'Saída'} registrada com sucesso!`, 'success');
                 
                 closeModal();
-                await loadDirectorData(); // Atualiza o status do diretor na UI
-                await loadOverviewData(); // Atualiza a visão geral
+                await loadDirectorStatus(accessToken);
+                await loadOverviewData(accessToken);
                 
             } catch (error) {
                 console.error(`❌ Erro ao confirmar ${action} do diretor:`, error);
                 showAlert(`Erro: ${error.message}`, 'error');
+            } finally {
                 closeModal();
             }
         }
 
         // =================================================================================
-        // LÓGICA DE ALUNOS
+        // LÓGICA DE ALUNOS E VISÃO GERAL
         // =================================================================================
 
-        async function loadAllStudents(page = 0, searchTerm = '') {
+        async function loadAllStudents(accessToken, page = 0, searchTerm = '') {
             try {
-                const accessToken = await getValidToken();
-                let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=${page}&size=${pageSize}`;
+                // Utiliza o currentSchoolId obtido do /me
+                let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=${page}&size=10`;
                 if (searchTerm) {
                     url += `&nome=${encodeURIComponent(searchTerm)}`;
                 }
@@ -415,66 +373,37 @@
                 if (!response.ok) throw new Error('Falha ao carregar alunos.');
 
                 const data = await response.json();
-                
-                if (data.content && data.content.length > 0) {
-                    const studentsWithStatus = await checkAllStudentsStatus(data.content);
-                    renderStudentsTable(studentsWithStatus);
-                } else {
-                    domElements.studentsTableBody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Nenhum aluno encontrado.</td></tr>';
-                }
-                setupPagination(domElements.studentsPagination, data, 'loadAllStudents', searchTerm);
+                renderStudentsTable(data.content || []);
+                // setupPagination(domElements.studentsPagination, data, 'loadAllStudents', searchTerm);
                 
             } catch (error) {
                 console.error('❌ Erro em loadAllStudents:', error);
-                domElements.studentsTableBody.innerHTML = `<tr><td colspan="5" style="text-align: center;">Erro ao carregar alunos: ${error.message}</td></tr>`;
+                domElements.studentsTableBody.innerHTML = `<tr><td colspan="4">Erro ao carregar alunos.</td></tr>`;
             }
         }
         
-        async function checkAllStudentsStatus(alunos) {
-            try {
-                const accessToken = await getValidToken();
-                const response = await fetch(`${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?size=1000`, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
-                });
-                if (!response.ok) return alunos.map(a => ({ ...a, status: 'INDEFINIDO' }));
-
-                const data = await response.json();
-                const presentesIds = new Set(data.content?.map(aluno => aluno.id) || []);
-                
-                return alunos.map(aluno => ({
-                    ...aluno,
-                    status: presentesIds.has(aluno.id) ? 'PRESENTE' : 'AUSENTE'
-                }));
-            } catch (error) {
-                console.error("Erro ao verificar status dos alunos:", error);
-                return alunos.map(a => ({ ...a, status: 'INDEFINIDO' }));
-            }
-        }
-
         function renderStudentsTable(students) {
-            domElements.studentsTableBody.innerHTML = '';
+            const tbody = domElements.studentsTableBody;
+            tbody.innerHTML = '';
+            if (students.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">Nenhum aluno encontrado.</td></tr>';
+                return;
+            }
             students.forEach(student => {
                 const statusClass = student.status === 'PRESENTE' ? 'status-present' : 'status-absent';
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td>${student.nome}</td>
                     <td>${student.salaNome || 'N/A'}</td>
-                    <td>Carregando...</td>
-                    <td><span class="status-badge ${statusClass}">${student.status}</span></td>
+                    <td><span class="status-badge ${statusClass}">${student.status || 'INDEFINIDO'}</span></td>
                     <td><button class="btn btn-sm btn-info">Detalhes</button></td>
                 `;
-                domElements.studentsTableBody.appendChild(tr);
+                tbody.appendChild(tr);
             });
         }
 
-
-        // =================================================================================
-        // VISÃO GERAL E ATUALIZAÇÃO AUTOMÁTICA
-        // =================================================================================
-
-        async function loadOverviewData() {
+        async function loadOverviewData(accessToken) {
             try {
-                const accessToken = await getValidToken();
                 // Alunos presentes
                 const presResponse = await fetch(`${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?size=5`, {
                     headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -482,14 +411,9 @@
                 if (presResponse.ok) {
                     const presData = await presResponse.json();
                     const list = domElements.presentStudentsList;
-                    list.innerHTML = '';
-                    if (presData.content && presData.content.length > 0) {
-                        presData.content.forEach(s => {
-                            list.innerHTML += `<div>${s.nome}</div>`;
-                        });
-                    } else {
-                        list.innerHTML = 'Nenhum aluno presente no momento.';
-                    }
+                    list.innerHTML = presData.content && presData.content.length > 0
+                        ? presData.content.map(s => `<div>${s.nome}</div>`).join('')
+                        : 'Nenhum aluno presente.';
                 }
                 // Total de alunos
                 const totalResponse = await fetch(`${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?size=1`, {
@@ -501,34 +425,31 @@
                 }
             } catch (error) {
                 console.error("Erro ao carregar dados da visão geral:", error);
-                domElements.presentStudentsList.innerHTML = 'Erro ao carregar.';
             }
         }
 
         function startAutoRefresh() {
-            setInterval(() => {
+            setInterval(async () => {
+                const token = await getValidToken();
+                if (!token) return;
+
                 if (document.getElementById('overview').style.display === 'block') {
-                    loadOverviewData();
-                    loadDirectorData();
+                    loadOverviewData(token);
+                    loadDirectorStatus(token);
                 }
-                if (document.getElementById('students').style.display === 'block') {
-                    loadAllStudents(currentStudentsPage, domElements.studentSearch.value);
-                }
-            }, 30000);
+            }, 30000); // 30 segundos
         }
 
-
         // =================================================================================
-        // FUNÇÕES AUXILIARES (UI, MODAIS, LOCALIZAÇÃO, ETC.)
+        // FUNÇÕES AUXILIARES (UI, MODAIS, LOCALIZAÇÃO)
         // =================================================================================
 
-        function showLoading() { if(domElements.loading) domElements.loading.style.display = 'flex'; }
-        function hideLoading() { if(domElements.loading) domElements.loading.style.display = 'none'; }
-        function showContent() { hideLoading(); if(domElements.content) domElements.content.style.display = 'block'; }
+        function showLoading() { domElements.loading.style.display = 'flex'; }
+        function hideLoading() { domElements.loading.style.display = 'none'; }
+        function showContent() { hideLoading(); domElements.content.style.display = 'block'; }
 
         function showAlert(message, type = 'info') {
             const alertBox = domElements.alertBox;
-            if (!alertBox) return;
             alertBox.textContent = message;
             alertBox.className = `alert-box alert-${type}`;
             alertBox.style.display = 'block';
@@ -538,25 +459,16 @@
         window.openTab = function(evt, tabName) {
             let i, tabcontent, tablinks;
             tabcontent = document.getElementsByClassName("tab-content");
-            for (i = 0; i < tabcontent.length; i++) {
-                tabcontent[i].style.display = "none";
-            }
+            for (i = 0; i < tabcontent.length; i++) tabcontent[i].style.display = "none";
             tablinks = document.getElementsByClassName("tab-link");
-            for (i = 0; i < tablinks.length; i++) {
-                tablinks[i].className = tablinks[i].className.replace(" active", "");
-            }
+            for (i = 0; i < tablinks.length; i++) tablinks[i].className = tablinks[i].className.replace(" active", "");
             document.getElementById(tabName).style.display = "block";
             evt.currentTarget.className += " active";
         }
 
-        window.closeModal = function() { domElements.actionModal.style.display = 'none'; }
-        window.closeDetailsModal = function() { domElements.detailsModal.style.display = 'none'; }
-
-        function resetDirectorLocationState() {
-            directorLocationData = { latitude: null, longitude: null, isValid: false };
-            domElements.locationStatus.style.display = 'none';
-            domElements.coordinatesDisplay.style.display = 'none';
-            domElements.confirmActionBtn.disabled = true;
+        window.closeModal = function() {
+            domElements.actionModal.style.display = 'none';
+            domElements.confirmActionBtn.innerHTML = '<i class="fas fa-check"></i> Confirmar';
         }
 
         async function getDirectorLocation() {
@@ -565,8 +477,7 @@
             domElements.locationStatus.style.display = 'block';
 
             if (!navigator.geolocation) {
-                showLocationError('Geolocalização não é suportada por este navegador.');
-                return;
+                return showLocationError('Geolocalização não é suportada.');
             }
 
             try {
@@ -579,40 +490,21 @@
                     longitude: position.coords.longitude,
                     isValid: true
                 };
-                showLocationSuccess(position.coords);
+
+                domElements.locationStatus.className = 'location-status location-success';
+                domElements.locationStatus.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida!';
+                domElements.confirmActionBtn.disabled = false;
 
             } catch (error) {
-                showLocationError(`Erro ao obter localização: ${error.message}`);
+                showLocationError(`Falha ao obter localização: ${error.message}`);
             }
         }
         
-        function showLocationSuccess(coords) {
-            domElements.locationStatus.className = 'location-status location-success';
-            domElements.locationStatus.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida com sucesso!';
-            domElements.latitude.textContent = coords.latitude.toFixed(6);
-            domElements.longitude.textContent = coords.longitude.toFixed(6);
-            domElements.coordinatesDisplay.style.display = 'block';
-            domElements.confirmActionBtn.disabled = false;
-        }
-
         function showLocationError(message) {
             domElements.locationStatus.className = 'location-status location-error';
             domElements.locationStatus.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${message}`;
             directorLocationData.isValid = false;
             domElements.confirmActionBtn.disabled = true;
-        }
-
-        function setupPagination(element, data, loadFunctionName, searchTerm = '') {
-            element.innerHTML = '';
-            if (data.totalPages > 1) {
-                if (!data.first) {
-                    element.innerHTML += `<button class="btn btn-secondary" onclick="${loadFunctionName}(${data.number - 1}, '${searchTerm}')">Anterior</button>`;
-                }
-                element.innerHTML += `<span class="page-info">Página ${data.number + 1} de ${data.totalPages}</span>`;
-                if (!data.last) {
-                    element.innerHTML += `<button class="btn btn-secondary" onclick="${loadFunctionName}(${data.number + 1}, '${searchTerm}')">Próxima</button>`;
-                }
-            }
         }
     </script>
 </body>
