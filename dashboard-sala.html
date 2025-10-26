@@ -490,6 +490,8 @@
                 this.BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
                 this.WS_URL = 'https://inoutchi-cd92743c8443.herokuapp.com/ws';
                 this.ENDPOINT_ALUNOS_PRESENTES = '/api/diretores/salas/{salaId}/alunos?presentes=true';
+
+                this.isAudioPlaying = false;
                 
                 // WebSocket STOMP configuration
                 this.stompClient = null;
@@ -922,12 +924,13 @@
             }
 
             normalizarNomeArquivo(nome) {
-                // Remove acentos, converte para minúsculas e substitui espaços
+                if (!nome) return '';
+                // Remove espaços, acentos e converte para minúsculas.
                 return nome
-                    .normalize('NFD')
-                    .replace(/[\u0300-\u036f]/g, '')
-                    .toLowerCase()
-                    .replace(/\s+/g, '');
+                    .normalize("NFD")
+                    .replace(/[\u0300-\u036f]/g, "")
+                    .replace(/\s+/g, '')
+                    .toLowerCase();
             }
 
 
@@ -1045,18 +1048,32 @@
 
             tocarAlertaExpansao() {
                 const baseURL = 'https://tiarleinoeremberg.github.io/frontend_inoutchi';
+
+                // Normaliza o nome do aluno para encontrar o arquivo MP3 correto.
+                const nomeArquivo = this.normalizarNomeArquivo(alunoNome);
+                const nomeMP3 = `${baseURL}/mp3/Nomes/${nomeArquivo}.mp3`;
                 
                 this.tocarMP3Sequencial(
                     `${baseURL}/mp3/Alertas/Alerta.mp3`,
-                    `${baseURL}/mp3/Nomes/anasilva.mp3`
+                    nomeMP3
                 ).catch(error => {
-                    console.warn('🔇 MP3 falhou, usando áudio sintetizado:', error);
-                    this.tocarAlertaOriginal();
+                    console.warn('🔇 Sequência de MP3 falhou, usando áudio sintetizado:', error);
+                    // Como fallback, podemos tentar tocar apenas o alerta original ou usar outra API.
+                    this.tocarAlertaOriginal(); 
                 });
             }
 
             // 🎯 REPRODUÇÃO SIMPLES DE MP3 SEM PRÉ-CARREGAMENTO
             async tocarMP3Sequencial(alertaMP3, nomeMP3) {
+                // 1. VERIFICA SE JÁ EXISTE UM ÁUDIO EM REPRODUÇÃO
+                if (this.isAudioPlaying) {
+                    console.log('🟡 Áudio já em reprodução. Nova chamada ignorada.');
+                    return;
+                }
+
+                // 2. SINALIZA QUE O ÁUDIO VAI COMEÇAR
+                this.isAudioPlaying = true;
+
                 try {
                     // Tocar alerta
                     await this.reproduzirMP3(alertaMP3);
@@ -1064,9 +1081,15 @@
                     // Tocar nome após o alerta terminar
                     await this.reproduzirMP3(nomeMP3);
                     
-                    console.log('✅ Sequência MP3 executada');
+                    console.log('✅ Sequência MP3 executada com sucesso.');
+
                 } catch (error) {
-                    throw error; // Propaga o erro para o catch externo
+                    console.error('❌ Erro na sequência de MP3:', error);
+                    // Propaga o erro se necessário, mas o mais importante é liberar a flag.
+                } finally {
+                    // 3. SINALIZA QUE O ÁUDIO TERMINOU (SEJA COM SUCESSO OU ERRO)
+                    console.log('🟢 Liberando a flag de áudio.');
+                    this.isAudioPlaying = false;
                 }
             }
 
@@ -1075,9 +1098,7 @@
                 return new Promise((resolve, reject) => {
                     const audio = new Audio(url);
                     audio.volume = 1.0;
-                    
-                    // SEM preload - carrega apenas quando necessário
-                    audio.preload = 'none';
+                    audio.preload = 'auto'; // 'auto' pode ajudar a iniciar mais rápido
                     
                     audio.addEventListener('ended', () => {
                         console.log(`✅ MP3 finalizado: ${url.split('/').pop()}`);
@@ -1085,12 +1106,17 @@
                     });
                     
                     audio.addEventListener('error', (e) => {
-                        console.warn(`❌ Erro MP3 ${url.split('/').pop()}:`, e.target.error);
-                        reject(e.target.error);
+                        const errorMsg = `Erro ao carregar MP3: ${url.split('/').pop()}`;
+                        console.warn(`❌ ${errorMsg}`, e.target.error);
+                        reject(new Error(errorMsg));
                     });
                     
                     // Tenta reproduzir imediatamente
-                    audio.play().catch(reject);
+                    audio.play().catch(err => {
+                        const errorMsg = `Falha ao iniciar a reprodução de ${url.split('/').pop()}`;
+                        console.warn(`❌ ${errorMsg}`, err);
+                        reject(new Error(errorMsg));
+                    });
                 });
             }
 
