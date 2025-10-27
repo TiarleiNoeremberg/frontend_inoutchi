@@ -559,27 +559,53 @@
             */
 
             async inicializar() {
-                // ...
-                try {
-                    // ...
-                    await this.verificarToken();
-                    
-                    this.WS_URL = 'https://inoutchi-cd92743c8443.herokuapp.com/ws-sala';
-                    console.log('🎯 URL WebSocket definida:', this.WS_URL);
+                // 1. VERIFICAÇÃO INICIAL DE TOKEN
+                if (!this.token || !this.tokenExpiry || new Date().getTime() > parseInt(this.tokenExpiry)) {
+                    console.log('REDIRECIONANDO: Token inválido ou expirado');
+                    this.mostrarErro('Sessão expirada ou inexistente. Faça login novamente.');
+                    setTimeout(() => this.redirecionarParaLogin(), 2000);
+                    return;
+                }
 
+                try {
+                    // 2. CARREGAR DADOS DO USUÁRIO PRIMEIRO (ESSENCIAL)
+                    await this.carregarUsuario();
+                    console.log('✅ Usuário carregado:', this.currentUser?.username);
+
+                    // Validação de Role
+                    if (!this.currentUser.roles.includes('ROLE_SALA')) {
+                        this.mostrarErro('Acesso negado. Esta área é exclusiva para salas.');
+                        setTimeout(() => this.redirecionarParaLogin(), 3000);
+                        return;
+                    }
+
+                    // 3. DETERMINAR O ID DA SALA (AGORA QUE TEMOS O USUÁRIO)
+                    this.determinarSalaId();
+                    if (!this.salaId) {
+                        throw new Error('Não foi possível determinar o ID da sala a partir do usuário.');
+                    }
+                    console.log(`✅ ID da Sala determinado: ${this.salaId}`);
+                    
+                    // 4. CARREGAR OS DADOS INICIAIS DA SALA (ALUNOS PRESENTES)
+                    await this.carregarDadosSala();
+                    console.log('✅ Dados iniciais da sala carregados.');
+
+                    // 5. AGORA, E SOMENTE AGORA, INICIE O WEBSOCKET
+                    console.log('🚀 Preparando para iniciar a conexão WebSocket...');
                     await this.testarWebSocketDisponivel();
-                    
-                    // INICIAR WEBSOCKET E ESPERAR
-                    await this.iniciarWebSocketStomp(); // <--- CORREÇÃO: Agora espera a conexão
-                    
+                    await this.iniciarWebSocketStomp(); // Espera a conexão ser um sucesso
+
+                    // 6. INICIAR TAREFAS DE FUNDO
                     this.atualizarHora();
                     setInterval(() => this.atualizarHora(), 1000);
-                    setInterval(() => this.carregarDadosSala(), 2000000);
-                    
-                    console.log('✅ Dashboard sala REALMENTE inicializado com WebSocket CONECTADO!');
-                    
+                    // O setInterval para carregarDadosSala pode ser menos frequente ou removido
+                    // se o WebSocket for 100% confiável para todas as atualizações.
+                    setInterval(() => this.carregarDadosSala(), 2000000); 
+
+                    console.log('🎉 Dashboard REALMENTE inicializado e conectado!');
+
                 } catch (error) {
-                    console.error('❌ Erro ao inicializar:', error);
+                    console.error('❌ Erro fatal durante a inicialização:', error);
                     this.mostrarErro('Erro ao carregar dashboard: ' + error.message);
                 }
             }
