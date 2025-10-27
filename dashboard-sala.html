@@ -513,6 +513,7 @@
                 this.inicializar();
             }
 
+            /*
             async inicializar() {
                 if (!this.token || !this.tokenExpiry || new Date().getTime() > parseInt(this.tokenExpiry)) {
                     console.log('REDIRECIONANDO: Token inválido ou expirado');
@@ -549,6 +550,33 @@
                     setInterval(() => this.carregarDadosSala(), 2000000);
                     
                     console.log('✅ Dashboard sala inicializado com WebSocket!');
+                    
+                } catch (error) {
+                    console.error('❌ Erro ao inicializar:', error);
+                    this.mostrarErro('Erro ao carregar dashboard: ' + error.message);
+                }
+            }
+            */
+
+            async inicializar() {
+                // ...
+                try {
+                    // ...
+                    await this.verificarToken();
+                    
+                    this.WS_URL = 'https://inoutchi-cd92743c8443.herokuapp.com/ws-sala';
+                    console.log('🎯 URL WebSocket definida:', this.WS_URL);
+
+                    await this.testarWebSocketDisponivel();
+                    
+                    // INICIAR WEBSOCKET E ESPERAR
+                    await this.iniciarWebSocketStomp(); // <--- CORREÇÃO: Agora espera a conexão
+                    
+                    this.atualizarHora();
+                    setInterval(() => this.atualizarHora(), 1000);
+                    setInterval(() => this.carregarDadosSala(), 2000000);
+                    
+                    console.log('✅ Dashboard sala REALMENTE inicializado com WebSocket CONECTADO!');
                     
                 } catch (error) {
                     console.error('❌ Erro ao inicializar:', error);
@@ -606,6 +634,7 @@
                 console.log('🎯 Sala ativada:', payload);
             }
 
+            /*
             iniciarWebSocketStomp() {
                 try {
                     console.log('🔌 Conectando ao WebSocket STOMP...');
@@ -710,6 +739,57 @@
                     console.error('❌ Erro ao conectar WebSocket:', error);
                     this.atualizarStatusWebSocket('error', 'Erro de Conexão');
                 }
+            }
+            */
+
+            iniciarWebSocketStomp() {
+                return new Promise((resolve, reject) => {
+                    try {
+                        console.log('🔌 Conectando ao WebSocket STOMP...');
+                        this.atualizarStatusWebSocket('connecting', 'Conectando...');
+
+                        const socket = new SockJS(this.WS_URL);
+
+                        this.stompClient = new StompJs.Client({
+                            webSocketFactory: () => socket,
+                            reconnectDelay: 5000,
+                            // ... outras configurações ...
+                            connectHeaders: {
+                                'Authorization': `Bearer ${this.token}`,
+                                // ... outros headers ...
+                            },
+                        });
+
+                        this.stompClient.onConnect = (frame) => {
+                            console.log('✅ WebSocket STOMP conectado com sucesso!', frame);
+                            this.atualizarStatusWebSocket('connected', 'WebSocket Online');
+                            this.ativarSala();
+                            this.inscreverNosTopicos();
+                            this.mostrarNotificacao('Conectado', 'Conexão em tempo real estabelecida', 'success');
+                            resolve(); // <-- IMPORTANTE: Resolve a Promise no sucesso!
+                        };
+
+                        this.stompClient.onStompError = (frame) => {
+                            console.error('❌ Erro STOMP:', frame);
+                            this.atualizarStatusWebSocket('error', 'Erro STOMP');
+                            reject(new Error('Erro STOMP: ' + (frame.headers?.message || ''))); // <-- IMPORTANTE: Rejeita a Promise no erro.
+                        };
+
+                        this.stompClient.onWebSocketError = (error) => {
+                            console.error('❌ Erro WebSocket:', error);
+                            this.atualizarStatusWebSocket('error', 'Erro Conexão');
+                            reject(error); // <-- IMPORTANTE: Rejeita a Promise no erro.
+                        };
+
+                        console.log('🔑 Enviando token para conexão STOMP...');
+                        this.stompClient.activate();
+
+                    } catch (error) {
+                        console.error('❌ Erro ao iniciar conexão WebSocket:', error);
+                        this.atualizarStatusWebSocket('error', 'Erro de Conexão');
+                        reject(error); // <-- IMPORTANTE: Rejeita a Promise no erro.
+                    }
+                });
             }
 
             async renovarTokenEConectar() {
