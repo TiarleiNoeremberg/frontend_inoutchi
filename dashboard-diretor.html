@@ -3962,126 +3962,138 @@
         window.viewStudentHistory = async function(studentId, studentName, page = 0) {
             console.log('🎯 viewStudentHistory CHAMADA para:', studentName);
             
-            try {
-                // 1. Mostrar alerta visual
-                showAlert(`Carregando histórico de ${studentName}...`, 'success');
-                
-                // 2. Mudar para a aba de histórico 
-                switchToHistoryTab();
+            currentHistoryStudentId = studentId;
+            currentHistoryStudentName = studentName;
+            currentHistoryPage = page;
 
-                // 3. Mostrar loading imediatamente
-                const historyTableBody = document.getElementById('historyTableBody');
-                if (historyTableBody) {
-                    historyTableBody.innerHTML = `
+            document.getElementById('historyModalTitle').textContent = `Histórico de ${studentName}`;
+            const historyTableBody = document.getElementById('historyTableBody');
+            historyTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px;"><i class="fas fa-spinner fa-spin"></i> Carregando Histórico...</td></tr>';
+            
+            // Exibir o modal (usando jQuery, conforme o seu código)
+            $('#historyModal').modal('show');
+
+            try {
+                const accessToken = await garantirAutenticacao();
+                if (!accessToken) return;
+
+                const response = await fetch(`${BACKEND_URL}/api/presencas/alunos/${studentId}/historico?page=${page}&size=10&sort=id,desc`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.mensagem || `Erro ao carregar o histórico.`);
+                }
+
+                const data = await response.json();
+                
+                if (data.dados.registros.length === 0) {
+                    historyTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px;">Nenhum registro de presença encontrado.</td></tr>';
+                } else {
+                    historyTableBody.innerHTML = data.dados.registros.map(record => `
                         <tr>
-                            <td colspan="7" style="text-align: center; padding: 40px;">
-                                <div class="loading-spinner" style="width: 30px; height: 30px; margin: 0 auto;"></div>
-                                <h3 style="margin-top: 20px; color: var(--primary-color);">Carregando histórico de ${studentName}</h3>
-                                <p>Por favor, aguarde...</p>
+                            <td>${record.id}</td>
+                            <td>${record.entradaAt ? new Date(record.entradaAt).toLocaleString() : '---'}</td>
+                            <td>${record.iniciadoPor || '---'} (${record.iniciadoPorTipo || 'N/A'})</td>
+                            <!-- ================= NOVA MODIFICAÇÃO AQUI ================= -->
+                            <td>
+                                ${record.saidaAt 
+                                    ? new Date(record.saidaAt).toLocaleString() 
+                                    : `<button class="btn btn-danger btn-sm" onclick="confirmarEncerramentoManual(${record.id}, ${studentId}, '${studentName.replace(/'/g, "\\'")}')">
+                                        <i class="fas fa-power-off"></i> Encerrar
+                                    </button>`
+                                }
+                            </td>
+                            <!-- ================= FIM DA MODIFICAÇÃO ================= -->
+                            <td>${record.finalizadoPor || '---'} (${record.finalizadoPorTipo || 'N/A'})</td>
+                            <td>
+                                <button class="btn btn-info btn-sm" onclick="viewLocationOnMap(${record.latitudeEntrada}, ${record.longitudeEntrada})">
+                                    <i class="fas fa-map-marker-alt"></i> Ver
+                                </button>
+                            </td>
+                            <td>
+                                ${record.latitudeSaida && record.longitudeSaida ?
+                                    `<button class="btn btn-info btn-sm" onclick="viewLocationOnMap(${record.latitudeSaida}, ${record.longitudeSaida})">
+                                        <i class="fas fa-map-marker-alt"></i> Ver
+                                    </button>` : '---'
+                                }
                             </td>
                         </tr>
-                    `;
+                    `).join('');
                 }
                 
-                // 4. Ocultar paginação durante o carregamento
-                const paginationControls = document.getElementById('studentHistoryPagination');
-                if (paginationControls) {
-                    paginationControls.style.display = 'none';
+                setupHistoryPagination(data.dados.paginacao);
+
+            } catch (error) {
+                console.error(`Erro ao carregar histórico:`, error);
+                // Reutiliza o seu excelente tratamento de erro já existente
+                historyTableBody.innerHTML = `
+                    <tr>
+                        <td colspan="7" style="text-align: center; padding: 40px; color: var(--danger-color);">
+                            <h3>Erro ao carregar histórico</h3>
+                            <p>${error.message}</p>
+                            <button class="btn btn-primary" onclick="viewStudentHistory(${studentId}, '${studentName.replace(/'/g, "\\'")}', 0)" style="margin-top: 10px;">
+                                <i class="fas fa-redo"></i> Tentar Novamente
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        /**
+         * NOVA FUNÇÃO: Pede confirmação ao diretor antes de encerrar a sessão.
+         * @param {number} sessaoId - O ID da sessão a ser encerrada.
+         * @param {number} studentId - O ID do aluno (para recarregar a view).
+         * @param {string} studentName - O nome do aluno (para recarregar a view).
+         */
+        function confirmarEncerramentoManual(sessaoId, studentId, studentName) {
+            const isConfirmed = confirm(`Atenção!\n\nVocê está prestes a forçar o encerramento de uma sessão de presença que ficou aberta.\n\nDeseja continuar?`);
+            if (isConfirmed) {
+                encerrarSessaoManualmente(sessaoId, studentId, studentName);
+            }
+        }
+
+        /**
+         * NOVA FUNÇÃO: Chama o endpoint do backend para encerrar a sessão e atualiza a UI.
+         * @param {number} sessaoId - O ID da sessão a ser encerrada.
+         * @param {number} studentId - O ID do aluno (para recarregar a view).
+         * @param {string} studentName - O nome do aluno (para recarregar a view).
+         */
+        async function encerrarSessaoManualmente(sessaoId, studentId, studentName) {
+            showAlert('Encerrando sessão, por favor aguarde...', 'info');
+            
+            try {
+                const accessToken = await garantirAutenticacao();
+                if (!accessToken) {
+                    throw new Error('Sessão de diretor inválida. Faça login novamente.');
                 }
-                
-                // 5. Atualizar título
-                const historyTitle = document.querySelector('#history-tab .section-title h3');
-                if (historyTitle) {
-                    historyTitle.textContent = `Histórico de Presença - ${studentName}`;
-                }
-                
-                // 6. FAZER A REQUISIÇÃO REAL AQUI MESMO (SEM CHAMAR OUTRA FUNÇÃO)
-                console.log('🔍 Fazendo requisição para histórico...');
-                
-                const accessToken = localStorage.getItem('access_token');
-                const response = await fetch(`${BACKEND_URL}/api/presencas/historico/${studentId}`, {
+
+                const response = await fetch(`${BACKEND_URL}/api/presencas/sessoes/${sessaoId}/encerrar-manualmente`, {
+                    method: 'PATCH',
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
                     }
                 });
 
-                console.log('📡 Resposta da API:', response.status);
+                const result = await response.json();
 
-                if (response.ok) {
-                    const result = await response.json();
-                    console.log('📊 Dados recebidos:', result);
-                    
-                    if (result.sucesso && result.dados && Array.isArray(result.dados)) {
-                        // Ordenar por data (mais recente primeiro)
-                        const allRecords = result.dados.sort((a, b) => 
-                            new Date(b.entradaAt) - new Date(a.entradaAt)
-                        );
-                        
-                        // Inicializar variáveis de paginação (se não existirem)
-                        if (typeof currentStudentHistoryData === 'undefined') {
-                            window.currentStudentHistoryData = [];
-                            window.currentStudentHistoryTotalElements = 0;
-                            window.currentStudentHistoryTotalPages = 1;
-                            window.currentStudentHistoryPage = 0;
-                            window.studentHistoryPageSize = 10;
-                        }
-                        
-                        currentStudentHistoryData = allRecords;
-                        currentStudentHistoryTotalElements = allRecords.length;
-                        currentStudentHistoryTotalPages = Math.ceil(allRecords.length / studentHistoryPageSize);
-                        currentStudentHistoryPage = page;
-                        currentStudentId = studentId;
-                        
-                        if (allRecords.length === 0) {
-                            renderStudentHistory([], studentName);
-                            if (paginationControls) paginationControls.style.display = 'none';
-                            showAlert(`Nenhum registro encontrado para ${studentName}`, 'info');
-                        } else {
-                            // Calcular dados da página atual
-                            const startIndex = page * studentHistoryPageSize;
-                            const endIndex = startIndex + studentHistoryPageSize;
-                            const pageData = allRecords.slice(startIndex, endIndex);
-                            
-                            renderStudentHistory(pageData, studentName);
-                            
-                            // Configurar paginação se existir
-                            if (typeof setupStudentHistoryPagination !== 'undefined') {
-                                setupStudentHistoryPagination();
-                            } else {
-                                console.log('⚠️ Paginação não disponível, mostrando todos os registros');
-                            }
-                        }
-                    } else {
-                        renderStudentHistory([], studentName);
-                        if (paginationControls) paginationControls.style.display = 'none';
-                        showAlert(`Nenhum registro encontrado para ${studentName}`, 'info');
-                    }
-                } else {
-                    throw new Error(`Erro ${response.status}: ${response.statusText}`);
+                if (!response.ok) {
+                    throw new Error(result.erro || 'Falha ao comunicar com o servidor.');
                 }
+
+                showAlert('Sessão encerrada com sucesso!', 'success');
                 
+                // Passo crucial: Recarrega a view de histórico para mostrar o resultado
+                await viewStudentHistory(studentId, studentName, currentHistoryPage);
+
             } catch (error) {
-                console.error('❌ Erro em viewStudentHistory:', error);
-                showAlert(`Erro ao carregar histórico: ${error.message}`, 'error');
-                
-                // Mostrar mensagem de erro na tabela
-                const historyTableBody = document.getElementById('historyTableBody');
-                if (historyTableBody) {
-                    historyTableBody.innerHTML = `
-                        <tr>
-                            <td colspan="7" style="text-align: center; padding: 40px; color: var(--danger-color);">
-                                <h3>Erro ao carregar histórico</h3>
-                                <p>${error.message}</p>
-                                <button class="btn btn-primary" onclick="viewStudentHistory(${studentId}, '${studentName}', 0)" style="margin-top: 10px;">
-                                    <i class="fas fa-redo"></i> Tentar Novamente
-                                </button>
-                            </td>
-                        </tr>
-                    `;
-                }
+                console.error('Erro ao encerrar sessão manualmente:', error);
+                showAlert(`Erro: ${error.message}`, 'error');
             }
-        };
+        }
         
         /**
          * Verifica o status de todos os alunos, agora em duas etapas:
