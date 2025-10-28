@@ -4122,18 +4122,22 @@
         }
 
         /**
-         * NOVA FUNÇÃO: Chama o endpoint do backend para encerrar a sessão e atualiza a UI.
+         * VERSÃO CORRIGIDA E APRIMORADA
+         * Chama o endpoint para encerrar a sessão, trata o erro 409, e usa a variável correta para atualizar a tela.
          * @param {number} sessaoId - O ID da sessão a ser encerrada.
          * @param {number} studentId - O ID do aluno (para recarregar a view).
          * @param {string} studentName - O nome do aluno (para recarregar a view).
          */
         async function encerrarSessaoManualmente(sessaoId, studentId, studentName) {
-            showAlert('Encerrando sessão, por favor aguarde...', 'info');
-            
+            // AQUI ESTÁ A CORREÇÃO: Usando a variável global correta 'currentStudentHistoryPage'
+            const currentPage = window.currentStudentHistoryPage || 0;
+
+            showAlert('Processando encerramento da sessão...', 'info');
+
             try {
                 const accessToken = await garantirAutenticacao();
                 if (!accessToken) {
-                    throw new Error('Sessão de diretor inválida. Faça login novamente.');
+                    throw new Error('Autenticação falhou. Faça o login novamente.');
                 }
 
                 const response = await fetch(`${BACKEND_URL}/api/presencas/sessoes/${sessaoId}/encerrar-manualmente`, {
@@ -4144,20 +4148,39 @@
                     }
                 });
 
-                const result = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(result.erro || 'Falha ao comunicar com o servidor.');
+                // CASO 1: SUCESSO (Status 200 OK)
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('✅ Sessão encerrada com sucesso:', result);
+                    showAlert('Sessão encerrada com sucesso!', 'success');
+                    // AGORA VAI FUNCIONAR: Recarrega a view de histórico para mostrar o resultado
+                    await window.viewStudentHistory(studentId, studentName, currentPage);
+                    return;
                 }
 
-                showAlert('Sessão encerrada com sucesso!', 'success');
+                // CASO 2: CONFLITO (Status 409) - A sessão JÁ estava encerrada
+                if (response.status === 409) {
+                    console.warn(`⚠️ Tentativa de encerrar sessão já finalizada (ID: ${sessaoId}). Sincronizando a interface.`);
+                    showAlert('Esta sessão já se encontrava encerrada. Atualizando a lista...', 'info');
+                    // AGORA VAI FUNCIONAR: Apenas recarrega a view para sincronizar
+                    await window.viewStudentHistory(studentId, studentName, currentPage);
+                    return;
+                }
+
+                // CASO 3: OUTROS ERROS
+                let errorMessage = `Erro ${response.status}: ${response.statusText}`;
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.mensagem || errorData.message || errorData.erro || errorMessage;
+                } catch (e) {
+                    console.warn('Não foi possível extrair detalhes do corpo da resposta de erro.');
+                }
                 
-                // Passo crucial: Recarrega a view de histórico para mostrar o resultado
-                await viewStudentHistory(studentId, studentName, currentHistoryPage);
+                throw new Error(errorMessage);
 
             } catch (error) {
-                console.error('Erro ao encerrar sessão manualmente:', error);
-                showAlert(`Erro: ${error.message}`, 'error');
+                console.error('❌ Erro final ao encerrar sessão manualmente:', error);
+                showAlert(`Erro ao processar a solicitação: ${error.message}`, 'error');
             }
         }
         
