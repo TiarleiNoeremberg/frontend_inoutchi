@@ -3962,99 +3962,104 @@
         // VERSÃO FINAL E CORRETA - PARA SISTEMA DE ABAS
         // =================================================================
         window.viewStudentHistory = async function(studentId, studentName, page = 0) {
-            console.log('🎯 viewStudentHistory CHAMADA para:', studentName, 'usando sistema de ABAS.');
+            console.log(`🎯 viewStudentHistory CHAMADA para: ${studentName}`);
             
-            currentHistoryStudentId = studentId;
-            currentHistoryStudentName = studentName;
-            currentHistoryPage = page;
-
-            // 1. Mudar para a aba de Histórico
-            // Este código simula o clique na aba de histórico para exibi-la
             try {
-                const historyTabLink = document.querySelector('a[href="#history-tab"], button[data-bs-target="#history-tab"]');
-                if (historyTabLink) {
-                    historyTabLink.click();
-                } else {
-                    // Se não achar o link, tenta ativar a aba manualmente
-                    document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
-                    document.getElementById('history-tab').classList.add('active');
+                // 1. Mostrar alerta visual e mudar de aba
+                showAlert(`Carregando histórico de ${studentName}...`, 'info');
+                switchToHistoryTab();
+
+                // 2. Mostrar loading
+                const historyTableBody = document.getElementById('historyTableBody');
+                if (historyTableBody) {
+                    historyTableBody.innerHTML = `
+                        <tr>
+                            <td colspan="7" style="text-align: center; padding: 40px;">
+                                <div class="loading-spinner" style="width: 30px; height: 30px; margin: 0 auto;"></div>
+                                <h3 style="margin-top: 20px; color: var(--primary-color);">Carregando histórico de ${studentName}</h3>
+                            </td>
+                        </tr>
+                    `;
                 }
-            } catch(e) {
-                console.error("Não foi possível mudar para a aba de histórico. Verifique a estrutura das abas.", e);
-                showAlert("Erro ao tentar exibir a aba de histórico.", "error");
-                return;
-            }
-            
-            // 2. Atualizar o título da seção de histórico
-            const titleElement = document.getElementById('historyTitle');
-            if (titleElement) {
-                titleElement.textContent = `Histórico de: ${studentName}`;
-            }
-
-            const historyTableBody = document.getElementById('historyTableBody');
-            historyTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px;"><i class="fas fa-spinner fa-spin"></i> Carregando Histórico...</td></tr>';
-            
-            // Oculta a paginação enquanto carrega
-            document.getElementById('studentHistoryPagination').style.display = 'none';
-
-            try {
-                const accessToken = await garantirAutenticacao();
-                if (!accessToken) return;
-
+                
+                // 3. Atualizar título
+                const historyTitle = document.querySelector('#history-tab .section-title h3');
+                if (historyTitle) {
+                    historyTitle.textContent = `Histórico de Presença - ${studentName}`;
+                }
+                
+                // 4. Fazer a requisição para a API
+                const accessToken = localStorage.getItem('access_token');
                 const response = await fetch(`${BACKEND_URL}/api/presencas/historico/${studentId}?page=${page}&size=10&sort=id,desc`, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
                 });
 
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.mensagem || `Erro ao carregar o histórico.`);
-                }
+                if (response.ok) {
+                    const result = await response.json();
+                    
+                    // ===== CORREÇÃO APLICADA AQUI =====
+                    // O objeto de sucesso da sua API envolve a lista de dados em uma propriedade chamada "data".
+                    const historico = result.data;
 
-                const data = await response.json();
-                
-                if (data.dados.registros.length === 0) {
-                    historyTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px;">Nenhum registro de presença encontrado.</td></tr>';
+                    if (historyTableBody) {
+                        if (historico && historico.length > 0) {
+                            historyTableBody.innerHTML = historico.map(record => {
+                                const entrada = record.entrada ? new Date(record.entrada).toLocaleString('pt-BR') : 'N/A';
+                                const saida = record.saida ? new Date(record.saida).toLocaleString('pt-BR') : 'N/A';
+                                const duracao = record.duracao || 'N/A';
+                                const status = record.status || 'N/A';
+                                const autorizadoPor = record.autorizadoPor || 'N/A';
+
+                                return `
+                                    <tr>
+                                        <td>${record.id}</td>
+                                        <td>${entrada}</td>
+                                        <td>${saida}</td>
+                                        <td>${duracao}</td>
+                                        <td><span class="status-badge status-${String(status).toLowerCase()}">${status}</span></td>
+                                        <td>${autorizadoPor}</td>
+                                    </tr>
+                                `;
+                            }).join('');
+                        } else {
+                            historyTableBody.innerHTML = `
+                                <tr>
+                                    <td colspan="7" style="text-align: center; padding: 40px;">
+                                        <h3>Nenhum registro de histórico encontrado</h3>
+                                        <p>Não há dados de presença para ${studentName}.</p>
+                                    </td>
+                                </tr>
+                            `;
+                        }
+                    }
                 } else {
-                    // Esta lógica já estava perfeita e permanece a mesma.
-                    historyTableBody.innerHTML = data.dados.registros.map(record => `
-                        <tr>
-                            <td>${record.id}</td>
-                            <td>${record.entradaAt ? new Date(record.entradaAt).toLocaleString() : '---'}</td>
-                            <td>${record.iniciadoPor || '---'} (${record.iniciadoPorTipo || 'N/A'})</td>
-                            <td>
-                                ${record.saidaAt 
-                                    ? new Date(record.saidaAt).toLocaleString() 
-                                    : `<button class="btn btn-danger btn-sm" onclick="confirmarEncerramentoManual(${record.id}, ${studentId}, '${studentName.replace(/'/g, "\\'")}')">
-                                        <i class="fas fa-power-off"></i> Encerrar
-                                    </button>`
-                                }
-                            </td>
-                            <td>${record.finalizadoPor || '---'} (${record.finalizadoPorTipo || 'N/A'})</td>
-                            <td>...</td> <!-- Colunas de localização omitidas por brevidade -->
-                            <td>...</td>
-                        </tr>
-                    `).join('');
-
-                    // Mostra a paginação após carregar
-                    document.getElementById('studentHistoryPagination').style.display = 'flex';
+                    const errorData = await response.json().catch(() => ({ message: 'Erro ao ler a resposta do servidor' }));
+                    const errorMessage = errorData.message || 'Erro interno do servidor';
+                    throw new Error(errorMessage);
                 }
-                
-                // A sua função setupHistoryPagination deve estar no seu código e será chamada aqui.
-                // Se o nome dela for setupStudentHistoryPagination, ajuste conforme necessário.
-                setupHistoryPagination(data.dados.paginacao);
-
             } catch (error) {
-                console.error(`Erro ao carregar histórico:`, error);
-                historyTableBody.innerHTML = `
-                    <tr>
-                        <td colspan="7" style="text-align: center; padding: 40px; color: var(--danger-color);">
-                            <h3>Erro ao carregar histórico</h3>
-                            <p>${error.message}</p>
-                        </td>
-                    </tr>
-                `;
+                console.error('Erro ao carregar histórico:', error);
+                showAlert(`Erro ao carregar histórico: ${error.message}`, 'error');
+                
+                const historyTableBody = document.getElementById('historyTableBody');
+                if (historyTableBody) {
+                    historyTableBody.innerHTML = `
+                        <tr>
+                            <td colspan="7" style="text-align: center; padding: 40px; color: var(--danger-color);">
+                                <h3>Erro ao carregar histórico</h3>
+                                <p>${error.message}</p>
+                                <button class="btn btn-primary" onclick="viewStudentHistory(${studentId}, '${studentName}', ${page})" style="margin-top: 10px;">
+                                    <i class="fas fa-redo"></i> Tentar Novamente
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                }
             }
-        }
+        };
 
         /**
          * NOVA FUNÇÃO: Pede confirmação ao diretor antes de encerrar a sessão.
