@@ -3959,79 +3959,84 @@
         }
 
         /**
-         * VERSÃO CORRIGIDA E COM FEATURE DE ENCERRAMENTO MANUAL
-         * Busca e exibe o histórico de um aluno, agora com a opção para o diretor
-         * encerrar sessões que permaneceram abertas.
+         * VERSÃO COM CORREÇÃO DEFINITIVA DA ORDEM DAS COLUNAS
+         * Renderiza a tabela do histórico, garantindo que todos os dados sejam exibidos
+         * nas colunas corretas, conforme o cabeçalho da tabela.
+         * @param {number} page - O número da página a ser exibida.
          */
-        window.viewStudentHistory = async function(studentId, studentName, page = 0) {
-            console.log('🎯 viewStudentHistory CHAMADA para:', studentName);
-            
-            try {
-                // 1. Mostrar alerta e mudar para a aba de histórico
-                showAlert(`Carregando histórico de ${studentName}...`, 'success');
-                switchToHistoryTab();
+        function renderStudentHistoryPage(page = 0) {
+            const studentName = window.currentStudentName || 'Aluno';
+            const studentId = window.currentStudentId || 0;
+            const allRecords = window.currentStudentHistoryData || [];
+            const pageSize = 10;
 
-                // 2. Mostrar estado de carregamento (loading)
-                const historyTableBody = document.getElementById('historyTableBody');
-                if (historyTableBody) {
-                    historyTableBody.innerHTML = `
-                        <tr>
-                            <td colspan="7" style="text-align: center; padding: 40px;">
-                                <div class="loading-spinner" style="width: 30px; height: 30px; margin: 0 auto;"></div>
-                                <h3 style="margin-top: 20px; color: var(--primary-color);">Carregando histórico de ${studentName}</h3>
-                                <p>Por favor, aguarde...</p>
-                            </td>
-                        </tr>
-                    `;
-                }
-                
-                // Ocultar paginação e atualizar título
-                const paginationControls = document.getElementById('studentHistoryPagination');
-                if (paginationControls) paginationControls.style.display = 'none';
-                
-                const historyTitle = document.querySelector('#history-tab .section-title h3');
-                if (historyTitle) historyTitle.textContent = `Histórico de Presença - ${studentName}`;
-                
-                // 3. FAZER A REQUISIÇÃO (do jeito que funcionava antes)
-                console.log('🔍 Fazendo requisição para o histórico completo do aluno...');
-                const accessToken = localStorage.getItem('access_token');
-                const response = await fetch(`${BACKEND_URL}/api/presencas/historico/${studentId}`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
+            const historyTableBody = document.getElementById('historyTableBody');
+            historyTableBody.innerHTML = '';
 
-                if (!response.ok) {
-                    throw new Error(`Erro ${response.status}: ${response.statusText}`);
-                }
-
-                const result = await response.json();
-                console.log('📊 Dados recebidos:', result);
-
-                // 4. PROCESSAR E RENDERIZAR OS DADOS
-                if (result.sucesso && result.dados && Array.isArray(result.dados)) {
-                    const allRecords = result.dados.sort((a, b) => new Date(b.entradaAt) - new Date(a.entradaAt));
-                    
-                    // Salvar dados para paginação
-                    window.currentStudentHistoryData = allRecords;
-                    window.currentStudentId = studentId;
-                    window.currentStudentName = studentName;
-
-                    // Renderizar a primeira página
-                    renderStudentHistoryPage(0); 
-
-                } else {
-                    renderStudentHistoryPage(0); // Renderiza a tabela vazia com a mensagem correta
-                    showAlert(`Nenhum registro encontrado para ${studentName}`, 'info');
-                }
-                
-            } catch (error) {
-                console.error('❌ Erro em viewStudentHistory:', error);
-                showAlert(`Erro ao carregar histórico: ${error.message}`, 'error');
-                // Implementar lógica de erro na UI
+            if (allRecords.length === 0) {
+                // Corrigido o colspan para 8, que é o número correto de colunas.
+                historyTableBody.innerHTML = `
+                    <tr>
+                        <td colspan="8" style="text-align: center; padding: 40px;">
+                            <h3>Nenhum registro de histórico encontrado</h3>
+                            <p>Não há dados de presença para ${studentName}.</p>
+                        </td>
+                    </tr>`;
+                return;
             }
-        };
+
+            const startIndex = page * pageSize;
+            const endIndex = startIndex + pageSize;
+            const pageData = allRecords.slice(startIndex, endIndex);
+
+            pageData.forEach(record => {
+                const tr = document.createElement('tr');
+
+                // --- LÓGICA DE EXTRAÇÃO E FORMATAÇÃO DOS DADOS ---
+
+                const alunoNome = record.alunoNome || studentName;
+                // Assumindo que o campo se chama 'salaNome'. Se for outro, me avise.
+                const salaNome = record.salaNome || 'N/A';
+                const entrada = record.entradaAt ? new Date(record.entradaAt).toLocaleString('pt-BR') : 'N/A';
+
+                let saidaCellHTML;
+                if (record.saidaAt) {
+                    saidaCellHTML = new Date(record.saidaAt).toLocaleString('pt-BR');
+                } else {
+                    saidaCellHTML = `<button class="btn btn-danger btn-sm" onclick="confirmarEncerramentoManual(${record.id}, ${studentId}, '${studentName}')">
+                                        <i class="fas fa-power-off"></i> Encerrar Sessão
+                                </button>`;
+                }
+
+                const duracao = record.duracao || (record.saidaAt ? 'N/A' : 'Em andamento');
+                const status = record.saidaAt ? 'Finalizado' : 'Presente';
+                const statusClass = record.saidaAt ? 'status-finished' : 'status-present';
+                const statusHTML = `<span class="status-badge ${statusClass}">${status}</span>`;
+                const iniciadoPor = record.iniciadoPor || 'N/A';
+                const finalizadoPor = record.finalizadoPor || 'N/A';
+
+                // --- MONTAGEM DA LINHA DA TABELA (tr) COM A ORDEM CORRETA ---
+                tr.innerHTML = `
+                    <td>${alunoNome}</td>      <!-- 1. Aluno -->
+                    <td>${salaNome}</td>       <!-- 2. Sala -->
+                    <td>${entrada}</td>        <!-- 3. Data/Hora Entrada -->
+                    <td>${saidaCellHTML}</td>  <!-- 4. Data/Hora Saída -->
+                    <td>${duracao}</td>        <!-- 5. Duração -->
+                    <td>${statusHTML}</td>     <!-- 6. Status -->
+                    <td>${iniciadoPor}</td>    <!-- 7. Iniciado por -->
+                    <td>${finalizadoPor}</td>  <!-- 8. Finalizado por -->
+                `;
+                historyTableBody.appendChild(tr);
+            });
+
+            // Atualiza a paginação
+            window.currentStudentHistoryPage = page;
+            window.currentStudentHistoryTotalPages = Math.ceil(allRecords.length / pageSize);
+            
+            if (typeof setupStudentHistoryPagination === 'function') {
+                setupStudentHistoryPagination();
+            }
+        }
 
         /**
  * VERSÃO COM CORREÇÃO DEFINITIVA PARA NOMES DE CAMPOS
