@@ -509,6 +509,9 @@
                 this.horariosChamada = {};
                 this.salaId = null;
                 this.currentUser = null;
+
+                this.filaDeChamadas = [];       // Nossa nova fila (lista de espera)
+                this.isProcessandoFila = false; // Um controle para saber se a fila está ativa
                 
                 this.inicializar();
             }
@@ -1043,6 +1046,7 @@
              * Destaca o aluno, aplica a expansão e, agora, passa o nome do aluno
              * para a função de som, garantindo o áudio dinâmico.
              */
+            /*
             destacarAlunoPendente(alunoId, tipoSolicitante, alunoNome) {
                 console.log(`🎯 Aplicando destaque PENDENTE para aluno: ${alunoNome} (ID: ${alunoId}) | Solicitante: ${tipoSolicitante}`);
                 
@@ -1080,6 +1084,7 @@
                     console.warn(`❌ Aluno card não encontrado para ID: ${alunoId}`);
                 }
             }
+            */
 
             // 🎯 CALCULAR EXPANSÃO QUE DIRECIONA AO CENTRO
             calcularExpansaoCentralizada(alunoCard) {
@@ -1106,6 +1111,7 @@
                 return `translate(${deslocamentoX}px, ${deslocamentoY}px) scale(${scale})`;
             }
 
+            /*
             // 🎯 MÉTODO PARA EXECUTAR EXPANSÃO COMPLETA
             executarExpansao(alunoCard, alunoId, alunoNome) {
                 console.log(`🎯 Executando expansão para aluno ${alunoId}`);
@@ -1133,6 +1139,7 @@
                     this.finalizarExpansao(alunoCard, alunoId);
                 }, 3000);
             }
+            */
 
             /**
              * VERSÃO CORRIGIDA
@@ -1152,7 +1159,7 @@
                 // Converte o nome (ex: "Bruno Costa") para o formato do arquivo (ex: "brunocosta")
                 const nomeArquivo = this.normalizarNomeArquivo(alunoNome);
                 console.log(`🔊 Tocando alerta para: ${alunoNome} | Arquivo: ${nomeArquivo}.mp3`);
-                
+
                 // Monta a URL do áudio do nome dinamicamente
                 const nomeMP3Url = `${baseURL}/mp3/Nomes/${nomeArquivo}.mp3`;
 
@@ -1370,6 +1377,7 @@
                     });
             }
 
+            /*
             // 🎯 ATUALIZAR MÉTODO processarSaidaPendente
             processarSaidaPendente(mensagem) {
                 console.log(`🟡 Processando SAIDA_PENDENTE para aluno:`, mensagem.alunoNome);
@@ -1378,6 +1386,96 @@
                 this.destacarAlunoPendente(mensagem.alunoId, mensagem.tipoSolicitante, mensagem.alunoNome);
 
                 console.log(`✅ Estado PENDENTE aplicado para: ${mensagem.alunoNome} (${mensagem.tipoSolicitante})`);
+            }
+            */
+            // 🎯 ATUALIZAR MÉTODO processarSaidaPendente
+            processarSaidaPendente(mensagem) {
+                console.log(`🟡 Adicionando à fila: ${mensagem.alunoNome}`);
+
+                // Adiciona o objeto completo da chamada à nossa fila
+                this.filaDeChamadas.push(mensagem);
+
+                // Se a fila não estiver sendo processada, inicie o processo.
+                // Se já estiver, o aluno simplesmente aguardará sua vez.
+                if (!this.isProcessandoFila) {
+                    this.processarProximoDaFila();
+                }
+            }
+
+            /**
+             * Função principal que gerencia a fila.
+             * Pega o próximo aluno, executa o destaque e, ao final, chama a si mesma.
+             */
+            async processarProximoDaFila() {
+                // 1. Se a fila estiver vazia, para o processo.
+                if (this.filaDeChamadas.length === 0) {
+                    console.log('✅ Fila de chamadas finalizada.');
+                    this.isProcessandoFila = false;
+                    return;
+                }
+
+                // 2. Marca que estamos ocupados e pega o primeiro aluno da fila.
+                this.isProcessandoFila = true;
+                const chamada = this.filaDeChamadas.shift(); // .shift() pega e remove o primeiro item
+
+                console.log(`▶️ Processando da fila: ${chamada.alunoNome}`);
+
+                // 3. Executa o processo completo de destaque e ESPERA (await) sua finalização.
+                await this.executarDestaqueCompleto(chamada);
+
+                // 4. Após o término, chama a função novamente para o próximo da fila.
+                this.processarProximoDaFila();
+            }
+
+            /**
+             * Executa a animação e o som para um aluno e retorna uma Promise 
+             * que resolve quando todo o processo termina (após os 3 segundos).
+             * @param {object} chamada - O objeto da chamada contendo alunoId, alunoNome, etc.
+             */
+            executarDestaqueCompleto(chamada) {
+                return new Promise(resolve => {
+                    const { alunoId, alunoNome, tipoSolicitante } = chamada;
+                    const alunoCard = document.querySelector(`[data-aluno-id="${alunoId}"]`);
+
+                    if (!alunoCard) {
+                        console.warn(`❌ Aluno card não encontrado para ID: ${alunoId}, pulando para o próximo.`);
+                        resolve(); // Resolve a promise imediatamente para não travar a fila
+                        return;
+                    }
+
+                    // Lógica de destaque visual que estava em `destacarAlunoPendente`
+                    alunoCard.classList.remove('tutor', 'diretor', 'token', 'sistema', 'destaque', 'confirmado', 'expandindo');
+                    const classeTipo = tipoSolicitante.toLowerCase();
+                    alunoCard.classList.add(classeTipo, 'pendente');
+
+                    const horarioElement = alunoCard.querySelector('.aluno-horario');
+                    if (horarioElement) {
+                        horarioElement.textContent = 'Aguardando Confirmação';
+                        horarioElement.style.fontWeight = '600';
+                    }
+
+                    // Lógica de animação que estava em `executarExpansao`
+                    const centroCardX = alunoCard.offsetLeft + alunoCard.offsetWidth / 2;
+                    const centroCardY = alunoCard.offsetTop + alunoCard.offsetHeight / 2;
+                    const centroTelaX = window.innerWidth / 2;
+                    const centroTelaY = window.innerHeight / 2;
+                    const translateX = centroTelaX - centroCardX;
+                    const translateY = centroTelaY - centroCardY;
+                    const escala = 1.8;
+                    const transformacao = `translate(${translateX}px, ${translateY}px) scale(${escala})`;
+                    alunoCard.style.transform = transformacao;
+                    alunoCard.classList.add('expandindo');
+
+                    // Toca o som (como já estava sendo feito)
+                    this.tocarAlertaExpansao(alunoNome);
+
+                    // O temporizador que finaliza o processo
+                    setTimeout(() => {
+                        this.finalizarExpansao(alunoCard, alunoId);
+                        console.log(`🏁 Processo finalizado para: ${alunoNome}`);
+                        resolve(); // A Promise é resolvida aqui, sinalizando o fim do processo.
+                    }, 4000); // Duração da expansão
+                });
             }
 
             // 🎯 MÉTODO PARA TOCAR ALERTA PENDENTE (se não existir)
