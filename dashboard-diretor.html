@@ -1451,6 +1451,8 @@
 
         let pendingExitConfirmation = null;
 
+        let detailedStudentsData = []; // Variável para cache dos dados dos alunos
+
         // ========== FUNÇÕES GLOBAIS ==========
 
         // Logout
@@ -2037,8 +2039,6 @@
             }
         }
 
-        
-
         // ATUALIZAR a função loadAllStudents para usar o cache e ordenação avançada
         async function loadAllStudents(page = 0, searchTerm = '') {
             try {
@@ -2094,6 +2094,10 @@
                             }
                             return 0;
                         });
+
+                        // Popula o cache com os dados detalhados dos alunos
+                        detailedStudentsData = data.content; 
+                        console.log('💾 Dados dos alunos armazenados em cache local.');
                         // =================================================================
 
                     }
@@ -3876,11 +3880,33 @@
 
         // ========== FUNÇÕES DE VISUALIZAÇÃO ==========
 
-        // Visualizar tutores de um aluno
-        window.viewStudentTutors = async function(studentId, studentName) {
+        // NOVA FUNÇÃO OTIMIZADA para visualizar tutores de um aluno
+        window.viewStudentTutors = async function(studentId) {
+            console.log(`Buscando tutores para o aluno ID: ${studentId}`);
+            
+            // 1. Procurar o aluno nos dados em cache
+            const student = detailedStudentsData.find(s => s.id === studentId);
+            
+            // 2. Se o aluno for encontrado no cache, usar esses dados
+            if (student) {
+                console.log('✅ Aluno encontrado no cache local. Exibindo tutores.');
+                
+                const tutorsHtml = formatTutorsForDisplay(student); // Reutiliza a função já existente
+                const studentName = student.nome || 'Aluno';
+                
+                document.getElementById('detailsModalTitle').textContent = `Tutores de ${studentName}`;
+                document.getElementById('detailsModalBody').innerHTML = tutorsHtml ? `<p>${tutorsHtml}</p>` : '<p>Sem tutores vinculados.</p>';
+                detailsModal.style.display = 'flex';
+                
+                return; // Finaliza a execução
+            }
+            
+            // 3. Se não encontrar no cache, buscar no servidor (fallback)
+            console.log('🔄 API Fetch: Aluno não encontrado no cache. Buscando no servidor...');
+            
             try {
                 const accessToken = localStorage.getItem('access_token');
-                const response = await fetch(`${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos/busca?nome=${encodeURIComponent(studentName)}`, {
+                const response = await fetch(`${BACKEND_URL}/api/alunos/${studentId}/tutores`, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
@@ -3888,32 +3914,21 @@
                 });
                 
                 if (response.ok) {
-                    const studentData = await response.json();
-                    
-                    let tutorsHtml = '<ul>';
-                    if (studentData.tutores && studentData.tutores.length > 0) {
-                        studentData.tutores.forEach(tutor => {
-                            tutorsHtml += `<li>${tutor.nome} (${tutor.parentesco})</li>`;
-                        });
-                    } else {
-                        tutorsHtml += '<li>Nenhum tutor vinculado</li>';
-                    }
-                    tutorsHtml += '</ul>';
+                    const data = await response.json();
+                    const tutorsHtml = formatTutorsForDisplay(data);
+                    const studentName = data.aluno ? data.aluno.nome : 'Aluno';
                     
                     document.getElementById('detailsModalTitle').textContent = `Tutores de ${studentName}`;
-                    document.getElementById('detailsModalBody').innerHTML = `
-                        <p><strong>Aluno:</strong> ${studentName}</p>
-                        <p><strong>Sala:</strong> ${studentData.salaNome}</p>
-                        <p><strong>Status:</strong> ${studentData.status}</p>
-                        <h4>Tutores:</h4>
-                        ${tutorsHtml}
-                    `;
-                    
+                    document.getElementById('detailsModalBody').innerHTML = tutorsHtml ? `<p>${tutorsHtml}</p>` : '<p>Sem tutores vinculados.</p>';
                     detailsModal.style.display = 'flex';
+                    
+                } else {
+                    console.error(`Erro ao buscar tutores: ${response.status}`);
+                    showAlert('Não foi possível carregar os tutores deste aluno.', 'error');
                 }
             } catch (error) {
-                console.error('Erro ao carregar tutores do aluno:', error);
-                showAlert('Erro ao carregar informações do aluno.', 'error');
+                console.error('Erro crítico ao buscar tutores do aluno:', error);
+                showAlert('Ocorreu um erro de rede ao buscar os tutores.', 'error');
             }
         };
 
