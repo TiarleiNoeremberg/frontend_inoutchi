@@ -1871,70 +1871,112 @@
         }
 
         /**
-         * VERSÃO CORRIGIDA E UNIFICADA
-         * Atualiza o status do aluno, re-renderiza a tabela e mostra uma notificação.
-         * Esta função agora é a ÚNICA a ser chamada ao receber um evento do WebSocket.
+         * ATUALIZAÇÃO:
+         * Atualiza os cards de estatísticas e a lista de alunos presentes na aba "Visão Geral".
+         * Esta função lê os dados do cache 'detailedStudentsData' para garantir consistência.
+         */
+        function refreshOverviewData() {
+            // Se o cache de dados ainda não foi carregado, não faz nada.
+            if (!detailedStudentsData || detailedStudentsData.length === 0) {
+                console.log('Cache de alunos ainda não disponível para atualizar a Visão Geral.');
+                return;
+            }
+
+            console.log('📊 Atualizando a aba Visão Geral com dados do cache...');
+
+            // 1. Calcula as novas estatísticas a partir do cache
+            const totalStudents = detailedStudentsData.length;
+            const presentStudentsArray = detailedStudentsData.filter(s => s.status === 'PRESENTE');
+            const presentStudentsCount = presentStudentsArray.length;
+            const absentStudentsCount = totalStudents - presentStudentsCount;
+
+            // 2. Atualiza os valores nos cards de estatísticas
+            const totalStudentsEl = document.getElementById('totalStudents');
+            const presentStudentsEl = document.getElementById('presentStudents');
+            const absentStudentsEl = document.getElementById('absentStudents');
+            
+            if (totalStudentsEl) totalStudentsEl.textContent = totalStudents;
+            if (presentStudentsEl) presentStudentsEl.textContent = presentStudentsCount;
+            if (absentStudentsEl) absentStudentsEl.textContent = absentStudentsCount;
+
+            // 3. Reconstrói a lista de "Alunos Presentes Hoje"
+            const presentStudentsListEl = document.getElementById('presentStudentsList');
+            if (presentStudentsListEl) {
+                presentStudentsListEl.innerHTML = ''; // Limpa a lista atual
+
+                if (presentStudentsArray.length > 0) {
+                    presentStudentsArray.forEach(student => {
+                        const li = document.createElement('li');
+                        li.innerHTML = `
+                            <div class="student-info">
+                                <span class="student-name">${student.nome}</span>
+                                <span class="student-class">${student.salaNome || 'Sem sala'}</span>
+                            </div>
+                            <span class="status-badge status-present">Presente</span>
+                        `;
+                        presentStudentsListEl.appendChild(li);
+                    });
+                } else {
+                    presentStudentsListEl.innerHTML = '<li>Nenhum aluno presente no momento</li>';
+                }
+            }
+            
+            console.log('✅ Aba Visão Geral atualizada.');
+        }
+
+        /**
+         * VERSÃO FINAL - ATUALIZA AS DUAS ABAS
+         * Atualiza o status de um aluno no cache local e, em seguida, dispara a atualização
+         * da aba "Alunos" (se estiver ativa) e da aba "Visão Geral".
          * @param {number} studentId - O ID do aluno a ser atualizado.
          * @param {string} eventType - O tipo de evento recebido (ex: 'ENTRADA_ALUNO').
          */
         function updateStudentStatusInCache(studentId, eventType) {
-            // 1. Primeiro, verifica se o cache de alunos existe.
-            if (!detailedStudentsData) {
-                console.warn('[WS] Cache de dados de alunos (detailedStudentsData) ainda não está pronto. Ignorando atualização visual.');
-                return;
-            }
+            if (!detailedStudentsData) return;
 
-            // 2. Encontra o aluno no cache.
             const student = detailedStudentsData.find(s => s.id === studentId);
-            
-            // 3. Se o aluno for encontrado no cache...
             if (student) {
-                console.log(`🔄 Atualizando status do aluno ${student.nome} (ID: ${studentId}) no cache.`);
+                console.log(`🔄 Atualizando status do aluno ${student.nome} (ID: ${studentId}) no cache para o evento ${eventType}.`);
                 
-                let newStatus = student.status; // Mantém o status atual por padrão
+                // 1. ATUALIZA O STATUS NO CACHE
                 switch (eventType) {
                     case 'ENTRADA_ALUNO':
-                        newStatus = 'PRESENTE';
+                        student.status = 'PRESENTE';
                         break;
                     case 'SAIDA_PENDENTE':
-                        newStatus = 'AGUARDANDO_CONFIRMACAO';
+                        student.status = 'AGUARDANDO_CONFIRMACAO';
                         break;
-                    case 'SAIDA_CONFIRMADA_DIRETOR':
                     case 'SAIDA_CONFIRMADA':
-                    case 'SAIDA_ALUNO':
-                        newStatus = 'AUSENTE';
+                    case 'SAIDA_ALUNO': // Trata ambos os eventos
+                        student.status = 'AUSENTE';
                         break;
                     default:
-                        console.warn(`[WS] Tipo de evento não mapeado para mudança de status: ${eventType}`);
-                        return; // Se o evento for desconhecido, não faz nada.
+                        console.warn(`[WS] Evento não mapeado para mudança de status: ${eventType}`);
+                        return;
                 }
-
-                student.status = newStatus;
                 
-                // Reordena a lista para manter a consistência (Aguardando > Presente > Ausente)
-                detailedStudentsData.sort((a, b) => {
-                    const priority = { 'AGUARDANDO_CONFIRMACAO': 0, 'PRESENTE': 1, 'AUSENTE': 2 };
-                    const priorityA = priority[a.status] ?? 3;
-                    const priorityB = priority[b.status] ?? 3;
-                    if (priorityA !== priorityB) {
-                        return priorityA - priorityB;
-                    }
-                    return (a.nome || '').localeCompare(b.nome || '');
-                });
+                // 2. RE-ORDENA A LISTA EM CACHE para priorizar status "Aguardando"
+                const getStatusPriority = (status) => {
+                    if (status === 'AGUARDANDO_CONFIRMACAO') return 0;
+                    if (status === 'PRESENTE') return 1;
+                    return 2;
+                };
+                detailedStudentsData.sort((a, b) => getStatusPriority(a.status) - getStatusPriority(b.status) || a.nome.localeCompare(b.nome));
 
-                // Monta o objeto de dados no formato que 'renderStudentsTable' espera
+                // 3. ATUALIZA AS INTERFACES
+                
+                // Atualiza a tabela da aba "Alunos"
                 const dataForTable = { content: detailedStudentsData };
-                
-                // Renderiza a tabela novamente com os dados atualizados
                 renderStudentsTable(dataForTable);
                 
-                // FINALMENTE, MOSTRA A NOTIFICAÇÃO CORRETA
-                showAlert(`Status de ${student.nome} atualizado para ${newStatus.replace(/_/g, ' ')}.`, 'info');
+                // ATUALIZA OS CARDS E LISTA DA ABA "VISÃO GERAL"
+                refreshOverviewData(); // <-- AQUI ESTÁ A MÁGICA!
 
+                showAlert(`Status de ${student.nome} foi atualizado.`, 'info');
             } else {
-                // 4. Se o aluno não for encontrado (pode ser um aluno novo), recarrega a lista inteira.
-                console.warn(`[WS] Aluno com ID ${studentId} não foi encontrado no cache local. Forçando recarregamento completo da lista para garantir consistência.`);
-                loadAllStudents(currentStudentsPage);
+                console.warn(`[WS] Aluno com ID ${studentId} não encontrado no cache. É recomendado recarregar os dados.`);
+                // Em um cenário real, poderíamos forçar um recarregamento total aqui.
+                // loadAllStudents(currentStudentsPage); 
             }
         }
 
