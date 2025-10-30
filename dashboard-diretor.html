@@ -1082,6 +1082,24 @@
             color: #333;
         }
 
+        /* Adicione este estilo junto com o .status-awaiting-small */
+        .status-badge.status-present-small {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 8px;
+            vertical-align: middle;
+            font-weight: bold;
+            background-color: #dcfce7; /* Verde claro */
+            color: #166534; /* Verde escuro */
+        }
+
+        /* Estilo para o status de 'Aguardando Confirmação' */
+        .status-badge.status-awaiting-confirmation {
+            background-color: #ffc107; /* Laranja/Amarelo */
+            color: #333; /* Texto escuro para contraste */
+            border: 1px solid #e0a800;
+        }
+
     </style>
 </head>
 <body>
@@ -1882,65 +1900,62 @@
         }
 
         /**
-         * ATUALIZA OS CARDS E A LISTA DA ABA "VISÃO GERAL" EM TEMPO REAL.
-         * Esta função lê os dados mais recentes do cache 'detailedStudentsData'
-         * e redesenha os componentes da primeira aba.
+         * Atualiza os cards de estatísticas e a lista de alunos na "Visão Geral"
+         * usando os dados do cache (detailedStudentsData), garantindo consistência
+         * total com a aba "Alunos".
          */
         function refreshOverviewData() {
-            console.log('📊 Atualizando os componentes da aba Visão Geral...');
+            console.log('🔄 Renderizando Visão Geral a partir do cache de alunos...');
 
             if (!detailedStudentsData) {
-                console.warn('Cache de alunos está vazio. A Visão Geral não pode ser atualizada.');
+                console.warn('Cache de alunos (detailedStudentsData) indisponível. Visão Geral não atualizada.');
                 return;
             }
 
-            // --- LÓGICA DE CONTAGEM CORRETA ---
-            // Consideramos "presentes" tanto os que estão 'PRESENTE' quanto os que estão 'AGUARDANDO_CONFIRMACAO'.
-            const presentAndAwaitingStudents = detailedStudentsData.filter(
+            // 1. CALCULA AS ESTATÍSTICAS COM A LÓGICA CORRETA
+            const totalCount = detailedStudentsData.length;
+            // CONTA COMO PRESENTES = Status 'PRESENTE' + 'AGUARDANDO_CONFIRMACAO'
+            const presentAndAwaiting = detailedStudentsData.filter(
                 student => student.status === 'PRESENTE' || student.status === 'AGUARDANDO_CONFIRMACAO'
             );
-
-            const presentCount = presentAndAwaitingStudents.length;
-            const totalCount = detailedStudentsData.length;
+            const presentCount = presentAndAwaiting.length;
             const absentCount = totalCount - presentCount;
 
-            // 1. ATUALIZA OS CARDS DE ESTATÍSTICAS
-            const totalStudentsEl = document.getElementById('totalStudents');
-            const presentStudentsEl = document.getElementById('presentStudents');
-            const absentStudentsEl = document.getElementById('absentStudents');
+            // 2. ATUALIZA OS CARDS DE ESTATÍSTICAS
+            document.getElementById('totalStudents').textContent = totalCount;
+            document.getElementById('presentStudents').textContent = presentCount;
+            document.getElementById('absentStudents').textContent = absentCount;
 
-            if (totalStudentsEl) totalStudentsEl.textContent = totalCount;
-            if (presentStudentsEl) presentStudentsEl.textContent = presentCount;
-            if (absentStudentsEl) absentStudentsEl.textContent = absentCount;
+            // 3. ATUALIZA A LISTA DE "ALUNOS PRESENTES HOJE" (COM STATUS VISÍVEL)
+            const presentStudentsList = document.getElementById('presentStudentsList');
+            presentStudentsList.innerHTML = ''; // Limpa a lista para redesenhar
 
-            // 2. ATUALIZA A LISTA DE "ALUNOS PRESENTES HOJE"
-            const presentStudentsListEl = document.getElementById('presentStudentsList');
-            if (presentStudentsListEl) {
-                presentStudentsListEl.innerHTML = ''; // Limpa a lista antes de recriar
+            if (presentAndAwaiting.length > 0) {
+                presentAndAwaiting.forEach(student => {
+                    const li = document.createElement('li');
+                    li.className = 'student-item'; // Classe para estilização se necessário
 
-                if (presentAndAwaitingStudents.length > 0) {
-                    // Ordena a lista de exibição alfabeticamente para uma melhor UX
-                    const sortedList = [...presentAndAwaitingStudents].sort((a, b) => a.nome.localeCompare(b.nome));
-                    
-                    sortedList.forEach(student => {
-                        const listItem = document.createElement('li');
-                        
-                        // Adiciona um indicador visual para alunos que estão aguardando
-                        const statusIndicator = student.status === 'AGUARDANDO_CONFIRMACAO'
-                            ? '<span class="status-badge status-awaiting-small">Aguardando</span>'
-                            : '';
+                    let statusBadgeHtml = '';
+                    // Define o badge de status para TODAS as condições
+                    if (student.status === 'PRESENTE') {
+                        statusBadgeHtml = '<span class="status-badge status-present">Presente</span>';
+                    } else if (student.status === 'AGUARDANDO_CONFIRMACAO') {
+                        statusBadgeHtml = '<span class="status-badge status-awaiting-confirmation">Aguardando</span>';
+                    }
 
-                        listItem.innerHTML = `
-                            <span>${student.nome}</span>
-                            ${statusIndicator}
-                        `;
-                        presentStudentsListEl.appendChild(listItem);
-                    });
-                } else {
-                    presentStudentsListEl.innerHTML = '<li>Nenhum aluno presente no momento.</li>';
-                }
+                    // Monta o item da lista com nome e o status ao lado
+                    li.innerHTML = `
+                        <div class="student-info">
+                            <span class="student-name">${student.nome}</span>
+                        </div>
+                        ${statusBadgeHtml}
+                    `;
+                    presentStudentsList.appendChild(li);
+                });
+            } else {
+                presentStudentsList.innerHTML = '<li>Nenhum aluno presente no momento.</li>';
             }
-            console.log('✅ Visão Geral atualizada com sucesso!');
+            console.log('✅ Visão Geral renderizada com sucesso a partir dos dados consistentes.');
         }
 
         /**
@@ -2251,6 +2266,7 @@
                 setupTabs();
                 await loadOverviewData();   // Esta também não iniciará mais o WS
                 
+                
                 // 4. Mostrar conteúdo
                 showContent();
                 
@@ -2399,22 +2415,27 @@
             });
         }
 
-        // Carregar dados da visão geral - ATUALIZADA
+        /**
+         * ATUALIZADO: Carrega os dados da visão geral.
+         * Agora, esta função é mais simples e delega a renderização para
+         * a função refreshOverviewData, que usa o cache de alunos.
+         */
         async function loadOverviewData() {
             console.log('📊 Carregando dados da visão geral...');
-            
             try {
-                // Carregar estatísticas
-                await loadStatistics();
-                
-                // Carregar alunos presentes
-                await loadPresentStudents();
-                
-                // ===== ADICIONAR ESTAS LINHAS =====
-                // Carregar status e histórico do diretor
-                await loadDirectorData();
-                // ===================================
-                
+                // As estatísticas de tutores ainda são carregadas de seu próprio endpoint.
+                const accessToken = localStorage.getItem('access_token');
+                const tutorsResponse = await fetch(`${BACKEND_URL}/api/diretores/tutores?page=0&size=1`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+                if (tutorsResponse.ok) {
+                    const tutorsData = await tutorsResponse.json();
+                    document.getElementById('totalTutors').textContent = tutorsData.totalElements || 0;
+                }
+
+                // ATENÇÃO: A atualização dos alunos e contagens agora vem do cache.
+                refreshOverviewData();
+
             } catch (error) {
                 console.error('Erro ao carregar dados da visão geral:', error);
                 showAlert('Erro ao carregar dados. Tente recarregar a página.', 'error');
