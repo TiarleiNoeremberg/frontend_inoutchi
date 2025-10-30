@@ -1748,20 +1748,6 @@
                 'Authorization': `Bearer ${localStorage.getItem('access_token')}`
             };
 
-            /*
-            stompClient.connect(headers, function (frame) {
-                console.log('✅ Conectado ao WebSocket:', frame);
-                
-                // Se inscreve no tópico específico da escola para atualizações de status
-                stompClient.subscribe(`/topic/escola/${currentSchoolId}/alunos/status`, function (message) {
-                    const updatedStudent = JSON.parse(message.body);
-                    console.log('📡 Mensagem recebida:', updatedStudent);
-                    
-                    // Chama a função para atualizar a linha específica da tabela
-                    updateStudentTableRow(updatedStudent);
-                });
-            */
-
             stompClient.connect(headers, 
                 (frame) => {
                     console.log('✅ [WS] Conectado com sucesso:', frame);
@@ -1828,11 +1814,20 @@
                 const topic = `/topic/escola/${currentSchoolId}`;
                 console.log(`📡 [WS] Inscrito no tópico: ${topic}`);
                 
-                window.stompClient.subscribe(topic, function(message) {
+                window.stompClient.subscribe(`/topic/escola/${currentSchoolId}`, (message) => {
                     try {
                         const event = JSON.parse(message.body);
-                        console.log('📬 [WS] Evento recebido:', event);
-                        handleWebSocketEvent(event);
+                        console.log(`📬 [WS] Evento recebido: ${event.tipo}`);
+
+                        // A lógica foi UNIFICADA.
+                        // A função 'updateStudentStatusInCache' agora cuida de tudo:
+                        // 1. Atualiza o status do aluno no cache
+                        // 2. Re-renderiza a tabela inteira
+                        // 3. Mostra a notificação para o usuário
+                        if (event.alunoId) {
+                            updateStudentStatusInCache(event.alunoId, event.tipo);
+                        }
+
                     } catch (e) {
                         console.error("❌ Erro ao processar mensagem do WebSocket:", e, "Mensagem original:", message.body);
                     }
@@ -1876,73 +1871,70 @@
         }
 
         /**
-         * Atualiza o status de um aluno no cache local e renderiza a linha da tabela novamente.
+         * VERSÃO CORRIGIDA E UNIFICADA
+         * Atualiza o status do aluno, re-renderiza a tabela e mostra uma notificação.
+         * Esta função agora é a ÚNICA a ser chamada ao receber um evento do WebSocket.
          * @param {number} studentId - O ID do aluno a ser atualizado.
-         * @param {string} eventType - O tipo de evento recebido (ex: 'ENTRADA_ALUNO', 'SAIDA_CONFIRMADA').
+         * @param {string} eventType - O tipo de evento recebido (ex: 'ENTRADA_ALUNO').
          */
         function updateStudentStatusInCache(studentId, eventType) {
-            if (!detailedStudentsData) return;
+            // 1. Primeiro, verifica se o cache de alunos existe.
+            if (!detailedStudentsData) {
+                console.warn('[WS] Cache de dados de alunos (detailedStudentsData) ainda não está pronto. Ignorando atualização visual.');
+                return;
+            }
 
+            // 2. Encontra o aluno no cache.
             const student = detailedStudentsData.find(s => s.id === studentId);
+            
+            // 3. Se o aluno for encontrado no cache...
             if (student) {
                 console.log(`🔄 Atualizando status do aluno ${student.nome} (ID: ${studentId}) no cache.`);
                 
-                // Mapeia o tipo de evento para o novo status do aluno
+                let newStatus = student.status; // Mantém o status atual por padrão
                 switch (eventType) {
                     case 'ENTRADA_ALUNO':
-                        student.status = 'PRESENTE';
+                        newStatus = 'PRESENTE';
                         break;
-                    case 'SAIDA_ALUNOS_PENDENTE': // Note o plural, se o evento for em lote
                     case 'SAIDA_PENDENTE':
-                        student.status = 'AGUARDANDO_CONFIRMACAO';
+                        newStatus = 'AGUARDANDO_CONFIRMACAO';
                         break;
                     case 'SAIDA_CONFIRMADA_DIRETOR':
                     case 'SAIDA_CONFIRMADA':
                     case 'SAIDA_ALUNO':
-                        student.status = 'AUSENTE';
+                        newStatus = 'AUSENTE';
                         break;
                     default:
-                        console.warn(`Tipo de evento não mapeado para mudança de status: ${eventType}`);
-                        return; // Não faz nada se o evento não for reconhecido
+                        console.warn(`[WS] Tipo de evento não mapeado para mudança de status: ${eventType}`);
+                        return; // Se o evento for desconhecido, não faz nada.
                 }
 
-                // 2. Re-ordena a lista em cache com o novo status para manter a consistência visual
-                const getStatusPriority = (status) => {
-                    if (status === 'AGUARDANDO' || status === 'AGUARDANDO_CONFIRMACAO') return 0; // Prioridade máxima
-                    if (status === 'PRESENTE') return 1; // Prioridade intermediária
-                    return 2; // Prioridade mais baixa
-                };
-
+                student.status = newStatus;
+                
+                // Reordena a lista para manter a consistência (Aguardando > Presente > Ausente)
                 detailedStudentsData.sort((a, b) => {
-                    const priorityA = getStatusPriority(a.status);
-                    const priorityB = getStatusPriority(b.status);
+                    const priority = { 'AGUARDANDO_CONFIRMACAO': 0, 'PRESENTE': 1, 'AUSENTE': 2 };
+                    const priorityA = priority[a.status] ?? 3;
+                    const priorityB = priority[b.status] ?? 3;
                     if (priorityA !== priorityB) {
                         return priorityA - priorityB;
                     }
-                    // Se a prioridade for igual, ordena por nome
-                    if (a.nome && b.nome) {
-                        return a.nome.localeCompare(b.nome);
-                    }
-                    return 0;
+                    return (a.nome || '').localeCompare(b.nome || '');
                 });
 
-                // 3. Monta o objeto de dados no formato que a 'renderStudentsTable' espera
-                const dataForTable = { 
-                    content: detailedStudentsData 
-                    // Outras propriedades de paginação não são necessárias aqui,
-                    // pois estamos apenas atualizando a visualização atual.
-                };
+                // Monta o objeto de dados no formato que 'renderStudentsTable' espera
+                const dataForTable = { content: detailedStudentsData };
                 
-                // 4. Renderiza a tabela com os dados atualizados e na estrutura correta
+                // Renderiza a tabela novamente com os dados atualizados
                 renderStudentsTable(dataForTable);
                 
-                // ===== FIM DA CORREÇÃO =====
+                // FINALMENTE, MOSTRA A NOTIFICAÇÃO CORRETA
+                showAlert(`Status de ${student.nome} atualizado para ${newStatus.replace(/_/g, ' ')}.`, 'info');
 
-                showAlert(`Status de ${student.nome} atualizado para ${student.status.replace('_', ' ')}.`, 'info');
             } else {
-                console.warn(`[WS] Aluno com ID ${studentId} não encontrado no cache local. A lista pode precisar ser recarregada.`);
-                // Opcional: Forçar um recarregamento completo se um aluno inesperado for recebido
-                // loadAllStudents(currentStudentsPage);
+                // 4. Se o aluno não for encontrado (pode ser um aluno novo), recarrega a lista inteira.
+                console.warn(`[WS] Aluno com ID ${studentId} não foi encontrado no cache local. Forçando recarregamento completo da lista para garantir consistência.`);
+                loadAllStudents(currentStudentsPage);
             }
         }
 
