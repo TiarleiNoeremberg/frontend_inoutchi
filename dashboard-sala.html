@@ -516,6 +516,51 @@
                 this.inicializar();
             }
 
+            /*
+            async inicializar() {
+                if (!this.token || !this.tokenExpiry || new Date().getTime() > parseInt(this.tokenExpiry)) {
+                    console.log('REDIRECIONANDO: Token inválido ou expirado');
+                    this.mostrarErro('Sessão expirada ou inexistente. Faça login novamente.');
+                    setTimeout(() => this.redirecionarParaLogin(), 2000);
+                    return;
+                }
+
+                await this.testarWebSocketDisponivel();
+
+                try {
+                    await this.carregarUsuario();
+                    
+                    if (!this.currentUser.roles.includes('ROLE_SALA')) {
+                        this.mostrarErro('Acesso negado. Esta área é exclusiva para salas.');
+                        return;
+                    }
+                    
+                    this.determinarSalaId();
+                    await this.carregarDadosSala();
+                    
+                    // 🎯 VERIFICAR TOKEN ANTES DE CONECTAR WEBSOCKET
+                    await this.verificarToken();
+                    
+                    //this.WS_URL = 'https://inoutchi-cd92743c8443.herokuapp.com/ws-sala';
+                    console.log('🎯 URL WebSocket definida:', this.WS_URL);
+
+                    await this.testarWebSocketDisponivel();
+                    // INICIAR WEBSOCKET
+                    this.iniciarWebSocketStomp();
+                    
+                    this.atualizarHora();
+                    setInterval(() => this.atualizarHora(), 1000);
+                    setInterval(() => this.carregarDadosSala(), 2000000);
+                    
+                    console.log('✅ Dashboard sala inicializado com WebSocket!');
+                    
+                } catch (error) {
+                    console.error('❌ Erro ao inicializar:', error);
+                    this.mostrarErro('Erro ao carregar dashboard: ' + error.message);
+                }
+            }
+            */
+
             async inicializar() {
                 // 1. VERIFICAÇÃO INICIAL DE TOKEN
                 if (!this.token || !this.tokenExpiry || new Date().getTime() > parseInt(this.tokenExpiry)) {
@@ -617,6 +662,114 @@
 
                 console.log('🎯 Sala ativada:', payload);
             }
+
+            /*
+            iniciarWebSocketStomp() {
+                try {
+                    console.log('🔌 Conectando ao WebSocket STOMP...');
+                    this.atualizarStatusWebSocket('connecting', 'Conectando...');
+
+                    // 🎯 CONFIGURAR SockJS COM HEADERS DE AUTENTICAÇÃO
+                    const socket = new SockJS('https://inoutchi-cd92743c8443.herokuapp.com/ws-sala');
+                    
+                    // 🚨 INTERCEPTAR A CONEXÃO SockJS PARA ADICIONAR HEADERS
+                    socket.onopen = () => {
+                        console.log('🔗 SockJS connection opened');
+                    };
+                    
+                    socket.onclose = (event) => {
+                        console.log('🔌 SockJS connection closed:', event);
+                    };
+                    
+                    // 🎯 CONFIGURAÇÃO STOMP COM HEADERS PERSONALIZADOS
+                    this.stompClient = new StompJs.Client({
+                        webSocketFactory: () => socket,
+                        reconnectDelay: 5000,
+                        heartbeatIncoming: 4000,
+                        heartbeatOutgoing: 4000,
+                        debug: (str) => {
+                            if (str.includes('CONNECT') || str.includes('ERROR') || str.includes('connected')) {
+                                console.log('STOMP:', str);
+                            }
+                        },
+                        // 🔑 HEADERS DE AUTENTICAÇÃO CRÍTICOS
+                        connectHeaders: {
+                            'Authorization': `Bearer ${this.token}`,
+                            'X-User-Id': this.currentUser?.id?.toString(),
+                            'X-Sala-Id': this.salaId.toString(),
+                            'X-Username': this.currentUser?.nome || 'sala',
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json'
+                        },
+                        // Configurações adicionais
+                        connectionTimeout: 10000,
+                        logRawCommunication: true // Ativar para debug detalhado
+                    });
+                    
+                    this.stompClient.onConnect = (frame) => {
+                        console.log('✅ WebSocket STOMP conectado com sucesso!', frame);
+                        this.reconnectAttempts = 0;
+                        this.atualizarStatusWebSocket('connected', 'WebSocket Online');
+                        
+                        // Ativar a sala
+                        this.ativarSala();
+                        
+                        // Inscrever nos tópicos
+                        this.inscreverNosTopicos();
+                        
+                        this.mostrarNotificacao(
+                            'Conectado',
+                            'Conexão em tempo real estabelecida',
+                            'success'
+                        );
+                    };
+                    
+                    this.stompClient.onStompError = (frame) => {
+                        console.error('❌ Erro STOMP:', frame);
+                        const errorMessage = frame.headers?.message || frame.toString();
+                        console.error('🔍 Detalhes do erro STOMP:', errorMessage);
+                        
+                        if (errorMessage.includes('401') || errorMessage.includes('unauthorized')) {
+                            console.error('🚫 Erro 401 - Autenticação falhou no STOMP');
+                            this.atualizarStatusWebSocket('error', 'Não Autorizado');
+                            this.mostrarNotificacao(
+                                'Erro de Autenticação',
+                                'Falha na autenticação WebSocket',
+                                'error'
+                            );
+                            
+                            // Tentar renovar token
+                            setTimeout(() => this.renovarTokenEConectar(), 2000);
+                        } else {
+                            this.atualizarStatusWebSocket('error', 'Erro STOMP');
+                        }
+                    };
+                    
+                    this.stompClient.onWebSocketError = (error) => {
+                        console.error('❌ Erro WebSocket:', error);
+                        this.atualizarStatusWebSocket('error', 'Erro Conexão');
+                        
+                        // Tentar reconexão após erro
+                        setTimeout(() => this.tentarReconexao(), 3000);
+                    };
+                    
+                    this.stompClient.onDisconnect = () => {
+                        console.log('🔌 WebSocket desconectado');
+                        this.atualizarStatusWebSocket('disconnected', 'WebSocket Offline');
+                    };
+                    
+                    // Conectar
+                    console.log('🔑 Enviando token para conexão STOMP...');
+                    this.stompClient.activate();
+
+                    this.verificarRecebimentoMensagens();
+                    
+                } catch (error) {
+                    console.error('❌ Erro ao conectar WebSocket:', error);
+                    this.atualizarStatusWebSocket('error', 'Erro de Conexão');
+                }
+            }
+            */
 
             iniciarWebSocketStomp() {
                 return new Promise((resolve, reject) => {
@@ -837,6 +990,20 @@
                 }
             }
             
+            /*
+            // Novo método para processamento de som de saída
+            processarSomSaida(mensagem) {
+                // Verifica se é uma solicitação de saída pendente
+                if (mensagem.tipo === 'SAIDA_PENDENTE') {
+                    // Som genérico de alerta
+                    this.tocarAlertaExpansao();
+
+                    // Som específico para aluno
+                    this.tocarSomAlunoEspecifico(mensagem.alunoNome);
+                }
+            }
+            */
+
             // Método para tocar som específico de aluno
             tocarSomAlunoEspecifico(alunoNome) {
                 const baseURL = 'https://tiarleinoeremberg.github.io/frontend_inoutchi/mp3/Nomes';
@@ -873,6 +1040,52 @@
                 
             }
             
+
+            /**
+             * VERSÃO CORRIGIDA
+             * Destaca o aluno, aplica a expansão e, agora, passa o nome do aluno
+             * para a função de som, garantindo o áudio dinâmico.
+             */
+            /*
+            destacarAlunoPendente(alunoId, tipoSolicitante, alunoNome) {
+                console.log(`🎯 Aplicando destaque PENDENTE para aluno: ${alunoNome} (ID: ${alunoId}) | Solicitante: ${tipoSolicitante}`);
+                
+                const alunoCard = document.querySelector(`[data-aluno-id="${alunoId}"]`);
+                
+                if (alunoCard) {
+                    // --- PARTE 1: LÓGICA VISUAL (CORES E TEXTO) ---
+                    alunoCard.classList.remove('tutor', 'diretor', 'token', 'sistema', 'destaque', 'confirmado', 'expandindo');
+                    
+                    let classeTipo = '';
+                    switch(tipoSolicitante) {
+                        case 'TUTOR': classeTipo = 'tutor'; break;
+                        case 'DIRETOR': classeTipo = 'diretor'; break;
+                        case 'PARENTE': case 'AMIGO': classeTipo = 'token'; break;
+                        case 'SISTEMA': classeTipo = 'sistema'; break;
+                        default: classeTipo = 'token';
+                    }
+                    
+                    alunoCard.classList.add(classeTipo, 'pendente');
+                    
+                    const horarioElement = alunoCard.querySelector('.aluno-horario');
+                    if (horarioElement) {
+                        horarioElement.textContent = 'Aguardando Confirmação';
+                        horarioElement.style.fontWeight = '600';
+                    }
+                    
+                    this.executarExpansao(alunoCard, alunoId, alunoNome);
+
+                    // --- PARTE 2: LÓGICA DE ÁUDIO DINÂMICO ---
+                    // Passa o nome do aluno para a função de som.
+                    this.tocarAlertaExpansao(alunoNome);
+                    
+                    console.log(`✅ Destaque visual e áudio iniciados para ${alunoNome}.`);
+                } else {
+                    console.warn(`❌ Aluno card não encontrado para ID: ${alunoId}`);
+                }
+            }
+            */
+
             // 🎯 CALCULAR EXPANSÃO QUE DIRECIONA AO CENTRO
             calcularExpansaoCentralizada(alunoCard) {
                 const rect = alunoCard.getBoundingClientRect();
@@ -897,6 +1110,36 @@
                 // Retornar transformação combinada
                 return `translate(${deslocamentoX}px, ${deslocamentoY}px) scale(${scale})`;
             }
+
+            /*
+            // 🎯 MÉTODO PARA EXECUTAR EXPANSÃO COMPLETA
+            executarExpansao(alunoCard, alunoId, alunoNome) {
+                console.log(`🎯 Executando expansão para aluno ${alunoId}`);
+                // 🎯 CALCULAR POSIÇÃO PARA EXPANSÃO CENTRALIZADA
+                const transformacao = this.calcularExpansaoCentralizada(alunoCard);
+                
+                // Aplicar transformação calculada
+                alunoCard.style.transform = transformacao;
+                alunoCard.classList.add('expandindo');
+
+                // Aumentar o nome do aluno durante a expansão
+                const nomeElement = alunoCard.querySelector('.aluno-nome');
+                if (nomeElement) {
+                    nomeElement.style.fontSize = '1.8rem';
+                    nomeElement.style.fontWeight = '700';
+                }
+
+                // 🎯 EXECUTAR SOM DE ALERTA
+                this.tocarAlertaExpansao(alunoNome);
+
+                console.log(`✅ Expansão centralizada iniciada para aluno ${alunoId}`);
+
+                // 🎯 VOLTAR SUAVEMENTE APÓS 3 SEGUNDOS
+                setTimeout(() => {
+                    this.finalizarExpansao(alunoCard, alunoId);
+                }, 3000);
+            }
+            */
 
             /**
              * VERSÃO CORRIGIDA
@@ -1129,7 +1372,6 @@
                 }
             }
 
-            /*
             processarSaidaConfirmada(mensagem) {
                 console.log('🚪 Processando saída confirmada:', mensagem);
                 
@@ -1145,18 +1387,6 @@
                 
                 // Som de saída
                 this.tocarSomAlerta();
-            }
-            */
-
-            processarSaidaConfirmada(mensagem) {
-                // Simplesmente remove o aluno da lista e redesenha
-                this.alunos = this.alunos.filter(aluno => aluno.id !== mensagem.alunoId);
-                
-                // Redesenha a UI, que agora não terá mais o aluno
-                this.renderizarAlunos();
-                
-                this.tocarSomAlertaSaida();
-                this.mostrarNotificacao('Saída Confirmada', `${mensagem.alunoNome} saiu.`, 'success');
             }
 
             carregarAlunosPresentes() {
@@ -1176,6 +1406,16 @@
             /*
             // 🎯 ATUALIZAR MÉTODO processarSaidaPendente
             processarSaidaPendente(mensagem) {
+                console.log(`🟡 Processando SAIDA_PENDENTE para aluno:`, mensagem.alunoNome);
+
+                // 👇 DEPOIS (ADICIONE mensagem.alunoNome)
+                this.destacarAlunoPendente(mensagem.alunoId, mensagem.tipoSolicitante, mensagem.alunoNome);
+
+                console.log(`✅ Estado PENDENTE aplicado para: ${mensagem.alunoNome} (${mensagem.tipoSolicitante})`);
+            }
+            */
+            // 🎯 ATUALIZAR MÉTODO processarSaidaPendente
+            processarSaidaPendente(mensagem) {
                 console.log(`🟡 Adicionando à fila: ${mensagem.alunoNome}`);
 
                 // Adiciona o objeto completo da chamada à nossa fila
@@ -1185,26 +1425,6 @@
                 // Se já estiver, o aluno simplesmente aguardará sua vez.
                 if (!this.isProcessandoFila) {
                     this.processarProximoDaFila();
-                }
-            }
-            */
-
-            // 🎯 ATUALIZAR: processarSaidaPendente e processarSaidaConfirmada
-            processarSaidaPendente(mensagem) {
-                const aluno = this.alunos.find(a => a.id === mensagem.alunoId);
-                if (aluno) {
-                    // Atualiza o estado no array principal
-                    aluno.status = 'AGUARDANDO_CONFIRMACAO';
-                    aluno.tipoSolicitante = mensagem.tipoSolicitante; // Armazena para usar na cor
-                    
-                    // Redesenha tudo com o estado atualizado
-                    this.renderizarAlunos();
-                    
-                    // A lógica de fila de áudio/animação pode continuar
-                    this.filaDeChamadas.push(mensagem);
-                    if (!this.isProcessandoFila) {
-                        this.processarProximoDaFila();
-                    }
                 }
             }
 
@@ -1701,7 +1921,6 @@
                 }
             }
 
-            /*
             async carregarDadosSala() {
                 try {
                     if (!this.salaId) {
@@ -1731,89 +1950,6 @@
                     console.error('❌ Erro ao carregar dados:', error);
                     this.mostrarErro('Falha ao carregar dados da sala: ' + error.message);
                 }
-            }
-            */
-
-            // 🎯 ATUALIZAR: carregarDadosSala e adicionar sua função "filha"
-
-            async carregarDadosSala() {
-                try {
-                    if (!this.salaId) {
-                        throw new Error('Sala ID não definido');
-                    }
-
-                    const endpoint = this.ENDPOINT_ALUNOS_PRESENTES.replace('{salaId}', this.salaId);
-                    console.log('📡 Buscando dados da sala:', endpoint);
-
-                    const response = await fetch(`${this.BACKEND_URL}${endpoint}`, {
-                        headers: {
-                            'Authorization': `Bearer ${this.token}`,
-                            'Content-Type': 'application/json'
-                        }
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                    }
-
-                    const data = await response.json();
-                    console.log('✅ Dados brutos recebidos:', data);
-
-                    if (data.alunos && Array.isArray(data.alunos)) {
-                        // AGORA, VAMOS ENRIQUECER OS DADOS COM O STATUS CORRETO
-                        const alunosComStatusFinal = await this.verificarStatusDeSaida(data.alunos);
-                        
-                        this.salaInfo = { id: data.salaId, nome: data.salaNome };
-                        this.alunos = alunosComStatusFinal.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-                    } else {
-                        this.alunos = [];
-                    }
-
-                    this.atualizarInterface();
-
-                } catch (error) {
-                    console.error('❌ Erro ao carregar dados:', error);
-                    this.mostrarErro('Falha ao carregar dados da sala: ' + error.message);
-                }
-            }
-            
-            /**
-             * Para uma lista de alunos, verifica no backend quais estão com status de saída pendente.
-             * Esta função é a "fonte da verdade" ao carregar e recarregar os dados.
-             * @param {Array} alunos - A lista de alunos vinda da API.
-             * @returns {Promise<Array>} A lista de alunos com o status ('PRESENTE' ou 'AGUARDANDO_CONFIRMACAO') atualizado.
-             */
-            async verificarStatusDeSaida(alunos) {
-                console.log('🕵️ Verificando status de saída para alunos presentes...');
-                if (alunos.length === 0) {
-                    return [];
-                }
-
-                // Cria uma lista de promessas, uma para cada aluno, para verificar o status em paralelo.
-                const statusPromises = alunos.map(aluno =>
-                    fetch(`${this.BACKEND_URL}/api/presencas/aluno/${aluno.id}/saida-ativa`, {
-                        headers: { 'Authorization': `Bearer ${this.token}` }
-                    }).then(async (res) => {
-                        if (res.ok) {
-                            try {
-                                const saidaAtiva = await res.json();
-                                // Se a resposta tem um status e ele é 'AGUARDANDO_CONFIRMACAO', atualizamos o aluno.
-                                if (saidaAtiva && saidaAtiva.status === 'AGUARDANDO_CONFIRMACAO') {
-                                    return { ...aluno, status: 'AGUARDANDO_CONFIRMACAO' };
-                                }
-                            } catch (e) {
-                                // Se a resposta não for JSON (ex: 204 No Content), significa que não há saída ativa.
-                            }
-                        }
-                        // Para todos os outros casos, o status é 'PRESENTE'.
-                        return { ...aluno, status: 'PRESENTE' };
-                    })
-                );
-
-                // Espera todas as verificações terminarem.
-                const alunosAtualizados = await Promise.all(statusPromises);
-                console.log('✅ Status de saída verificado para todos os alunos.');
-                return alunosAtualizados;
             }
 
             processarDadosSala(data) {
@@ -1852,36 +1988,23 @@
                 document.getElementById('periodoSala').textContent = textoCompleto;
             }
 
-            // 🎯 ATUALIZAR: renderizarAlunos
             renderizarAlunos() {
                 const grid = document.getElementById('alunosGrid');
-                grid.innerHTML = '';
-
+                
                 if (this.alunos.length === 0) {
                     grid.innerHTML = '<div class="empty-state">Nenhum aluno presente na sala</div>';
                     return;
                 }
-
+                
+                grid.innerHTML = '';
                 this.alunos.forEach(aluno => {
+                    // SEMPRE exibir "Presente" em vez de "Chamado: HH:MM"
                     const card = document.createElement('div');
                     card.className = 'aluno-card';
                     card.setAttribute('data-aluno-id', aluno.id);
-
-                    // Define o texto e a aparência baseado no status que veio do backend
-                    const isPendente = aluno.status === 'AGUARDANDO_CONFIRMACAO';
-                    const horarioTexto = isPendente ? 'Aguardando Confirmação' : 'Presente';
-                    
-                    // Adiciona a classe de cor se estiver pendente (ex: 'diretor', 'tutor')
-                    if (isPendente) {
-                        // A mensagem do WebSocket que muda o status precisa também informar o tipo solicitante
-                        // para aplicarmos a cor correta (ex: 'diretor', 'tutor').
-                        // Por enquanto, vamos adicionar uma classe genérica.
-                        card.classList.add('pendente', aluno.tipoSolicitante?.toLowerCase() || 'diretor');
-                    }
-
                     card.innerHTML = `
                         <div class="aluno-nome">${aluno.nome}</div>
-                        <div class="aluno-horario">${horarioTexto}</div>
+                        <div class="aluno-horario">Presente</div> <!-- SEMPRE "Presente" -->
                     `;
                     grid.appendChild(card);
                 });
