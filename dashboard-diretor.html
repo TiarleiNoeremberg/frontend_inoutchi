@@ -1035,6 +1035,42 @@
             }
         }
 
+        .ws-status {
+            display: flex;
+            align-items: center;
+            gap: 8px; /* Espaço entre o ícone e o texto */
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            transition: all 0.4s ease;
+            margin: 0 15px; /* Margem para separar dos outros elementos */
+        }
+
+        .ws-status .icon {
+            font-size: 1rem;
+            line-height: 1;
+        }
+
+        /* Estado Desconectado ou com Erro (vermelho) */
+        .ws-status.disconnected {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+
+        /* Estado Conectando (amarelo) */
+        .ws-status.connecting {
+            background-color: #fffde7;
+            color: #f57f17;
+            animation: pulse 1.5s infinite;
+        }
+
+        /* Estado Conectado (verde) */
+        .ws-status.connected {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+
     </style>
 </head>
 <body>
@@ -1045,6 +1081,9 @@
             <span>Dashboard Diretor</span>
         </div>
         <div class="user-info">
+            <div id="webSocketStatus" class="ws-status disconnected">
+                <span class="icon">🔴</span> <span>Offline</span>
+            </div>
             <div class="user-avatar" id="userAvatar">D</div>
             <span id="userName">Diretor</span>
             <button class="btn-logout" onclick="logout()">Sair</button>
@@ -1751,68 +1790,89 @@
          * 
          * @param {number} schoolId - O ID da escola para a qual a conexão será estabelecida.
          */
-        function setupWebSocket(schoolId) {
-            // GUARDA 1: Se a conexão já foi estabelecida, não faz nada.
-            if (webSocketConnectionEstablished) {
+        function setupWebSocket(currentSchoolId) {
+            // Guarda para evitar múltiplas conexões
+            if (window.webSocketConnectionEstablished) {
                 console.log("✅ [WS] Conexão já estabelecida. Ignorando nova chamada.");
                 return;
             }
-
-            // GUARDA 2: Se o stompClient já existe e está tentando conectar, também evita duplicidade.
             if (window.stompClient && window.stompClient.connected) {
                 console.warn("⚠️ [WS] Conexão já existente encontrada. Ignorando.");
-                webSocketConnectionEstablished = true; // Garante que a flag esteja correta
+                window.webSocketConnectionEstablished = true;
+                updateWebSocketStatusIndicator('connected', 'Online'); // Apenas garante que o status está correto
                 return;
             }
 
             if (!currentSchoolId) {
-                console.error("❌ ID da escola não fornecido. A conexão WebSocket não foi iniciada.");
-                showAlert("Erro crítico: Não foi possível determinar a escola para notificações.", "error");
+                console.error("ID da Escola não definido. Conexão WebSocket abortada.");
+                updateWebSocketStatusIndicator('disconnected', 'Erro'); // ATUALIZA UI
                 return;
             }
-
-            console.log(`📡 Tentando conectar ao WebSocket para a escola ID: ${currentSchoolId}...`);
             
-            // Garante que não haja múltiplas conexões ativas
-            if (window.stompClient && window.stompClient.connected) {
-                console.warn("⚠️ Conexão WebSocket já existente. Desconectando antes de reconectar.");
-                window.stompClient.disconnect();
-            }
+            // --> ATUALIZA O INDICADOR PARA "CONECTANDO"
+            updateWebSocketStatusIndicator('connecting', 'Conectando...');
 
             const socket = new SockJS(`${BACKEND_URL}/ws-sala`);
             window.stompClient = Stomp.over(socket);
-            window.stompClient.debug = null; // Desativa logs excessivos do Stomp no console
+            window.stompClient.debug = null; // Desativa logs detalhados do Stomp no console
 
-            window.stompClient.connect({}, function(frame) {
+            const headers = { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` };
+
+            window.stompClient.connect(headers, function(frame) {
                 console.log('✅ Conectado ao WebSocket: ' + frame);
-                webSocketConnectionEstablished = true; // >>> INFORMA QUE A CONEXÃO FOI UM SUCESSO
-
-                // Assinatura no tópico específico da escola para eficiência e segurança
-                const subscriptionTopic = `/topic/escola/${currentSchoolId}`;
-                console.log(`👂 Assinando o tópico: ${subscriptionTopic}`);
+                window.webSocketConnectionEstablished = true;
                 
-                window.stompClient.subscribe(subscriptionTopic, function(message) {
+                // --> ATUALIZA O INDICADOR PARA "CONECTADO"
+                updateWebSocketStatusIndicator('connected', 'Online');
+
+                const topic = `/topic/escola/${currentSchoolId}`;
+                console.log(`📡 [WS] Inscrito no tópico: ${topic}`);
+                
+                window.stompClient.subscribe(topic, function(message) {
                     try {
-                        // ===== CORREÇÃO PRINCIPAL APLICADA AQUI =====
-                        // Usamos 'message.body' (o objeto correto) em vez de 'msgBody' (indefinido)
                         const event = JSON.parse(message.body);
-                        console.log('📡 [WS] Evento recebido:', event);
-
-                        // Chama uma função para lidar com a atualização de forma inteligente
-                        // (Isso evita a necessidade de recarregar a lista inteira a cada evento)
-                        if (event.alunoId) {
-                            updateStudentStatusInCache(event.alunoId, event.tipo);
-                        }
-
+                        console.log('📬 [WS] Evento recebido:', event);
+                        handleWebSocketEvent(event);
                     } catch (e) {
                         console.error("❌ Erro ao processar mensagem do WebSocket:", e, "Mensagem original:", message.body);
                     }
                 });
 
-            }, function(error) {
+            }, function(error) { // Callback de erro/desconexão
                 console.error('❌ Erro na conexão WebSocket. Tentando reconectar em 10 segundos...', error);
+                window.webSocketConnectionEstablished = false;
+
+                // --> ATUALIZA O INDICADOR PARA "RECONECTANDO"
+                updateWebSocketStatusIndicator('disconnected', 'Reconectando...');
+                
                 setTimeout(() => setupWebSocket(currentSchoolId), 10000); 
             });
+        }
+
+        /**
+         * Atualiza o indicador visual de status da conexão WebSocket.
+         * @param {string} status - 'connecting', 'connected', ou 'disconnected'.
+         * @param {string} message - A mensagem de texto para exibir.
+         */
+        function updateWebSocketStatusIndicator(status, message) {
+            const statusElement = document.getElementById('webSocketStatus');
+            if (!statusElement) return;
+
+            // Remove as classes de estado anteriores
+            statusElement.classList.remove('connecting', 'connected', 'disconnected');
+            // Adiciona a classe do novo estado
+            statusElement.classList.add(status);
+
+            // Define o ícone correspondente
+            let icon = '🔴'; // Ícone padrão (desconectado)
+            if (status === 'connecting') {
+                icon = '🟡';
+            } else if (status === 'connected') {
+                icon = '🟢';
+            }
+
+            // Atualiza o conteúdo do elemento
+            statusElement.innerHTML = `<span class="icon">${icon}</span> <span>${message}</span>`;
         }
 
         /**
