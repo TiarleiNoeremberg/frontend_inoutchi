@@ -1732,7 +1732,7 @@
                         const event = JSON.parse(message.body);
                         console.log('📡 [WS] Evento recebido:', event);
                         //handleWebSocketEvent(event);
-                        updateStudentTableRow(msgBody); // ATUALIZA a linha
+                        updateStudentTableRow(message.body); // ATUALIZA a linha
                     });
                 },
                 (error) => {
@@ -1741,6 +1741,101 @@
                     setTimeout(connectToStudentStatusChannel, 7000);
                 }
             );
+        }
+
+        /**
+         * Configura e inicia a conexão com o WebSocket usando StompJS.
+         * A função se conecta a um tópico específico da escola para receber
+         * notificações em tempo real sobre eventos dos alunos.
+         * 
+         * @param {number} schoolId - O ID da escola para a qual a conexão será estabelecida.
+         */
+        function setupWebSocket(schoolId) {
+            if (!currentSchoolId) {
+                console.error("❌ ID da escola não fornecido. A conexão WebSocket não foi iniciada.");
+                showAlert("Erro crítico: Não foi possível determinar a escola para notificações.", "error");
+                return;
+            }
+
+            console.log(`📡 Tentando conectar ao WebSocket para a escola ID: ${currentSchoolId}...`);
+            
+            // Garante que não haja múltiplas conexões ativas
+            if (window.stompClient && window.stompClient.connected) {
+                console.warn("⚠️ Conexão WebSocket já existente. Desconectando antes de reconectar.");
+                window.stompClient.disconnect();
+            }
+
+            const socket = new SockJS(`${BACKEND_URL}/ws`);
+            window.stompClient = Stomp.over(socket);
+            window.stompClient.debug = null; // Desativa logs excessivos do Stomp no console
+
+            window.stompClient.connect({}, function(frame) {
+                console.log('✅ Conectado ao WebSocket: ' + frame);
+
+                // Assinatura no tópico específico da escola para eficiência e segurança
+                const subscriptionTopic = `/topic/escola/${currentSchoolId}`;
+                console.log(`👂 Assinando o tópico: ${subscriptionTopic}`);
+                
+                window.stompClient.subscribe(subscriptionTopic, function(message) {
+                    try {
+                        // ===== CORREÇÃO PRINCIPAL APLICADA AQUI =====
+                        // Usamos 'message.body' (o objeto correto) em vez de 'msgBody' (indefinido)
+                        const event = JSON.parse(message.body);
+                        console.log('📡 [WS] Evento recebido:', event);
+
+                        // Chama uma função para lidar com a atualização de forma inteligente
+                        // (Isso evita a necessidade de recarregar a lista inteira a cada evento)
+                        if (event.alunoId) {
+                            updateStudentStatusInCache(event.alunoId, event.tipo);
+                        }
+
+                    } catch (e) {
+                        console.error("❌ Erro ao processar mensagem do WebSocket:", e, "Mensagem original:", message.body);
+                    }
+                });
+
+            }, function(error) {
+                console.error('❌ Erro na conexão WebSocket. Tentando reconectar em 10 segundos...', error);
+                setTimeout(() => setupWebSocket(currentSchoolId), 10000); 
+            });
+        }
+
+        /**
+         * Atualiza o status de um aluno no cache local e renderiza a linha da tabela novamente.
+         * @param {number} studentId - O ID do aluno a ser atualizado.
+         * @param {string} eventType - O tipo de evento recebido (ex: 'ENTRADA_ALUNO', 'SAIDA_CONFIRMADA').
+         */
+        function updateStudentStatusInCache(studentId, eventType) {
+            if (!detailedStudentsData) return;
+
+            const student = detailedStudentsData.find(s => s.id === studentId);
+            if (student) {
+                console.log(`🔄 Atualizando status do aluno ${student.nome} (ID: ${studentId}) no cache.`);
+                
+                // Mapeia o tipo de evento para o novo status do aluno
+                switch (eventType) {
+                    case 'ENTRADA_ALUNO':
+                        student.status = 'PRESENTE';
+                        break;
+                    case 'SAIDA_ALUNOS_PENDENTE': // Note o plural, se o evento for em lote
+                    case 'SAIDA_PENDENTE':
+                        student.status = 'AGUARDANDO_CONFIRMACAO';
+                        break;
+                    case 'SAIDA_CONFIRMADA_DIRETOR':
+                    case 'SAIDA_CONFIRMADA':
+                    case 'SAIDA_ALUNO':
+                        student.status = 'AUSENTE';
+                        break;
+                    default:
+                        console.warn(`Tipo de evento não mapeado para mudança de status: ${eventType}`);
+                        return; // Não faz nada se o evento não for reconhecido
+                }
+                
+                // Re-renderiza a tabela com os dados atualizados do cache
+                // Isso é muito mais rápido do que buscar tudo do servidor novamente
+                renderStudentsTable(detailedStudentsData, currentStudentsPage);
+                showAlert(`Status de ${student.nome} atualizado para ${student.status}.`, 'info');
+            }
         }
 
         /**
@@ -3369,6 +3464,11 @@
                         }
                     }
                 }
+
+                // ==========================================================
+                // Inicia a conexão WebSocket com o ID da escola obtido
+                setupWebSocket(currentSchoolId);
+                // ==========================================================
 
                 // 2. Atualizar a UI com o status correto
                 updateDirectorUI(directorStatus, hasActiveSession);
