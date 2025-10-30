@@ -1543,6 +1543,7 @@
         let detailedStudentsData = []; // Variável para cache dos dados dos alunos
 
         let stompClient = null;
+        let webSocketConnectionEstablished = false;
 
         // ========== FUNÇÕES GLOBAIS ==========
 
@@ -1751,6 +1752,19 @@
          * @param {number} schoolId - O ID da escola para a qual a conexão será estabelecida.
          */
         function setupWebSocket(schoolId) {
+            // GUARDA 1: Se a conexão já foi estabelecida, não faz nada.
+            if (webSocketConnectionEstablished) {
+                console.log("✅ [WS] Conexão já estabelecida. Ignorando nova chamada.");
+                return;
+            }
+
+            // GUARDA 2: Se o stompClient já existe e está tentando conectar, também evita duplicidade.
+            if (window.stompClient && window.stompClient.connected) {
+                console.warn("⚠️ [WS] Conexão já existente encontrada. Ignorando.");
+                webSocketConnectionEstablished = true; // Garante que a flag esteja correta
+                return;
+            }
+
             if (!currentSchoolId) {
                 console.error("❌ ID da escola não fornecido. A conexão WebSocket não foi iniciada.");
                 showAlert("Erro crítico: Não foi possível determinar a escola para notificações.", "error");
@@ -1765,12 +1779,13 @@
                 window.stompClient.disconnect();
             }
 
-            const socket = new SockJS(`${BACKEND_URL}/ws`);
+            const socket = new SockJS(`${BACKEND_URL}/ws-sala`);
             window.stompClient = Stomp.over(socket);
             window.stompClient.debug = null; // Desativa logs excessivos do Stomp no console
 
             window.stompClient.connect({}, function(frame) {
                 console.log('✅ Conectado ao WebSocket: ' + frame);
+                webSocketConnectionEstablished = true; // >>> INFORMA QUE A CONEXÃO FOI UM SUCESSO
 
                 // Assinatura no tópico específico da escola para eficiência e segurança
                 const subscriptionTopic = `/topic/escola/${currentSchoolId}`;
@@ -2069,48 +2084,35 @@
             }
 
             try {
-                // 1. Obter informações do usuário
+                // 1. Obter informações do usuá¡rio (ESSENCIAL PRIMEIRO)
                 await loadUserInfo();
                 
-                // 2. VERIFICAR STATUS DO DIRETOR IMEDIATAMENTE NO BANCO
-                console.log('🔐 Login realizado, verificando status do diretor no banco de dados...');
-                await loadDirectorData(); // Esta função agora verifica direto no banco
+                // 2. INICIAR O WEBSOCKET (AGORA É O LUGAR CERTO)
+                // A conexão será estabelecida em segundo plano enquanto o resto carrega.
+                if (currentSchoolId) {
+                    setupWebSocket(currentSchoolId);
+                } else {
+                    throw new Error("ID da Escola não encontrado após carregar usuário. Dashboard não pode continuar.");
+                }
                 
-                // 3. Verificar status dos alunos
-                console.log('🔐 Verificando status dos alunos...');
+                // 3. Carregar o resto dos dados
+                console.log('ð Verificando status do diretor e alunos...');
+                await loadDirectorData(); // Agora esta função apenas carrega dados, sem iniciar WS
                 await loadAllStudents();
+                await loadOverviewData();   // Esta também não iniciará mais o WS
                 
-                // 4. Configurar interface
-                setupTabs();
-                
-                // 5. Carregar dados da visão geral
-                await loadOverviewData();
-                                
-                // 7. Mostrar conteúdo
+                // 4. Mostrar conteúdo
                 showContent();
                 
-                /*
-                // 8. INICIAR VERIFICAÇÃO PERIÓDICA (opcional - a cada 60 segundos)
-                setInterval(async () => {
-                    console.log('🔄 Verificação periódica do status do diretor...');
-                    await loadDirectorData();
-                }, 60000); // 60 segundos
-                */
-
-                console.log('✅ Dashboard inicializado com sucesso!');
-                // Iniciar verificação periódica
-                startStatusPolling();
-                console.log('✅ Atualização automática ativada (30 segundos)');
-                console.log('✅ Status do diretor sincronizado com o banco de dados');
+                console.log('Dashboard inicializado com sucesso e conectado ao WebSocket!');
                 
             } catch (error) {
                 console.error('Erro ao inicializar dashboard:', error);
-                showAlert('Erro ao carregar informações. Tente novamente.', 'error');
+                showAlert('Erro ao carregar informaÃ§Ãµes. Tente novamente.', 'error');
             }
-
-            //startStatusPolling();
         }
 
+        /*
         // Verificação periódica do status (a cada 30 segundos)
         function startStatusPolling() {
             // Atualizar status do diretor
@@ -2141,6 +2143,7 @@
                 }
             }, 60000); // 30 segundos
         }
+        */
 
         // Carregar informações do usuário
         async function loadUserInfo() {
@@ -3467,7 +3470,7 @@
 
                 // ==========================================================
                 // Inicia a conexão WebSocket com o ID da escola obtido
-                setupWebSocket(currentSchoolId);
+                //setupWebSocket(currentSchoolId);
                 // ==========================================================
 
                 // 2. Atualizar a UI com o status correto
