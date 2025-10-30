@@ -957,6 +957,84 @@
             }
         }
 
+        /* Container para as notificaÃ§Ãµes (toasts) */
+        #notification-container {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            z-index: 1050; /* Z-index alto para ficar sobre outros elementos */
+            width: 350px;
+        }
+
+        /* Estilo individual de cada notificaÃ§Ã£o */
+        .toast {
+            background-color: #fff;
+            border-left: 5px solid #2f86eb;
+            padding: 15px 20px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+            opacity: 0;
+            transform: translateX(100%);
+            transition: all 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+            color: #333;
+        }
+        
+        .toast.show {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .toast.success {
+            border-left-color: #28a745;
+        } /* Verde */
+
+        .toast.warning {
+            border-left-color: #ffc107;
+        } /* Amarelo */
+
+        .toast.info {
+            border-left-color: #17a2b8;
+        } /* Azul */
+
+        .toast.error {
+            border-left-color: #dc3545;
+        } /* Vermelho */
+
+        .toast-header {
+            font-weight: bold;
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
+
+        .toast-body {
+            font-size: 0.95em;
+        }
+
+        .toast-body b {
+            color: var(--primary-color, #2f86eb);
+        }
+
+        .highlight-update {
+            animation: highlight-animation 2.5s ease-out;
+        }
+
+        @keyframes highlight {
+            0% { background-color: #fefcbf; } /* Amarelo claro */
+            100% { background-color: transparent; }
+        }
+
+        @keyframes highlight-animation {
+            0% {
+                background-color: #ffc10740; /* Amarelo claro e semi-transparente */
+                box-shadow: inset 4px 0 0 0 #ffc107;
+            }
+            100% {
+                background-color: transparent;
+                box-shadow: inset 0 0 0 0 transparent;
+            }
+        }
+
     </style>
 </head>
 <body>
@@ -1416,6 +1494,17 @@
         </div>
     </div>
 
+    <!-- ================================================================== -->
+    <!--  NOVO: CONTAINER PARA AS NOTIFICAÃÃES (INVISIBLE)                -->
+    <!-- ================================================================== -->
+    <div id="notification-container"></div>
+
+    <!-- ================================================================== -->
+    <!--  SEU SCRIPT EXISTENTE COM A LÓGICA WEBSOCKET INTEGRADA           -->
+    <!-- ================================================================== -->
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.5.1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
 
@@ -1453,7 +1542,313 @@
 
         let detailedStudentsData = []; // Variável para cache dos dados dos alunos
 
+        let stompClient = null;
+
         // ========== FUNÇÕES GLOBAIS ==========
+
+        // ==================================================================
+        //  NOVO: CLASSE PARA GERENCIAR A CONEXÃO WEBSOCKET                  
+        // ==================================================================
+        class WebSocketConnector {
+            constructor() {
+                this.BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
+                this.stompClient = null;
+                this.escolaId = null;
+                this.token = this.getAuthToken();
+                this.reconnectAttempts = 0;
+                this.maxReconnectAttempts = 10;
+            }
+
+            getAuthToken() {
+                // ============== ADAPTE AQUI ==============
+                // Retorne o token de autenticaÃ§Ã£o (Bearer token).
+                return localStorage.getItem('access_token');
+            }
+
+            async init() {
+                try {
+                    if (!this.token) {
+                        console.warn('Token de autenticaÃ§Ã£o nÃ£o encontrado. WebSocket nÃ£o serÃ¡ iniciado.');
+                        return;
+                    }
+                    // O ID da escola jÃ¡ Ã© carregado pela sua funÃ§Ã£o loadUserInfo e armazenado em `currentSchoolId`
+                    // Vamos esperar um pouco para garantir que a inicializaÃ§Ã£o principal tenha ocorrido
+                    setTimeout(() => {
+                        this.escolaId = window.currentSchoolId;
+                        if (this.escolaId) {
+                            this.iniciarWebSocket();
+                        } else {
+                            console.error('NÃ£o foi possÃ­vel obter o ID da escola para o WebSocket.');
+                        }
+                    }, 2000); // Aguarda 2s para o carregamento principal
+
+                } catch (error) {
+                    console.error('â Falha crÃ­tica ao iniciar o WebSocket:', error);
+                    this.mostrarNotificacao('Erro de ConexÃ£o', error.message, 'error');
+                }
+            }
+            
+            iniciarWebSocket() {
+                if (!this.escolaId) {
+                    console.error("ID da Escola nÃ£o definido. ConexÃ£o WebSocket abortada.");
+                    return;
+                }
+
+                const socket = new SockJS(`${this.BACKEND_URL}/ws-sala`);
+                this.stompClient = Stomp.over(socket);
+                this.stompClient.debug = null; 
+
+                this.stompClient.connect({ 'Authorization': `Bearer ${this.token}` },
+                    (frame) => {
+                        this.reconnectAttempts = 0; // Resetar tentativas no sucesso
+                        console.log('ð“¡ [WS] Conectado: ' + frame);
+                        
+                        const topic = `/topic/escola/${this.escolaId}`;
+                        console.log(`ð¡ [WS] Inscrevendo-se no tÃ³pico: ${topic}`);
+                        
+                        this.stompClient.subscribe(topic, (message) => {
+                            this.processarMensagem(JSON.parse(message.body));
+                        });
+                    }, 
+                    (error) => {
+                        console.error('â [WS] Erro na conexÃ£o: ' + error);
+                        this.handleReconnect();
+                    }
+                );
+            }
+
+            handleReconnect() {
+                if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                    this.reconnectAttempts++;
+                    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+                    console.log(`[WS] Tentando reconectar em ${delay / 1000}s... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+                    setTimeout(() => this.iniciarWebSocket(), delay);
+                } else {
+                    console.error('[WS] NÃºmero mÃ¡ximo de tentativas de reconexÃ£o atingido.');
+                    this.mostrarNotificacao('ConexÃ£o Perdida', 'NÃ£o foi possÃ­vel reconectar ao servidor de atualizaÃ§Ãµes.', 'error');
+                }
+            }
+
+            processarMensagem(msg) {
+                console.log('ð¬ [WS] Mensagem recebida:', msg);
+                let titulo, texto, tipoNotificacao, novoStatus, statusClass;
+
+                switch (msg.tipo) {
+                    case 'ENTRADA_ALUNO':
+                        titulo = 'ð Entrada Registrada';
+                        texto = `<b>${msg.alunoNome}</b> teve a entrada registrada.`;
+                        tipoNotificacao = 'success';
+                        novoStatus = { texto: 'Presente', classe: 'status-present' };
+                        break;
+                        
+                    case 'SAIDA_PENDENTE':
+                        titulo = 'â ï¸ SolicitaÃ§Ã£o de SaÃ­da';
+                        texto = `SaÃ­da solicitada para <b>${msg.alunoNome}</b>.`;
+                        tipoNotificacao = 'warning';
+                        novoStatus = { texto: 'Aguardando', classe: 'status-awaiting' };
+                        break;
+                        
+                    case 'SAIDA_CONFIRMADA':
+                        titulo = 'ðââï¸ SaÃ­da Confirmada';
+                        texto = `A saÃ­da de <b>${msg.alunoNome}</b> foi confirmada.`;
+                        tipoNotificacao = 'info';
+                        novoStatus = { texto: 'Ausente', classe: 'status-absent' };
+                        // ApÃ³s a saÃ­da, o ideal Ã© recarregar a lista para reordenar
+                        setTimeout(() => loadAllStudents(currentStudentsPage, document.getElementById('studentSearch')?.value || ''), 1000);
+                        break;
+                }
+
+                if (titulo) this.mostrarNotificacao(titulo, texto, tipoNotificacao);
+                if (novoStatus) this.atualizarStatusNaTabela(msg.alunoId, novoStatus.texto, novoStatus.classe);
+            }
+
+            atualizarStatusNaTabela(alunoId, textoStatus, classeStatus) {
+                const linhaAluno = document.getElementById(`aluno-${alunoId}`);
+                if (!linhaAluno) {
+                    console.warn(`[WS] Aluno ${alunoId} nÃ£o encontrado na tabela. A tabela pode estar em outra pÃ¡gina.`);
+                    return;
+                }
+
+                const celulaStatus = linhaAluno.querySelector('td:nth-child(3)'); // A 3Âª coluna Ã© o Status
+                if (celulaStatus) {
+                    // A sua funÃ§Ã£o renderStudentsTable jÃ¡ cria um <span> com a classe. Vamos substituÃ­-lo.
+                    celulaStatus.innerHTML = `<span class="status-badge ${classeStatus}">${textoStatus}</span>`;
+                }
+            }
+
+            mostrarNotificacao(titulo, texto, tipo = 'info') {
+                const container = document.getElementById('notification-container');
+                if (!container) return;
+                
+                const toast = document.createElement('div');
+                toast.className = `toast ${tipo}`;
+                toast.innerHTML = `<div class="toast-header">${titulo}</div><div class="toast-body">${texto}</div>`;
+                container.appendChild(toast);
+
+                setTimeout(() => toast.classList.add('show'), 100);
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                    toast.addEventListener('transitionend', () => toast.remove());
+                }, 7000); // A notificação some após 7 segundos
+            }
+        }
+
+        function connectToStudentStatusChannel() {
+            // Garante que temos o ID da escola antes de conectar
+            if (!currentSchoolId) {
+                console.error('ID da escola não definido. Não é possível conectar ao WebSocket.');
+                return;
+            }
+
+            const socket = new SockJS(`${BACKEND_URL}/ws-sala`);
+            stompClient = Stomp.over(socket);
+            stompClient.debug = null; // Defina como 'console.log' para ver todas as mensagens de debug
+
+            const headers = {
+                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+            };
+
+            /*
+            stompClient.connect(headers, function (frame) {
+                console.log('✅ Conectado ao WebSocket:', frame);
+                
+                // Se inscreve no tópico específico da escola para atualizações de status
+                stompClient.subscribe(`/topic/escola/${currentSchoolId}/alunos/status`, function (message) {
+                    const updatedStudent = JSON.parse(message.body);
+                    console.log('📡 Mensagem recebida:', updatedStudent);
+                    
+                    // Chama a função para atualizar a linha específica da tabela
+                    updateStudentTableRow(updatedStudent);
+                });
+            */
+
+            stompClient.connect(headers, 
+                (frame) => {
+                    console.log('✅ [WS] Conectado com sucesso:', frame);
+                    const topic = `/topic/escola/${currentSchoolId}`;
+                    console.log(`[WS] Inscrevendo-se no tópico: ${topic}`);
+                    
+                    stompClient.subscribe(topic, (message) => {
+                        const event = JSON.parse(message.body);
+                        console.log('📡 [WS] Evento recebido:', event);
+                        //handleWebSocketEvent(event);
+                        updateStudentTableRow(msgBody); // ATUALIZA a linha
+                    });
+                },
+                (error) => {
+                    console.error('❌ [WS] Erro na conexão:', error);
+                    // Tenta reconectar após um tempo para não sobrecarregar o servidor
+                    setTimeout(connectToStudentStatusChannel, 7000);
+                }
+            );
+        }
+
+        /**
+         * Processa um evento recebido via WebSocket e atualiza a UI.
+         */
+        function handleWebSocketEvent(event) {
+            let titulo, texto, tipoNotificacao;
+
+            switch (event.tipo) {
+                case 'ENTRADA_ALUNO':
+                    titulo = '✅ Entrada Registrada';
+                    texto = `<b>${event.alunoNome}</b> teve a entrada registrada na escola.`;
+                    tipoNotificacao = 'success';
+                    updateStudentTableRow(event.alunoId, 'PRESENTE');
+                    break;
+                    
+                case 'SAIDA_PENDENTE':
+                    titulo = '⏳ Solicitação de Saída';
+                    texto = `Saída solicitada para <b>${event.alunoNome}</b>. Aguardando confirmação.`;
+                    tipoNotificacao = 'warning';
+                    updateStudentTableRow(event.alunoId, 'AGUARDANDO_CONFIRMACAO');
+                    break;
+                    
+                case 'SAIDA_CONFIRMADA':
+                    titulo = '👍 Saída Confirmada';
+                    texto = `A saída de <b>${event.alunoNome}</b> foi confirmada.`;
+                    tipoNotificacao = 'info';
+                    updateStudentTableRow(event.alunoId, 'AUSENTE');
+                    break;
+
+                default:
+                    console.warn(`[WS] Tipo de evento não reconhecido: ${event.tipo}`);
+                    return; // Sai da função se o evento não for relevante
+            }
+
+            mostrarNotificacao(titulo, texto, tipoNotificacao);
+        }
+
+        /**
+         * NOVO: Atualiza dinamicamente o status de um aluno na tabela,
+         * sem precisar recarregar todos os dados.
+         * Esta função deve buscar os dados ATUALIZADOS do aluno no backend
+         * para garantir consistência.
+         */
+        async function updateStudentTableRow(studentId, newStatus) {
+            console.log(`🔄 Atualizando status do aluno ${studentId} para ${newStatus}...`);
+            const tr = document.getElementById(`aluno-${studentId}`);
+            
+            // Se o aluno não está na página atual, não faz nada visualmente.
+            // A tabela será atualizada quando o usuário navegar para a página correta.
+            if (!tr) {
+                console.log(`[WS] Aluno ${studentId} não está visível na página atual. Nenhuma ação visual.`);
+                return;
+            }
+
+            // A melhor prática é buscar os dados completos do aluno para garantir que todas as infos
+            // (como botões de ação) estejam corretas com o novo status.
+            try {
+                const accessToken = localStorage.getItem('access_token');
+                const response = await fetch(`${BACKEND_URL}/api/alunos/${studentId}`, { // Supondo que você tenha este endpoint
+                    headers: {'Authorization': `Bearer ${accessToken}`}
+                });
+
+                if (!response.ok) throw new Error('Falha ao buscar dados atualizados do aluno.');
+
+                const student = await response.json();
+                
+                let statusHtml = '';
+                let actionsHtml = '';
+                const safeStudentName = student.nome ? student.nome.replace(/'/g, "\\'") : 'Aluno';
+
+                // Regenera o HTML de status e ações com os dados mais recentes
+                switch (student.status) {
+                    case 'PRESENTE':
+                        statusHtml = `<span class="status-badge status-present">Presente</span>`;
+                        actionsHtml = `<button class="btn btn-danger" onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')"><i class="fas fa-sign-out-alt"></i> Saída</button>`;
+                        break;
+                    case 'AUSENTE':
+                        statusHtml = `<span class="status-badge status-absent">Ausente</span>`;
+                        actionsHtml = `<button class="btn btn-success" onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')"><i class="fas fa-sign-in-alt"></i> Entrada</button>`;
+                        break;
+                    case 'AGUARDANDO_CONFIRMACAO':
+                        statusHtml = `<span class="status-badge status-awaiting">Aguardando</span>`;
+                        actionsHtml = `<button class="btn btn-warning" onclick="openDirectorConfirmExitModal(${student.id}, '${safeStudentName}')"><i class="fas fa-check-circle"></i> Confirmar</button>`;
+                        break;
+                    default:
+                        statusHtml = `<span class="status-badge">${student.status || 'Indefinido'}</span>`;
+                        break;
+                }
+
+                // Atualiza apenas as células necessárias
+                tr.cells[2].innerHTML = statusHtml; // Célula de Status
+                tr.cells[4].querySelector('.action-buttons').innerHTML = `
+                    ${actionsHtml}
+                    <button class="btn btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}', 0)"><i class="fas fa-history"></i> Histórico</button>
+                `;
+
+                // Aplica o destaque visual
+                tr.classList.remove('highlight-update'); // Remove caso já exista
+                void tr.offsetWidth; // Força o browser a "repintar" o elemento
+                tr.classList.add('highlight-update');
+
+            } catch (error) {
+                console.error(`Falha ao atualizar linha do aluno ${studentId}:`, error);
+                // Como fallback, recarrega a lista inteira
+                loadAllStudents();
+            }
+        }
 
         // Logout
         window.logout = function() {
@@ -1599,12 +1994,14 @@
                 // 7. Mostrar conteúdo
                 showContent();
                 
+                /*
                 // 8. INICIAR VERIFICAÇÃO PERIÓDICA (opcional - a cada 60 segundos)
                 setInterval(async () => {
                     console.log('🔄 Verificação periódica do status do diretor...');
                     await loadDirectorData();
                 }, 60000); // 60 segundos
-                
+                */
+
                 console.log('✅ Dashboard inicializado com sucesso!');
                 // Iniciar verificação periódica
                 startStatusPolling();
@@ -1616,7 +2013,7 @@
                 showAlert('Erro ao carregar informações. Tente novamente.', 'error');
             }
 
-            startStatusPolling();
+            //startStatusPolling();
         }
 
         // Verificação periódica do status (a cada 30 segundos)
@@ -2038,11 +2435,11 @@
                 return 'Erro de conexão';
             }
         }
-
+        
         // ATUALIZAR a função loadAllStudents para usar o cache e ordenação avançada
         async function loadAllStudents(page = 0, searchTerm = '') {
             try {
-                console.log('🎯 Carregando lista de alunos...');
+                console.log(`Buscando alunos... Página: ${page}, Termo: "${searchTerm}"`);
                 
                 const accessToken = localStorage.getItem('access_token');
                 let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=${page}&size=${pageSize}`;
@@ -2112,6 +2509,94 @@
                 console.error('Erro ao carregar alunos:', error);
                 showAlert('Erro ao carregar lista de alunos.', 'error');
             }
+        }
+
+        // =======================================================================
+        // NOVA LÓGICA PARA ATUALIZAÇÃO VIA WEBSOCKET
+        // (Esta parte entra no seu script principal)
+        // =======================================================================
+
+        /**
+         * Função chamada pelo WebSocket para atualizar uma linha da tabela em tempo real.
+         * @param {object} studentData - Objeto do aluno enviado pelo WebSocket.
+         */
+        function updateStudentTableRow(studentData) {
+            const studentRow = document.getElementById(`aluno-${studentData.id}`);
+
+            // Se a linha do aluno não estiver na tela (ex: em outra página), não faz nada.
+            if (!studentRow) {
+                console.log(`[WS] Aluno ${studentData.id} não está na página atual. Nenhuma ação visual.`);
+                return;
+            }
+
+            console.log(`[WS] Atualizando aluno: ${studentData.nome}, Novo Status: ${studentData.status}`);
+
+            // Reutilizamos a lógica de criação de HTML para o status e botões
+            let statusHtml = '';
+            let actionsHtml = '';
+            const safeStudentName = studentData.nome ? studentData.nome.replace(/'/g, "\\'") : 'Aluno';
+
+            switch (studentData.status) {
+                case 'PRESENTE':
+                    statusHtml = `<span class="status-badge status-present">Presente</span>`;
+                    actionsHtml = `<button class="btn btn-danger" onclick="openStudentActionModal(${studentData.id}, 'saida', '${safeStudentName}')"><i class="fas fa-sign-out-alt"></i> Saída</button>`;
+                    break;
+                case 'AUSENTE':
+                    statusHtml = `<span class="status-badge status-absent">Ausente</span>`;
+                    actionsHtml = `<button class="btn btn-success" onclick="openStudentActionModal(${studentData.id}, 'entrada', '${safeStudentName}')"><i class="fas fa-sign-in-alt"></i> Entrada</button>`;
+                    break;
+                case 'AGUARDANDO_CONFIRMACAO':
+                    statusHtml = `<span class="status-badge status-awaiting">Aguardando</span>`;
+                    actionsHtml = `<button class="btn btn-warning" onclick="openDirectorConfirmExitModal(${studentData.id}, '${safeStudentName}')"><i class="fas fa-check-circle"></i> Confirmar</button>`;
+                    break;
+                default:
+                    statusHtml = `<span class="status-badge">${studentData.status || 'Indefinido'}</span>`;
+                    break;
+            }
+
+            // Atualiza apenas as células necessárias (Status é a 3ª, Ações é a 5ª)
+            studentRow.cells[2].innerHTML = statusHtml;
+            studentRow.cells[4].innerHTML = `
+                <div class="action-buttons">
+                    ${actionsHtml}
+                    <button class="btn btn-primary" onclick="window.viewStudentHistory(${studentData.id}, '${safeStudentName}', 0)"><i class="fas fa-history"></i> Histórico</button>
+                </div>
+            `;
+
+            // Dispara a reordenação da tabela para mover o aluno para o topo, se necessário
+            sortTableByStatus();
+        }
+
+        /**
+         * Reordena as linhas da tabela no DOM para refletir a prioridade de status.
+         */
+        function sortTableByStatus() {
+            const tbody = document.getElementById('studentsTableBody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            
+            const getStatusPriority = (statusText) => {
+                if (statusText === 'Aguardando') return 0;
+                if (statusText === 'Presente') return 1;
+                return 2;
+            };
+
+            rows.sort((a, b) => {
+                const statusA = a.cells[2].textContent.trim();
+                const statusB = b.cells[2].textContent.trim();
+                const priorityA = getStatusPriority(statusA);
+                const priorityB = getStatusPriority(statusB);
+
+                if (priorityA !== priorityB) {
+                    return priorityA - priorityB;
+                }
+
+                const nameA = a.cells[0].textContent.trim();
+                const nameB = b.cells[0].textContent.trim();
+                return nameA.localeCompare(nameB);
+            });
+
+            // Remonta o tbody com as linhas ordenadas
+            rows.forEach(row => tbody.appendChild(row));
         }
 
         // NOVA VERSÃO - AJUSTADA PARA O NOVO FORMATO DE DADOS
@@ -2242,40 +2727,52 @@
         function renderStudentsTable(data) {
             console.log('🎨 Renderizando tabela de alunos com status completo...');
             const tbody = document.getElementById('studentsTableBody');
-            tbody.innerHTML = '';
+            tbody.innerHTML = ''; // Limpa a tabela de uma só vez
 
-            if (data.content && data.content.length > 0) {
-                data.content.forEach(student => {
-                    const tr = document.createElement('tr');
-                    tr.setAttribute('data-student-id', student.id);
+            const students = data.content || [];
 
+            if (students.length > 0) {
+                students.forEach(student => {
+                    // 1. Primeiro, definimos todas as variáveis necessárias
                     let statusHtml = '';
                     let actionsHtml = '';
+                    // Garante que nomes com aspas não quebrem o HTML do onclick
                     const safeStudentName = student.nome ? student.nome.replace(/'/g, "\\'") : 'Aluno';
                     const tutoresHtml = formatTutorsForDisplay(student.tutores);
 
+                    // 2. Usamos o switch para atribuir valores às variáveis com base no status
                     switch (student.status) {
                         case 'PRESENTE':
                             statusHtml = `<span class="status-badge status-present">Presente</span>`;
-                            actionsHtml = `<button class="btn btn-danger" onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')"><i class="fas fa-sign-out-alt"></i> Saída</button>`;
+                            actionsHtml = `<button class="btn btn-danger" onclick="openStudentActionModal(${student.id},
+                            'saida', '${safeStudentName}')"><i class="fas fa-sign-out-alt"></i> Saída</button>`;
                             break;
                         
                         case 'AUSENTE':
                             statusHtml = `<span class="status-badge status-absent">Ausente</span>`;
-                            actionsHtml = `<button class="btn btn-success" onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')"><i class="fas fa-sign-in-alt"></i> Entrada</button>`;
+                            actionsHtml = `<button class="btn btn-success" onclick="openStudentActionModal(${student.id},
+                            'entrada', '${safeStudentName}')"><i class="fas fa-sign-in-alt"></i> Entrada</button>`;
                             break;
 
                         case 'AGUARDANDO_CONFIRMACAO':
                             statusHtml = `<span class="status-badge status-awaiting">Aguardando</span>`;
-                            // CORREÇÃO FINAL: Chamar a função que abre o MODAL BONITO.
-                            actionsHtml = `<button class="btn btn-warning" onclick="openDirectorConfirmExitModal(${student.id}, '${safeStudentName}')"><i class="fas fa-check-circle"></i> Confirmar</button>`;
+                            actionsHtml = `<button class="btn btn-warning" onclick="openDirectorConfirmExitModal(${student.id},
+                            '${safeStudentName}')"><i class="fas fa-check-circle"></i> Confirmar</button>`;
                             break;
 
                         default:
                             statusHtml = `<span class="status-badge">${student.status || 'Indefinido'}</span>`;
                             actionsHtml = ``;
+                            break;
                     }
 
+                    // 3. Criamos o elemento da linha (tr)
+                    const tr = document.createElement('tr');
+                    tr.id = `aluno-${student.id}`; // ID essencial para a atualização via WebSocket
+
+                    //tr.setAttribute('data-student-id', student.id);
+
+                    // 4. Agora, com todas as variáveis prontas, montamos o HTML da linha UMA ÚNICA VEZ
                     tr.innerHTML = `
                         <td><strong>${student.nome || 'Nome não informado'}</strong></td>
                         <td>${student.salaNome || 'Sala não informada'}</td>
@@ -2284,13 +2781,17 @@
                         <td>
                             <div class="action-buttons">
                                 ${actionsHtml}
-                                <button class="btn btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}', 0)"><i class="fas fa-history"></i> Histórico</button>
+                                <button class="btn btn-primary" onclick="window.viewStudentHistory(${student.id},
+                                '${safeStudentName}', 0)"><i class="fas fa-history"></i> Histórico</button>
                             </div>
                         </td>
                     `;
+
+                    // 5. Finalmente, adicionamos a linha pronta à tabela
                     tbody.appendChild(tr);
                 });
             } else {
+                // Se não houver alunos, exibe a mensagem de "Nenhum aluno encontrado"
                 tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px;">Nenhum aluno encontrado</td></tr>`;
             }
         }
@@ -4471,9 +4972,13 @@
         /**
          * Listener UNIFICADO que inicializa o dashboard e configura os botões dos modais
          */
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', async function() {
             // 1. Inicializa o dashboard (sua função original)
-            initializeDashboard();
+            await initializeDashboard();
+
+            // Inicializa o conector WebSocket
+            //const wsConnector = new WebSocketConnector();
+            //wsConnector.init();
 
             // 2. Configura o botão de confirmação do NOSSO modal de saída
             const confirmBtn = document.getElementById('confirmDirectorExitBtn');
@@ -4485,6 +4990,13 @@
                     }
                 });
             }
+
+            if (currentSchoolId) {
+                connectToStudentStatusChannel();
+            } else {
+                console.error("ERRO CRÍTICO: ID da Escola não foi definido. WebSocket não pode iniciar.");
+            }
+
         });
 
         /**
