@@ -1778,11 +1778,12 @@
             }
             
             /**
-             * Para uma lista de alunos, verifica no backend quais estão com status de saída pendente.
-             * Esta função é a "fonte da verdade" ao carregar e recarregar os dados.
-             * @param {Array} alunos - A lista de alunos vinda da API.
-             * @returns {Promise<Array>} A lista de alunos com o status ('PRESENTE' ou 'AGUARDANDO_CONFIRMACAO') atualizado.
-             */
+            * CORRIGIDO: Para uma lista de alunos, verifica no backend quais estão com status de saída pendente.
+            * Esta função agora é mais robusta e trata erros de API, impedindo que a UI
+            * seja renderizada com um estado incorreto.
+            * @param {Array} alunos - A lista de alunos vinda da API.
+            * @returns {Promise<Array>} A lista de alunos com o status ('PRESENTE' ou 'AGUARDANDO_CONFIRMACAO') atualizado.
+            */
             async verificarStatusDeSaida(alunos) {
                 console.log('🕵️ Verificando status de saída para alunos presentes...');
                 if (alunos.length === 0) {
@@ -1793,24 +1794,47 @@
                 const statusPromises = alunos.map(aluno =>
                     fetch(`${this.BACKEND_URL}/api/presencas/aluno/${aluno.id}/saida-ativa`, {
                         headers: { 'Authorization': `Bearer ${this.token}` }
-                    }).then(async (res) => {
-                        if (res.ok) {
-                            try {
-                                const saidaAtiva = await res.json();
-                                // Se a resposta tem um status e ele é 'AGUARDANDO_CONFIRMACAO', atualizamos o aluno.
-                                if (saidaAtiva && saidaAtiva.status === 'AGUARDANDO_CONFIRMACAO') {
-                                    return { ...aluno, status: 'AGUARDANDO_CONFIRMACAO' };
-                                }
-                            } catch (e) {
-                                // Se a resposta não for JSON (ex: 204 No Content), significa que não há saída ativa.
-                            }
+                    })
+                    .then(async (res) => {
+                        // Se a resposta NÃO for bem-sucedida (ex: 500, 404), nós lançamos um erro.
+                        // Isso interrompe a cadeia e faz o Promise.all falhar, o que é o comportamento correto.
+                        if (!res.ok) {
+                            // Tenta extrair uma mensagem de erro do corpo da resposta, se houver
+                            const errorBody = await res.text();
+                            throw new Error(`Falha ao verificar status para aluno ${aluno.id}. Status: ${res.status}. Resposta: ${errorBody}`);
                         }
-                        // Para todos os outros casos, o status é 'PRESENTE'.
+
+                        // Se a resposta for 204 No Content, significa que não há saída ativa.
+                        if (res.status === 204) {
+                            return { ...aluno, status: 'PRESENTE' };
+                        }
+
+                        // Se chegamos aqui, a resposta é 200 OK e tem um corpo JSON.
+                        try {
+                            const saidaAtiva = await res.json();
+                            // Se a resposta tem um status e ele é 'AGUARDANDO_CONFIRMACAO', atualizamos o aluno.
+                            if (saidaAtiva && saidaAtiva.status === 'AGUARDANDO_CONFIRMACAO') {
+                                return { ...aluno, status: 'AGUARDANDO_CONFIRMACAO' };
+                            }
+                        } catch (e) {
+                            // Se houver um erro ao parsear o JSON (improvável com res.ok), trata como presente.
+                            console.warn(`Resposta inesperada (não-JSON) para aluno ${aluno.id}, tratando como PRESENTE.`);
+                        }
+
+                        // Para todos os outros casos (ex: 200 OK mas sem status aguardando), o status é 'PRESENTE'.
                         return { ...aluno, status: 'PRESENTE' };
+                    })
+                    .catch(error => {
+                        // Se a requisição 'fetch' falhar (ex: problema de rede), nós a rejeitamos.
+                        console.error(`Erro de rede ao verificar status para aluno ${aluno.id}:`, error);
+                        // Re-lança o erro para garantir que Promise.all falhe.
+                        throw error;
                     })
                 );
 
                 // Espera todas as verificações terminarem.
+                // Se qualquer uma das promises em statusPromises for rejeitada, o await aqui vai lançar um erro,
+                // que será capturado pelo bloco catch da função que chamou (carregarDadosSala).
                 const alunosAtualizados = await Promise.all(statusPromises);
                 console.log('✅ Status de saída verificado para todos os alunos.');
                 return alunosAtualizados;
