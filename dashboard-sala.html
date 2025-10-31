@@ -1809,60 +1809,51 @@
             }
             
             /**
-            * CORRIGIDO E OTIMIZADO: Para uma lista de alunos, verifica no backend o status real de cada um.
-            * Usa um padrão async/await para maior clareza e resiliência, garantindo que a falha
-            * na verificação de um aluno não impeça a renderização dos demais.
-            * @param {Array} alunos - A lista de alunos vinda da API.
-            * @returns {Promise<Array>} A lista de alunos com o status final ('PRESENTE' ou 'AGUARDANDO_CONFIRMACAO') devidamente atualizado.
-            */
+             *  VERSÃO CORRIGIDA E ROBUSTA
+             * Verifica o status de saída para cada aluno, tratando explicitamente as respostas da API
+             * e evitando problemas de cache do navegador.
+             * @param {Array} alunos - A lista de alunos vinda da API inicial.
+             * @returns {Promise<Array>} A lista de alunos com o status final correto.
+             */
             async verificarStatusDeSaida(alunos) {
                 console.log('🕵️ Verificando status de saída para alunos presentes...');
-                if (!alunos || alunos.length === 0) {
-                    return [];
-                }
 
-                // Usamos .map para criar um array de promessas.
-                // A função dentro do .map é `async`, o que a faz retornar uma promessa implicitamente.
                 const statusPromises = alunos.map(async (aluno) => {
+                    // Adiciona um parâmetro extra para evitar o cache do navegador.
+                    const cacheBust = `?timestamp=${new Date().getTime()}`;
+                    const url = `${this.BACKEND_URL}/api/presencas/aluno/${aluno.id}/saida-ativa${cacheBust}`;
+
                     try {
-                        const res = await fetch(`${this.BACKEND_URL}/api/presencas/aluno/${aluno.id}/saida-ativa`, {
+                        const response = await fetch(url, {
                             headers: { 'Authorization': `Bearer ${this.token}` }
                         });
 
-                        // Caso 1: Sucesso, mas sem conteúdo (204). Significa que não há saída ativa.
-                        if (res.status === 204) {
+                        // 200 OK: Há uma saída pendente, processar o corpo da resposta.
+                        if (response.status === 200) {
+                            const saidaPendente = await response.json();
+                            console.log(`✅ Status 'PENDENTE' encontrado para aluno ${aluno.id}:`, saidaPendente);
+                            return {
+                                ...aluno,
+                                status: saidaPendente.status || 'AGUARDANDO_CONFIRMACAO',
+                                tipoSolicitante: saidaPendente.tipoSolicitante
+                            };
+                        }
+                        // 204 No Content ou 404 Not Found: Não há saída pendente, o aluno está apenas presente.
+                        else if (response.status === 204 || response.status === 404) {
                             return { ...aluno, status: 'PRESENTE' };
                         }
-
-                        // Caso 2: Erro de API (4xx, 5xx). A sua lógica de tratamento foi mantida.
-                        if (!res.ok) {
-                            const errorBody = await res.text().catch(() => 'Corpo do erro não pôde ser lido.');
-                            console.error(`Falha na API ao verificar status para aluno ${aluno.id}. Status: ${res.status}. Resposta: ${errorBody}`);
-                            // Lança o erro para ser pego pelo CATCH principal abaixo.
-                            throw new Error(`API error for student ${aluno.id}`);
+                        // Outros erros de servidor: Trata como 'PRESENTE' para não quebrar a UI.
+                        else {
+                            console.warn(`⚠️ Resposta inesperada (${response.status}) ao verificar status para aluno ${aluno.id}.`);
+                            return { ...aluno, status: 'PRESENTE' };
                         }
-
-                        // Caso 3: Sucesso com conteúdo (200 OK).
-                        const saidaAtiva = await res.json();
-                        if (saidaAtiva && saidaAtiva.status === 'AGUARDANDO_CONFIRMACAO') {
-                            return { ...aluno, status: 'AGUARDANDO_CONFIRMACAO', tipoSolicitante: saidaAtiva.tipoSolicitante };
-                        }
-                        
-                        // Fallback para qualquer outro caso de sucesso (ex: status 200 com corpo inesperado)
-                        return { ...aluno, status: 'PRESENTE' };
-
                     } catch (error) {
-                        // Este CATCH lida com erros de rede (se o 'fetch' falhar) ou os erros que lançamos acima.
-                        console.error(`Erro de rede ou processamento ao verificar status para o aluno ${aluno.id}:`, error.message);
-                        
-                        // COMPORTAMENTO RESILIENTE: Em vez de quebrar a renderização de todos os alunos,
-                        // retornamos este aluno como 'PRESENTE' para que a UI não falhe.
+                        console.error(`❌ Erro de rede ao verificar status de saída para o aluno ${aluno.id}:`, error);
+                        // Em caso de erro de rede, assume 'PRESENTE' para não travar a UI.
                         return { ...aluno, status: 'PRESENTE' };
                     }
                 });
 
-                // Promise.all irá esperar por TODAS as promessas (uma para cada aluno) resolverem.
-                // Como nosso CATCH acima sempre retorna um valor, Promise.all nunca será rejeitado.
                 const alunosAtualizados = await Promise.all(statusPromises);
                 console.log('✅ Status de saída verificado para todos os alunos.');
                 return alunosAtualizados;
