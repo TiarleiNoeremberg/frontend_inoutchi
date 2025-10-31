@@ -1701,16 +1701,23 @@
                 }
             }
 
-            /*
+            /**
+             * Carrega os dados da sala, incluindo a lista de todos os alunos e seus status corretos.
+             * Esta função foi otimizada para buscar o status real de cada aluno (Presente, Ausente ou Aguardando Confirmação)
+             * diretamente do backend no momento do carregamento, garantindo que a tela sempre reflita a realidade
+             * após um refresh (F5).
+             */
             async carregarDadosSala() {
                 try {
+                    // Validação inicial para garantir que o ID da sala está disponível.
                     if (!this.salaId) {
-                        throw new Error('Sala ID não definido');
+                        throw new Error('ID da Sala não definido. Não é possível carregar os alunos.');
                     }
 
-                    const endpoint = this.ENDPOINT_ALUNOS_PRESENTES.replace('{salaId}', this.salaId);
-                    console.log('📡 Buscando dados da sala:', endpoint);
-                    
+                    // 1. Busca a lista de alunos da sala. O endpoint foi ajustado para trazer os alunos corretos.
+                    const endpoint = `/api/diretores/salas/${this.salaId}/alunos?presentes=true`;
+                    console.log('Buscando alunos presentes na sala:', endpoint);
+
                     const response = await fetch(`${this.BACKEND_URL}${endpoint}`, {
                         headers: {
                             'Authorization': `Bearer ${this.token}`,
@@ -1719,43 +1726,52 @@
                     });
 
                     if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        throw new Error(`Falha ao buscar alunos da sala (Status: ${response.status})`);
                     }
 
                     const data = await response.json();
-                    console.log('✅ Dados recebidos:', data);
-                    
-                    this.processarDadosSala(data);
-                    
-                } catch (error) {
-                    console.error('❌ Erro ao carregar dados:', error);
-                    this.mostrarErro('Falha ao carregar dados da sala: ' + error.message);
-                }
-            }
-            */
+                    console.log('Dados brutos recebidos:', data);
 
-            /**
-             * Orquestra o carregamento, processamento e exibição dos dados da sala.
-             * Esta função agora é mais limpa e apenas coordena as outras.
-             */
-            async carregarDadosSala() {
-                try {
-                    // 1. Busca os dados brutos da API.
-                    const data = await this.fetchDadosSala();
-                    console.log('✅ Dados brutos da sala recebidos:', data);
+                    // Se não houver alunos, limpa a tela e encerra.
+                    if (!data.alunos || data.alunos.length === 0) {
+                        console.log('Nenhum aluno presente na sala.');
+                        this.alunos = [];
+                        this.atualizarInterface();
+                        return;
+                    }
 
-                    // 2. Processa os dados (enriquece com status e ordena).
-                    const alunosProcessados = await this.processarDadosAlunos(data);
+                    // 2. Para cada aluno presente, verifica se há uma saída pendente ('AGUARDANDO_CONFIRMACAO').
+                    // Esta é a etapa crucial que corrige o status ao recarregar a página.
+                    const statusPromises = data.alunos.map(aluno =>
+                        fetch(`${this.BACKEND_URL}/api/presencas/alunos/${aluno.id}/saida-ativa`, {
+                            headers: { 'Authorization': `Bearer ${this.token}` }
+                        })
+                        .then(res => res.ok ? res.json() : null)
+                        .then(saida => {
+                            // Se encontrar uma saída ativa com status de aguardando, atualiza o status do aluno.
+                            if (saida && saida.status === 'AGUARDANDO_CONFIRMACAO') {
+                                return { ...aluno, status: 'AGUARDANDO_CONFIRMACAO' };
+                            }
+                            // Caso contrário, o aluno está simplesmente 'PRESENTE'.
+                            return { ...aluno, status: 'PRESENTE' };
+                        })
+                        .catch(() => ({ ...aluno, status: 'PRESENTE' })) // Em caso de erro, assume 'PRESENTE'.
+                    );
 
-                    // 3. Atualiza o estado da aplicação.
+                    const alunosComStatusFinal = await Promise.all(statusPromises);
+
+                    // Ordena a lista final por nome para uma exibição consistente.
+                    alunosComStatusFinal.sort((a, b) => a.nome.localeCompare(b.nome));
+
+                    // 3. Atualiza o estado da aplicação com os dados corretos.
                     this.salaInfo = { id: data.salaId, nome: data.salaNome };
-                    this.alunos = alunosProcessados;
+                    this.alunos = alunosComStatusFinal;
 
-                    // 4. Renderiza a interface do usuário com os dados atualizados.
+                    // 4. Renderiza a interface do usuário com a lista de alunos e seus status atualizados.
                     this.atualizarInterface();
 
                 } catch (error) {
-                    console.error('❌ Erro grave no carregamento da sala:', error);
+                    console.error('Erro grave ao carregar e verificar os dados da sala:', error);
                     this.mostrarErro('Falha ao carregar dados da sala: ' + error.message);
                     // Garante que a interface seja limpa em caso de erro.
                     this.alunos = [];
