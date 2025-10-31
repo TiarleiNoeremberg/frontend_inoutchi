@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -448,7 +449,33 @@
             font-weight: 600 !important;
             transition: all 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) !important;
         }
-        
+
+        /* Estilo para card pendente (genérico) */
+        .aluno-card.pendente .aluno-horario {
+            color: #b71c1c;
+            font-weight: bold;
+        }
+
+        /* Cor específica para solicitação de TUTOR (verde) */
+        .aluno-card.tutor.pendente {
+            background-color: #e8f5e9; 
+            border-left: 5px solid #388e3c;
+        }
+
+        /* Cor específica para solicitação de DIRETOR/SISTEMA (vermelho) */
+        .aluno-card.diretor.pendente,
+        .aluno-card.sistema.pendente {
+            background-color: #ffebee;
+            border-left: 5px solid #d32f2f;
+        }
+
+        /* Estilo para card presente (normal) */
+        .aluno-card.presente {
+        /* Estilos normais do card quando o aluno está presente */
+        background-color: #fff;
+        border-left: 5px solid #1976d2;
+        }
+
     </style>
 </head>
 <body>    
@@ -1701,23 +1728,16 @@
                 }
             }
 
-            /**
-             * Carrega os dados da sala, incluindo a lista de todos os alunos e seus status corretos.
-             * Esta função foi otimizada para buscar o status real de cada aluno (Presente, Ausente ou Aguardando Confirmação)
-             * diretamente do backend no momento do carregamento, garantindo que a tela sempre reflita a realidade
-             * após um refresh (F5).
-             */
+            /*
             async carregarDadosSala() {
                 try {
-                    // Validação inicial para garantir que o ID da sala está disponível.
                     if (!this.salaId) {
-                        throw new Error('ID da Sala não definido. Não é possível carregar os alunos.');
+                        throw new Error('Sala ID não definido');
                     }
 
-                    // 1. Busca a lista de alunos da sala. O endpoint foi ajustado para trazer os alunos corretos.
-                    const endpoint = `/api/diretores/salas/${this.salaId}/alunos?presentes=true`;
-                    console.log('Buscando alunos presentes na sala:', endpoint);
-
+                    const endpoint = this.ENDPOINT_ALUNOS_PRESENTES.replace('{salaId}', this.salaId);
+                    console.log('📡 Buscando dados da sala:', endpoint);
+                    
                     const response = await fetch(`${this.BACKEND_URL}${endpoint}`, {
                         headers: {
                             'Authorization': `Bearer ${this.token}`,
@@ -1726,52 +1746,43 @@
                     });
 
                     if (!response.ok) {
-                        throw new Error(`Falha ao buscar alunos da sala (Status: ${response.status})`);
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                     }
 
                     const data = await response.json();
-                    console.log('Dados brutos recebidos:', data);
+                    console.log('✅ Dados recebidos:', data);
+                    
+                    this.processarDadosSala(data);
+                    
+                } catch (error) {
+                    console.error('❌ Erro ao carregar dados:', error);
+                    this.mostrarErro('Falha ao carregar dados da sala: ' + error.message);
+                }
+            }
+            */
 
-                    // Se não houver alunos, limpa a tela e encerra.
-                    if (!data.alunos || data.alunos.length === 0) {
-                        console.log('Nenhum aluno presente na sala.');
-                        this.alunos = [];
-                        this.atualizarInterface();
-                        return;
-                    }
+            /**
+             * Orquestra o carregamento, processamento e exibição dos dados da sala.
+             * Esta função agora é mais limpa e apenas coordena as outras.
+             */
+            async carregarDadosSala() {
+                try {
+                    // 1. Busca os dados brutos da API.
+                    const data = await this.fetchDadosSala();
+                    console.log('✅ Dados brutos da sala recebidos:', data);
 
-                    // 2. Para cada aluno presente, verifica se há uma saída pendente ('AGUARDANDO_CONFIRMACAO').
-                    // Esta é a etapa crucial que corrige o status ao recarregar a página.
-                    const statusPromises = data.alunos.map(aluno =>
-                        fetch(`${this.BACKEND_URL}/api/presencas/alunos/${aluno.id}/saida-ativa`, {
-                            headers: { 'Authorization': `Bearer ${this.token}` }
-                        })
-                        .then(res => res.ok ? res.json() : null)
-                        .then(saida => {
-                            // Se encontrar uma saída ativa com status de aguardando, atualiza o status do aluno.
-                            if (saida && saida.status === 'AGUARDANDO_CONFIRMACAO') {
-                                return { ...aluno, status: 'AGUARDANDO_CONFIRMACAO' };
-                            }
-                            // Caso contrário, o aluno está simplesmente 'PRESENTE'.
-                            return { ...aluno, status: 'PRESENTE' };
-                        })
-                        .catch(() => ({ ...aluno, status: 'PRESENTE' })) // Em caso de erro, assume 'PRESENTE'.
-                    );
+                    // 2. Processa os dados (enriquece com status e ordena).
+                    const alunosProcessados = await this.processarDadosAlunos(data);
 
-                    const alunosComStatusFinal = await Promise.all(statusPromises);
-
-                    // Ordena a lista final por nome para uma exibição consistente.
-                    alunosComStatusFinal.sort((a, b) => a.nome.localeCompare(b.nome));
-
-                    // 3. Atualiza o estado da aplicação com os dados corretos.
+                    // 3. Atualiza o estado da aplicação.
                     this.salaInfo = { id: data.salaId, nome: data.salaNome };
-                    this.alunos = alunosComStatusFinal;
+                    this.alunos = alunosProcessados;
 
-                    // 4. Renderiza a interface do usuário com a lista de alunos e seus status atualizados.
+                    // 4. Renderiza a interface do usuário com os dados atualizados.
                     this.atualizarInterface();
 
                 } catch (error) {
-                    console.error('Erro grave ao carregar e verificar os dados da sala:', error);
+                    console.error('❌ Erro grave no carregamento da sala:', error);
                     this.mostrarErro('Falha ao carregar dados da sala: ' + error.message);
                     // Garante que a interface seja limpa em caso de erro.
                     this.alunos = [];
@@ -1911,58 +1922,52 @@
                 document.getElementById('periodoSala').textContent = textoCompleto;
             }
 
-            /**
-             * VERSÃO DEFINITIVA: 
-             * 1. Corrige o problema do card "perdido" (reintroduz a classe 'presente').
-             * 2. Resolve a questão da cor no F5 para saídas pendentes.
-             * 3. Mantém a estrutura visual 100% original.
-             */
+            // ATUALIZAÇÃO FINAL: renderizarAlunos corrigida para aplicar as cores dinamicamente
             renderizarAlunos() {
                 const grid = document.getElementById('alunosGrid');
-                grid.innerHTML = '';
+                grid.innerHTML = ''; // Limpa a grade para redesenhar
 
-                if (!this.alunos || this.alunos.length === 0) {
+                if (this.alunos.length === 0) {
                     grid.innerHTML = '<div class="empty-state">Nenhum aluno presente na sala</div>';
                     return;
                 }
 
                 this.alunos.forEach(aluno => {
                     const card = document.createElement('div');
-                    card.className = 'aluno-card'; // Classe base, como sempre foi
+                    card.className = 'aluno-card'; // Classe base
                     card.setAttribute('data-aluno-id', aluno.id);
 
-                    const nomeAluno = aluno.nome || 'Nome não informado';
-                    let horarioTexto = 'Presente'; // Texto padrão
+                    let horarioTexto = 'Presente';
 
-                    // --- LÓGICA DE ESTILO E STATUS (CORRIGIDA) ---
-
+                    // --- LÓGICA DE STATUS E COR ---
                     if (aluno.status === 'AGUARDANDO_CONFIRMACAO') {
-                        // Se a saída está pendente:
                         horarioTexto = 'Aguardando Confirmação';
                         
-                        // 1. Adiciona a classe 'pendente' (comportamento que já existia).
-                        card.classList.add('pendente');
+                        // ✨ AQUI ESTÁ A CORREÇÃO INTEGRADA ✨
+                        // Define a classe de cor com base em QUEM solicitou a saída.
+                        // Usamos um fallback para 'sistema' caso a propriedade não exista.
+                        const classeTipo = (aluno.tipoSolicitante || 'sistema').toLowerCase();
+                        
+                        // Adiciona as classes para o estado pendente e para a cor específica (ex: 'pendente' e 'tutor')
+                        card.classList.add('pendente', classeTipo);
 
-                        // 2. Adiciona a classe do solicitante ('tutor' ou 'diretor') para definir a COR.
-                        //    Esta é a correção para o F5.
-                        if (aluno.tipoSolicitante) {
-                            card.classList.add(aluno.tipoSolicitante.toLowerCase());
-                        } else {
-                            card.classList.add('sistema'); // Fallback para vermelho
-                        }
-
-                    } else {
-                        // *** AQUI ESTAVA O MEU ERRO - LÓGICA RESTAURADA ***
-                        // Se o aluno está 'PRESENTE' ou qualquer outro status,
-                        // ele recebe a classe 'presente' para ter o estilo azul padrão.
-                        card.classList.add('presente');
+                    } else { // Para status 'PRESENTE'
+                         card.classList.add('presente'); // Adiciona a classe para o estado presente
                     }
                     
-                    // --- HTML ORIGINAL DO CARD ---
-                    // Nenhuma alteração visual, sem fotos, mantendo sua estrutura.
+                    // --- MONTAGEM DO HTML DO CARD ---
+                    const nomeAluno = aluno.nome || 'Nome não informado';
+
+                    // Este HTML interno pode ser ajustado para corresponder exatamente à sua estrutura.
+                    // O importante é que as classes ('pendente', 'tutor', 'diretor') sejam adicionadas ao 'aluno-card'.
                     card.innerHTML = `
-                        <div class="aluno-nome">${nomeAluno}</div>
-                        <div class="aluno-horario">${horarioTexto}</div>
+                        <div class="aluno-foto-wrapper">
+                             <img src="${aluno.fotoUrl || './assets/avatar_placeholder.png'}" alt="Foto de ${nomeAluno}" class="aluno-foto">
+                        </div>
+                        <div class="aluno-details">
+                            <div class="aluno-nome">${nomeAluno}</div>
+                            <div class="aluno-horario">${horarioTexto}</div>
+                        </div>
                     `;
 
                     grid.appendChild(card);
