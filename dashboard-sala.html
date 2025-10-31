@@ -1734,47 +1734,78 @@
             }
             */
 
-            // 🎯 ATUALIZAR: carregarDadosSala e adicionar sua função "filha"
-
+            /**
+             * Orquestra o carregamento, processamento e exibição dos dados da sala.
+             * Esta função agora é mais limpa e apenas coordena as outras.
+             */
             async carregarDadosSala() {
                 try {
-                    if (!this.salaId) {
-                        throw new Error('Sala ID não definido');
-                    }
+                    // 1. Busca os dados brutos da API.
+                    const data = await this.fetchDadosSala();
+                    console.log('✅ Dados brutos da sala recebidos:', data);
 
-                    const endpoint = this.ENDPOINT_ALUNOS_PRESENTES.replace('{salaId}', this.salaId);
-                    console.log('📡 Buscando dados da sala:', endpoint);
+                    // 2. Processa os dados (enriquece com status e ordena).
+                    const alunosProcessados = await this.processarDadosAlunos(data);
 
-                    const response = await fetch(`${this.BACKEND_URL}${endpoint}`, {
-                        headers: {
-                            'Authorization': `Bearer ${this.token}`,
-                            'Content-Type': 'application/json'
-                        }
-                    });
+                    // 3. Atualiza o estado da aplicação.
+                    this.salaInfo = { id: data.salaId, nome: data.salaNome };
+                    this.alunos = alunosProcessados;
 
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                    }
-
-                    const data = await response.json();
-                    console.log('✅ Dados brutos recebidos:', data);
-
-                    if (data.alunos && Array.isArray(data.alunos)) {
-                        // AGORA, VAMOS ENRIQUECER OS DADOS COM O STATUS CORRETO
-                        const alunosComStatusFinal = await this.verificarStatusDeSaida(data.alunos);
-                        
-                        this.salaInfo = { id: data.salaId, nome: data.salaNome };
-                        this.alunos = alunosComStatusFinal.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-                    } else {
-                        this.alunos = [];
-                    }
-
+                    // 4. Renderiza a interface do usuário com os dados atualizados.
                     this.atualizarInterface();
 
                 } catch (error) {
-                    console.error('❌ Erro ao carregar dados:', error);
+                    console.error('❌ Erro grave no carregamento da sala:', error);
                     this.mostrarErro('Falha ao carregar dados da sala: ' + error.message);
+                    // Garante que a interface seja limpa em caso de erro.
+                    this.alunos = [];
+                    this.atualizarInterface();
                 }
+            }
+
+            /**
+             * Nova função: Busca os dados brutos dos alunos presentes na sala.
+             * @returns {Promise<object>} Os dados retornados pela API.
+             */
+            async fetchDadosSala() {
+                if (!this.salaId) {
+                    throw new Error('ID da Sala não definido. Não é possível buscar os alunos.');
+                }
+
+                const endpoint = this.ENDPOINT_ALUNOS_PRESENTES.replace('{salaId}', this.salaId);
+                console.log('📡 Buscando dados dos alunos em:', endpoint);
+
+                const response = await fetch(`${this.BACKEND_URL}${endpoint}`, {
+                    headers: {
+                        'Authorization': `Bearer ${this.token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    // Lança um erro que será capturado pelo carregarDadosSala.
+                    throw new Error(`A requisição à API falhou com status ${response.status}`);
+                }
+
+                return response.json();
+            }
+
+            /**
+             * Nova função: Processa a lista de alunos para adicionar o status correto e ordenar.
+             * @param {object} data - Os dados brutos vindos da API.
+             * @returns {Promise<Array>} A lista de alunos pronta para ser exibida.
+             */
+            async processarDadosAlunos(data) {
+                if (!data.alunos || !Array.isArray(data.alunos) || data.alunos.length === 0) {
+                    console.log('✅ Nenhum aluno presente na sala.');
+                    return []; // Retorna um array vazio se não houver alunos.
+                }
+
+                // Etapa de enriquecimento: busca o status real de cada aluno.
+                const alunosComStatusFinal = await this.verificarStatusDeSaida(data.alunos);
+
+                // Ordena a lista final de alunos por nome.
+                return alunosComStatusFinal.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
             }
             
             /**
