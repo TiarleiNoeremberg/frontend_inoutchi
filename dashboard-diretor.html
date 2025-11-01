@@ -1959,60 +1959,27 @@
         }
 
         /**
-         * VERSÃO FINAL - ATUALIZA AS DUAS ABAS
-         * Atualiza o status de um aluno no cache local e, em seguida, dispara a atualização
-         * da aba "Alunos" (se estiver ativa) e da aba "Visão Geral".
-         * @param {number} studentId - O ID do aluno a ser atualizado.
-         * @param {string} eventType - O tipo de evento recebido (ex: 'ENTRADA_ALUNO').
+         * VERSÃO FINAL - SIMPLIFICADA (ATUA COMO GATILHO)
+         * Ao receber um evento do WebSocket, esta função não manipula mais o cache.
+         * Em vez disso, ela dispara a recarga dos componentes relevantes, garantindo
+         * consistência total dos dados.
+         *
+         * @param {number} studentId - O ID do aluno (usado para logging).
+         * @param {string} eventType - O tipo de evento recebido (usado para logging).
          */
         function updateStudentStatusInCache(studentId, eventType) {
-            if (!detailedStudentsData) return;
+            console.log(`[WS] Evento '${eventType}' recebido para o aluno ${studentId}. Disparando atualização da UI...`);
 
-            const student = detailedStudentsData.find(s => s.id === studentId);
-            if (student) {
-                console.log(`🔄 Atualizando status do aluno ${student.nome} (ID: ${studentId}) no cache para o evento ${eventType}.`);
-                
-                // 1. ATUALIZA O STATUS NO CACHE
-                switch (eventType) {
-                    case 'ENTRADA_ALUNO':
-                        student.status = 'PRESENTE';
-                        break;
-                    case 'SAIDA_PENDENTE':
-                        student.status = 'AGUARDANDO_CONFIRMACAO';
-                        break;
-                    case 'SAIDA_CONFIRMADA':
-                    case 'SAIDA_ALUNO': // Trata ambos os eventos
-                        student.status = 'AUSENTE';
-                        break;
-                    default:
-                        console.warn(`[WS] Evento não mapeado para mudança de status: ${eventType}`);
-                        return;
-                }
-                
-                // 2. RE-ORDENA A LISTA EM CACHE para priorizar status "Aguardando"
-                const getStatusPriority = (status) => {
-                    if (status === 'AGUARDANDO_CONFIRMACAO') return 0;
-                    if (status === 'PRESENTE') return 1;
-                    return 2;
-                };
-                detailedStudentsData.sort((a, b) => getStatusPriority(a.status) - getStatusPriority(b.status) || a.nome.localeCompare(b.nome));
+            // 1. Recarrega os dados da Visão Geral para refletir os novos totais.
+            loadOverviewData();
 
-                // 3. ATUALIZA AS INTERFACES
-                
-                // Atualiza a tabela da aba "Alunos"
-                const dataForTable = { content: detailedStudentsData };
-                renderStudentsTable(dataForTable);
-                
-                // ATUALIZA OS CARDS E LISTA DA ABA "VISÃO GERAL"
-                refreshOverviewData();
+            // 2. Recarrega a página atual da lista de alunos.
+            // Isso garante que o status do aluno seja atualizado na tabela e que
+            // a ordenação (Aguardando > Presente > Ausente) seja aplicada corretamente.
+            loadAllStudents(currentStudentsPage);
 
-                showAlert(`Status de ${student.nome} foi atualizado.`, 'info');
-            } else {
-                console.warn(`[WS] Aluno com ID ${studentId} não encontrado no cache. É recomendado recarregar os dados.`);
-                // Força o recarregamento completo dos alunos, pois o cache está desatualizado.
-                console.log(`[WS] Forçando recarregamento da lista de alunos para sincronizar...`);
-                loadAllStudents(currentStudentsPage);
-            }
+            // Opcional: Mostrar uma notificação genérica de que os dados foram atualizados.
+            showAlert('A lista de alunos foi atualizada em tempo real.', 'info');
         }
 
         /**
@@ -2417,29 +2384,41 @@
         }
 
         /**
-         * ATUALIZADO: Carrega os dados da visão geral.
-         * Agora, esta função é mais simples e delega a renderização para
-         * a função refreshOverviewData, que usa o cache de alunos.
+         * VERSÃO FINAL - BUSCA DADOS DIRETAMENTE DA API
+         * Carrega as estatísticas consolidadas (Total, Presentes, Ausentes) diretamente
+         * de um endpoint da API, garantindo que os números sejam sempre precisos e
+         * não dependam da paginação da lista de alunos.
          */
         async function loadOverviewData() {
-            console.log('📊 Carregando dados da visão geral...');
+            console.log('📊 Carregando dados da visão geral diretamente da API...');
             try {
-                // As estatísticas de tutores ainda são carregadas de seu próprio endpoint.
                 const accessToken = localStorage.getItem('access_token');
-                const tutorsResponse = await fetch(`${BACKEND_URL}/api/diretores/tutores?page=0&size=1`, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                const url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos/stats`;
+
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
                 });
-                if (tutorsResponse.ok) {
-                    const tutorsData = await tutorsResponse.json();
-                    document.getElementById('totalTutors').textContent = tutorsData.totalElements || 0;
+
+                if (response.ok) {
+                    const stats = await response.json();
+                    document.getElementById('totalStudents').textContent = stats.totalAlunos || 0;
+                    
+                    // CONTA COMO PRESENTES = Status 'PRESENTE' + 'AGUARDANDO_CONFIRMACAO'
+                    const presentCount = (stats.presentes || 0) + (stats.aguardandoConfirmacao || 0);
+                    document.getElementById('presentStudents').textContent = presentCount;
+
+                    const absentCount = (stats.ausentes || 0);
+                    document.getElementById('absentStudents').textContent = absentCount;
+
+                    console.log('✅ Visão Geral atualizada com dados da API:', stats);
+                } else {
+                    console.error(`Erro ao buscar estatísticas: ${response.status}`);
                 }
-
-                // ATENÇÃO: A atualização dos alunos e contagens agora vem do cache.
-                refreshOverviewData();
-
             } catch (error) {
-                console.error('Erro ao carregar dados da visão geral:', error);
-                showAlert('Erro ao carregar dados. Tente recarregar a página.', 'error');
+                console.error('Erro de rede ao carregar dados da visão geral:', error);
             }
         }
 
