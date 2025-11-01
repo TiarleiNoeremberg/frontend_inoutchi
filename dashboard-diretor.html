@@ -1959,27 +1959,59 @@
         }
 
         /**
-         * VERSÃO FINAL - SIMPLIFICADA (ATUA COMO GATILHO)
-         * Ao receber um evento do WebSocket, esta função não manipula mais o cache.
-         * Em vez disso, ela dispara a recarga dos componentes relevantes, garantindo
-         * consistência total dos dados.
-         *
-         * @param {number} studentId - O ID do aluno (usado para logging).
-         * @param {string} eventType - O tipo de evento recebido (usado para logging).
+         * VERSÃO FINAL - GERENCIADOR DE ESTADO EM MEMÓRIA
+         * Atualiza o status de um aluno na lista completa em memória, reordena a lista global
+         * e redesenha a página atual, garantindo consistência sem recarregar tudo do zero.
+         * @param {number} studentId - O ID do aluno a ser atualizado.
+         * @param {string} eventType - O tipo de evento recebido (ex: 'ENTRADA_ALUNO').
          */
         function updateStudentStatusInCache(studentId, eventType) {
-            console.log(`[WS] Evento '${eventType}' recebido para o aluno ${studentId}. Disparando atualização da UI...`);
+            if (!detailedStudentsData || detailedStudentsData.length === 0) {
+                // Se o cache está vazio, um recarregamento completo é a única opção.
+                loadAllStudents(0);
+                loadOverviewData();
+                return;
+            }
 
-            // 1. Recarrega os dados da Visão Geral para refletir os novos totais.
-            loadOverviewData();
+            const student = detailedStudentsData.find(s => s.id === studentId);
+            
+            // Se o aluno não está no cache, recarrega tudo para garantir consistência.
+            if (!student) {
+                console.warn(`[WS] Aluno ${studentId} não encontrado no cache. Recarregando tudo.`);
+                loadAllStudents(0);
+                loadOverviewData();
+                return;
+            }
 
-            // 2. Recarrega a página atual da lista de alunos.
-            // Isso garante que o status do aluno seja atualizado na tabela e que
-            // a ordenação (Aguardando > Presente > Ausente) seja aplicada corretamente.
-            loadAllStudents(currentStudentsPage);
+            console.log(`🔄 [WS] Atualizando status de ${student.nome} (ID: ${studentId}) para o evento ${eventType}.`);
+            
+            // 1. ATUALIZA O STATUS NA LISTA EM MEMÓRIA
+            switch (eventType) {
+                case 'ENTRADA_ALUNO': student.status = 'PRESENTE'; break;
+                case 'SAIDA_PENDENTE': student.status = 'AGUARDANDO_CONFIRMACAO'; break;
+                case 'SAIDA_CONFIRMADA':
+                case 'SAIDA_ALUNO': student.status = 'AUSENTE'; break;
+                default: return;
+            }
 
-            // Opcional: Mostrar uma notificação genérica de que os dados foram atualizados.
-            showAlert('A lista de alunos foi atualizada em tempo real.', 'info');
+            // 2. REORDENA A LISTA GLOBAL
+            const getStatusPriority = (status) => {
+                if (status === 'AGUARDANDO_CONFIRMACAO') return 0;
+                if (status === 'PRESENTE') return 1;
+                return 2;
+            };
+            detailedStudentsData.sort((a, b) => getStatusPriority(a.status) - getStatusPriority(b.status) || a.nome.localeCompare(b.nome));
+
+            // 3. REDESENHA A PÁGINA ATUAL E ATUALIZA A VISÃO GERAL
+            const totalPages = Math.ceil(detailedStudentsData.length / pageSize);
+            const pageData = detailedStudentsData.slice(currentStudentsPage * pageSize, (currentStudentsPage + 1) * pageSize);
+            const paginatedData = { content: pageData, totalPages: totalPages, number: currentStudentsPage };
+            
+            renderStudentsTable(paginatedData);
+            setupStudentsPagination(paginatedData);
+            loadOverviewData(); // Atualiza os totais da Visão Geral.
+
+            showAlert(`Status de ${student.nome} foi atualizado.`, 'info');
         }
 
         /**
@@ -2385,40 +2417,44 @@
 
         /**
          * VERSÃO FINAL - BUSCA DADOS DIRETAMENTE DA API
-         * Carrega as estatísticas consolidadas (Total, Presentes, Ausentes) diretamente
-         * de um endpoint da API, garantindo que os números sejam sempre precisos e
-         * não dependam da paginação da lista de alunos.
+         * Carrega as estatísticas consolidadas da escola para garantir que os números da
+         * Visão Geral sejam sempre precisos e independentes da lista de alunos paginada.
          */
         async function loadOverviewData() {
             console.log('📊 Carregando dados da visão geral diretamente da API...');
             try {
                 const accessToken = localStorage.getItem('access_token');
-                const url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos/stats`;
-
-                const response = await fetch(url, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
+                
+                // 1. Obter o TOTAL de alunos da escola.
+                const totalResponse = await fetch(`${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?size=1`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
+                if (!totalResponse.ok) throw new Error(`Falha ao buscar total de alunos: ${totalResponse.status}`);
+                const totalData = await totalResponse.json();
+                const totalCount = totalData.totalElements || 0;
+                document.getElementById('totalStudents').textContent = totalCount;
 
-                if (response.ok) {
-                    const stats = await response.json();
-                    document.getElementById('totalStudents').textContent = stats.totalAlunos || 0;
-                    
-                    // CONTA COMO PRESENTES = Status 'PRESENTE' + 'AGUARDANDO_CONFIRMACAO'
-                    const presentCount = (stats.presentes || 0) + (stats.aguardandoConfirmacao || 0);
-                    document.getElementById('presentStudents').textContent = presentCount;
+                // 2. Obter TODOS os alunos PRESENTES (incluindo os que estão aguardando).
+                const presentResponse = await fetch(`${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?size=10000`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+                if (!presentResponse.ok) throw new Error(`Falha ao buscar alunos presentes: ${presentResponse.status}`);
+                const presentData = await presentResponse.json();
+                const presentCount = presentData.content ? presentData.content.length : 0;
+                document.getElementById('presentStudents').textContent = presentCount;
 
-                    const absentCount = (stats.ausentes || 0);
-                    document.getElementById('absentStudents').textContent = absentCount;
+                // 3. Calcular os ausentes.
+                const absentCount = totalCount - presentCount;
+                document.getElementById('absentStudents').textContent = absentCount;
+                
+                console.log(`✅ Visão Geral atualizada: Total=${totalCount}, Presentes=${presentCount}, Ausentes=${absentCount}`);
 
-                    console.log('✅ Visão Geral atualizada com dados da API:', stats);
-                } else {
-                    console.error(`Erro ao buscar estatísticas: ${response.status}`);
-                }
             } catch (error) {
-                console.error('Erro de rede ao carregar dados da visão geral:', error);
+                console.error('❌ Erro ao carregar dados da visão geral:', error);
+                // Em caso de erro, zera os contadores para evitar exibir dados incorretos.
+                document.getElementById('totalStudents').textContent = '0';
+                document.getElementById('presentStudents').textContent = '0';
+                document.getElementById('absentStudents').textContent = '0';
             }
         }
 
@@ -2692,88 +2728,73 @@
         }
         
         /**
-         * ATUALIZAR a função loadAllStudents para usar o cache corretamente, 
-         * garantir a ordenação e corrigir os totais da Visão Geral.
+         * VERSÃO FINAL - CONTROLE NO CLIENTE
+         * Busca TODOS os alunos da escola para a memória, ordena-os por prioridade de status
+         * e então gerencia a paginação no lado do cliente para garantir a consistência.
          */
         async function loadAllStudents(page = 0, searchTerm = '') {
+            currentStudentsPage = page; // Atualiza a página atual globalmente
             try {
-                console.log(`Buscando alunos... Página: ${page}, Termo: "${searchTerm}"`);
+                console.log(`Buscando TODOS os alunos... Termo: "${searchTerm}"`);
                 
                 const accessToken = localStorage.getItem('access_token');
-                let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=${page}&size=${pageSize}`;
+                // Pede um número muito grande de alunos para garantir que todos venham.
+                let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=0&size=3000`; 
                 
                 if (searchTerm) {
                     url += `&nome=${encodeURIComponent(searchTerm)}`;
                 }
                 
                 const response = await fetch(url, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
                 
                 if (response.ok) {
                     const data = await response.json();
+                    let allStudents = data.content || [];
                     
-                    // CORREÇÃO 1: Atualiza o card "Total de Alunos" com o valor real vindo da API,
-                    // independentemente da paginação.
-                    if (data && typeof data.totalElements === 'number') {
-                        const totalStudentsCard = document.getElementById('totalStudents');
-                        if (totalStudentsCard) {
-                            totalStudentsCard.textContent = data.totalElements;
-                        }
-                    }
+                    // VERIFICAR E ATRIBUIR O STATUS CORRETO A CADA ALUNO
+                    console.log('🔍 Verificando status de todos os alunos em lote...');
+                    allStudents = await checkAllStudentsStatus(allStudents);
+
+                    // APLICA A ORDENAÇÃO GLOBAL POR PRIORIDADE
+                    console.log('🔄 Ordenando a lista COMPLETA de alunos por status...');
+                    const getStatusPriority = (status) => {
+                        if (status === 'AGUARDANDO' || status === 'AGUARDANDO_CONFIRMACAO') return 0;
+                        if (status === 'PRESENTE') return 1;
+                        return 2;
+                    };
+                    allStudents.sort((a, b) => {
+                        const priorityA = getStatusPriority(a.status);
+                        const priorityB = getStatusPriority(b.status);
+                        if (priorityA !== priorityB) return priorityA - priorityB;
+                        return (a.nome || '').localeCompare(b.nome || '');
+                    });
+
+                    // Armazena a lista completa e ordenada no cache global.
+                    detailedStudentsData = allStudents; 
+                    console.log(`💾 ${allStudents.length} alunos carregados e ordenados no cache.`);
+
+                    // Exibe a página correta a partir da lista completa
+                    const totalPages = Math.ceil(allStudents.length / pageSize);
+                    const pageData = allStudents.slice(page * pageSize, (page + 1) * pageSize);
+
+                    // Cria um "falso" objeto de dados paginado para alimentar as funções existentes
+                    const paginatedData = {
+                        content: pageData,
+                        totalPages: totalPages,
+                        number: page
+                    };
                     
-                    // VERIFICAR STATUS EM LOTE
-                    if (data.content && data.content.length > 0) {
-                        console.log('🔍 Verificando status dos alunos em lote...');
-                        data.content = await checkAllStudentsStatus(data.content);
-
-                        // CORREÇÃO 2: Garante que a ordenação seja aplicada corretamente toda vez.
-                        console.log('🔄 Ordenando alunos por status (Aguardando > Presente > Ausente)...');
-
-                        const getStatusPriority = (status) => {
-                            if (status === 'AGUARDANDO' || status === 'AGUARDANDO_CONFIRMACAO') {
-                                return 0; // Prioridade máxima
-                            }
-                            if (status === 'PRESENTE') {
-                                return 1; // Prioridade intermediária
-                            }
-                            return 2; // Prioridade mais baixa (Ausente, etc.)
-                        };
-
-                        data.content.sort((a, b) => {
-                            const priorityA = getStatusPriority(a.status);
-                            const priorityB = getStatusPriority(b.status);
-
-                            // Se as prioridades forem diferentes, ordena por elas
-                            if (priorityA !== priorityB) {
-                                return priorityA - priorityB;
-                            }
-
-                            // Se as prioridades forem iguais, ordena alfabeticamente por nome
-                            return (a.nome || '').localeCompare(b.nome || '');
-                        });
-
-                        // Popula o cache com os dados da PÁGINA ATUAL, já ordenados
-                        detailedStudentsData = data.content; 
-                        console.log('💾 Dados dos alunos armazenados em cache local.');
-                    }
-                    
-                    // Renderiza a tabela e a paginação com os dados já processados e ordenados
-                    renderStudentsTable(data);
-                    setupStudentsPagination(data);
-                    
-                    // Força a atualização da Visão Geral com os dados da página atual
-                    refreshOverviewData();
+                    renderStudentsTable(paginatedData);
+                    setupStudentsPagination(paginatedData);
                     
                 } else {
                     throw new Error(`Erro ${response.status}: ${response.statusText}`);
                 }
             } catch (error) {
-                console.error('Erro ao carregar alunos:', error);
-                showAlert('Erro ao carregar lista de alunos.', 'error');
+                console.error('Erro ao carregar a lista completa de alunos:', error);
+                showAlert('Erro grave ao carregar lista de alunos.', 'error');
             }
         }
 
