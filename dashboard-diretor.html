@@ -2712,7 +2712,10 @@
             }
         }
         
-        // ATUALIZAR a função loadAllStudents para usar o cache e ordenação avançada
+        /**
+         * ATUALIZAR a função loadAllStudents para usar o cache corretamente, 
+         * garantir a ordenação e corrigir os totais da Visão Geral.
+         */
         async function loadAllStudents(page = 0, searchTerm = '') {
             try {
                 console.log(`Buscando alunos... Página: ${page}, Termo: "${searchTerm}"`);
@@ -2734,12 +2737,21 @@
                 if (response.ok) {
                     const data = await response.json();
                     
-                    // VERIFICAR STATUS EM LOTE (já existente)
+                    // CORREÇÃO 1: Atualiza o card "Total de Alunos" com o valor real vindo da API,
+                    // independentemente da paginação.
+                    if (data && typeof data.totalElements === 'number') {
+                        const totalStudentsCard = document.getElementById('totalStudents');
+                        if (totalStudentsCard) {
+                            totalStudentsCard.textContent = data.totalElements;
+                        }
+                    }
+                    
+                    // VERIFICAR STATUS EM LOTE
                     if (data.content && data.content.length > 0) {
                         console.log('🔍 Verificando status dos alunos em lote...');
                         data.content = await checkAllStudentsStatus(data.content);
 
-                        // ===== CORREÇÃO: Ordenar alunos com prioridade múltipla =====
+                        // CORREÇÃO 2: Garante que a ordenação seja aplicada corretamente toda vez.
                         console.log('🔄 Ordenando alunos por status (Aguardando > Presente > Ausente)...');
 
                         const getStatusPriority = (status) => {
@@ -2762,21 +2774,20 @@
                             }
 
                             // Se as prioridades forem iguais, ordena alfabeticamente por nome
-                            if (a.nome && b.nome) {
-                                return a.nome.localeCompare(b.nome);
-                            }
-                            return 0;
+                            return (a.nome || '').localeCompare(b.nome || '');
                         });
 
-                        // Popula o cache com os dados detalhados dos alunos
+                        // Popula o cache com os dados da PÁGINA ATUAL, já ordenados
                         detailedStudentsData = data.content; 
                         console.log('💾 Dados dos alunos armazenados em cache local.');
-                        // =================================================================
-
                     }
                     
+                    // Renderiza a tabela e a paginação com os dados já processados e ordenados
                     renderStudentsTable(data);
                     setupStudentsPagination(data);
+                    
+                    // Força a atualização da Visão Geral com os dados da página atual
+                    refreshOverviewData();
                     
                 } else {
                     throw new Error(`Erro ${response.status}: ${response.statusText}`);
