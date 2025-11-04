@@ -357,6 +357,7 @@
             document.getElementById('generateTokenForm')?.addEventListener('submit', handleGenerateTokenSubmit);
         }
 
+        /*
         function openGenerateTokenModal(event, alunoId, alunoNome) {
             if (event) event.stopPropagation(); // Stop click from bubbling to the card
 
@@ -379,6 +380,29 @@
             const minutes = String(now.getMinutes()).padStart(2, '0');
             document.getElementById('dataExpiracao').value = `${year}-${month}-${day}T${hours}:${minutes}`;
 
+            generateTokenModal.show();
+        }
+        */
+
+        // ATUALIZADA: Abre o modal de geração de token, agora sem preenchimento automático.
+        function openGenerateTokenModal(event, alunoId, alunoNome) {
+            if (event) event.stopPropagation();
+            
+            // Limpa completamente o formulário para garantir que dados de usos anteriores não persistam.
+            document.getElementById('generateTokenForm').reset();
+            
+            // Define os dados do aluno alvo no modal.
+            document.getElementById('tokenAlunoNome').textContent = alunoNome;
+            document.getElementById('tokenAlunoId').value = alunoId;
+            
+            // Define um valor padrão de expiração para 2 horas a partir de agora.
+            // O usuário pode e deve alterar este valor conforme a necessidade.
+            const now = new Date();
+            now.setHours(now.getHours() + 2); // Adiciona 2 horas
+            const localDateTime = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+            document.getElementById('dataExpiracao').value = localDateTime;
+
+            // Exibe o modal para o usuário.
             generateTokenModal.show();
         }
 
@@ -485,29 +509,40 @@
             }
         }
 
+        // ATUALIZADA: Lida com o envio do formulário, usando a função de autenticação.
         async function handleGenerateTokenSubmit(event) {
             event.preventDefault();
             const form = event.target;
             const errorEl = document.getElementById('generateTokenError');
             const submitBtn = document.getElementById('generateTokenSubmitBtn');
+            
             errorEl.style.display = 'none';
             submitBtn.disabled = true;
-            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Gerando...';
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Gerando...';
 
+            // Os dados são coletados diretamente do formulário preenchido pelo tutor.
             const command = {
                 alunoId: parseInt(form.alunoId.value),
                 destinatarioNome: form.destinatarioNome.value,
                 dataExpiracao: new Date(form.dataExpiracao.value).toISOString(),
-                tipoOperacao: ["ENTRADA", "SAIDA"]
+                tipoOperacao: ["ENTRADA", "SAIDA"] // Permitindo ambas operações conforme regra de negócio.
             };
 
             try {
+                // 1. Garante que temos um token de acesso válido antes de fazer a chamada.
                 const accessToken = await garantirAutenticacao();
-                if (!accessToken) throw new Error("Autenticação necessária.");
+                if (!accessToken) {
+                    // Se a autenticação falhar, a função 'garantirAutenticacao' já terá lidado com o logout.
+                    throw new Error("Autenticação necessária. Faça o login novamente.");
+                }
 
+                // 2. Envia a requisição para a API com os dados inseridos pelo usuário.
                 const response = await fetch(`${BACKEND_URL}/api/tokens/gerar`, {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json','Authorization': `Bearer ${accessToken}`},
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${accessToken}`
+                    },
                     body: JSON.stringify(command)
                 });
 
@@ -516,6 +551,7 @@
                     generateTokenModal.hide();
                     showTokenSuccessModal(result.linkAcesso);
                 } else {
+                    // Exibe a mensagem de erro retornada pela API.
                     throw new Error(result.erro || 'Falha ao gerar token. Verifique os dados.');
                 }
             } catch (error) {
@@ -780,7 +816,8 @@
              const btn = document.getElementById('manualConfirmExitOkBtn');
              btn.blur();
              const { studentId } = btn.dataset; if (!studentId) return showAlert('ID do aluno não encontrado.', 'danger'); isActionProcessing = true; btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Confirmando...'; try { await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' }); showAlert('Saída confirmada com sucesso!', 'success'); manualConfirmExitModalInstance.hide(); await refreshStudentsData(); } catch (error) { showAlert(error.message, 'danger'); } finally { isActionProcessing = false; btn.disabled = false; btn.innerHTML = '<i class="fas fa-check-circle"></i> Sim, Confirmar'; } }
-    
+        
+        /*
         async function garantirAutenticacao() {
             let accessToken = localStorage.getItem('access_token');
             const expiryTime = localStorage.getItem('token_expiry');
@@ -804,6 +841,53 @@
             setTimeout(() => logout(), 3000); // Dá tempo para o usuário ver a mensagem
             return null; // Retorna nulo pois o token não é válido
         }
+        */
+
+        /**
+         * Garante que o token de acesso é válido, renovando-o se necessário.
+         * Esta é uma função essencial para manter a sessão do usuário ativa.
+         * @returns {Promise<string|null>} O token de acesso válido ou null se a renovação falhar.
+         */
+        async function garantirAutenticacao() {
+            // O token de acesso é necessário para fazer chamadas à API
+            let accessToken = localStorage.getItem('access_token');
+            
+            // Tentamos renovar o token usando o refresh_token, que tem uma validade maior.
+            const refreshToken = localStorage.getItem('refresh_token');
+            if (!refreshToken) {
+                showAlert('Sessão inválida. Por favor, faça login novamente.', 'danger');
+                logout(); // Função de logout já existente
+                return null;
+            }
+
+            try {
+                console.log('Verificando e garantindo a validade do token de acesso...');
+                const response = await fetch(`${BACKEND_URL}/api/auth/refresh`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refreshToken: refreshToken })
+                });
+
+                if (response.ok) {
+                    const tokenData = await response.json();
+                    // Salva os novos tokens no localStorage para serem usados nas próximas requisições
+                    localStorage.setItem('access_token', tokenData.access_token);
+                    if (tokenData.refresh_token) {
+                        localStorage.setItem('refresh_token', tokenData.refresh_token);
+                    }
+                    console.log('Token de acesso atualizado com sucesso!');
+                    return tokenData.access_token;
+                } else {
+                    // Se a renovação falhar (ex: o refresh_token também expirou), desconectamos o usuário
+                    throw new Error('Falha ao renovar a sessão.');
+                }
+            } catch (error) {
+                console.error('Erro crítico de autenticação:', error);
+                showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
+                logout(); // Desconecta o usuário de forma segura
+                return null;
+            }
+        }    
 
         async function renovarToken() {
             const refreshToken = localStorage.getItem('refresh_token');
@@ -848,32 +932,91 @@
 <!-- ======================================================================= -->
 
 <!-- Modal: Gerar Token de Acesso -->
-<div id="generateTokenModal" class="modal fade" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="generateTokenModalTitle">Gerar Token de Acesso</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
+<div id="generateTokenModal" class="modal" style="display:none;">
+    <div class="modal-content large">
+        <div class="modal-header">
+            <h2>Gerar Token de Acesso para <span id="tokenStudentName"></span></h2>
+            <span class="close-btn" onclick="closeModal('generateTokenModal')">&times;</span>
+        </div>
+        <div class="modal-body">
             <form id="generateTokenForm">
-                <div class="modal-body">
-                    <p>Você está gerando um token para: <strong id="tokenAlunoNome"></strong></p>
-                    <input type="hidden" id="tokenAlunoId" name="alunoId">
-                    <div class="mb-3">
-                        <label for="destinatarioNome" class="form-label"><strong>Nome do Destinatário*</strong></label>
-                        <input type="text" id="destinatarioNome" name="destinatarioNome" class="form-control" required>
+                <!-- O ID do aluno fica escondido, mas é essencial para a requisição -->
+                <input type="hidden" id="tokenAlunoId">
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="destinatarioNome">Nome do Destinatário:</label>
+                        <input type="text" id="destinatarioNome" required>
                     </div>
-                    <div class="mb-3">
-                        <label for="dataExpiracao" class="form-label"><strong>Data de Expiração*</strong></label>
-                        <input type="datetime-local" id="dataExpiracao" name="dataExpiracao" class="form-control" required>
+                    <div class="form-group">
+                        <label for="tipoParentesco">Parentesco:</label>
+                        <select id="tipoParentesco" required>
+                            <option value="PAI">Pai</option>
+                            <option value="MAE">Mãe</option>
+                            <option value="AVO">Avó/Avô</option>
+                            <option value="TIO">Tio/Tia</option>
+                            <option value="IRMAO">Irmão/Irmã</option>
+                            <option value="OUTRO" selected>Outro</option>
+                        </select>
                     </div>
-                    <div id="generateTokenError" class="alert alert-danger" style="display: none; margin-top: 15px;"></div>
                 </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="destinatarioTelefone">Telefone do Destinatário:</label>
+                        <input type="tel" id="destinatarioTelefone" placeholder="(XX) XXXXX-XXXX">
+                    </div>
+                    <div class="form-group">
+                        <label for="destinatarioEmail">E-mail do Destinatário:</label>
+                        <input type="email" id="destinatarioEmail" placeholder="email@exemplo.com">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="tipoOperacao">Tipo de Operação:</label>
+                        <select id="tipoOperacao" required>
+                            <option value="SAIDA">Saída</option>
+                            <option value="ENTRADA">Entrada</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="dataExpiracao">Data e Hora de Expiração:</label>
+                        <input type="datetime-local" id="dataExpiracao" required>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="observacao">Observação:</label>
+                    <textarea id="observacao" rows="2" placeholder="Ex: Autorizado a buscar meu filho(a) na escola."></textarea>
+                </div>
+
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" id="generateTokenSubmitBtn" class="btn btn-primary">Gerar Token</button>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-check"></i> Gerar Token</button>
                 </div>
             </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para Exibir Token Gerado (NOVO) -->
+<div id="showTokenModal" class.modal" style="display:none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Token Gerado com Sucesso!</h2>
+            <span class="close-btn" onclick="closeModal('showTokenModal')">&times;</span>
+        </div>
+        <div class="modal-body text-center">
+            <p>Compartilhe o token ou o link com o destinatário:</p>
+            <div class="token-display">
+                <input type="text" id="generatedTokenValue" readonly>
+                <button onclick="copyToClipboard('generatedTokenValue', 'Copiado!')" title="Copiar Token"><i class="fas fa-copy"></i></button>
+            </div>
+            <p style="margin-top: 15px;"><strong>Link de Acesso Direto:</strong></p>
+            <div class="token-display">
+                 <input type="text" id="generatedTokenLink" readonly>
+                 <button onclick="copyToClipboard('generatedTokenLink', 'Link copiado!')" title="Copiar Link"><i class="fas fa-link"></i></button>
+            </div>
         </div>
     </div>
 </div>
