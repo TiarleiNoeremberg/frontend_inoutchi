@@ -541,7 +541,10 @@
             }
         }
 
-        // ATUALIZADA: Lida com o envio do formulário, usando a função de autenticação.
+        /**
+         * ATUALIZADA: Lida com o envio do formulário, usando a função de autenticação
+         * e enviando o tipo de operação como uma String.
+         */
         async function handleGenerateTokenSubmit(event) {
             event.preventDefault();
             const form = event.target;
@@ -557,7 +560,9 @@
                 alunoId: parseInt(form.alunoId.value),
                 destinatarioNome: form.destinatarioNome.value,
                 dataExpiracao: new Date(form.dataExpiracao.value).toISOString(),
-                tipoOperacao: ["ENTRADA", "SAIDA"] // Permitindo ambas operações conforme regra de negócio.
+                // ===== CORREÇÃO APLICADA AQUI =====
+                // O backend espera uma String, e "AMBAS" representa a permissão para entrada e saída.
+                tipoOperacao: "AMBAS" 
             };
 
             try {
@@ -877,37 +882,75 @@
 
         
         /**
-         * Garante que um token de acesso válido esteja disponível.
-         * Verifica a expiração do token atual e, se necessário, chama a função 'renovarToken'.
-         * Esta função agora atua como um "porteiro" da autenticação.
-         *
-         * @returns {Promise<string|null>} Retorna um token de acesso válido ou null se a autenticação falhar.
+         * Garante que o usuário tenha um token de acesso válido, renovando-o se necessário.
+         * Esta função centraliza a lógica de autenticação antes de fazer chamadas à API.
+         * @returns {Promise<string|null>} O token de acesso válido ou null se a autenticação falhar.
          */
         async function garantirAutenticacao() {
-            console.log('🧐 Verificando a necessidade de autenticação...');
-
-            const accessToken = localStorage.getItem('access_token');
-            const tokenExpiry = parseInt(localStorage.getItem('token_expiry'), 10);
+            console.log('ð§ Verificando a necessidade de autenticaÃ§Ã£o...');
+            let accessToken = localStorage.getItem('access_token');
             const refreshToken = localStorage.getItem('refresh_token');
-            
-            // Se não houver refresh token, não há como recuperar a sessão.
-            if (!refreshToken) {
-                console.error('❌ Não há refresh_token. Logout forçado.');
-                showAlert('Sessão inválida. Por favor, faça login novamente.', 'danger');
-                logout(); // A função logout deve limpar o localStorage e redirecionar
+
+            // Se nÃ£o tivermos um token de acesso, precisamos de um refresh token para continuar.
+            if (!accessToken && !refreshToken) {
+                console.log('â Nenhum token de acesso ou de renovaÃ§Ã£o encontrado. Desconectando.');
+                showAlert('SessÃ£o invÃ¡lida. Por favor, faÃ§a login novamente.', 'danger');
+                logout();
                 return null;
             }
 
-            // Verifica se o token atual ainda é válido (com uma margem de segurança de 10 segundos)
-            const agora = new Date().getTime();
-            if (accessToken && tokenExpiry && (agora < tokenExpiry - 10000)) {
-                console.log('✅ Token de acesso ainda é válido. Usando o existente.');
-                return accessToken;
+            // Testa se o token de acesso atual ainda Ã© vÃ¡lido.
+            if (accessToken) {
+                try {
+                    const response = await fetch(`${BACKEND_URL}/api/users/me`, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                    });
+                    if (response.ok) {
+                        console.log('Token de acesso ainda é válido. Usando o existente.');
+                        return accessToken;
+                    }
+                    console.log('Token de acesso expirado ou inválido. Tentando renovar...');
+                } catch (error) {
+                    console.error('Erro ao testar o token de acesso. Tentando renovar...', error);
+                }
             }
 
-            // Se o token não existe ou expirou, delega a renovação para a função correta.
-            console.log('⚠️ Token de acesso ausente ou expirado. Delegando para renovarToken()...');
-            return await renovarToken();
+            // Se o token de acesso nÃ£o for vÃ¡lido ou nÃ£o existir, e nÃ£o houver refresh token, nÃ£o hÃ¡ o que fazer.
+            if (!refreshToken) {
+                console.log('Não há¡ refresh token disponí­vel para renovar a sessão.');
+                showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
+                logout();
+                return null;
+            }
+
+            // Tenta renovar o token usando o refresh token.
+            try {
+                console.log('Executando a renovação do token de acesso...');
+                // ===== CORREÃÃO APLICADA AQUI =====
+                // O endpoint foi corrigido para o correto, que Ã© '/api/auth/refresh-token'.
+                const response = await fetch(`${BACKEND_URL}/api/auth/refresh-token`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refreshToken: refreshToken })
+                });
+
+                if (response.ok) {
+                    const tokenData = await response.json();
+                    localStorage.setItem('access_token', tokenData.access_token);
+                    if (tokenData.refresh_token) {
+                        localStorage.setItem('refresh_token', tokenData.refresh_token);
+                    }
+                    console.log('Token de acesso renovado com sucesso!');
+                    return tokenData.access_token;
+                } else {
+                    throw new Error(`Falha ao renovar a sessÃ£o (status: ${response.status}).`);
+                }
+            } catch (error) {
+                console.error('Erro crí­tico na renovação do token:', error);
+                showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
+                logout();
+                return null;
+            }
         }    
 
         /**
