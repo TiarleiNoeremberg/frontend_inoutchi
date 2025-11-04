@@ -875,125 +875,107 @@
         }
         */
 
+        
         /**
-         * Garante que o token de acesso é válido, renovando-o se necessário.
-         * Esta é uma função essencial para manter a sessão do usuário ativa.
-         * @returns {Promise<string|null>} O token de acesso válido ou null se a renovação falhar.
+         * Garante que um token de acesso válido esteja disponível.
+         * Verifica a expiração do token atual e, se necessário, chama a função 'renovarToken'.
+         * Esta função agora atua como um "porteiro" da autenticação.
+         *
+         * @returns {Promise<string|null>} Retorna um token de acesso válido ou null se a autenticação falhar.
          */
         async function garantirAutenticacao() {
-            let accessToken = localStorage.getItem('access_token');
+            console.log('🧐 Verificando a necessidade de autenticação...');
+
+            const accessToken = localStorage.getItem('access_token');
+            const tokenExpiry = parseInt(localStorage.getItem('token_expiry'), 10);
             const refreshToken = localStorage.getItem('refresh_token');
-
+            
+            // Se não houver refresh token, não há como recuperar a sessão.
             if (!refreshToken) {
+                console.error('❌ Não há refresh_token. Logout forçado.');
                 showAlert('Sessão inválida. Por favor, faça login novamente.', 'danger');
-                logout();
+                logout(); // A função logout deve limpar o localStorage e redirecionar
                 return null;
             }
 
-            try {
-                console.log('Verificando e garantindo a validade do token de acesso...');
-
-                // ===== CORREÇÃO APLICADA AQUI =====
-                // O endpoint para renovação do token foi corrigido para '/api/auth/refresh-token',
-                // que é o caminho correto exposto pela API. A falha 401 ocorria por chamar 
-                // um endpoint que não deveria ser usado para esta operação.
-                const response = await fetch(`${BACKEND_URL}/api/auth/refresh`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json' },
-                    //body: JSON.stringify({ refreshToken: refreshToken })
-                    body: JSON.stringify({ refreshToken })
-                });
-
-                if (response.ok) {
-                    const tokenData = await response.json();
-                    localStorage.setItem('access_token', tokenData.access_token);
-                    // O fluxo de refresh pode opcionalmente retornar um novo refresh_token para maior segurança.
-                    if (tokenData.refresh_token) {
-                        localStorage.setItem('refresh_token', tokenData.refresh_token);
-                    }
-                    console.log('Token de acesso atualizado com sucesso!');
-                    return tokenData.access_token;
-                } else {
-                    // Se a renovação falhar (ex: o refresh_token também expirou), desconectamos o usuário.
-                    throw new Error(`Falha ao renovar a sessão (status: ${response.status}).`);
-                }
-            } catch (error) {
-                console.error('Erro crítico de autenticação:', error);
-                showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
-                logout(); // Desconecta o usuário de forma segura.
-                return null;
+            // Verifica se o token atual ainda é válido (com uma margem de segurança de 10 segundos)
+            const agora = new Date().getTime();
+            if (accessToken && tokenExpiry && (agora < tokenExpiry - 10000)) {
+                console.log('✅ Token de acesso ainda é válido. Usando o existente.');
+                return accessToken;
             }
+
+            // Se o token não existe ou expirou, delega a renovação para a função correta.
+            console.log('⚠️ Token de acesso ausente ou expirado. Delegando para renovarToken()...');
+            return await renovarToken();
         }    
 
         /**
-         * Função para renovar o token de acesso usando o refresh_token.
-         * Ela segue o padrão OAuth2 (grant_type=refresh_token) e se comunica
-         * com o endpoint /oauth2/token do Spring Authorization Server.
-         * 
-         * @returns {Promise<string|null>} O novo token de acesso em caso de sucesso, ou null em caso de falha.
+         * Função CORRIGIDA para renovar o token de acesso.
+         * Utiliza o endpoint padrão do OAuth2 (/oauth2/token) com o grant_type 'refresh_token'.
+         *
+         * @returns {Promise<string|null>} O novo token de acesso ou null em caso de falha.
          */
         async function renovarToken() {
-            console.log('🔄 Tentando renovar o token de acesso...');
+            console.log('🔄 Executando a função de renovação de token CORRIGIDA...');
             
             const refreshToken = localStorage.getItem('refresh_token');
             if (!refreshToken) {
-                console.error('❌ Refresh token não encontrado no localStorage. Redirecionando para login.');
+                console.error('❌ FATAL: Refresh token não encontrado. Redirecionando para login.');
                 window.location.href = 'index.html';
                 return null;
             }
 
-            // IMPORTANTE: Substitua com seus valores de client_id e client_secret.
-            // Eles devem ser os mesmos configurados no seu backend (application.properties/yml).
-            const clientId = 'SEU_CLIENT_ID'; 
-            const clientSecret = 'SEU_CLIENT_SECRET';
+            // !! IMPORTANTE !!
+            // Substitua pelos seus valores de client-id e client-secret.
+            // Eles devem ser os mesmos do seu arquivo application.properties ou application.yml.
+            const clientId = 'myclientid'; // Substitua pelo seu Client ID
+            const clientSecret = 'myclientsecret'; // Substitua pelo seu Client Secret
 
-            // O corpo da requisição para o fluxo de refresh token deve ser 'x-www-form-urlencoded'.
+            // O corpo para este tipo de requisição é 'x-www-form-urlencoded'
             const body = new URLSearchParams();
             body.append('grant_type', 'refresh_token');
             body.append('refresh_token', refreshToken);
 
             try {
-                // A requisição é feita para o endpoint /oauth2/token padrão do Spring.
+                // A chamada é para o endpoint /oauth2/token.
                 const response = await fetch(`${BACKEND_URL}/oauth2/token`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
-                        // A autenticação do cliente (client_id:client_secret) é enviada via Basic Auth no header.
-                        // A função btoa() codifica a string em Base64.
+                        // A autenticação do cliente é enviada no header, codificada em Base64.
                         'Authorization': 'Basic ' + btoa(clientId + ':' + clientSecret)
                     },
-                    body: body.toString()
+                    body: body
                 });
 
                 if (!response.ok) {
-                    // Se a resposta não for OK, o refresh token pode ser inválido ou expirado.
-                    throw new Error(`Falha ao renovar token. Status: ${response.status}`);
+                    // Se a resposta não for 200 OK, o refresh token é inválido ou expirou.
+                    const errorText = await response.text();
+                    throw new Error(`Falha ao renovar token. Status: ${response.status}. Resposta: ${errorText}`);
                 }
 
                 const tokenData = await response.json();
 
-                // Atualiza os tokens no localStorage com os novos valores.
+                // Salva os novos tokens no localStorage
                 localStorage.setItem('access_token', tokenData.access_token);
                 if (tokenData.refresh_token) {
-                    // Um novo refresh token pode ser retornado, então o atualizamos também.
                     localStorage.setItem('refresh_token', tokenData.refresh_token);
                 }
                 const expiry = new Date().getTime() + (tokenData.expires_in * 1000);
                 localStorage.setItem('token_expiry', expiry.toString());
 
-                console.log('✅ Token renovado com sucesso!');
-                return tokenData.access_token; // Retorna o novo access_token para uso imediato.
+                console.log('✅ Token renovado com sucesso via /oauth2/token!');
+                return tokenData.access_token;
 
             } catch (error) {
-                console.error('❌ Erro crítico ao renovar token:', error);
+                console.error('❌ Erro crítico ao renovar token. Limpando sessão e redirecionando para login.', error);
                 
-                // Em caso de falha, limpa os tokens antigos para forçar um novo login.
+                // Limpa tudo para forçar um login seguro.
                 localStorage.removeItem('access_token');
                 localStorage.removeItem('refresh_token');
                 localStorage.removeItem('token_expiry');
                 
-                // Redireciona para a tela de login.
                 window.location.href = 'index.html';
                 return null;
             }
