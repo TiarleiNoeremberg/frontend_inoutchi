@@ -926,33 +926,78 @@
             }
         }    
 
+        /**
+         * Função para renovar o token de acesso usando o refresh_token.
+         * Ela segue o padrão OAuth2 (grant_type=refresh_token) e se comunica
+         * com o endpoint /oauth2/token do Spring Authorization Server.
+         * 
+         * @returns {Promise<string|null>} O novo token de acesso em caso de sucesso, ou null em caso de falha.
+         */
         async function renovarToken() {
+            console.log('🔄 Tentando renovar o token de acesso...');
+            
             const refreshToken = localStorage.getItem('refresh_token');
             if (!refreshToken) {
-                console.error('Refresh token não encontrado para renovação.');
-                return false;
+                console.error('❌ Refresh token não encontrado no localStorage. Redirecionando para login.');
+                window.location.href = 'index.html';
+                return null;
             }
+
+            // IMPORTANTE: Substitua com seus valores de client_id e client_secret.
+            // Eles devem ser os mesmos configurados no seu backend (application.properties/yml).
+            const clientId = 'SEU_CLIENT_ID'; 
+            const clientSecret = 'SEU_CLIENT_SECRET';
+
+            // O corpo da requisição para o fluxo de refresh token deve ser 'x-www-form-urlencoded'.
+            const body = new URLSearchParams();
+            body.append('grant_type', 'refresh_token');
+            body.append('refresh_token', refreshToken);
+
             try {
-                const response = await fetch(`${BACKEND_URL}/api/auth/refresh-token`, {
+                // A requisição é feita para o endpoint /oauth2/token padrão do Spring.
+                const response = await fetch(`${BACKEND_URL}/oauth2/token`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ refreshToken })
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        // A autenticação do cliente (client_id:client_secret) é enviada via Basic Auth no header.
+                        // A função btoa() codifica a string em Base64.
+                        'Authorization': 'Basic ' + btoa(clientId + ':' + clientSecret)
+                    },
+                    body: body.toString()
                 });
 
-                if (response.ok) {
-                    const data = await response.json();
-                    localStorage.setItem('access_token', data.accessToken);
-                    // expiresIn é retornado em segundos, convertemos para milissegundos
-                    const expiry = new Date().getTime() + (data.expiresIn * 1000);
-                    localStorage.setItem('token_expiry', expiry.toString());
-                    return data.accessToken;
+                if (!response.ok) {
+                    // Se a resposta não for OK, o refresh token pode ser inválido ou expirado.
+                    throw new Error(`Falha ao renovar token. Status: ${response.status}`);
                 }
-                return false;
+
+                const tokenData = await response.json();
+
+                // Atualiza os tokens no localStorage com os novos valores.
+                localStorage.setItem('access_token', tokenData.access_token);
+                if (tokenData.refresh_token) {
+                    // Um novo refresh token pode ser retornado, então o atualizamos também.
+                    localStorage.setItem('refresh_token', tokenData.refresh_token);
+                }
+                const expiry = new Date().getTime() + (tokenData.expires_in * 1000);
+                localStorage.setItem('token_expiry', expiry.toString());
+
+                console.log('✅ Token renovado com sucesso!');
+                return tokenData.access_token; // Retorna o novo access_token para uso imediato.
+
             } catch (error) {
-                console.error('Erro de rede ao tentar renovar token:', error);
-                return false;
+                console.error('❌ Erro crítico ao renovar token:', error);
+                
+                // Em caso de falha, limpa os tokens antigos para forçar um novo login.
+                localStorage.removeItem('access_token');
+                localStorage.removeItem('refresh_token');
+                localStorage.removeItem('token_expiry');
+                
+                // Redireciona para a tela de login.
+                window.location.href = 'index.html';
+                return null;
             }
-        }    
+        }   
 
         async function fetchWithAuth(endpoint, options = {}) { const headers = { 'Authorization': `Bearer ${localStorage.getItem('access_token')}`, 'Content-Type': 'application/json', ...options.headers }; const response = await fetch(BACKEND_URL + endpoint, { ...options, headers }); if (!response.ok) { const errorData = await response.json().catch(() => ({})); throw new Error(errorData.mensagem || `Erro ${response.status}: ${response.statusText}`); } return response; }
         function showAlert(message, type = 'success') { alertBox.textContent = message; alertBox.className = `alert alert-${type} alert-dismissible fade show`; alertBox.style.display = 'block'; setTimeout(() => { if (alertBox && alertBox.style.display !== 'none') bootstrap.Alert.getOrCreateInstance(alertBox).close(); }, 5000); }
