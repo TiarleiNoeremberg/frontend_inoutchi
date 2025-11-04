@@ -542,9 +542,12 @@
         }
 
         /**
-         * CORRIGIDO E COM DEPURAÇÃO: Lida com o envio do formulário para gerar token.
-         * - Adiciona logs no console para inspecionar os dados que o FormData está capturando.
-         * - Isso ajudará a identificar qual campo está com o atributo 'name' incorreto no HTML.
+         * VERSÃO CORRIGIDA: Ajustado o nome do campo de 'parentesco' para 'tipoParentesco'.
+         *
+         * Lida com o envio do formulário para gerar token.
+         * - Usa FormData para coletar os dados de forma segura.
+         * - Valida campos obrigatórios.
+         * - Processa e envia 'tipoParentesco' e 'tipoOperacao' em maiúsculas e no formato correto.
          */
         async function handleGenerateTokenSubmit(event) {
             event.preventDefault();
@@ -559,46 +562,31 @@
             try {
                 const formData = new FormData(form);
 
-                // ===== INÍCIO DA DEPURAÇÃO =====
-                // Este bloco vai imprimir no console todos os campos que o JS conseguiu encontrar no seu formulário.
-                console.log("--- Depuração do Formulário de Token ---");
-                console.log("Dados capturados pelo FormData:");
-                let missingFields = ['alunoId', 'destinatarioNome', 'parentesco', 'dataExpiracao', 'tipoOperacao'];
-                for (const [key, value] of formData.entries()) {
-                    console.log(`- Campo encontrado: name="${key}", valor="${value}"`);
-                    // Remove o campo da lista de 'faltantes'
-                    missingFields = missingFields.filter(f => f !== key);
+                // --- INÍCIO DA CORREÇÃO ---
+                // Ajustamos a validação e a criação do 'command' para usar 'tipoParentesco'
+                
+                const requiredFields = ['alunoId', 'destinatarioNome', 'tipoParentesco', 'dataExpiracao', 'tipoOperacao'];
+                for (const field of requiredFields) {
+                    if (!formData.get(field)) {
+                        // A sua lógica de depuração já identifica o campo ausente, esta é a validação funcional.
+                        throw new Error(`O campo obrigatório '${field}' não foi preenchido.`);
+                    }
                 }
-
-                if (missingFields.length > 0) {
-                    console.error("Campos com atributo 'name' não encontrados no HTML:", missingFields);
-                }
-                console.log("------------------------------------");
-                // ===== FIM DA DEPURAÇÃO =====
-
-                const alunoId = formData.get('alunoId');
-                const destinatarioNome = formData.get('destinatarioNome');
-                const parentesco = formData.get('parentesco');
-                const dataExpiracao = formData.get('dataExpiracao');
-                const tipoOperacaoRaw = formData.get('tipoOperacao');
-
-                // A validação continua aqui, mas agora os logs acima nos dirão por que ela falha.
-                if (!alunoId || !destinatarioNome || !parentesco || !dataExpiracao || !tipoOperacaoRaw) {
-                    throw new Error(`Verifique o console para ver os campos não encontrados. O atributo 'name' pode estar faltando ou incorreto no HTML.`);
-                }
-
-                let tipoOperacao = tipoOperacaoRaw.toUpperCase();
+                
+                let tipoOperacao = formData.get('tipoOperacao').toUpperCase();
                 if (tipoOperacao === 'SAÍDA') {
                     tipoOperacao = 'SAIDA';
                 }
 
                 const command = {
-                    alunoId: parseInt(alunoId),
-                    destinatarioNome: destinatarioNome,
-                    tipoParentesco: parentesco.toUpperCase(),
-                    dataExpiracao: new Date(dataExpiracao).toISOString(),
+                    alunoId: parseInt(formData.get('alunoId')),
+                    destinatarioNome: formData.get('destinatarioNome'),
+                    // CORRIGIDO: Usando 'tipoParentesco' para ler o valor do formulário.
+                    tipoParentesco: formData.get('tipoParentesco').toUpperCase(),
+                    dataExpiracao: new Date(formData.get('dataExpiracao')).toISOString(),
                     tipoOperacao: tipoOperacao
                 };
+                // --- FIM DA CORREÇÃO ---
 
                 const accessToken = await garantirAutenticacao();
                 if (!accessToken) {
@@ -616,9 +604,7 @@
 
                 const result = await response.json();
                 if (response.ok && result.sucesso) {
-                    // Sucesso!
-                    const modalInstance = bootstrap.Modal.getInstance(document.getElementById('generateTokenModal'));
-                    modalInstance.hide();
+                    generateTokenModal.hide();
                     showTokenSuccessModal(result.linkAcesso);
                 } else {
                     throw new Error(result.erro || 'Falha ao gerar token. Verifique os dados.');
@@ -628,7 +614,6 @@
                 errorEl.innerText = `Erro: ${error.message}`;
                 errorEl.style.display = 'block';
             } finally {
-                // Este bloco 'finally' garante que o botão seja reativado, corrigindo o spinner infinito.
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = 'Gerar Token';
             }
