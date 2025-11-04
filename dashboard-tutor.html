@@ -648,6 +648,7 @@
                     break;
             }
 
+            // A linha abaixo foi atualizada para incluir o botão "Gerar Token"
             li.innerHTML = `
                 <div class="student-item-main">
                     <div class="student-info">
@@ -658,7 +659,8 @@
                 </div>
                 <div class="student-actions">
                     ${actionButtonHtml}
-                    <button class="btn btn-sm btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}')"><i class="fas fa-history"></i> Histórico</button>
+                    <button class="btn btn-sm btn-info" onclick="openGenerateTokenModal(event, ${student.id}, '${safeStudentName}')" title="Gerar Token de Acesso"><i class="fas fa-key"></i></button>
+                    <button class="btn btn-sm btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}')" title="Ver Histórico"><i class="fas fa-history"></i></button>
                 </div>`;
             studentList.appendChild(li);
         });
@@ -779,10 +781,64 @@
              btn.blur();
              const { studentId } = btn.dataset; if (!studentId) return showAlert('ID do aluno não encontrado.', 'danger'); isActionProcessing = true; btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Confirmando...'; try { await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' }); showAlert('Saída confirmada com sucesso!', 'success'); manualConfirmExitModalInstance.hide(); await refreshStudentsData(); } catch (error) { showAlert(error.message, 'danger'); } finally { isActionProcessing = false; btn.disabled = false; btn.innerHTML = '<i class="fas fa-check-circle"></i> Sim, Confirmar'; } }
     
+        async function garantirAutenticacao() {
+            let accessToken = localStorage.getItem('access_token');
+            const expiryTime = localStorage.getItem('token_expiry');
+
+            // 1. Verifica se o token existe e não está expirado
+            if (accessToken && expiryTime && new Date().getTime() < parseInt(expiryTime)) {
+                return accessToken;
+            }
+
+            // 2. Se expirado ou ausente, tenta renovar
+            console.log("Token expirado ou ausente. Tentando renovar...");
+            const newAccessToken = await renovarToken();
+            if (newAccessToken) {
+                console.log("Token renovado com sucesso.");
+                return newAccessToken;
+            }
+
+            // 3. Se a renovação falhar, efetua o logout
+            console.error("Falha ao renovar o token. Redirecionando para o login.");
+            showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
+            setTimeout(() => logout(), 3000); // Dá tempo para o usuário ver a mensagem
+            return null; // Retorna nulo pois o token não é válido
+        }
+
+        async function renovarToken() {
+            const refreshToken = localStorage.getItem('refresh_token');
+            if (!refreshToken) {
+                console.error('Refresh token não encontrado para renovação.');
+                return false;
+            }
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/auth/refresh-token`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refreshToken })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    localStorage.setItem('access_token', data.accessToken);
+                    // expiresIn é retornado em segundos, convertemos para milissegundos
+                    const expiry = new Date().getTime() + (data.expiresIn * 1000);
+                    localStorage.setItem('token_expiry', expiry.toString());
+                    return data.accessToken;
+                }
+                return false;
+            } catch (error) {
+                console.error('Erro de rede ao tentar renovar token:', error);
+                return false;
+            }
+        }    
+
         async function fetchWithAuth(endpoint, options = {}) { const headers = { 'Authorization': `Bearer ${localStorage.getItem('access_token')}`, 'Content-Type': 'application/json', ...options.headers }; const response = await fetch(BACKEND_URL + endpoint, { ...options, headers }); if (!response.ok) { const errorData = await response.json().catch(() => ({})); throw new Error(errorData.mensagem || `Erro ${response.status}: ${response.statusText}`); } return response; }
         function showAlert(message, type = 'success') { alertBox.textContent = message; alertBox.className = `alert alert-${type} alert-dismissible fade show`; alertBox.style.display = 'block'; setTimeout(() => { if (alertBox && alertBox.style.display !== 'none') bootstrap.Alert.getOrCreateInstance(alertBox).close(); }, 5000); }
         function setModalLoading(isLoading, text = 'Processando...') { const modalLoading = document.getElementById('modalLoading'); if(modalLoading) { modalLoading.style.display = isLoading ? 'flex' : 'none'; document.getElementById('modalLoadingText').textContent = text; } }
         window.logout = function() { localStorage.clear(); window.location.href = 'index.html'; };
+
+        
         
         </script>
 
