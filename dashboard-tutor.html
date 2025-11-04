@@ -542,11 +542,9 @@
         }
 
         /**
-         * CORRIGIDO: Lida com o envio do formulário para gerar token.
-         * - Usa FormData para coletar os dados de forma segura, evitando o 'TypeError'.
-         * - Processa e envia 'tipoParentesco' em maiúsculas.
-         * - Captura 'tipoOperacao' do formulário, normaliza para 'SAIDA' (sem acento) e envia em maiúsculas.
-         * - Adiciona validação para campos obrigatórios.
+         * CORRIGIDO E COM DEPURAÇÃO: Lida com o envio do formulário para gerar token.
+         * - Adiciona logs no console para inspecionar os dados que o FormData está capturando.
+         * - Isso ajudará a identificar qual campo está com o atributo 'name' incorreto no HTML.
          */
         async function handleGenerateTokenSubmit(event) {
             event.preventDefault();
@@ -559,39 +557,54 @@
             submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Gerando...';
 
             try {
-                // 1. Coleta os dados do formulário de forma robusta usando FormData.
-                // Isso assume que seus campos no HTML têm os seguintes atributos 'name':
-                // name="alunoId", name="destinatarioNome", name="parentesco",
-                // name="dataExpiracao", name="tipoOperacao"
                 const formData = new FormData(form);
 
-                // 2. Validação para garantir que os campos essenciais foram preenchidos.
-                if (!formData.get('alunoId') || !formData.get('destinatarioNome') || !formData.get('parentesco') || !formData.get('dataExpiracao') || !formData.get('tipoOperacao')) {
-                    throw new Error("Todos os campos são obrigatórios. Verifique o preenchimento.");
+                // ===== INÍCIO DA DEPURAÇÃO =====
+                // Este bloco vai imprimir no console todos os campos que o JS conseguiu encontrar no seu formulário.
+                console.log("--- Depuração do Formulário de Token ---");
+                console.log("Dados capturados pelo FormData:");
+                let missingFields = ['alunoId', 'destinatarioNome', 'parentesco', 'dataExpiracao', 'tipoOperacao'];
+                for (const [key, value] of formData.entries()) {
+                    console.log(`- Campo encontrado: name="${key}", valor="${value}"`);
+                    // Remove o campo da lista de 'faltantes'
+                    missingFields = missingFields.filter(f => f !== key);
                 }
 
-                // 3. Prepara o 'tipoOperacao': pega o valor, converte para maiúsculas e remove o acento de "SAÍDA".
-                let tipoOperacao = formData.get('tipoOperacao').toUpperCase();
+                if (missingFields.length > 0) {
+                    console.error("Campos com atributo 'name' não encontrados no HTML:", missingFields);
+                }
+                console.log("------------------------------------");
+                // ===== FIM DA DEPURAÇÃO =====
+
+                const alunoId = formData.get('alunoId');
+                const destinatarioNome = formData.get('destinatarioNome');
+                const parentesco = formData.get('parentesco');
+                const dataExpiracao = formData.get('dataExpiracao');
+                const tipoOperacaoRaw = formData.get('tipoOperacao');
+
+                // A validação continua aqui, mas agora os logs acima nos dirão por que ela falha.
+                if (!alunoId || !destinatarioNome || !parentesco || !dataExpiracao || !tipoOperacaoRaw) {
+                    throw new Error(`Verifique o console para ver os campos não encontrados. O atributo 'name' pode estar faltando ou incorreto no HTML.`);
+                }
+
+                let tipoOperacao = tipoOperacaoRaw.toUpperCase();
                 if (tipoOperacao === 'SAÍDA') {
                     tipoOperacao = 'SAIDA';
                 }
 
-                // 4. Monta o objeto 'command' com os dados corretos para enviar à API.
                 const command = {
-                    alunoId: parseInt(formData.get('alunoId')),
-                    destinatarioNome: formData.get('destinatarioNome'),
-                    tipoParentesco: formData.get('parentesco').toUpperCase(), // Ex: "Parente" -> "PARENTE"
-                    dataExpiracao: new Date(formData.get('dataExpiracao')).toISOString(),
-                    tipoOperacao: tipoOperacao // Agora será "ENTRADA" ou "SAIDA"
+                    alunoId: parseInt(alunoId),
+                    destinatarioNome: destinatarioNome,
+                    tipoParentesco: parentesco.toUpperCase(),
+                    dataExpiracao: new Date(dataExpiracao).toISOString(),
+                    tipoOperacao: tipoOperacao
                 };
 
-                // 5. Garante a autenticação antes de prosseguir.
                 const accessToken = await garantirAutenticacao();
                 if (!accessToken) {
                     throw new Error("Autenticação necessária. Faça o login novamente.");
                 }
 
-                // 6. Envia a requisição para a API.
                 const response = await fetch(`${BACKEND_URL}/api/tokens/gerar`, {
                     method: 'POST',
                     headers: {
@@ -603,18 +616,19 @@
 
                 const result = await response.json();
                 if (response.ok && result.sucesso) {
-                    generateTokenModal.hide();
+                    // Sucesso!
+                    const modalInstance = bootstrap.Modal.getInstance(document.getElementById('generateTokenModal'));
+                    modalInstance.hide();
                     showTokenSuccessModal(result.linkAcesso);
                 } else {
                     throw new Error(result.erro || 'Falha ao gerar token. Verifique os dados.');
                 }
             } catch (error) {
-                // Exibe o erro de forma clara no modal.
                 console.error("Erro detalhado ao gerar token:", error);
                 errorEl.innerText = `Erro: ${error.message}`;
                 errorEl.style.display = 'block';
             } finally {
-                // Garante que o botão seja reativado mesmo se ocorrer um erro.
+                // Este bloco 'finally' garante que o botão seja reativado, corrigindo o spinner infinito.
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = 'Gerar Token';
             }
