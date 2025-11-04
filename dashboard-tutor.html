@@ -542,8 +542,9 @@
         }
 
         /**
-         * ATUALIZADA: Lida com o envio do formulário, usando a função de autenticação
-         * e enviando o tipo de operação como uma String.
+         * VERSÃO DEFINITIVA: Captura dinamicamente os valores dos campos,
+         * formata-os conforme a exigência do backend (maiúsculas, sem acentos)
+         * e realiza o envio da requisição.
          */
         async function handleGenerateTokenSubmit(event) {
             event.preventDefault();
@@ -555,25 +556,31 @@
             submitBtn.disabled = true;
             submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Gerando...';
 
-            // Os dados são coletados diretamente do formulário preenchido pelo tutor.
+            // 1. Captura e formata o Tipo de Operação selecionado
+            const tipoOperacaoSelecionado = form.tipoOperacao.value; // ex: "Saída"
+            const tipoOperacaoFormatado = tipoOperacaoSelecionado.toUpperCase().replace('Í', 'I'); // ex: "SAIDA"
+
+            // 2. Captura e formata o Tipo de Parentesco selecionado
+            const tipoParentescoSelecionado = form.parentesco.value; // ex: "Amigo"
+            const tipoParentescoFormatado = tipoParentescoSelecionado.toUpperCase(); // ex: "AMIGO"
+
+            // 3. Monta o payload final com todos os dados tratados
             const command = {
                 alunoId: parseInt(form.alunoId.value),
                 destinatarioNome: form.destinatarioNome.value,
                 dataExpiracao: new Date(form.dataExpiracao.value).toISOString(),
-                // ===== CORREÇÃO APLICADA AQUI =====
-                // O backend espera uma String, e "AMBAS" representa a permissão para entrada e saída.
-                tipoOperacao: "AMBAS" 
+                tipoOperacao: tipoOperacaoFormatado,
+                tipoParentesco: tipoParentescoFormatado 
             };
 
             try {
-                // 1. Garante que temos um token de acesso válido antes de fazer a chamada.
                 const accessToken = await garantirAutenticacao();
                 if (!accessToken) {
-                    // Se a autenticação falhar, a função 'garantirAutenticacao' já terá lidado com o logout.
                     throw new Error("Autenticação necessária. Faça o login novamente.");
                 }
 
-                // 2. Envia a requisição para a API com os dados inseridos pelo usuário.
+                console.log("Enviando para a API:", JSON.stringify(command, null, 2));
+
                 const response = await fetch(`${BACKEND_URL}/api/tokens/gerar`, {
                     method: 'POST',
                     headers: {
@@ -583,13 +590,14 @@
                     body: JSON.stringify(command)
                 });
 
-                const result = await response.json();
+                const result = await response.json(); 
+
                 if (response.ok && result.sucesso) {
                     generateTokenModal.hide();
                     showTokenSuccessModal(result.linkAcesso);
                 } else {
-                    // Exibe a mensagem de erro retornada pela API.
-                    throw new Error(result.erro || 'Falha ao gerar token. Verifique os dados.');
+                    // Usa a mensagem de erro da API, que agora deve ser mais clara
+                    throw new Error(result.erro || `Erro ${response.status}: Falha ao gerar token.`);
                 }
             } catch (error) {
                 errorEl.innerText = `Erro: ${error.message}`;
