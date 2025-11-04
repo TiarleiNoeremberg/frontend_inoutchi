@@ -542,45 +542,56 @@
         }
 
         /**
-         * VERSÃO DEFINITIVA: Captura dinamicamente os valores dos campos,
-         * formata-os conforme a exigência do backend (maiúsculas, sem acentos)
-         * e realiza o envio da requisição.
+         * CORRIGIDO: Lida com o envio do formulário para gerar token.
+         * - Usa FormData para coletar os dados de forma segura, evitando o 'TypeError'.
+         * - Processa e envia 'tipoParentesco' em maiúsculas.
+         * - Captura 'tipoOperacao' do formulário, normaliza para 'SAIDA' (sem acento) e envia em maiúsculas.
+         * - Adiciona validação para campos obrigatórios.
          */
         async function handleGenerateTokenSubmit(event) {
             event.preventDefault();
             const form = event.target;
             const errorEl = document.getElementById('generateTokenError');
             const submitBtn = document.getElementById('generateTokenSubmitBtn');
-            
+
             errorEl.style.display = 'none';
             submitBtn.disabled = true;
             submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Gerando...';
 
-            // 1. Captura e formata o Tipo de Operação selecionado
-            const tipoOperacaoSelecionado = form.tipoOperacao.value; // ex: "Saída"
-            const tipoOperacaoFormatado = tipoOperacaoSelecionado.toUpperCase().replace('Í', 'I'); // ex: "SAIDA"
-
-            // 2. Captura e formata o Tipo de Parentesco selecionado
-            const tipoParentescoSelecionado = form.parentesco.value; // ex: "Amigo"
-            const tipoParentescoFormatado = tipoParentescoSelecionado.toUpperCase(); // ex: "AMIGO"
-
-            // 3. Monta o payload final com todos os dados tratados
-            const command = {
-                alunoId: parseInt(form.alunoId.value),
-                destinatarioNome: form.destinatarioNome.value,
-                dataExpiracao: new Date(form.dataExpiracao.value).toISOString(),
-                tipoOperacao: tipoOperacaoFormatado,
-                tipoParentesco: tipoParentescoFormatado 
-            };
-
             try {
+                // 1. Coleta os dados do formulário de forma robusta usando FormData.
+                // Isso assume que seus campos no HTML têm os seguintes atributos 'name':
+                // name="alunoId", name="destinatarioNome", name="parentesco",
+                // name="dataExpiracao", name="tipoOperacao"
+                const formData = new FormData(form);
+
+                // 2. Validação para garantir que os campos essenciais foram preenchidos.
+                if (!formData.get('alunoId') || !formData.get('destinatarioNome') || !formData.get('parentesco') || !formData.get('dataExpiracao') || !formData.get('tipoOperacao')) {
+                    throw new Error("Todos os campos são obrigatórios. Verifique o preenchimento.");
+                }
+
+                // 3. Prepara o 'tipoOperacao': pega o valor, converte para maiúsculas e remove o acento de "SAÍDA".
+                let tipoOperacao = formData.get('tipoOperacao').toUpperCase();
+                if (tipoOperacao === 'SAÍDA') {
+                    tipoOperacao = 'SAIDA';
+                }
+
+                // 4. Monta o objeto 'command' com os dados corretos para enviar à API.
+                const command = {
+                    alunoId: parseInt(formData.get('alunoId')),
+                    destinatarioNome: formData.get('destinatarioNome'),
+                    tipoParentesco: formData.get('parentesco').toUpperCase(), // Ex: "Parente" -> "PARENTE"
+                    dataExpiracao: new Date(formData.get('dataExpiracao')).toISOString(),
+                    tipoOperacao: tipoOperacao // Agora será "ENTRADA" ou "SAIDA"
+                };
+
+                // 5. Garante a autenticação antes de prosseguir.
                 const accessToken = await garantirAutenticacao();
                 if (!accessToken) {
                     throw new Error("Autenticação necessária. Faça o login novamente.");
                 }
 
-                console.log("Enviando para a API:", JSON.stringify(command, null, 2));
-
+                // 6. Envia a requisição para a API.
                 const response = await fetch(`${BACKEND_URL}/api/tokens/gerar`, {
                     method: 'POST',
                     headers: {
@@ -590,19 +601,20 @@
                     body: JSON.stringify(command)
                 });
 
-                const result = await response.json(); 
-
+                const result = await response.json();
                 if (response.ok && result.sucesso) {
                     generateTokenModal.hide();
                     showTokenSuccessModal(result.linkAcesso);
                 } else {
-                    // Usa a mensagem de erro da API, que agora deve ser mais clara
-                    throw new Error(result.erro || `Erro ${response.status}: Falha ao gerar token.`);
+                    throw new Error(result.erro || 'Falha ao gerar token. Verifique os dados.');
                 }
             } catch (error) {
+                // Exibe o erro de forma clara no modal.
+                console.error("Erro detalhado ao gerar token:", error);
                 errorEl.innerText = `Erro: ${error.message}`;
                 errorEl.style.display = 'block';
             } finally {
+                // Garante que o botão seja reativado mesmo se ocorrer um erro.
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = 'Gerar Token';
             }
