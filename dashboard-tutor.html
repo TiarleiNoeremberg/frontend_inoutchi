@@ -849,20 +849,23 @@
          * @returns {Promise<string|null>} O token de acesso válido ou null se a renovação falhar.
          */
         async function garantirAutenticacao() {
-            // O token de acesso é necessário para fazer chamadas à API
             let accessToken = localStorage.getItem('access_token');
-            
-            // Tentamos renovar o token usando o refresh_token, que tem uma validade maior.
             const refreshToken = localStorage.getItem('refresh_token');
+
             if (!refreshToken) {
                 showAlert('Sessão inválida. Por favor, faça login novamente.', 'danger');
-                logout(); // Função de logout já existente
+                logout();
                 return null;
             }
 
             try {
                 console.log('Verificando e garantindo a validade do token de acesso...');
-                const response = await fetch(`${BACKEND_URL}/api/auth/refresh`, {
+
+                // ===== CORREÇÃO APLICADA AQUI =====
+                // O endpoint para renovação do token foi corrigido para '/api/auth/refresh-token',
+                // que é o caminho correto exposto pela API. A falha 401 ocorria por chamar 
+                // um endpoint que não deveria ser usado para esta operação.
+                const response = await fetch(`${BACKEND_URL}/api/auth/refresh-token`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ refreshToken: refreshToken })
@@ -870,21 +873,21 @@
 
                 if (response.ok) {
                     const tokenData = await response.json();
-                    // Salva os novos tokens no localStorage para serem usados nas próximas requisições
                     localStorage.setItem('access_token', tokenData.access_token);
+                    // O fluxo de refresh pode opcionalmente retornar um novo refresh_token para maior segurança.
                     if (tokenData.refresh_token) {
                         localStorage.setItem('refresh_token', tokenData.refresh_token);
                     }
                     console.log('Token de acesso atualizado com sucesso!');
                     return tokenData.access_token;
                 } else {
-                    // Se a renovação falhar (ex: o refresh_token também expirou), desconectamos o usuário
-                    throw new Error('Falha ao renovar a sessão.');
+                    // Se a renovação falhar (ex: o refresh_token também expirou), desconectamos o usuário.
+                    throw new Error(`Falha ao renovar a sessão (status: ${response.status}).`);
                 }
             } catch (error) {
                 console.error('Erro crítico de autenticação:', error);
                 showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
-                logout(); // Desconecta o usuário de forma segura
+                logout(); // Desconecta o usuário de forma segura.
                 return null;
             }
         }    
