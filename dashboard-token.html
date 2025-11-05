@@ -249,201 +249,201 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com'; // IMPORTANTE: Substitua pela URL real do seu backend
+        const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
 
-            // Elementos da UI
-            const ui = {
-                loading: document.getElementById('loading'),
-                errorMessage: document.getElementById('errorMessage'),
-                errorTitle: document.getElementById('errorTitle'),
-                errorDetails: document.getElementById('errorDetails'),
-                finalMessage: document.getElementById('finalMessage'),
-                finalIcon: document.getElementById('finalIcon'),
-                finalTitle: document.getElementById('finalTitle'),
-                finalDetails: document.getElementById('finalDetails'),
-                content: document.getElementById('content'),
-                destinatarioNome: document.getElementById('destinatarioNome'),
-                alunoNome: document.getElementById('alunoNome'),
-                operacaoTipo: document.getElementById('operacaoTipo'),
-                observacao: document.getElementById('observacao'),
-                actionButton: document.getElementById('actionButton'),
-                buttonText: document.getElementById('buttonText'),
-                locationStatus: document.getElementById('locationStatus')
-            };
+        // Elementos da UI
+        const ui = {
+            loading: document.getElementById('loading'),
+            errorMessage: document.getElementById('errorMessage'),
+            errorTitle: document.getElementById('errorTitle'),
+            errorDetails: document.getElementById('errorDetails'),
+            finalMessage: document.getElementById('finalMessage'),
+            finalIcon: document.getElementById('finalIcon'),
+            finalTitle: document.getElementById('finalTitle'),
+            finalDetails: document.getElementById('finalDetails'),
+            content: document.getElementById('content'),
+            destinatarioNome: document.getElementById('destinatarioNome'),
+            alunoNome: document.getElementById('alunoNome'),
+            operacaoTipo: document.getElementById('operacaoTipo'),
+            observacao: document.getElementById('observacao'),
+            actionButton: document.getElementById('actionButton'),
+            buttonText: document.getElementById('buttonText'),
+            locationStatus: document.getElementById('locationStatus')
+        };
 
-            let currentToken = null;
-            let userCoordinates = null;
+        let currentToken = null;
+        let userCoordinates = null;
 
-            // Funções de controle da UI
-            const showLoading = () => {
-                ui.loading.style.display = 'block';
-                ui.content.style.display = 'none';
-                ui.errorMessage.style.display = 'none';
-                ui.finalMessage.style.display = 'none';
-            };
+        // Funções de controle da UI
+        const showLoading = () => {
+            ui.loading.style.display = 'block';
+            ui.content.style.display = 'none';
+            ui.errorMessage.style.display = 'none';
+            ui.finalMessage.style.display = 'none';
+        };
 
-            const showError = (title, details) => {
-                ui.loading.style.display = 'none';
-                ui.errorTitle.textContent = title;
-                ui.errorDetails.textContent = details;
-                ui.errorMessage.style.display = 'block';
-            };
+        const showError = (title, details) => {
+            ui.loading.style.display = 'none';
+            ui.errorTitle.textContent = title;
+            ui.errorDetails.textContent = details;
+            ui.errorMessage.style.display = 'block';
+        };
 
-            const showFinalMessage = (type, title, details) => {
-                ui.loading.style.display = 'none';
-                ui.content.style.display = 'none';
-                ui.errorMessage.style.display = 'none';
+        const showFinalMessage = (type, title, details) => {
+            ui.loading.style.display = 'none';
+            ui.content.style.display = 'none';
+            ui.errorMessage.style.display = 'none';
 
-                ui.finalMessage.className = `final-message ${type}`;
-                ui.finalIcon.className = type === 'success' ? 'fas fa-check-circle' : 'fas fa-times-circle';
-                ui.finalTitle.textContent = title;
-                ui.finalDetails.textContent = details;
-                ui.finalMessage.style.display = 'block';
+            ui.finalMessage.className = `final-message ${type}`;
+            ui.finalIcon.className = type === 'success' ? 'fas fa-check-circle' : 'fas fa-times-circle';
+            ui.finalTitle.textContent = title;
+            ui.finalDetails.textContent = details;
+            ui.finalMessage.style.display = 'block';
+        }
+
+        const showContent = (data) => {
+            ui.destinatarioNome.textContent = data.destinatario.nome;
+            ui.alunoNome.textContent = data.aluno.nome;
+            const operacao = data.operacoesPermitidas.charAt(0).toUpperCase() + data.operacoesPermitidas.slice(1).toLowerCase();
+            ui.operacaoTipo.textContent = operacao;
+            ui.observacao.textContent = data.observacao || 'Nenhuma.';
+            ui.buttonText.textContent = `Confirmar ${operacao}`;
+
+            ui.loading.style.display = 'none';
+            ui.content.style.display = 'block';
+
+            getLocation();
+        };
+
+        // 1. Iniciar o processo
+        const init = () => {
+            // <<< INÍCIO DA CORREÇÃO PRINCIPAL >>>
+            // Chame o loading imediatamente para esconder qualquer conteúdo padrão
+            showLoading();
+            // <<< FIM DA CORREÇÃO PRINCIPAL >>>
+
+            const params = new URLSearchParams(window.location.search);
+            currentToken = params.get('token');
+
+            if (!currentToken) {
+                showError('Token não encontrado', 'O link de acesso parece estar incompleto. Por favor, verifique o link recebido.');
+                return;
+            }
+            validateToken();
+        };
+
+        // 2. Validar o token com o backend
+        const validateToken = async () => {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/tokens/acesso-token?token=${currentToken}`);
+                const responseBody = await response.text(); // Lê o corpo da resposta como texto primeiro
+
+                if (response.ok) {
+                    const data = JSON.parse(responseBody); // Se a resposta for OK, converte para JSON
+                    showContent(data);
+                } else {
+                    let errorDetails = responseBody; // Usa o texto como detalhe do erro por padrão
+                    try {
+                        // Tenta converter para JSON para pegar uma mensagem mais específica
+                        const errorData = JSON.parse(responseBody);
+                        if (errorData && errorData.mensagem) {
+                            errorDetails = errorData.mensagem;
+                        }
+                    } catch (e) {
+                        // Se não for JSON, o texto bruto já é o detalhe do erro
+                    }
+
+                    let title = 'Erro ao Validar Acesso';
+                    if (response.status === 410) title = 'Link Expirado ou Já Utilizado';
+                    if (response.status === 401) title = 'Link Inválido ou Não Autorizado';
+                    
+                    showError(title, errorDetails);
+                }
+            } catch (error) {
+                console.error('Erro de rede ao validar token:', error);
+                showError('Erro de Conexão', 'Não foi possível conectar ao servidor. Verifique sua conexão com a internet.');
+            }
+        };
+
+        // 3. Obter geolocalização
+        const getLocation = () => {
+            if (!navigator.geolocation) {
+                showLocationError("Seu navegador não suporta geolocalização.");
+                return;
             }
 
-            const showContent = (data) => {
-                ui.destinatarioNome.textContent = data.destinatario.nome;
-                ui.alunoNome.textContent = data.aluno.nome;
-                const operacao = data.operacoesPermitidas.charAt(0).toUpperCase() + data.operacoesPermitidas.slice(1).toLowerCase();
-                ui.operacaoTipo.textContent = operacao;
-                ui.observacao.textContent = data.observacao || 'Nenhuma.';
-                ui.buttonText.textContent = `Confirmar ${operacao}`;
+            showLocationStatus('loading', 'Obtendo sua localização...');
 
-                ui.loading.style.display = 'none';
-                ui.content.style.display = 'block';
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    userCoordinates = {
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude
+                    };
+                    ui.locationStatus.style.display = 'none';
+                    ui.actionButton.disabled = false;
+                },
+                (error) => {
+                    let message = "Ocorreu um erro ao obter sua localização.";
+                    if(error.code === 1) message = "O acesso à sua localização foi negado. Por favor, habilite a permissão no seu navegador.";
+                    showLocationError(message);
+                },
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+            );
+        };
 
-                getLocation();
-            };
+        const showLocationStatus = (type, message) => {
+            ui.locationStatus.className = `location-status location-${type}`;
+            ui.locationStatus.textContent = message;
+            ui.locationStatus.style.display = 'block';
+        };
 
-            // 1. Iniciar o processo
-            const init = () => {
-                const params = new URLSearchParams(window.location.search);
-                currentToken = params.get('token');
+        const showLocationError = (message) => {
+            showLocationStatus('error', message);
+            ui.actionButton.disabled = true;
+            ui.buttonText.textContent = "Localização necessária";
+        };
 
-                if (!currentToken) {
-                    showError('Token não encontrado', 'O link de acesso parece estar incompleto. Por favor, verifique o link recebido.');
-                    return;
+        // 4. Executar a operação
+        const executeOperation = async () => {
+            if (!userCoordinates) {
+                showFinalMessage('error', 'Localização não encontrada', 'Não foi possível obter suas coordenadas. Habilite a permissão e tente novamente.');
+                return;
+            }
+
+            ui.actionButton.disabled = true;
+            ui.buttonText.innerHTML = '<span class="btn-spinner"></span> Processando...';
+
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/tokens/executar-operacao`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        token: currentToken,
+                        latitude: userCoordinates.latitude,
+                        longitude: userCoordinates.longitude
+                    })
+                });
+
+                const data = await response.json(); // Tenta ler a resposta em todos os casos
+
+                if (response.ok) {
+                    showFinalMessage('success', 'Operação Concluída!', data.mensagem || 'A operação foi registrada com sucesso.');
+                } else {
+                    showFinalMessage('error', 'Falha na Operação', data.mensagem || 'Não foi possível completar a operação.');
                 }
-                validateToken();
-            };
+            } catch (error) {
+                console.error('Erro de rede ao executar operação:', error);
+                showFinalMessage('error', 'Falha na Conexão', 'Não foi possível conectar ao servidor para completar a operação.');
+            }
+        };
 
-            // 2. Validar o token com o backend
-            const validateToken = async () => {
-                try {
-                    const response = await fetch(`${BACKEND_URL}/api/tokens/acesso-token?token=${currentToken}`);
+        // Adicionar evento ao botão
+        ui.actionButton.addEventListener('click', executeOperation);
 
-                    if (response.ok) {
-                        const data = await response.json();
-                        showContent(data);
-                    } else {
-                        // Início da Correção
-                        let errorDetails = 'Não foi possível validar seu acesso. Tente novamente.';
-                        try {
-                            // Tenta ler a resposta como JSON primeiro
-                            const errorData = await response.json();
-                            if (errorData && errorData.mensagem) {
-                                errorDetails = errorData.mensagem;
-                            }
-                        } catch (e) {
-                            // Se falhar (não for JSON), lê como texto
-                            const textError = await response.text();
-                            if (textError) {
-                                errorDetails = textError;
-                            }
-                        }
-                        // Fim da Correção
-
-                        let title = 'Erro ao Validar Acesso';
-                        if (response.status === 410) title = 'Link Expirado ou Já Utilizado';
-                        if (response.status === 401) title = 'Link Inválido ou Não Autorizado';
-                        
-                        showError(title, errorDetails);
-                    }
-                } catch (error) {
-                    console.error('Erro de rede ao validar token:', error);
-                    showError('Erro de Conexão', 'Não foi possível conectar ao servidor. Verifique sua conexão com a internet.');
-                }
-            };
-
-            // 3. Obter geolocalização
-            const getLocation = () => {
-                if (!navigator.geolocation) {
-                    showLocationError("Seu navegador não suporta geolocalização.");
-                    return;
-                }
-
-                showLocationStatus('loading', 'Obtendo sua localização...');
-
-                navigator.geolocation.getCurrentPosition(
-                    (position) => {
-                        userCoordinates = {
-                            latitude: position.coords.latitude,
-                            longitude: position.coords.longitude
-                        };
-                        ui.locationStatus.style.display = 'none';
-                        ui.actionButton.disabled = false;
-                    },
-                    (error) => {
-                        let message = "Ocorreu um erro ao obter sua localização.";
-                        if(error.code === 1) message = "O acesso à sua localização foi negado. Por favor, habilite a permissão no seu navegador.";
-                        showLocationError(message);
-                    },
-                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-                );
-            };
-
-            const showLocationStatus = (type, message) => {
-                ui.locationStatus.className = `location-status location-${type}`;
-                ui.locationStatus.textContent = message;
-                ui.locationStatus.style.display = 'block';
-            };
-
-            const showLocationError = (message) => {
-                showLocationStatus('error', message);
-                ui.actionButton.disabled = true; // Mantém o botão desabilitado
-                ui.buttonText.textContent = "Localização necessária";
-            };
-
-            // 4. Executar a operação
-            const executeOperation = async () => {
-                if (!userCoordinates) {
-                    alert('As coordenadas de geolocalização ainda não foram obtidas.');
-                    return;
-                }
-
-                ui.actionButton.disabled = true;
-                ui.buttonText.innerHTML = '<span class="btn-spinner"></span> Processando...';
-
-                try {
-                    const response = await fetch(`${BACKEND_URL}/api/tokens/executar-operacao`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            token: currentToken,
-                            latitude: userCoordinates.latitude,
-                            longitude: userCoordinates.longitude
-                        })
-                    });
-
-                    if (response.ok) {
-                        const data = await response.json();
-                        showFinalMessage('success', 'Operação Concluída!', data.mensagem || 'A operação foi registrada com sucesso.');
-                    } else {
-                        const errorData = await response.json();
-                        showFinalMessage('error', 'Falha na Operação', errorData.mensagem || 'Não foi possível completar a operação.');
-                    }
-                } catch (error) {
-                    console.error('Erro de rede ao executar operação:', error);
-                    showFinalMessage('error', 'Falha na Conexão', 'Não foi possível conectar ao servidor para completar a operação.');
-                }
-            };
-
-            // Adicionar evento ao botão
-            ui.actionButton.addEventListener('click', executeOperation);
-
-            // Iniciar
-            init();
-        });
+        // Iniciar
+        init();
+    });
     </script>
 
 
