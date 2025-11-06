@@ -115,6 +115,7 @@
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
+
             let currentToken = '';
             let locationData = { latitude: null, longitude: null };
             let currentOperationType = '';
@@ -125,11 +126,11 @@
             const finalMessage = document.getElementById('finalMessage');
             const content = document.getElementById('content');
 
-            const errorTitle = document.getElementById('errorTitle');
-            const errorDetails = document.getElementById('errorDetails');
-            const finalIcon = document.getElementById('finalIcon');
-            const finalTitle = document.getElementById('finalTitle');
-            const finalDetails = document.getElementById('finalDetails');
+            const loadingView = document.getElementById('loading');
+            const initialView = document.getElementById('initial-view');
+            const confirmationView = document.getElementById('confirmation-view');
+            const finalMessageView = document.getElementById('finalMessage');
+            const errorMessageView = document.getElementById('errorMessage');
 
             const actionButton = document.getElementById('actionButton');
             const buttonSpinner = document.getElementById('buttonSpinner');
@@ -138,19 +139,33 @@
 
             const urlParams = new URLSearchParams(window.location.search);
             const token = urlParams.get('token');
-            
-            const initialView = document.getElementById('initial-view');
-            const confirmationView = document.getElementById('confirmation-view');
+                        
             const finalView = document.getElementById('final-view');
             const errorView = document.getElementById('error-view');
 
-            const solicitarBtn = document.getElementById('solicitar-saida-btn');
-            const confirmarBtn = document.getElementById('confirmar-saida-btn');
+            // Elementos da tela de erro
+            const errorTitle = document.getElementById('errorTitle');
+            const errorDetails = document.getElementById('errorDetails');
 
+            // Elementos da tela final
+            const finalIcon = document.getElementById('finalIcon');
+            const finalTitle = document.getElementById('finalTitle');
+            const finalDetails = document.getElementById('finalDetails');
+            
+            // Elementos da tela inicial
             const destinatarioNome = document.getElementById('destinatarioNome');
             const alunoNome = document.getElementById('alunoNome');
             const operacaoTipo = document.getElementById('operacaoTipo');
             const observacao = document.getElementById('observacao');
+
+            // Botões e seus componentes
+            const solicitarBtn = document.getElementById('solicitar-saida-btn');
+            const solicitarSpinner = document.getElementById('solicitarSpinner');
+            const solicitarBtnText = document.getElementById('solicitarBtnText');
+            
+            const confirmarBtn = document.getElementById('confirmar-saida-btn');
+            const confirmarSpinner = document.getElementById('confirmarSpinner');
+            const confirmarBtnText = document.getElementById('confirmarBtnText');
             
             function showFeedback(message, type = 'info') {
                 const feedbackElement = document.getElementById('feedback');
@@ -170,19 +185,15 @@
                 if (state) state.style.display = 'block';
             }
 
+            /**
+             * Exibe a tela de erro com títulos e detalhes personalizados.
+             * @param {string} title - O título do erro.
+             * @param {string} details - A descrição do erro.
+             */
             function showError(title, details) {
-                const errorTitle = document.getElementById('errorTitle');
-                const errorDetails = document.getElementById('errorDetails');
-                
-                if (errorTitle) errorTitle.textContent = title;
-                if (errorDetails) errorDetails.textContent = details;
-                
-                // Esconde todas as outras seções e exibe apenas a de erro
-                document.getElementById('loading').style.display = 'none';
-                document.getElementById('initial-view').style.display = 'none';
-                document.getElementById('confirmation-view').style.display = 'none';
-                document.getElementById('finalMessage').style.display = 'none';
-                document.getElementById('errorMessage').style.display = 'block';
+                errorTitle.textContent = title;
+                errorDetails.textContent = details;
+                showView(errorMessageView);
             }
 
             /**
@@ -192,75 +203,63 @@
              * @param {string} message - O corpo da mensagem.
              */
             function showFinalMessage(type, title, message) {
-                const cardContent = document.querySelector('.card-content'); // Garanta que este elemento exista
-                if (cardContent) {
-                    const messageColor = type === 'success' ? '#28a745' : '#dc3545';
-                    cardContent.innerHTML = `
-                        <div style="text-align: center;">
-                            <i class="${type === 'success' ? 'fas fa-check-circle' : 'fas fa-times-circle'}" style="font-size: 48px; color: ${messageColor};"></i>
-                            <h3 style="margin-top: 15px;">${title}</h3>
-                            <p>${message}</p>
-                        </div>
-                    `;
-                }
-                // Esconde o contêiner de status, já que a mensagem final foi exibida
-                const statusContainer = document.getElementById('statusContainer');
-                if (statusContainer) {
-                    statusContainer.style.display = 'none';
-                }
-            }
-
-            function toggleButtonLoading(isLoading) {
-                buttonSpinner.style.display = isLoading ? 'inline-block' : 'none';
-                buttonText.style.display = isLoading ? 'none' : 'inline-block';
-                actionButton.disabled = isLoading;
+                finalIcon.className = type === 'success' ? 'fas fa-check-circle' : 'fas fa-times-circle';
+                finalTitle.textContent = title;
+                finalDetails.textContent = message;
+                finalMessageView.className = `final-message ${type}`; // Adiciona classe para estilização
+                showView(finalMessageView);
             }
 
             /**
-             * Adaptado em 06/11/2025
-             * Inicializa a página, valida o token, e prepara a interface para o fluxo de duas etapas.
+             * Alterna o estado de carregamento de um botão.
+             * @param {HTMLButtonElement} button - O botão a ser controlado.
+             * @param {HTMLElement} spinner - O elemento do spinner.
+             * @param {HTMLElement} textElement - O elemento de texto do botão.
+             * @param {boolean} isLoading - Define se o estado é "carregando".
+             */
+            function toggleButtonLoading(button, spinner, textElement, isLoading) {
+                button.disabled = isLoading;
+                spinner.style.display = isLoading ? 'inline-block' : 'none';
+                textElement.style.display = isLoading ? 'inline-block' : 'none';
+            }
+
+            /**
+             * Inicializa a página, valida o token e prepara a interface.
              */
             async function initialize() {
-                // 1. Sua lógica de validação de token foi mantida
-                document.getElementById('loading').style.display = 'block';
-                const params = new URLSearchParams(window.location.search);
-                const token = params.get('token');
+                showView(loadingView);
+                const token = new URLSearchParams(window.location.search).get('token');
 
                 if (!token) {
-                    showError('Token não encontrado', 'O link de acesso parece estar incompleto ou é inválido.');
+                    showError('Token não encontrado', 'O link de acesso parece estar incompleto ou é inválido. Por favor, verifique o link que você recebeu.');
                     return;
                 }
 
                 try {
                     const response = await fetch(`${BACKEND_URL}/api/tokens/validar/${token}`);
-                    if (!response.ok) {
-                        const errorData = await response.json().catch(() => ({}));
-                        const errorMsg = errorData.mensagem || `Erro no servidor (Status: ${response.status}).`;
-                        throw new Error(errorMsg);
-                    }
-
                     const data = await response.json();
 
+                    if (!response.ok) {
+                        throw new Error(data.mensagem || `Erro no servidor (Status: ${response.status}).`);
+                    }
+
                     if (data.status === 'UTILIZADO') {
-                        showFinalMessage('error', 'Token Já Utilizado', `Este link para ${data.alunoNome} já foi usado em ${new Date(data.utilizadoEm).toLocaleString('pt-BR')}.`);
+                        showFinalMessage('error', 'Token Já Utilizado', `Este link para ${data.alunoNome || 'o aluno'} já foi usado em ${new Date(data.utilizadoEm).toLocaleString('pt-BR')}.`);
                         return;
                     }
                     
-                    // 2. Populando a interface com os dados da validação
-                    document.getElementById('destinatarioNome').textContent = data.destinatarioNome || 'Não informado';
-                    document.getElementById('alunoNome').textContent = data.alunoNome || 'Não informado';
-                    document.getElementById('operacaoTipo').textContent = data.operacoesPermitidas || 'Não informada';
-                    document.getElementById('observacao').textContent = data.observacao || 'Nenhuma.';
+                    // Popula a interface com os dados da validação
+                    destinatarioNome.textContent = data.destinatarioNome || 'Não informado';
+                    alunoNome.textContent = data.alunoNome || 'Não informado';
+                    operacaoTipo.textContent = data.operacoesPermitidas || 'Não informada';
+                    observacao.textContent = data.observacao || 'Nenhuma.';
 
-                    // 3. Configurando os botões para o novo fluxo
-                    const solicitarBtn = document.getElementById('solicitar-saida-btn');
-                    const confirmarBtn = document.getElementById('confirmar-saida-btn');
-                    
+                    // Configura os botões para o fluxo
                     solicitarBtn.addEventListener('click', () => solicitarSaida(token));
                     confirmarBtn.addEventListener('click', () => confirmarSaida(token));
                     
-                    // 4. Exibindo a primeira tela do fluxo
-                    showView('initial-view');
+                    // Exibe a primeira tela do fluxo
+                    showView(initialView);
 
                 } catch (error) {
                     showError('Falha na Validação', error.message);
@@ -346,98 +345,85 @@
                 }
             }
 
-            // Função para mostrar a visão correta e esconder as outras
-            function showView(view) {
+            /**
+             * Controla qual "tela" (div) é exibida para o usuário.
+             * @param {HTMLElement} viewToShow - O elemento da tela a ser exibido.
+             */
+            function showView(viewToShow) {
+                // Esconde todas as telas primeiro
+                loadingView.style.display = 'none';
                 initialView.style.display = 'none';
                 confirmationView.style.display = 'none';
-                finalView.style.display = 'none';
-                errorView.style.display = 'none';
-                view.style.display = 'block';
+                finalMessageView.style.display = 'none';
+                errorMessageView.style.display = 'none';
+                
+                // Exibe a tela desejada
+                if (viewToShow) {
+                    viewToShow.style.display = 'block';
+                }
             }
 
             /**
-             * PASSO 1: Solicita a saída, colocando o aluno em "AGUARDANDO_CONFIRMACAO"
+             * ETAPA 1: Notifica o aluno para sair (status AGUARDANDO_CONFIRMACAO).
+             * @param {string} token - O token de acesso.
              */
-            async function solicitarSaida() {
-                solicitarBtn.disabled = true;
-                document.getElementById('loading-solicitacao').style.display = 'block';
+            async function solicitarSaida(token) {
+                toggleButtonLoading(solicitarBtn, solicitarSpinner, solicitarBtnText, true);
 
                 try {
-                    // Obter geolocalização antes de enviar
                     const position = await new Promise((resolve, reject) => {
                         navigator.geolocation.getCurrentPosition(resolve, reject, {
                             enableHighAccuracy: true, timeout: 10000, maximumAge: 0
                         });
                     });
-
                     const { latitude, longitude } = position.coords;
-                    const token = new URLSearchParams(window.location.search).get('token');
 
-                    // Chama o endpoint original para INICIAR a operação
                     const response = await fetch(`${BACKEND_URL}/api/tokens/executar-operacao`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            token: token,
-                            tipo: "SAIDA", // Enviando o tipo explicitamente
-                            latitude: latitude,
-                            longitude: longitude
-                        })
+                        body: JSON.stringify({ token, tipo: "SAIDA", latitude, longitude })
                     });
 
                     const data = await response.json();
-
                     if (!response.ok) {
-                        throw new Error(data.mensagem || 'Falha ao solicitar a saída. Tente novamente.');
+                        throw new Error(data.mensagem || 'Falha ao solicitar a saída.');
                     }
                     
-                    // SUCESSO: Transiciona para a próxima etapa da interface
-                    showView(confirmationView);
+                    showView(confirmationView); // Transição para a próxima tela
 
                 } catch (error) {
                     let msg = error.message;
-                    if(error.code === 1) msg = "Você precisa permitir o acesso à localização.";
-                    if(error.code === 3) msg = "A obtenção de localização demorou demais.";
-                    showError(`Erro na solicitação: ${msg}`);
-                    solicitarBtn.disabled = false; // Reabilita o botão em caso de erro
-                } finally {
-                    document.getElementById('loading-solicitacao').style.display = 'none';
+                    if(error.code === 1) msg = "Você precisa permitir o acesso à localização para continuar.";
+                    if(error.code === 3) msg = "A obtenção de localização demorou demais. Tente novamente.";
+                    showError('Erro na Solicitação', msg);
+                    toggleButtonLoading(solicitarBtn, solicitarSpinner, solicitarBtnText, false);
                 }
             }
 
             /**
-             * PASSO 2: Confirma a saída, usando o novo endpoint do backend.
+             * ETAPA 2: Confirma a retirada do aluno.
+             * @param {string} token - O token de acesso.
              */
-            async function confirmarSaida() {
-                confirmarBtn.disabled = true;
-                document.getElementById('loading-confirmacao').style.display = 'block';
+            async function confirmarSaida(token) {
+                toggleButtonLoading(confirmarBtn, confirmarSpinner, confirmarBtnText, true);
 
                 try {
-                    const token = new URLSearchParams(window.location.search).get('token');
-
-                    // Chama o NOVO endpoint que confirma a retirada
                     const response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida/token`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ token: token })
+                        body: JSON.stringify({ token })
                     });
 
                     const data = await response.json();
-
                     if (!response.ok || !data.sucesso) {
                         throw new Error(data.mensagem || 'Falha ao confirmar a retirada.');
                     }
 
-                    // SUCESSO FINAL: Exibe a mensagem de operação concluída
-                    document.getElementById('final-message').textContent = data.mensagem;
-                    showView(finalView);
+                    showFinalMessage('success', 'Operação Concluída!', data.mensagem);
 
                 } catch (error) {
-                    // Mostra um alerta para que o usuário possa tentar de novo sem recarregar a página
-                    alert(`Erro ao confirmar: ${error.message}`);
-                    confirmarBtn.disabled = false;
-                } finally {
-                    document.getElementById('loading-confirmacao').style.display = 'none';
+                    alert(`Erro ao confirmar: ${error.message}\n\nVocê pode tentar confirmar novamente.`);
+                    toggleButtonLoading(confirmarBtn, confirmarSpinner, confirmarBtnText, false);
                 }
             }
 
