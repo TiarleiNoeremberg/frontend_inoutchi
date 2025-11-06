@@ -50,42 +50,66 @@
 <body>
     <div class="container">
         <div class="logo">
-            <img src="./img/inoutchi2.png" alt="Logotipo INOUTCHI">
+        <img src="https://tess-cdn.pareto.io/assets/uploads/45e738a3-d1f9-47db-9a48-22417bb5490d.png" alt="Logotipo INOUTCHI" style="max-width: 250px;">
+    </div>
+    <div class="card" id="mainCard">
+        <!-- SEÇÃO 1: MENSAGENS DE ESTADO GLOBAL (CARREGANDO E ERRO INICIAL) -->
+        <!-- Esta parte permanece a mesma, para validação inicial do token -->
+        <div class="loading" id="loading" style="display: none;">
+            <div class="loading-spinner"></div>
+            <p>Validando acesso, por favor aguarde...</p>
         </div>
-        <div class="card" id="mainCard">
-            <div class="loading" id="loading" style="display: none;">
-                <div class="loading-spinner"></div>
-                <p>Validando acesso, por favor aguarde...</p>
-            </div>
-            <div class="error-message" id="errorMessage" style="display: block;">
-                <i class="fas fa-exclamation-triangle"></i>
-                <h3 id="errorTitle">Token não encontrado</h3>
-                <p id="errorDetails">O link de acesso parece estar incompleto ou é inválido. Por favor, verifique o link que você recebeu.</p>
-            </div>
-            <div class="final-message" id="finalMessage" style="display: none;">
-                <i id="finalIcon"></i>
-                <h3 id="finalTitle"></h3>
-                <p id="finalDetails"></p>
-            </div>
-            <div id="content" style="display: none;">
-                <div class="card-header">
-                    <h2>Confirmação de Acesso</h2>
-                    <p class="text-muted">Olá, <strong id="destinatarioNome"></strong>!</p>
-                </div>
-                <div class="info-group">
-                    <p>Você recebeu permissão para realizar a seguinte operação:</p>
-                    <p><strong>Aluno:</strong> <span id="alunoNome"></span></p>
-                    <p><strong>Operação:</strong> <span id="operacaoTipo"></span></p>
-                    <p><strong>Observação:</strong> <span id="observacao"></span></p>
-                </div>
-                <div id="feedback" class="feedback"></div>
-                <button class="btn" id="actionButton">
-                    <span class="btn-spinner" id="buttonSpinner"></span>
-                    <span id="buttonText"></span>
-                </button>
-                <div class="location-status" id="locationStatus"></div>
-            </div>
+        <div class="error-message" id="errorMessage" style="display: block;">
+            <i class="fas fa-exclamation-triangle"></i>
+            <h3 id="errorTitle">Token não encontrado</h3>
+            <p id="errorDetails">O link de acesso parece estar incompleto ou é inválido. Por favor, verifique o link que você recebeu.</p>
         </div>
+
+        <!-- SEÇÃO 2: VISÃO DE SOLICITAÇÃO (ETAPA 1) -->
+        <!-- Substitui o #content original. Fica visível após a validação do token -->
+        <div id="initial-view" style="display: none;">
+            <div class="card-header">
+                <h2>Confirmação de Acesso</h2>
+                <p class="text-muted">Olá, <strong id="destinatarioNome"></strong>!</p>
+            </div>
+            <div class="info-group">
+                <p>Você recebeu permissão para realizar a seguinte operação:</p>
+                <p><strong>Aluno:</strong> <span id="alunoNome"></span></p>
+                <p><strong>Operação:</strong> <span id="operacaoTipo"></span></p>
+                <p><strong>Observação:</strong> <span id="observacao"></span></p>
+            </div>
+            <div class="location-status" id="locationStatusSolicitacao"></div>
+            <button class="btn" id="solicitar-saida-btn">
+                <span class="btn-spinner" id="solicitarSpinner" style="display: none;"></span>
+                <span id="solicitarBtnText">1. Notificar Aluno para Sair</span>
+            </button>
+        </div>
+
+        <!-- SEÇÃO 3: VISÃO DE CONFIRMAÇÃO (ETAPA 2) -->
+        <!-- Esta é a nova tela que aparece após a solicitação ser bem-sucedida -->
+        <div id="confirmation-view" style="display: none;">
+             <div class="card-header">
+                <h2>Aguardando no Portão</h2>
+            </div>
+            <div class="info-group-confirm">
+                <p class="success-text"><i class="fas fa-check-circle"></i> Solicitação enviada! O aluno foi notificado.</p>
+                <p>Por favor, dirija-se ao portão para encontrá-lo(a).</p>
+                <p class="highlight"><strong>Apenas clique no botão abaixo quando o aluno estiver com você.</strong></p>
+            </div>
+            <button class="btn confirm" id="confirmar-saida-btn">
+                 <span class="btn-spinner" id="confirmarSpinner" style="display: none;"></span>
+                <span id="confirmarBtnText">2. Confirmar Retirada do Aluno</span>
+            </button>
+        </div>
+        
+        <!-- SEÇÃO 4: MENSAGEM DE SUCESSO FINAL -->
+        <!-- Seu `finalMessage` original, que será usado após a Etapa 2 ser concluída -->
+        <div class="final-message" id="finalMessage" style="display: none;">
+            <i id="finalIcon"></i>
+            <h3 id="finalTitle"></h3>
+            <p id="finalDetails"></p>
+        </div>
+    </div>
     </div>
 
     <script>
@@ -93,6 +117,7 @@
             const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
             let currentToken = '';
             let locationData = { latitude: null, longitude: null };
+            let currentOperationType = '';
 
             // Elementos da UI
             const loading = document.getElementById('loading');
@@ -106,11 +131,6 @@
             const finalTitle = document.getElementById('finalTitle');
             const finalDetails = document.getElementById('finalDetails');
 
-            const destinatarioNome = document.getElementById('destinatarioNome');
-            const alunoNome = document.getElementById('alunoNome');
-            const operacaoTipo = document.getElementById('operacaoTipo');
-            const observacao = document.getElementById('observacao');
-
             const actionButton = document.getElementById('actionButton');
             const buttonSpinner = document.getElementById('buttonSpinner');
             const buttonText = document.getElementById('buttonText');
@@ -119,7 +139,22 @@
             const urlParams = new URLSearchParams(window.location.search);
             const token = urlParams.get('token');
             
-            let currentOperationType = '';
+            const initialView = document.getElementById('initial-view');
+            const confirmationView = document.getElementById('confirmation-view');
+            const finalView = document.getElementById('final-view');
+            const errorView = document.getElementById('error-view');
+
+            const solicitarBtn = document.getElementById('solicitar-saida-btn');
+            const confirmarBtn = document.getElementById('confirmar-saida-btn');
+
+            //const destinatarioNome = document.getElementById('destinatarioNome');
+            //const alunoNome = document.getElementById('alunoNome');
+            //const operacaoTipo = document.getElementById('operacaoTipo');
+            //const observacao = document.getElementById('observacao');
+            const destinatarioNome = document.getElementById('destinatario-nome');
+            const alunoNome = document.getElementById('aluno-nome');
+            const operacaoTipo = document.getElementById('operacao-tipo');
+            const observacao = document.getElementById('observacao');
             
             
             // Adiciona o container de status dinamicamente se ele não existir
@@ -190,41 +225,60 @@
                 actionButton.disabled = isLoading;
             }
 
+            /**
+             * Adaptado em 06/11/2025
+             * Inicializa a página, valida o token, e prepara a interface para o fluxo de duas etapas.
+             */
             async function initialize() {
-                showState(loading);
+                // Sua lógica original, mantida:
+                showState(loading); 
                 const params = new URLSearchParams(window.location.search);
-                currentToken = params.get('token');
+                const token = params.get('token'); // Usaremos uma variável local
 
-                if (!currentToken) {
+                if (!token) {
                     showError('Token não encontrado', 'O link de acesso parece estar incompleto ou é inválido.');
                     return;
                 }
 
                 try {
-                    const response = await fetch(`${BACKEND_URL}/api/tokens/validar/${currentToken}`);
+                    // Sua validação de token, mantida:
+                    const response = await fetch(`${BACKEND_URL}/api/tokens/validar/${token}`);
                     if (!response.ok) {
-                        const errorMsg = response.status === 401 ? 'Seu token é inválido ou já expirou.' : `Erro no servidor (Status: ${response.status}).`;
+                        const errorData = await response.json().catch(() => ({}));
+                        const errorMsg = errorData.mensagem || (response.status === 401 ? 'Seu token é inválido ou já expirou.' : `Erro no servidor (Status: ${response.status}).`);
                         throw new Error(errorMsg);
                     }
 
                     const data = await response.json();
 
+                    // Sua ótima verificação de token já utilizado, mantida:
                     if (data.status === 'UTILIZADO') {
                         showFinalMessage('error', 'Token Já Utilizado', `Este link para ${data.alunoNome} já foi usado em ${new Date(data.utilizadoEm).toLocaleString('pt-BR')}.`);
                         return;
                     }
                     
-                    // Armazena os dados essenciais
-                    currentOperationType = data.operacoesPermitidas; // <-- CORREÇÃO: Armazena o tipo de operação
-                    destinatarioNome.textContent = data.destinatario || 'Não informado';
+                    // Populando a interface com os dados (usando os IDs da nova estrutura HTML)
+                    destinatarioNome.textContent = data.destinatarioNome || 'Não informado';
                     alunoNome.textContent = data.alunoNome || 'Não informado';
-                    operacaoTipo.textContent = currentOperationType || 'Não informada';
+                    operacaoTipo.textContent = data.operacoesPermitidas || 'Não informada';
                     observacao.textContent = data.observacao || 'Nenhuma.';
-                    buttonText.textContent = `Confirmar ${currentOperationType || 'Ação'}`;
-                    actionButton.disabled = false;
 
-                    showState(content);
+                    // --- MUDANÇA PRINCIPAL AQUI ---
+                    // 1. Removemos a lógica do botão antigo.
+                    // As linhas abaixo foram removidas:
+                    // buttonText.textContent = `Solicitar ${currentOperationType || 'Ação'}`;
+                    // actionButton.disabled = false;
+                    
+                    // 2. Adicionamos a configuração para os DOIS novos botões.
+                    solicitarBtn.addEventListener('click', () => solicitarSaida(token));
+                    confirmarBtn.addEventListener('click', () => confirmarSaida(token));
+                    
+                    // 3. Em vez de mostrar o 'content' genérico, mostramos a 'initialView'.
+                    showView(initialView); 
+                    // A linha original 'showState(content)' foi substituída pela de cima.
+
                 } catch (error) {
+                    // Seu tratamento de erro, mantido:
                     showError('Falha na Validação', error.message);
                 }
             }
@@ -277,7 +331,7 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             token: currentToken,
-                            tipoOperacao: currentOperationType, // <-- CORREÇÃO: Enviando o tipo da operação
+                            tipo: currentOperationType, // <-- CORREÇÃO: Enviando o tipo da operação
                             latitude: latitude,
                             longitude: longitude
                         })
@@ -305,6 +359,101 @@
                     // Reabilita o botão apenas em caso de erro
                     actionButton.disabled = false;
                     actionButton.innerHTML = originalButtonText;
+                }
+            }
+
+            // Função para mostrar a visão correta e esconder as outras
+            function showView(view) {
+                initialView.style.display = 'none';
+                confirmationView.style.display = 'none';
+                finalView.style.display = 'none';
+                errorView.style.display = 'none';
+                view.style.display = 'block';
+            }
+
+            /**
+             * PASSO 1: Solicita a saída, colocando o aluno em "AGUARDANDO_CONFIRMACAO"
+             */
+            async function solicitarSaida() {
+                solicitarBtn.disabled = true;
+                document.getElementById('loading-solicitacao').style.display = 'block';
+
+                try {
+                    // Obter geolocalização antes de enviar
+                    const position = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, {
+                            enableHighAccuracy: true, timeout: 10000, maximumAge: 0
+                        });
+                    });
+
+                    const { latitude, longitude } = position.coords;
+                    const token = new URLSearchParams(window.location.search).get('token');
+
+                    // Chama o endpoint original para INICIAR a operação
+                    const response = await fetch(`${BACKEND_URL}/api/tokens/executar-operacao`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            token: token,
+                            tipo: "SAIDA", // Enviando o tipo explicitamente
+                            latitude: latitude,
+                            longitude: longitude
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(data.mensagem || 'Falha ao solicitar a saída. Tente novamente.');
+                    }
+                    
+                    // SUCESSO: Transiciona para a próxima etapa da interface
+                    showView(confirmationView);
+
+                } catch (error) {
+                    let msg = error.message;
+                    if(error.code === 1) msg = "Você precisa permitir o acesso à localização.";
+                    if(error.code === 3) msg = "A obtenção de localização demorou demais.";
+                    showError(`Erro na solicitação: ${msg}`);
+                    solicitarBtn.disabled = false; // Reabilita o botão em caso de erro
+                } finally {
+                    document.getElementById('loading-solicitacao').style.display = 'none';
+                }
+            }
+
+            /**
+             * PASSO 2: Confirma a saída, usando o novo endpoint do backend.
+             */
+            async function confirmarSaida() {
+                confirmarBtn.disabled = true;
+                document.getElementById('loading-confirmacao').style.display = 'block';
+
+                try {
+                    const token = new URLSearchParams(window.location.search).get('token');
+
+                    // Chama o NOVO endpoint que confirma a retirada
+                    const response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida/token`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ token: token })
+                    });
+
+                    const data = await response.json();
+
+                    if (!response.ok || !data.sucesso) {
+                        throw new Error(data.mensagem || 'Falha ao confirmar a retirada.');
+                    }
+
+                    // SUCESSO FINAL: Exibe a mensagem de operação concluída
+                    document.getElementById('final-message').textContent = data.mensagem;
+                    showView(finalView);
+
+                } catch (error) {
+                    // Mostra um alerta para que o usuário possa tentar de novo sem recarregar a página
+                    alert(`Erro ao confirmar: ${error.message}`);
+                    confirmarBtn.disabled = false;
+                } finally {
+                    document.getElementById('loading-confirmacao').style.display = 'none';
                 }
             }
 
