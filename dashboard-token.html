@@ -119,6 +119,9 @@
             const urlParams = new URLSearchParams(window.location.search);
             const token = urlParams.get('token');
             
+            let currentOperationType = '';
+            
+            
             // Adiciona o container de status dinamicamente se ele não existir
             if (!document.getElementById('statusContainer')) {
                 const statusDiv = document.createElement('div');
@@ -187,118 +190,37 @@
                 actionButton.disabled = isLoading;
             }
 
-            /**
-             * VERSÃO CORRIGIDA - 26/11/2025
-             * Lida com o clique no botão de ação, obtendo a geolocalização do usuário
-             * e enviando os dados para o endpoint correto que executa a operação baseada no token.
-             *
-             * @param {string} token - O token de acesso obtido da URL.
-             */
-            async function handleActionClick(token) {
-                const actionButton = document.getElementById('actionButton');
-                const originalButtonText = actionButton.innerHTML;
-
-                actionButton.disabled = true;
-                actionButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processando...';
-
-                if (!token) {
-                    showFinalMessage('error', 'Erro Crítico', 'O token de ação não foi encontrado. A URL pode estar corrompida.');
-                    return;
-                }
-
-                try {
-                    // --- ETAPA 1: Obter Geolocalização ---
-                    showStatus('Obtendo sua localização para confirmação...');
-
-                    const position = await new Promise((resolve, reject) => {
-                        navigator.geolocation.getCurrentPosition(resolve, reject, {
-                            enableHighAccuracy: true,
-                            timeout: 10000, // 10 segundos de tempo limite
-                            maximumAge: 0,
-                        });
-                    });
-
-                    const { latitude, longitude } = position.coords;
-
-                    // --- ETAPA 2: Enviar para o Backend ---
-                    showStatus('Enviando confirmação...');
-
-                    // CORREÇÃO: Apontando para o endpoint correto e enviando o corpo completo.
-                    const response = await fetch(`${BACKEND_URL}/api/tokens/executar-operacao`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            token: token,
-                            latitude: latitude,
-                            longitude: longitude
-                        })
-                    });
-
-                    const result = await response.json();
-
-                    if (!response.ok) {
-                        // Usa a mensagem de erro que vem do backend (ex: "Token inválido ou expirado").
-                        throw new Error(result.mensagem || 'Ocorreu um erro no servidor. Tente novamente.');
-                    }
-
-                    // --- ETAPA 3: Exibir Sucesso ---
-                    showFinalMessage('success', 'Operação Concluída!', result.mensagem);
-                    
-                    // Esconde o botão para evitar que a ação seja executada novamente com o mesmo token.
-                    actionButton.style.display = 'none';
-
-                } catch (error) {
-                    console.error('Erro detalhado na operação:', error);
-                    
-                    let errorMessage = error.message;
-                    // Personaliza a mensagem de erro de geolocalização
-                    if (error.code === 1) errorMessage = 'Você precisa permitir o acesso à localização para confirmar a operação.';
-                    if (error.code === 2) errorMessage = 'Não foi possível obter sua localização. Verifique sua conexão ou GPS.';
-                    if (error.code === 3) errorMessage = 'A obtenção de localização demorou muito. Tente novamente.';
-
-                    showFinalMessage('error', 'Falha na Operação', errorMessage);
-                    
-                    // Reabilita o botão em caso de erro para o usuário poder tentar de novo.
-                    actionButton.disabled = false;
-                    actionButton.innerHTML = originalButtonText;
-                }
-            }
-
             async function initialize() {
                 showState(loading);
                 const params = new URLSearchParams(window.location.search);
                 currentToken = params.get('token');
 
                 if (!currentToken) {
-                    showError('Token não encontrado', 'O link de acesso parece estar incompleto ou é inválido. Por favor, verifique o link que você recebeu.');
+                    showError('Token não encontrado', 'O link de acesso parece estar incompleto ou é inválido.');
                     return;
                 }
 
                 try {
                     const response = await fetch(`${BACKEND_URL}/api/tokens/validar/${currentToken}`);
-
                     if (!response.ok) {
-                         if (response.status === 401) {
-                            throw new Error('Seu token é inválido ou já expirou. Por favor, solicite um novo link de acesso.');
-                        }
-                        const errorData = await response.json().catch(() => null);
-                        throw new Error(errorData?.erro || `Ocorreu um erro no servidor (Status: ${response.status}).`);
+                        const errorMsg = response.status === 401 ? 'Seu token é inválido ou já expirou.' : `Erro no servidor (Status: ${response.status}).`;
+                        throw new Error(errorMsg);
                     }
 
                     const data = await response.json();
 
-                    if(data.status === 'UTILIZADO'){
-                        showFinalMessage('error', 'Token Já Utilizado', `Este link de acesso para ${data.alunoNome} já foi utilizado em ${new Date(data.utilizadoEm).toLocaleString('pt-BR')}.`);
+                    if (data.status === 'UTILIZADO') {
+                        showFinalMessage('error', 'Token Já Utilizado', `Este link para ${data.alunoNome} já foi usado em ${new Date(data.utilizadoEm).toLocaleString('pt-BR')}.`);
                         return;
                     }
-
-                    destinatarioNome.textContent = data.destinatario || 'Não informado'; // Correção
+                    
+                    // Armazena os dados essenciais
+                    currentOperationType = data.operacoesPermitidas; // <-- CORREÇÃO: Armazena o tipo de operação
+                    destinatarioNome.textContent = data.destinatario || 'Não informado';
                     alunoNome.textContent = data.alunoNome || 'Não informado';
-                    operacaoTipo.textContent = data.operacoesPermitidas || 'Não informada'; // Correção
+                    operacaoTipo.textContent = currentOperationType || 'Não informada';
                     observacao.textContent = data.observacao || 'Nenhuma.';
-                    buttonText.textContent = `Solicitar ${data.operacoesPermitidas}`.replace('undefined','Ação'); // Correção e fallback
+                    buttonText.textContent = `Confirmar ${currentOperationType || 'Ação'}`;
                     actionButton.disabled = false;
 
                     showState(content);
@@ -319,7 +241,73 @@
                     statusContainer.style.display = 'block';
                 }
             }
-            
+
+            /**
+             * VERSÃO CORRIGIDA - 06/11/2025
+             * Lida com o clique no botão, desabilitando-o para evitar cliques duplos,
+             * e envia todos os dados necessários (incluindo o tipo de operação) para o backend.
+             */
+            async function handleActionClick() {
+                // Desabilita o botão e armazena o texto original
+                actionButton.disabled = true;
+                const originalButtonText = actionButton.innerHTML;
+                actionButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processando...';
+
+                if (!currentToken || !currentOperationType) {
+                    showFinalMessage('error', 'Erro Crítico', 'O token ou o tipo de operação são inválidos. A URL pode estar corrompida.');
+                    return;
+                }
+
+                try {
+                    // --- ETAPA 1: Obter Geolocalização ---
+                    showStatus('Obtendo sua localização para confirmação...');
+                    const position = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, {
+                            enableHighAccuracy: true,
+                            timeout: 10000,
+                            maximumAge: 0,
+                        });
+                    });
+                    const { latitude, longitude } = position.coords;
+
+                    // --- ETAPA 2: Enviar para o Backend (COM O CAMPO "TIPO") ---
+                    showStatus('Enviando confirmação...');
+                    const response = await fetch(`${BACKEND_URL}/api/tokens/executar-operacao`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            token: currentToken,
+                            tipo: currentOperationType, // <-- CORREÇÃO: Enviando o tipo da operação
+                            latitude: latitude,
+                            longitude: longitude
+                        })
+                    });
+
+                    const result = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(result.mensagem || 'Ocorreu um erro no servidor. Tente novamente.');
+                    }
+
+                    // --- ETAPA 3: Exibir Sucesso ---
+                    showFinalMessage('success', 'Operação Concluída!', result.mensagem);
+                    actionButton.style.display = 'none'; // Esconde o botão permanentemente após o sucesso
+
+                } catch (error) {
+                    console.error('Erro detalhado na operação:', error);
+                    let userMessage = error.message;
+                    if (error.code === 1) userMessage = 'Você precisa permitir o acesso à localização para confirmar a operação.';
+                    if (error.code === 2) userMessage = 'Não foi possível obter sua localização. Verifique sua conexão ou GPS.';
+                    if (error.code === 3) userMessage = 'A obtenção de localização demorou muito. Tente novamente.';
+
+                    showFinalMessage('error', 'Falha na Operação', userMessage);
+                    
+                    // Reabilita o botão apenas em caso de erro
+                    actionButton.disabled = false;
+                    actionButton.innerHTML = originalButtonText;
+                }
+            }
+
             initialize();
         });
     </script>
