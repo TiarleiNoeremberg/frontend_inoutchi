@@ -156,53 +156,62 @@
 
             /**
              * VERSÃO CORRIGIDA - 06/11/2025
-             * Lida com o clique no botão de ação.
-             * Envia o token no CORPO da requisição, conforme indicado pelo erro 'JWT was invalid'.
+             * Lida com o clique no botão de ação para confirmar a saída do aluno usando um token.
+             * A função agora aponta para o endpoint correto (`/api/presencas/confirmar-saida/token`)
+             * e envia o corpo da requisição no formato esperado pelo DTO `ConfirmarSaidaPorTokenDTO`.
+             *
+             * @param {string} token - O token de acesso obtido da URL da página.
              */
-            async function handleActionClick() {
+            async function handleActionClick(token) {
                 const actionButton = document.getElementById('actionButton');
+                const originalButtonText = actionButton.textContent;
+
                 actionButton.disabled = true;
                 actionButton.textContent = 'Processando...';
 
-                const urlParams = new URLSearchParams(window.location.search);
-                const token = urlParams.get('token');
-
                 if (!token) {
-                    showFeedback('Erro crítico: Token de autorização não encontrado na URL.', 'error');
+                    showError('Erro Crítico', 'O token de ação não foi encontrado. Por favor, recarregue a página.');
                     actionButton.disabled = false;
-                    actionButton.textContent = 'Tentar Novamente';
+                    actionButton.textContent = originalButtonText;
                     return;
                 }
 
                 try {
-                    const response = await fetch(`${BACKEND_URL}/api/presencas/saida/solicitar-por-token`, {
+                    // CORREÇÃO 1: O endpoint foi ajustado para o correto, como você apontou.
+                    const response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida/token`, {
                         method: 'POST',
                         headers: {
-                            'Content-Type': 'application/json'
-                            // Removido 'Authorization' do header
+                            'Content-Type': 'application/json',
                         },
-                        // CORREÇÃO PRINCIPAL: O token é enviado no corpo da requisição
+                        // CORREÇÃO 2: O corpo da requisição agora envia o token no formato { "token": "..." },
+                        // que corresponde ao DTO `ConfirmarSaidaPorTokenDTO` no seu backend.
                         body: JSON.stringify({ token: token })
                     });
 
-                    // Tenta ler o corpo da resposta, seja sucesso ou erro
+                    // Lê o corpo da resposta. O seu backend retorna JSON tanto para sucesso quanto para erro.
                     const result = await response.json();
 
+                    // Se a resposta não for "OK" (status diferente de 2xx), lança um erro.
                     if (!response.ok) {
-                        // Se a resposta não foi OK, usa a mensagem do JSON de erro
-                        throw new Error(result.mensagem || result.error || `Erro ${response.status}`);
+                        // Usa a mensagem de erro que vem do backend (ex: "Token inválido").
+                        throw new Error(result.mensagem || `Erro ${response.status}. O servidor não respondeu com detalhes.`);
                     }
 
-                    // Se a resposta foi OK, mostra a mensagem de sucesso
-                    showFeedback(result.mensagem || 'Ação concluída com sucesso!', 'success');
-                    actionButton.style.display = 'none'; // Esconde o botão após o sucesso
+                    // Se chegou aqui, a operação foi um sucesso.
+                    showFinalMessage('success', 'Operação Bem-Sucedida', result.mensagem || 'Ação registrada com sucesso!');
+                    
+                    // Esconde o botão para evitar que o token (agora revogado) seja usado novamente.
+                    actionButton.style.display = 'none';
 
                 } catch (error) {
-                    console.error('Erro detalhado ao executar a ação:', error);
-                    // Exibe a mensagem de erro capturada (seja do throw ou de falha de rede)
-                    showFeedback(error.message || 'Não foi possível concluir a ação. Verifique sua conexão.', 'error');
+                    console.error('Erro detalhado ao confirmar a saída:', error);
+                    
+                    // Exibe a mensagem de erro capturada, seja do backend ou de falha de rede.
+                    showError('Falha ao Concluir a Ação', error.message);
+                    
+                    // Reabilita o botão em caso de erro para que o usuário possa entender o que aconteceu.
                     actionButton.disabled = false;
-                    actionButton.textContent = 'Tentar Novamente';
+                    actionButton.textContent = originalButtonText;
                 }
             }
 
@@ -247,7 +256,8 @@
                 }
             }
 
-            actionButton.addEventListener('click', handleActionClick);
+            actionButton.addEventListener('click', () => handleActionClick(currentToken));
+            
             initialize();
         });
     </script>
