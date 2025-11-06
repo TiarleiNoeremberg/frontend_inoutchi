@@ -143,54 +143,65 @@
                 actionButton.disabled = isLoading;
             }
 
+            /**
+             * VERSÃO CORRIGIDA - 05/11/2025
+             * Lida com o clique no botão de ação, agora incluindo o token de autorização
+             * e com tratamento de erro aprimorado.
+             */
             async function handleActionClick() {
-                toggleButtonLoading(true);
-                locationStatus.textContent = 'Obtendo localização...';
-                locationStatus.className = 'location-status location-loading';
-                locationStatus.style.display = 'block';
+                const actionButton = document.getElementById('actionButton');
+                actionButton.disabled = true;
+                actionButton.textContent = 'Processando...';
+
+                // 1. Obter o token diretamente da URL da página
+                const urlParams = new URLSearchParams(window.location.search);
+                const token = urlParams.get('token');
+
+                if (!token) {
+                    showFeedback('Erro crítico: Token de autorização não encontrado na URL.', 'error');
+                    actionButton.disabled = false;
+                    actionButton.textContent = 'Tentar Novamente';
+                    return;
+                }
 
                 try {
-                    const position = await new Promise((resolve, reject) => {
-                        navigator.geolocation.getCurrentPosition(resolve, reject, {
-                            enableHighAccuracy: true, timeout: 15000, maximumAge: 0
-                        });
-                    });
-
-                    locationData.latitude = position.coords.latitude;
-                    locationData.longitude = position.coords.longitude;
-                    locationStatus.textContent = 'Localização obtida. Enviando solicitação...';
-
                     const response = await fetch(`${BACKEND_URL}/api/presencas/saida/solicitar-por-token`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            token: currentToken,
-                            latitude: locationData.latitude,
-                            longitude: locationData.longitude
-                        })
+                        headers: {
+                            // 2. CORREÇÃO CRÍTICA: Adicionar o cabeçalho de autorização
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        // O body é necessário, mesmo que vazio, para algumas APIs
+                        body: JSON.stringify({}) 
                     });
 
+                    // 3. Tratamento de Erro Robusto
+                    // Primeiro, verifica se a resposta foi bem-sucedida (status 2xx)
                     if (!response.ok) {
-                        const errorData = await response.json();
-                        throw new Error(errorData.erro || 'Falha ao enviar solicitação.');
+                        let errorMsg = `Erro ${response.status}: ${response.statusText}`;
+                        try {
+                            // Tenta extrair uma mensagem de erro mais clara do backend
+                            const errorData = await response.json();
+                            errorMsg = errorData.mensagem || errorData.error || errorMsg;
+                        } catch (e) {
+                            // Se o corpo da resposta de erro não for um JSON, usa o statusText
+                            console.warn('A resposta de erro não continha um JSON válido.');
+                        }
+                        // Lança o erro para ser pego pelo bloco catch
+                        throw new Error(errorMsg);
                     }
 
+                    // Apenas tente ler o JSON se a resposta for bem-sucedida
                     const result = await response.json();
-                    showFinalMessage('success', 'Solicitação Enviada!', result.mensagem || 'Sua solicitação de saída foi registrada. A escola foi notificada.');
+                    showFeedback(result.mensagem || 'Ação concluída com sucesso!', 'success');
+                    actionButton.style.display = 'none'; // Esconde o botão após o sucesso
 
                 } catch (error) {
-                    locationStatus.className = 'location-status location-error';
-                    let errorMsg = 'Não foi possível concluir a ação. ';
-                    if (error.code === 1) errorMsg += 'Você precisa permitir o acesso à localização.';
-                    else if (error.message) errorMsg += error.message;
-                    else errorMsg += 'Verifique sua conexão e tente novamente.'
-
-                    locationStatus.textContent = errorMsg;
-                    showError('Erro na Operação', errorMsg);
-                    showState(content); // Volta para a tela de conteúdo pra tentar de novo
-
-                } finally {
-                    toggleButtonLoading(false);
+                    console.error('Erro detalhado ao executar a ação:', error);
+                    showFeedback(error.message || 'Não foi possível concluir a ação.', 'error');
+                    actionButton.disabled = false;
+                    actionButton.textContent = 'Tentar Novamente';
                 }
             }
 
