@@ -116,6 +116,22 @@
             const buttonText = document.getElementById('buttonText');
             const locationStatus = document.getElementById('locationStatus');
 
+            const urlParams = new URLSearchParams(window.location.search);
+            const token = urlParams.get('token');
+            
+            // Adiciona o container de status dinamicamente se ele não existir
+            if (!document.getElementById('statusContainer')) {
+                const statusDiv = document.createElement('div');
+                statusDiv.id = 'statusContainer';
+                statusDiv.style.display = 'none';
+                statusDiv.style.marginTop = '15px';
+                actionButton.parentNode.insertBefore(statusDiv, actionButton.nextSibling);
+            }
+
+            if (actionButton) {
+                actionButton.addEventListener('click', () => handleActionClick(token));
+            }
+
             function showFeedback(message, type = 'info') {
                 const feedbackElement = document.getElementById('feedback');
                 if (feedbackElement) {
@@ -140,12 +156,29 @@
                 showState(errorMessage);
             }
 
-            function showFinalMessage(type, title, details) {
-                finalTitle.textContent = title;
-                finalDetails.textContent = details;
-                finalIcon.className = type === 'success' ? 'fas fa-check-circle' : 'fas fa-times-circle';
-                finalMessage.className = `final-message ${type}`;
-                showState(finalMessage);
+            /**
+             * Exibe a mensagem final de sucesso ou erro.
+             * @param {'success'|'error'} type - O tipo de mensagem.
+             * @param {string} title - O título da mensagem.
+             * @param {string} message - O corpo da mensagem.
+             */
+            function showFinalMessage(type, title, message) {
+                const cardContent = document.querySelector('.card-content'); // Garanta que este elemento exista
+                if (cardContent) {
+                    const messageColor = type === 'success' ? '#28a745' : '#dc3545';
+                    cardContent.innerHTML = `
+                        <div style="text-align: center;">
+                            <i class="${type === 'success' ? 'fas fa-check-circle' : 'fas fa-times-circle'}" style="font-size: 48px; color: ${messageColor};"></i>
+                            <h3 style="margin-top: 15px;">${title}</h3>
+                            <p>${message}</p>
+                        </div>
+                    `;
+                }
+                // Esconde o contêiner de status, já que a mensagem final foi exibida
+                const statusContainer = document.getElementById('statusContainer');
+                if (statusContainer) {
+                    statusContainer.style.display = 'none';
+                }
             }
 
             function toggleButtonLoading(isLoading) {
@@ -155,63 +188,81 @@
             }
 
             /**
-             * VERSÃO CORRIGIDA - 06/11/2025
-             * Lida com o clique no botão de ação para confirmar a saída do aluno usando um token.
-             * A função agora aponta para o endpoint correto (`/api/presencas/confirmar-saida/token`)
-             * e envia o corpo da requisição no formato esperado pelo DTO `ConfirmarSaidaPorTokenDTO`.
+             * VERSÃO CORRIGIDA - 26/11/2025
+             * Lida com o clique no botão de ação, obtendo a geolocalização do usuário
+             * e enviando os dados para o endpoint correto que executa a operação baseada no token.
              *
-             * @param {string} token - O token de acesso obtido da URL da página.
+             * @param {string} token - O token de acesso obtido da URL.
              */
             async function handleActionClick(token) {
                 const actionButton = document.getElementById('actionButton');
-                const originalButtonText = actionButton.textContent;
+                const originalButtonText = actionButton.innerHTML;
 
                 actionButton.disabled = true;
-                actionButton.textContent = 'Processando...';
+                actionButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processando...';
 
                 if (!token) {
-                    showError('Erro Crítico', 'O token de ação não foi encontrado. Por favor, recarregue a página.');
-                    actionButton.disabled = false;
-                    actionButton.textContent = originalButtonText;
+                    showFinalMessage('error', 'Erro Crítico', 'O token de ação não foi encontrado. A URL pode estar corrompida.');
                     return;
                 }
 
                 try {
-                    // CORREÇÃO 1: O endpoint foi ajustado para o correto, como você apontou.
-                    const response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida/token`, {
+                    // --- ETAPA 1: Obter Geolocalização ---
+                    showStatus('Obtendo sua localização para confirmação...');
+
+                    const position = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, {
+                            enableHighAccuracy: true,
+                            timeout: 10000, // 10 segundos de tempo limite
+                            maximumAge: 0,
+                        });
+                    });
+
+                    const { latitude, longitude } = position.coords;
+
+                    // --- ETAPA 2: Enviar para o Backend ---
+                    showStatus('Enviando confirmação...');
+
+                    // CORREÇÃO: Apontando para o endpoint correto e enviando o corpo completo.
+                    const response = await fetch(`${BACKEND_URL}/api/tokens/executar-operacao`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                         },
-                        // CORREÇÃO 2: O corpo da requisição agora envia o token no formato { "token": "..." },
-                        // que corresponde ao DTO `ConfirmarSaidaPorTokenDTO` no seu backend.
-                        body: JSON.stringify({ token: token })
+                        body: JSON.stringify({
+                            token: token,
+                            latitude: latitude,
+                            longitude: longitude
+                        })
                     });
 
-                    // Lê o corpo da resposta. O seu backend retorna JSON tanto para sucesso quanto para erro.
                     const result = await response.json();
 
-                    // Se a resposta não for "OK" (status diferente de 2xx), lança um erro.
                     if (!response.ok) {
-                        // Usa a mensagem de erro que vem do backend (ex: "Token inválido").
-                        throw new Error(result.mensagem || `Erro ${response.status}. O servidor não respondeu com detalhes.`);
+                        // Usa a mensagem de erro que vem do backend (ex: "Token inválido ou expirado").
+                        throw new Error(result.mensagem || 'Ocorreu um erro no servidor. Tente novamente.');
                     }
 
-                    // Se chegou aqui, a operação foi um sucesso.
-                    showFinalMessage('success', 'Operação Bem-Sucedida', result.mensagem || 'Ação registrada com sucesso!');
+                    // --- ETAPA 3: Exibir Sucesso ---
+                    showFinalMessage('success', 'Operação Concluída!', result.mensagem);
                     
-                    // Esconde o botão para evitar que o token (agora revogado) seja usado novamente.
+                    // Esconde o botão para evitar que a ação seja executada novamente com o mesmo token.
                     actionButton.style.display = 'none';
 
                 } catch (error) {
-                    console.error('Erro detalhado ao confirmar a saída:', error);
+                    console.error('Erro detalhado na operação:', error);
                     
-                    // Exibe a mensagem de erro capturada, seja do backend ou de falha de rede.
-                    showError('Falha ao Concluir a Ação', error.message);
+                    let errorMessage = error.message;
+                    // Personaliza a mensagem de erro de geolocalização
+                    if (error.code === 1) errorMessage = 'Você precisa permitir o acesso à localização para confirmar a operação.';
+                    if (error.code === 2) errorMessage = 'Não foi possível obter sua localização. Verifique sua conexão ou GPS.';
+                    if (error.code === 3) errorMessage = 'A obtenção de localização demorou muito. Tente novamente.';
+
+                    showFinalMessage('error', 'Falha na Operação', errorMessage);
                     
-                    // Reabilita o botão em caso de erro para que o usuário possa entender o que aconteceu.
+                    // Reabilita o botão em caso de erro para o usuário poder tentar de novo.
                     actionButton.disabled = false;
-                    actionButton.textContent = originalButtonText;
+                    actionButton.innerHTML = originalButtonText;
                 }
             }
 
@@ -256,8 +307,20 @@
                 }
             }
 
+            /**
+             * Exibe uma mensagem de status durante o processo.
+             * @param {string} message - A mensagem a ser exibida.
+             * @param {boolean} isError - Se a mensagem é de erro.
+             */
+            function showStatus(message, isError = false) {
+                const statusContainer = document.getElementById('statusContainer'); // Garanta que este elemento exista no seu HTML
+                if (statusContainer) {
+                    statusContainer.innerHTML = `<div class="alert ${isError ? 'alert-danger' : 'alert-info'}">${message}</div>`;
+                    statusContainer.style.display = 'block';
+                }
+            }
+
             actionButton.addEventListener('click', () => handleActionClick(currentToken));
-            
             initialize();
         });
     </script>
