@@ -78,6 +78,7 @@
                     <p><strong>Operação:</strong> <span id="operacaoTipo"></span></p>
                     <p><strong>Observação:</strong> <span id="observacao"></span></p>
                 </div>
+                <div id="feedback" class="feedback"></div>
                 <button class="btn" id="actionButton">
                     <span class="btn-spinner" id="buttonSpinner"></span>
                     <span id="buttonText"></span>
@@ -115,6 +116,16 @@
             const buttonText = document.getElementById('buttonText');
             const locationStatus = document.getElementById('locationStatus');
 
+            function showFeedback(message, type = 'info') {
+                const feedbackElement = document.getElementById('feedback');
+                if (feedbackElement) {
+                    feedbackElement.textContent = message;
+                    // Limpa classes antigas e adiciona as novas
+                    feedbackElement.className = `feedback feedback-${type}`;
+                    feedbackElement.style.display = 'block';
+                }
+            }
+
             function showState(state) {
                 loading.style.display = 'none';
                 errorMessage.style.display = 'none';
@@ -144,16 +155,15 @@
             }
 
             /**
-             * VERSÃO CORRIGIDA - 05/11/2025
-             * Lida com o clique no botão de ação, agora incluindo o token de autorização
-             * e com tratamento de erro aprimorado.
+             * VERSÃO CORRIGIDA - 06/11/2025
+             * Lida com o clique no botão de ação.
+             * Envia o token no CORPO da requisição, conforme indicado pelo erro 'JWT was invalid'.
              */
             async function handleActionClick() {
                 const actionButton = document.getElementById('actionButton');
                 actionButton.disabled = true;
                 actionButton.textContent = 'Processando...';
 
-                // 1. Obter o token diretamente da URL da página
                 const urlParams = new URLSearchParams(window.location.search);
                 const token = urlParams.get('token');
 
@@ -168,38 +178,29 @@
                     const response = await fetch(`${BACKEND_URL}/api/presencas/saida/solicitar-por-token`, {
                         method: 'POST',
                         headers: {
-                            // 2. CORREÇÃO CRÍTICA: Adicionar o cabeçalho de autorização
-                            'Authorization': `Bearer ${token}`,
                             'Content-Type': 'application/json'
+                            // Removido 'Authorization' do header
                         },
-                        // O body é necessário, mesmo que vazio, para algumas APIs
-                        body: JSON.stringify({}) 
+                        // CORREÇÃO PRINCIPAL: O token é enviado no corpo da requisição
+                        body: JSON.stringify({ token: token })
                     });
 
-                    // 3. Tratamento de Erro Robusto
-                    // Primeiro, verifica se a resposta foi bem-sucedida (status 2xx)
+                    // Tenta ler o corpo da resposta, seja sucesso ou erro
+                    const result = await response.json();
+
                     if (!response.ok) {
-                        let errorMsg = `Erro ${response.status}: ${response.statusText}`;
-                        try {
-                            // Tenta extrair uma mensagem de erro mais clara do backend
-                            const errorData = await response.json();
-                            errorMsg = errorData.mensagem || errorData.error || errorMsg;
-                        } catch (e) {
-                            // Se o corpo da resposta de erro não for um JSON, usa o statusText
-                            console.warn('A resposta de erro não continha um JSON válido.');
-                        }
-                        // Lança o erro para ser pego pelo bloco catch
-                        throw new Error(errorMsg);
+                        // Se a resposta não foi OK, usa a mensagem do JSON de erro
+                        throw new Error(result.mensagem || result.error || `Erro ${response.status}`);
                     }
 
-                    // Apenas tente ler o JSON se a resposta for bem-sucedida
-                    const result = await response.json();
+                    // Se a resposta foi OK, mostra a mensagem de sucesso
                     showFeedback(result.mensagem || 'Ação concluída com sucesso!', 'success');
                     actionButton.style.display = 'none'; // Esconde o botão após o sucesso
 
                 } catch (error) {
                     console.error('Erro detalhado ao executar a ação:', error);
-                    showFeedback(error.message || 'Não foi possível concluir a ação.', 'error');
+                    // Exibe a mensagem de erro capturada (seja do throw ou de falha de rede)
+                    showFeedback(error.message || 'Não foi possível concluir a ação. Verifique sua conexão.', 'error');
                     actionButton.disabled = false;
                     actionButton.textContent = 'Tentar Novamente';
                 }
