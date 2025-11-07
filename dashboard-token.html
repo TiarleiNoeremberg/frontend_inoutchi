@@ -119,6 +119,7 @@
             let currentToken = '';
             let locationData = { latitude: null, longitude: null };
             let currentOperationType = '';
+            
 
             // Elementos da UI
             const loading = document.getElementById('loading');
@@ -231,7 +232,8 @@
                 const token = new URLSearchParams(window.location.search).get('token');
 
                 if (!token) {
-                    showError('Token não encontrado', 'O link de acesso parece estar incompleto ou é inválido. Por favor, verifique o link que você recebeu.');
+                    showError('Token não encontrado',
+                    'O link de acesso parece estar incompleto ou é inválido. Por favor, verifique o link que você recebeu.');
                     return;
                 }
 
@@ -254,12 +256,25 @@
                     operacaoTipo.textContent = data.operacoesPermitidas || 'Não informada';
                     observacao.textContent = data.observacao || 'Nenhuma.';
 
-                    // Configura os botões para o fluxo
-                    solicitarBtn.addEventListener('click', () => solicitarSaida(token));
-                    confirmarBtn.addEventListener('click', () => confirmarSaida(token));
-                    
-                    // Exibe a primeira tela do fluxo
-                    showView(initialView);
+                    currentOperationType = data.operacoesPermitidas;
+
+                    // --- LÓGICA DINÂMICA BASEADA NA OPERAÇÃO ---
+                    if (currentOperationType === 'ENTRADA') {
+                        // Configura para fluxo de ENTRADA (1 etapa)
+                        solicitarBtnText.textContent = "Confirmar Entrada do Aluno";
+                        solicitarBtn.addEventListener('click', () => executarEntrada(token));
+                        showView(initialView);
+
+                    } else if (currentOperationType === 'SAIDA') {
+                        // Configura para fluxo de SAÍDA (2 etapas)
+                        solicitarBtnText.textContent = "1. Notificar Aluno para Sair";
+                        solicitarBtn.addEventListener('click', () => solicitarSaida(token));
+                        confirmarBtn.addEventListener('click', () => confirmarSaida(token));
+                        showView(initialView);
+
+                    } else {
+                        throw new Error('O tipo de operação recebido do servidor não é válido.');
+                    }
 
                 } catch (error) {
                     showError('Falha na Validação', error.message);
@@ -276,72 +291,6 @@
                 if (statusContainer) {
                     statusContainer.innerHTML = `<div class="alert ${isError ? 'alert-danger' : 'alert-info'}">${message}</div>`;
                     statusContainer.style.display = 'block';
-                }
-            }
-
-            /**
-             * VERSÃO CORRIGIDA - 06/11/2025
-             * Lida com o clique no botão, desabilitando-o para evitar cliques duplos,
-             * e envia todos os dados necessários (incluindo o tipo de operação) para o backend.
-             */
-            async function handleActionClick() {
-                // Desabilita o botão e armazena o texto original
-                actionButton.disabled = true;
-                const originalButtonText = actionButton.innerHTML;
-                actionButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processando...';
-
-                if (!currentToken || !currentOperationType) {
-                    showFinalMessage('error', 'Erro Crítico', 'O token ou o tipo de operação são inválidos. A URL pode estar corrompida.');
-                    return;
-                }
-
-                try {
-                    // --- ETAPA 1: Obter Geolocalização ---
-                    showStatus('Obtendo sua localização para confirmação...');
-                    const position = await new Promise((resolve, reject) => {
-                        navigator.geolocation.getCurrentPosition(resolve, reject, {
-                            enableHighAccuracy: true,
-                            timeout: 10000,
-                            maximumAge: 0,
-                        });
-                    });
-                    const { latitude, longitude } = position.coords;
-
-                    // --- ETAPA 2: Enviar para o Backend (COM O CAMPO "TIPO") ---
-                    showStatus('Enviando confirmação...');
-                    const response = await fetch(`${BACKEND_URL}/api/tokens/executar-operacao`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            token: currentToken,
-                            tipo: currentOperationType, // <-- CORREÇÃO: Enviando o tipo da operação
-                            latitude: latitude,
-                            longitude: longitude
-                        })
-                    });
-
-                    const result = await response.json();
-
-                    if (!response.ok) {
-                        throw new Error(result.mensagem || 'Ocorreu um erro no servidor. Tente novamente.');
-                    }
-
-                    // --- ETAPA 3: Exibir Sucesso ---
-                    showFinalMessage('success', 'Operação Concluída!', result.mensagem);
-                    actionButton.style.display = 'none'; // Esconde o botão permanentemente após o sucesso
-
-                } catch (error) {
-                    console.error('Erro detalhado na operação:', error);
-                    let userMessage = error.message;
-                    if (error.code === 1) userMessage = 'Você precisa permitir o acesso à localização para confirmar a operação.';
-                    if (error.code === 2) userMessage = 'Não foi possível obter sua localização. Verifique sua conexão ou GPS.';
-                    if (error.code === 3) userMessage = 'A obtenção de localização demorou muito. Tente novamente.';
-
-                    showFinalMessage('error', 'Falha na Operação', userMessage);
-                    
-                    // Reabilita o botão apenas em caso de erro
-                    actionButton.disabled = false;
-                    actionButton.innerHTML = originalButtonText;
                 }
             }
 
@@ -424,6 +373,53 @@
                 } catch (error) {
                     alert(`Erro ao confirmar: ${error.message}\n\nVocê pode tentar confirmar novamente.`);
                     toggleButtonLoading(confirmarBtn, confirmarSpinner, confirmarBtnText, false);
+                }
+            }
+
+            /**
+             * ETAPA ÚNICA: Confirma a entrada do aluno.
+             * @param {string} token - O token de acesso.
+             */
+            async function executarEntrada(token) {
+                toggleButtonLoading(solicitarBtn, solicitarSpinner, solicitarBtnText, true);
+
+                try {
+                    // 1. Obter localização
+                    const position = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, {
+                            enableHighAccuracy: true, timeout: 10000, maximumAge: 0
+                        });
+                    });
+                    const { latitude, longitude } = position.coords;
+
+                    // 2. Enviar para o backend com tipo ENTRADA
+                    const response = await fetch(`${BACKEND_URL}/api/tokens/executar-operacao`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            token, 
+                            tipo: "ENTRADA", // Especifica a operação de entrada
+                            latitude, 
+                            longitude 
+                        })
+                    });
+
+                    const data = await response.json();
+                    if (!response.ok) {
+                        throw new Error(data.mensagem || 'Falha ao registrar a entrada.');
+                    }
+                    
+                    // 3. Mostrar mensagem final de sucesso
+                    showFinalMessage('success', 'Entrada Confirmada!', data.mensagem);
+
+                } catch (error) {
+                    let msg = error.message;
+                    if(error.code === 1) msg = "Você precisa permitir o acesso à localização para confirmar a entrada.";
+                    if(error.code === 2) msg = "Não foi possível obter sua localização. Verifique sua conexão ou GPS.";
+                    if(error.code === 3) msg = "A obtenção de localização demorou demais. Tente novamente.";
+                    
+                    showFinalMessage('error', 'Erro na Confirmação', msg); // Mostra o erro na tela final
+                    toggleButtonLoading(solicitarBtn, solicitarSpinner, solicitarBtnText, false);
                 }
             }
 
