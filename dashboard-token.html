@@ -79,7 +79,7 @@
                 <p><strong>Operação:</strong> <span id="operacaoTipo"></span></p>
                 <p><strong>Observação:</strong> <span id="observacao"></span></p>
             </div>
-            <div class="location-status" id="locationStatusSolicitacao"></div>
+            <div class="location-status" id="locationStatus"></div>
             <button class="btn" id="solicitar-saida-btn">
                 <span class="btn-spinner" id="solicitarSpinner" style="display: none;"></span>
                 <span id="solicitarBtnText">1. Notificar Aluno para Sair</span>
@@ -326,6 +326,42 @@
             }
 
             /**
+             * Obtém a geolocalização do usuário, exibindo feedback na tela durante o processo.
+             * @returns {Promise<GeolocationPosition>} Retorna a posição em caso de sucesso.
+             * @throws {Error} Lança um erro com mensagem amigável em caso de falha.
+             */
+            async function obterGeolocalizacaoComFeedback() {
+                const locationStatus = document.getElementById('locationStatus');
+                
+                // Mostra o feedback de carregamento
+                locationStatus.textContent = 'Obtendo sua localização, aguarde...';
+                locationStatus.className = 'location-status location-loading';
+                locationStatus.style.display = 'block';
+
+                try {
+                    const position = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, {
+                            enableHighAccuracy: true,
+                            timeout: 10000, // 10 segundos de timeout
+                            maximumAge: 0
+                        });
+                    });
+                    locationStatus.style.display = 'none'; // Esconde em caso de sucesso
+                    return position;
+                } catch (error) {
+                    locationStatus.style.display = 'none'; // Esconde também em caso de erro
+                    let msg = '';
+                    if (error.code === 1) msg = "Você precisa permitir o acesso à localização para continuar.";
+                    else if (error.code === 2) msg = "Não foi possível obter sua localização. Verifique sua conexão ou sinal de GPS.";
+                    else if (error.code === 3) msg = "A obtenção de localização demorou demais. Tente novamente.";
+                    else msg = "Ocorreu um erro desconhecido ao obter a localização.";
+                    
+                    // Lança um novo erro que será capturado pelo bloco catch da função chamadora
+                    throw new Error(msg);
+                }
+            }
+
+            /**
              * ETAPA 1: Notifica o aluno para sair (status AGUARDANDO_CONFIRMACAO).
              * @param {string} token - O token de acesso.
              */
@@ -333,13 +369,11 @@
                 toggleButtonLoading(solicitarBtn, solicitarSpinner, solicitarBtnText, true);
 
                 try {
-                    const position = await new Promise((resolve, reject) => {
-                        navigator.geolocation.getCurrentPosition(resolve, reject, {
-                            enableHighAccuracy: true, timeout: 10000, maximumAge: 0
-                        });
-                    });
+                    // 1. Chama a nova função centralizada para obter localização com feedback
+                    const position = await obterGeolocalizacaoComFeedback();
                     const { latitude, longitude } = position.coords;
 
+                    // 2. Envia para o backend (o backend valida o geofence)
                     const response = await fetch(`${BACKEND_URL}/api/tokens/executar-operacao`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -348,16 +382,15 @@
 
                     const data = await response.json();
                     if (!response.ok) {
+                        // A mensagem de erro pode vir do backend (ex: fora do geofence)
                         throw new Error(data.mensagem || 'Falha ao solicitar a saída.');
                     }
                     
                     showView(confirmationView); // Transição para a próxima tela
 
                 } catch (error) {
-                    let msg = error.message;
-                    if(error.code === 1) msg = "Você precisa permitir o acesso à localização para continuar.";
-                    if(error.code === 3) msg = "A obtenção de localização demorou demais. Tente novamente.";
-                    showError('Erro na Solicitação', msg);
+                    // Exibe qualquer erro ocorrido, seja de geolocalização ou do backend
+                    showError('Erro na Solicitação', error.message);
                     toggleButtonLoading(solicitarBtn, solicitarSpinner, solicitarBtnText, false);
                 }
             }
@@ -397,21 +430,17 @@
                 toggleButtonLoading(solicitarBtn, solicitarSpinner, solicitarBtnText, true);
 
                 try {
-                    // 1. Obter localização
-                    const position = await new Promise((resolve, reject) => {
-                        navigator.geolocation.getCurrentPosition(resolve, reject, {
-                            enableHighAccuracy: true, timeout: 10000, maximumAge: 0
-                        });
-                    });
+                    // 1. Chama a nova função centralizada para obter localização com feedback
+                    const position = await obterGeolocalizacaoComFeedback();
                     const { latitude, longitude } = position.coords;
 
-                    // 2. Enviar para o backend com tipo ENTRADA
+                    // 2. Enviar para o backend com tipo ENTRADA (o backend valida o geofence)
                     const response = await fetch(`${BACKEND_URL}/api/tokens/executar-operacao`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ 
                             token, 
-                            tipo: "ENTRADA", // Especifica a operação de entrada
+                            tipo: "ENTRADA",
                             latitude, 
                             longitude 
                         })
@@ -419,6 +448,7 @@
 
                     const data = await response.json();
                     if (!response.ok) {
+                        // A mensagem de erro pode vir do backend (ex: fora do geofence)
                         throw new Error(data.mensagem || 'Falha ao registrar a entrada.');
                     }
                     
@@ -426,17 +456,9 @@
                     showFinalMessage('success', 'Entrada Confirmada!', data.mensagem);
 
                 } catch (error) {
-                    let msg = error.message;
-                    if(error.code === 1) msg = "Você precisa permitir o acesso à localização para confirmar a entrada.";
-                    if(error.code === 2) msg = "Não foi possível obter sua localização. Verifique sua conexão ou GPS.";
-                    if(error.code === 3) msg = "A obtenção de localização demorou demais. Tente novamente.";
-                    
-                    showFinalMessage('error', 'Erro na Confirmação', msg); // Mostra o erro na tela final
-                } finally {
-                    // Garantimos que o botão seja reativado apenas se a operação falhar e o usuário permanecer na tela inicial
-                    if (initialView.style.display === 'block') {
-                         toggleButtonLoading(solicitarBtn, solicitarSpinner, solicitarBtnText, false);
-                    }
+                    // Exibe o erro na tela final (ou na tela de erro inicial, se preferir)
+                    showFinalMessage('error', 'Erro na Confirmação', error.message);
+                    // O botão não precisa ser reativado aqui, pois já estamos na tela final de erro
                 }
             }
 
