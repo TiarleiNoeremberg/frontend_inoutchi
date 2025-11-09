@@ -902,61 +902,88 @@
              * VERSÃO CORRIGIDA
              * Recebe o nome do aluno, o normaliza para o formato de nome de arquivo,
              * e monta a URL do MP3 dinamicamente antes de tocar.
-             * @param {string} alunoNome - O nome do aluno a ser falado (ex: "Bruno Costa").
+             * @param {object} chamada - O objeto completo da chamada recebido via WebSocket.
+             * Deve conter: alunoNome, tipoSolicitante, e parentesco (se
              */
-            tocarAlertaExpansao(alunoNome) {
-            // Retorna uma nova Promise que nos permite esperar (await) pelo fim dos áudios
+            tocarAlertaExpansao(chamada) {
+            // Retorna a Promise para que a fila possa esperar pela finalização do áudio
             return new Promise((resolve, reject) => {
+                // 1. EXTRAIR OS DADOS NECESSÁRIOS DO OBJETO DA CHAMADA
+                const { alunoNome, tipoSolicitante, parentesco } = chamada;
                 const baseURL = 'https://tiarleinoeremberg.github.io/frontend_inoutchi';
 
                 if (!alunoNome) {
-                    console.warn('⚠️ Nome do aluno não fornecido. Usando áudio de fallback.');
+                    console.warn('⚠️ Nome do aluno não fornecido para o áudio. Tocando apenas alerta.');
                     // Se não tiver nome, toca só o alerta e resolve
-                    const alertaAudio = new Audio(`${baseURL}/mp3/Alertas/Alerta.mp3`);
+                    const alertaFallback = new Audio(`${baseURL}/mp3/Alertas/Alerta.mp3`);
                     alertaAudio.onended = () => resolve();
-                    alertaAudio.onerror = () => reject('Erro ao tocar áudio de alerta.');
-                    alertaAudio.play().catch(reject);
+                    alertaFallback.onerror = (err) => reject(err);
+                    alertaFallback.play().catch(reject);
                     return;
                 }
 
-                const nomeArquivo = this.normalizarNomeArquivo(alunoNome);
-                console.log(`🔊 Iniciando sequência de áudio para: ${alunoNome} | Arquivo: ${nomeArquivo}.mp3`);
+                // 2. MONTAR O NOME DO ARQUIVO DE ÁUDIO ESPECÍFICO
+                const nomeBaseArquivo = this.normalizarNomeArquivo(alunoNome); // Ex: "Ana Silva" -> "anasilva"
+                let sufixoArquivo = '';
+                // Lógica principal para definir o sufixo
+                if (tipoSolicitante === 'TUTOR') {
+                    if (parentesco === 'PAI') {
+                        sufixoArquivo = 'Pai'; // Resultado: anasilvaPai
+                    } else if (parentesco === 'MAE') {
+                            sufixoArquivo = 'Mae'; // Resultado: anasilvaMae
+                    } else {
+                        // Fallback para outros parentescos como Tio, Avó, etc.
+                            sufixoArquivo = 'Tutor';
+                    }
+                    } else if (tipoSolicitante === 'DIRETOR') {
+                        sufixoArquivo = 'Diretor'; // Resultado: anasilvaDiretor
+                    } else if (tipoSolicitante === 'TOKEN' || tipoSolicitante === 'AMIGO' || tipoSolicitante === 'PARENTE') {
+                        // Agrupamos todos os tipos de token provisório
+                        sufixoArquivo = 'Token';   // Resultado: anasilvaToken
+                    }
+                    // Se por algum motivo o sufixo não for determinado, usamos um genérico
+                    if (!sufixoArquivo) {
+                        console.warn(`Tipo de solicitante '${tipoSolicitante}' não reconhecido. Usando áudio padrão.`);
+                        sufixoArquivo = ''; // Isso fará com que toque o nome puro, ex: "anasilva.mp3"
+                    }
+                    const nomeArquivoFinal = nomeBaseArquivo + sufixoArquivo; // Ex: "anasilvaMae"
 
-                const audioAlerta = new Audio(`${baseURL}/mp3/Alertas/Alerta.mp3`);
-                const audioNome = new Audio(`${baseURL}/mp3/Nomes/${nomeArquivo}.mp3`);
+                    // 3. PREPARAR OS DOIS ÁUDIOS PARA A REPRODUÇÃO EM SEQUÊNCIA
+                    console.log(`🔊 Iniciando sequência de áudio: Alerta.mp3 + ${nomeArquivoFinal}.mp3`);
 
-                // Quando o primeiro áudio (Alerta) terminar, toca o segundo (Nome)
-                audioAlerta.onended = () => {
-                    audioNome.play().catch(err => {
-                        console.error(`🔥 Falha ao tocar áudio do nome '${nomeArquivo}.mp3'`, err);
-                        reject(err); // Rejeita a promise se o segundo áudio falhar
+                    const audioAlerta = new Audio(`${baseURL}/mp3/Alertas/Alerta.mp3`);
+                    const audioEspecifico = new Audio(`${baseURL}/mp3/Nomes/${nomeArquivoFinal}.mp3`);
+
+                    // 4. CONFIGURAR A SEQUÊNCIA DE REPRODUÇÃO
+                    // Quando o alerta terminar, toca o áudio específico
+                    audioAlerta.onended = () => {
+                        audioEspecifico.play().catch(err => {
+                            console.error(`🔥 Falha ao tocar áudio específico '${nomeArquivoFinal}.mp3'`, err);
+                            reject(err); // Rejeita a promise se o segundo áudio falhar
+                        });
+                    };
+                    // Quando o áudio específico terminar, a sequência está completa.
+                    audioEspecifico.onended = () => {
+                        console.log(`✅ Sequência de áudio finalizada.`);
+                        resolve(); // Resolve a Promise com sucesso!
+                    };
+                    // Handlers de erro para ambos
+                    audioAlerta.onerror = (err) => {
+                        console.error('🔥 Falha ao tocar áudio de alerta inicial.', err);
+                        reject(err);
+                    };
+                    audioEspecifico.onerror = (err) => {
+                        console.warn(`🔥 MP3 para '${nomeArquivoFinal}' não encontrado. A sequência será finalizada.`, err);
+                        // Mesmo com erro no nome, resolvemos a promise para não travar a fila de chamadas.
+                        resolve();
+                    };
+                    // 5. INICIAR A REPRODUÇÃO
+                    audioAlerta.play().catch(err => {
+                        console.error('🔥 Falha crítica ao iniciar a reprodução do alerta.', err);
+                        reject(err);
                     });
-                };
-
-                // Quando o segundo áudio (Nome) terminar, a sequência está completa.
-                audioNome.onended = () => {
-                    console.log(`✅ Sequência de áudio finalizada para ${alunoNome}.`);
-                    resolve(); // A Promise é resolvida com sucesso!
-                };
-
-                // Handlers de erro para ambos os áudios
-                audioAlerta.onerror = (err) => {
-                    console.error('🔥 Falha ao tocar áudio de alerta inicial.', err);
-                    reject(err);
-                };
-                audioNome.onerror = (err) => {
-                    console.warn(`🔥 MP3 para '${nomeArquivo}' não encontrado ou falhou ao carregar.`, err);
-                    // Mesmo com erro no nome, consideramos a "sequência" terminada para não travar a fila.
-                    resolve();
-                };
-
-                // Inicia a reprodução do primeiro áudio
-                audioAlerta.play().catch(err => {
-                    console.error('🔥 Falha crítica ao iniciar a reprodução do alerta.', err);
-                    reject(err);
                 });
-            });
-        }
+            }
 
             // 🎯 REPRODUÇÃO SIMPLES DE MP3 SEM PRÉ-CARREGAMENTO
             async tocarMP3Sequencial(alertaMP3, nomeMP3) {
@@ -1270,7 +1297,7 @@
                 // --- Fim da Lógica de Animação ---
 
                 // 1. Inicia a promessa do áudio
-                const audioPromise = this.tocarAlertaExpansao(alunoNome);
+                const audioPromise = this.tocarAlertaExpansao(chamada);
 
                 // 2. Cria uma promessa para a duração da animação
                 const animationPromise = new Promise(resolve => setTimeout(resolve, 3000));
