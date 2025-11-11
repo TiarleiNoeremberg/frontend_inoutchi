@@ -712,51 +712,46 @@ main {
      */
     async function loadAlunosVinculados(tutorName) {
         console.log(`Buscando alunos vinculados para o tutor: ${tutorName}`);
-        const studentList = document.getElementById('studentList');
-        
+        // A variável 'studentList' agora é global e definida em 'initializeDOMElements'
         if (!studentList) {
-            console.error("Elemento 'studentList' não encontrado no DOM.");
+            console.error("Elemento 'studentList' nÃ£o encontrado no DOM.");
             return;
         }
 
         try {
-            // 1ª Chamada (já corrigida)
+            // A função fetchWithAuth já retorna o JSON, então podemos usar 'data' diretamente
             const data = await fetchWithAuth(`${BACKEND_URL}/api/tutores/${encodeURIComponent(tutorName)}/alunos`);
 
             if (!data || !data.alunos || !Array.isArray(data.alunos)) {
                 throw new Error("O formato da resposta da API de alunos é inválido.");
             }
 
+            // Mapeia os alunos para verificar o status de 'saída ativa'
             const studentPromises = data.alunos.map(async (student) => {
                 try {
-                    // 2ª Chamada (agora corrigida!)
+                    // VERSÃO FINAL: 'saidaAtiva' já é o objeto JSON direto da 'fetchWithAuth'
                     const saidaAtiva = await fetchWithAuth(`${BACKEND_URL}/api/presencas/aluno/${student.id}/saida-ativa`);
-                    
-                    // LÓGICA CORRIGIDA: Checa o JSON diretamente
+
+                    // A lógica de checagem do status é aplicada diretamente no objeto
                     if (saidaAtiva.sucesso && saidaAtiva.dados && saidaAtiva.dados.status === 'AGUARDANDO_CONFIRMACAO') {
                         student.status = 'AGUARDANDO_CONFIRMACAO';
                     }
                 } catch (error) {
-                    // Se a verificação de status de um aluno falhar, apenas avisa no console, mas não para o processo.
+                    // Se a verificação de um aluno falhar, não impede os outros de carregarem
                     console.warn(`Não foi possível verificar a saída ativa para o aluno ${student.id}:`, error);
                 }
                 return student;
             });
-
-            // Aguarda todas as verificações de status terminarem
+            
+            // Aguarda a verificação de todos os alunos
             students = await Promise.all(studentPromises);
             
-            // Finalmente, renderiza os cards dos alunos na tela!
-            renderStudents(); 
+            // Chama a renderização
+            renderStudents();
 
         } catch (error) {
             console.error('Erro detalhado ao carregar alunos vinculados:', error);
-            studentList.innerHTML = `
-                <div class="error-message" style="padding: 20px; text-align: center; color: #721c24; background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: .25rem;">
-                    <p><strong>Ocorreu um erro ao carregar seus alunos.</strong></p>
-                    <p style="font-size: 0.8em; color: #666; margin-top: 10px;">Detalhes: ${error.message}</p>
-                </div>
-            `;
+            studentList.innerHTML = `<li class="list-group-item text-center text-danger">Erro ao carregar alunos: ${error.message}</li>`;
         }
     }
 
@@ -1118,72 +1113,74 @@ main {
      * Esta função é chamada depois que os dados dos alunos são buscados e processados.
      */
     function renderStudents() {
-        // Garante que o elemento onde os cards serão inseridos existe.
         if (!studentList) {
-            console.error("Função renderStudents chamada, mas a variável global 'studentList' é nula.");
+            console.error("renderStudents: a variável 'studentList' é nula.");
             return;
         }
 
-        // Adiciona um log para sabermos que a função foi chamada e com quantos alunos.
-        console.log(`Renderizando ${students ? students.length : 0} alunos.`);
-
-        // Se a lista de alunos estiver vazia, exibe uma mensagem amigável.
-        if (!students || students.length === 0) {
-            studentList.innerHTML = `
-                <div class="col-12 text-center" style="padding: 20px; background-color: #f8f9fa; border-radius: 8px;">
-                    <p class="mb-0">Nenhum aluno vinculado a você no momento.</p>
-                </div>
-            `;
+        if (students.length === 0) {
+            studentList.innerHTML = '<li class="list-group-item text-center p-4 text-muted">Nenhum aluno vinculado.</li>';
             return;
         }
 
-        // Mapeia a lista de objetos 'students' para uma lista de strings HTML (os cards).
-        const studentCardsHTML = students.map(student => {
-            const isPresent = student.status === 'PRESENTE';
-            const isAwaitingExit = student.status === 'AGUARDANDO_CONFIRMACAO';
+        studentList.innerHTML = ''; // Limpa a lista antes de recriá-la
 
-            // Define a cor e o texto do status baseado na presença.
-            let statusClass = 'bg-secondary'; // Cinza para ausente
-            let statusText = 'Ausente';
-            if (isPresent) {
-                statusClass = 'bg-success'; // Verde para presente
-                statusText = 'Presente';
-            } else if (isAwaitingExit) {
-                statusClass = 'bg-warning text-dark'; // Laranja para aguardando saída
-                statusText = 'Aguardando Saída';
+        students.forEach(student => {
+            if (!student || !student.id) {
+                console.warn('Item de aluno invÃ¡lido recebido:', student);
+                return; // Pula registros de alunos invÃ¡lidos
             }
 
-            return `
-                <div class="col-md-6 col-lg-4 mb-4">
-                    <div class="card student-card h-100">
-                        <div class="card-body text-center">
-                            <span class="avatar mb-3">${student.nome.charAt(0)}</span>
-                            <h5 class="card-title">${student.nome}</h5>
-                            <p class="card-text text-muted">${student.escolaNome || 'Escola não informada'}</p>
-                            
-                            <div class="status-badge ${statusClass}">
-                                ${statusText}
-                            </div>
+            const li = document.createElement('li');
+            li.className = 'student-item';
+            li.id = `student-${student.id}`;
 
-                            <div class="d-grid gap-2 mt-3">
-                                <button class="btn btn-primary" onclick="openActionLocationModal(${student.id}, 'ENTRADA')" ${isPresent || isAwaitingExit ? 'disabled' : ''}>
-                                    <i class="fas fa-arrow-right-to-bracket"></i> Registrar Entrada
-                                </button>
-                                <button class="btn btn-outline-danger" onclick="openActionLocationModal(${student.id}, 'SAIDA')" ${!isPresent ? 'disabled' : ''}>
-                                    <i class="fas fa-arrow-right-from-bracket"></i> Solicitar Saída
-                                </button>
-                                <button class="btn btn-outline-secondary btn-sm mt-2" onclick="showHistory(${student.id})">
-                                    <i class="fas fa-history"></i> Ver Histórico
-                                </button>
-                            </div>
-                        </div>
+            const safeStudentName = student.nome ? String(student.nome).replace(/'/g, "\\'") : 'Aluno';
+
+            let statusClass, statusText, actionButtonHtml;
+
+            // Lógica de status e botões baseada no arquivo antigo
+            switch (student.status) {
+                case 'PRESENTE':
+                    statusClass = 'status-present';
+                    statusText = 'Presente';
+                    actionButtonHtml = `<button class="btn btn-sm btn-danger action-btn" onclick="openLocationActionModal(${student.id}, 'saida', '${safeStudentName}')"><i class="fas fa-sign-out-alt"></i> Solicitar SaÃ­da</button>`;
+                    break;
+                case 'AGUARDANDO_CONFIRMACAO':
+                    statusClass = 'status-warning';
+                    statusText = 'Aguardando Confirmação';
+                    actionButtonHtml = `<button class="btn btn-sm btn-secondary action-btn" disabled><i class="fas fa-hourglass-half"></i> Pendente</button>`;
+                    break;
+                case 'AUSENTE':
+                default:
+                    statusClass = 'status-absent';
+                    statusText = 'Ausente';
+                    actionButtonHtml = `<button class="btn btn-sm btn-success action-btn" onclick="openLocationActionModal(${student.id}, 'entrada', '${safeStudentName}')"><i class="fas fa-sign-in-alt"></i> Registrar Entrada</button>`;
+                    break;
+            }
+
+            li.innerHTML = `
+                <div class="student-info">
+                    <div class="student-avatar">${safeStudentName.charAt(0)}</div>
+                    <div class="student-details">
+                        <div class="student-name">${safeStudentName}</div>
+                        <div class="student-school">${student.escolaNome || 'Escola não informada'}</div>
+                    </div>
+                </div>
+                <div class="student-status-action">
+                    <div class="status-badge-wrapper">
+                        <span class="status-badge ${statusClass}">${statusText}</span>
+                    </div>
+                    <div class="action-buttons">
+                        ${actionButtonHtml}
+                        <button class="btn btn-sm btn-info history-btn" onclick="showHistory(${student.id}, '${safeStudentName}')" title="Ver Histórico"><i class="fas fa-history"></i></button>
+                        <button class="btn btn-sm btn-secondary token-btn" onclick="openGenerateTokenModal(${student.id}, '${safeStudentName}')" title="Gerar Token de Acesso"><i class="fas fa-key"></i></button>
                     </div>
                 </div>
             `;
-        }).join(''); // Junta todos os cards gerados em uma única string HTML.
-
-        // Finalmente, insere o HTML de todos os cards dentro do elemento 'studentList'.
-        studentList.innerHTML = studentCardsHTML;
+            
+            studentList.appendChild(li);
+        });
     }
 
     window.viewStudentHistory = async function(studentId, studentName) {
