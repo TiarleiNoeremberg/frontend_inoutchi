@@ -653,15 +653,21 @@ main {
      */
     async function logout() {
         try {
-            // Notifica o backend para que ele possa invalidar a sessão/cookie no lado do servidor.
-            await fetch(`${BACKEND_URL}/api/auth/logout`, {
+            // Chama o endpoint de logout do backend. 
+            // O 'fetchWithAuth' enviará o cookie automaticamente.
+            // O backend irá invalidar o cookie httpOnly.
+            const response = await fetchWithAuth('/api/auth/logout', {
                 method: 'POST',
-                credentials: 'include'
             });
+
+            console.log('Logout bem-sucedido no backend.');
+
         } catch (error) {
-            console.error('Ocorreu um erro ao tentar fazer logout no backend, mas o redirecionamento será forçado.', error);
+            console.error('Erro durante o logout no backend. Forçando a saída do lado do cliente.', error);
         } finally {
-            // Redireciona para a página de login independentemente do resultado da chamada de API.
+            // Independentemente do resultado do backend, limpa o localStorage
+            // e redireciona para a página inicial.
+            localStorage.removeItem('userName'); 
             window.location.href = 'index.html';
         }
     }
@@ -960,31 +966,28 @@ main {
     }
 
     async function loadUserInfo() {
+        console.log("Carregando informações do usuário...");
         try {
-            // Esta chamada está correta
-            const responseOrData = await fetchWithAuth(`${BACKEND_URL}/api/users/me`);
-            
-            let userData;
-            // VERIFICAÇÃO INTELIGENTE: Se o que recebemos tem a função .json(), é um Response.
-            if (typeof responseOrData.json === 'function') {
-                userData = await responseOrData.json();
+            // A função fetchWithAuth já retorna o JSON diretamente
+            const user = await fetchWithAuth('/api/users/me');
+
+            if (user && user.name) {
+                document.getElementById('tutorName').textContent = user.name;
+                console.log("Informações do usuário carregadas com sucesso:", user.name);
+                
+                // Agora que temos o nome do tutor, carregamos os alunos
+                await loadAlunosVinculados(user.name);
             } else {
-                // Senão, já é o objeto de dados que queremos.
-                userData = responseOrData;
+                throw new Error('O objeto de usuário ou o nome não foram recebidos do backend.');
             }
-
-            if (!userData || !userData.nome) {
-                throw new Error("Dados do usuário recebidos são inválidos.");
-            }
-
-            currentUser = userData;
-            console.log(`Usuário autenticado: ${currentUser.nome}`);
-            displayUserInfo(currentUser);
-            await refreshStudentsData(); // Agora isso deve funcionar também
-
         } catch (error) {
-            console.error('Erro final ao carregar e processar informações do usuário:', error);
-            displayUserInfo(null); // Mostra o estado de erro
+            console.error('Erro ao carregar informações do usuário:', error);
+            document.getElementById('tutorName').textContent = 'Visitante';
+            // Exibe uma mensagem mais clara para o usuário
+            const userInfoElement = document.querySelector('.user-info p');
+            if (userInfoElement) {
+                userInfoElement.textContent = 'Não foi possível carregar os dados do usuário.';
+            }
         }
     }
 
