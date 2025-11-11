@@ -605,93 +605,67 @@ main {
     }
     
     /**
-     * FUNÇÃO ATUALIZADA E CORRIGIDA:
-     * Realiza uma chamada fetch para a API, garantindo o envio de cookies de sessão (HttpOnly).
-     * AGORA INCLUI TRATAMENTO PARA RESPOSTAS '204 No Content'.
+     * FUNÇÃO PADRONIZADA E CORRIGIDA: Realiza uma chamada fetch para a API.
+     * Aceita APENAS o endpoint (ex: '/api/users/me') e adiciona o BACKEND_URL 
+     * automaticamente para evitar duplicação.
      *
-     * @param {string} url - O endpoint da API (sem o BACKEND_URL).
+     * @param {string} endpoint - O endpoint da API (começando com uma barra, ex: '/api/users/me').
      * @param {object} options - As opções da requisição fetch (method, body, etc.).
-     * @returns {Promise<any>} A resposta da API em formato JSON, ou um objeto de sucesso padrão para 204.
+     * @returns {Promise<any>} A resposta da API em formato JSON.
      */
-    async function fetchWithAuth(url, options = {}) {
-        // A propriedade 'credentials: include' é a chave para o navegador gerenciar
-        // o envio do cookie HttpOnly automaticamente em cada requisição.
+    async function fetchWithAuth(endpoint, options = {}) {
         const finalOptions = {
             ...options,
             headers: {
                 'Content-Type': 'application/json',
                 ...options.headers,
             },
-            credentials: 'include'
+            credentials: 'include' // Essencial para o envio de cookies HttpOnly
         };
 
-        // Monta a URL completa
-        const fullUrl = `${BACKEND_URL}${url}`;
+        // A URL completa é construída de forma segura aqui
+        const fullUrl = `${BACKEND_URL}${endpoint}`;
 
         const response = await fetch(fullUrl, finalOptions);
 
-        // Se o cookie de sessão expirou ou é inválido, o backend retornará 401 ou 403.
-        // Nestes casos, redirecionamos o usuÃ¡rio para a tela de login.
         if (response.status === 401 || response.status === 403) {
             showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
             setTimeout(() => window.location.href = 'index.html', 3000);
-            // Interrompe a execução para evitar outros erros na tela.
             throw new Error('Não autorizado. Redirecionando para o login.');
         }
 
-        // --- PONTO CRÍTICO DA CORREÇÃO ---
-        // Verifica se a resposta é '204 No Content'.
-        // Isso acontece, por exemplo, ao verificar a 'saida-ativa' de um aluno que não tem uma.
-        if (response.status === 204) {
-            console.log(`Recebida resposta 204 No Content para a URL: ${url}`);
-            // Retorna um objeto que simula uma resposta de sucesso da API,
-            // garantindo que o '.json()' que vem a seguir não quebre.
-            return { sucesso: true, dados: null, message: 'Operação bem-sucedida sem conteúdo de retorno.' };
-        }
-        
         if (!response.ok) {
-            const errorData = await response.json().catch(() => ({})); // Tenta pegar o erro do corpo
-            const errorMessage = errorData.message || errorData.mensagem || `Erro na requisição: ${response.status}`;
+            const errorData = await response.json().catch(() => ({}));
+            const errorMessage = errorData.message || errorData.mensagem || `Erro na requisição para ${endpoint}: ${response.status}`;
             throw new Error(errorMessage);
         }
 
-        // Para todas as outras respostas OK (200, 201, etc.), processa o JSON normalmente.
+        // Trata respostas sem conteúdo (ex: DELETE) para não quebrar o .json()
+        if (response.status === 204) { 
+            return { success: true, message: 'Operação realizada com sucesso.' };
+        }
+
         return response.json();
     }
 
     /**
-     * NOVA FUNÇÃO: Realiza a chamada de logout sem tentar processar a resposta como JSON.
-     * O endpoint de logout do backend retorna um corpo vazio, o que causa erro na fetchWithAuth padrão.
-     * @param {string} url - O endpoint de logout.
+     * FUNÇÃO ATUALIZADA: Realiza a chamada de logout usando a mesma padronização.
+     * @param {string} endpoint - O endpoint de logout (ex: '/api/auth/logout').
      * @param {object} options - As opções da requisição fetch.
-     * @returns {Promise<boolean>} Retorna true se a chamada foi bem-sucedida (status 200-299).
+     * @returns {Promise<boolean>} Retorna true se a chamada foi bem-sucedida.
      */
-    async function fetchForLogout(url, options = {}) {
+    async function fetchForLogout(endpoint, options = {}) {
         const finalOptions = {
             ...options,
-            headers: {
-                'Content-Type': 'application/json',
-                ...options.headers,
-            },
             credentials: 'include'
         };
 
         try {
-            const response = await fetch(url, finalOptions);
-
-            // Para o logout, nos importamos apenas se a resposta foi bem-sucedida (2xx).
-            // Não precisamos do corpo da resposta.
-            if (response.ok) {
-                return true; // Sucesso
-            }
-
-            // Se a resposta não for 'ok', logamos o status para depuração.
-            console.error(`A chamada de logout falhou com o status: ${response.status}`);
-            return false; // Falha
-
+            const response = await fetch(`${BACKEND_URL}${endpoint}`, finalOptions);
+            return response.ok;
         } catch (error) {
-            console.error('Erro de rede ou outra falha ao tentar fazer logout:', error);
-            return false; // Falha
+            console.error(`Erro de rede na chamada para ${endpoint}:`, error);
+            return false;
         }
     }
 
@@ -702,8 +676,9 @@ main {
     async function logout() {
         try {
             console.log('Iniciando processo de logout...');
-            // Chama o endpoint de logout do backend usando a nova função segura.
-            const success = await fetchForLogout(`${BACKEND_URL}/api/auth/logout`, {
+            // ANTES: const success = await fetchForLogout(`${BACKEND_URL}/api/auth/logout`, ...);
+            // DEPOIS (CORRIGIDO):
+            const success = await fetchForLogout('/api/auth/logout', {
                 method: 'POST',
             });
 
@@ -714,18 +689,10 @@ main {
             }
 
         } catch (error) {
-            // Mesmo que a chamada de rede falhe, o mais importante é limpar o lado do cliente.
             console.error('Erro durante o processo de logout no backend. Forçando a saída do lado do cliente.', error);
         } finally {
-            // Este bloco 'finally' garante que o usuário seja sempre desconectado no frontend.
             console.log('Limpando dados de sessão do cliente e redirecionando...');
-            localStorage.removeItem('userName');
-            // Limpa quaisquer outros tokens ou dados de sessão que você possa ter no localStorage
-            localStorage.removeItem('access_token');
-            localStorage.removeItem('refresh_token');
-            localStorage.removeItem('token_expiry');
-            
-            // Redireciona para a página de login.
+            localStorage.clear(); // Limpa todo o localStorage para garantir
             window.location.href = 'index.html';
         }
     }
@@ -769,13 +736,13 @@ main {
         console.log(`Buscando alunos vinculados para o tutor: ${tutorName}`);
         // A variável 'studentList' agora é global e definida em 'initializeDOMElements'
         if (!studentList) {
-            console.error("Elemento 'studentList' nÃ£o encontrado no DOM.");
+            console.error("Elemento 'studentList' não encontrado no DOM.");
             return;
         }
 
         try {
             // A função fetchWithAuth já retorna o JSON, então podemos usar 'data' diretamente
-            const data = await fetchWithAuth(`${BACKEND_URL}/api/tutores/${encodeURIComponent(tutorName)}/alunos`);
+            const data = await fetchWithAuth(`/api/tutores/${encodeURIComponent(tutorName)}/alunos`);
 
             if (!data || !data.alunos || !Array.isArray(data.alunos)) {
                 throw new Error("O formato da resposta da API de alunos é inválido.");
@@ -785,7 +752,7 @@ main {
             const studentPromises = data.alunos.map(async (student) => {
                 try {
                     // VERSÃO FINAL: 'saidaAtiva' já é o objeto JSON direto da 'fetchWithAuth'
-                    const saidaAtiva = await fetchWithAuth(`${BACKEND_URL}/api/presencas/aluno/${student.id}/saida-ativa`);
+                    const saidaAtiva = await fetchWithAuth(`/api/presencas/aluno/${student.id}/saida-ativa`);
 
                     // A lógica de checagem do status é aplicada diretamente no objeto
                     if (saidaAtiva.sucesso && saidaAtiva.dados && saidaAtiva.dados.status === 'AGUARDANDO_CONFIRMACAO') {
@@ -1101,58 +1068,50 @@ main {
      */
     async function loadUserInfo() {
         try {
-            console.log('Carregando informações do usuário...');
-            // CORREÇÃO: A resposta da API já é o JSON, então atribuímos diretamente à variável 'data'.
-            const data = await fetchWithAuth(`${BACKEND_URL}/api/users/me`);
+            console.log('Carregando informações do usuÃ¡rio...');
+            // ANTES: const response = await fetchWithAuth(`${BACKEND_URL}/api/users/me`);
+            // DEPOIS (CORRIGIDO):
+            const response = await fetchWithAuth('/api/users/me'); 
 
-            // Verificação para garantir que os dados do usuário são válidos
-            if (!data || !data.nome) {
-                throw new Error("O formato dos dados do usuário recebido é inválido.");
-            }
+            currentUser = response; // A nova fetchWithAuth já retorna o JSON
             
-            // Agora 'currentUser' será preenchido corretamente
-            currentUser = data;
+            console.log('InformaÃ§Ãµes do usuÃ¡rio carregadas:', currentUser.nome);
+            userFullName.textContent = currentUser.nome;
+            userAvatar.textContent = currentUser.nome.charAt(0).toUpperCase();
 
-            // Atualiza a interface com o nome do usuário
-            if (userFullName) {
-                userFullName.textContent = currentUser.nome;
-            }
-            if (userAvatar) {
-                userAvatar.textContent = currentUser.nome.charAt(0);
-            }
-
-            // Chama a função para carregar os alunos, agora com o nome correto do tutor
-            // A função loadAlunosVinculados que você já corrigiu será chamada aqui.
-            await loadAlunosVinculados(currentUser.nome);
+            // Esta chamada agora vai funcionar corretamente
+            await refreshStudentsData(); 
 
         } catch (error) {
-            console.error('Erro ao carregar informações do usuário:', error);
-            
-            // Informa ao usuário sobre o erro e exibe um nome genérico
-            if (userFullName) {
-                userFullName.textContent = 'Tutor'; // Nome padrão em caso de falha
-            }
-            showAlert('Não foi possível carregar seus dados. A lista de alunos pode não ser exibida.', 'danger');
+            console.error('Erro detalhado ao carregar informaÃ§Ãµes do usuÃ¡rio:', error);
+            showAlert(`Falha ao carregar seus dados. ${error.message}`, 'danger');
+            throw error; // Propaga o erro para o bloco que chamou
         }
     }
 
+    // Localize esta função (o nome pode variar) e faça a alteração
     async function refreshStudentsData() {
         try {
-            const response = await
-            fetchWithAuth(`${BACKEND_URL}/api/tutores/${encodeURIComponent(currentUser.nome)}/alunos`);
-            const data = await response.json();
-            if (!data || !Array.isArray(data.alunos)) throw new Error("Dados de alunos inválidos.");
+            // ANTES: const response = await fetchWithAuth(`/api/tutores/${encodeURIComponent(currentUser.nome)}/alunos`);
+            // A linha acima já estava quase certa, mas vamos garantir que o currentUser exista
+            if (!currentUser || !currentUser.nome) {
+                console.warn("Usuário ainda não carregado, pulando atualização de alunos.");
+                return;
+            }
+
+            const data = await fetchWithAuth(`/api/tutores/${encodeURIComponent(currentUser.nome)}/alunos`);
+            
+            if (!data || !Array.isArray(data.alunos)) throw new Error("Dados de alunos invÃ¡lidos.");
             
             const studentPromises = data.alunos.map(async (student) => {
                 try {
-                    const saidaResponse = await
-                    fetchWithAuth(`${BACKEND_URL}/api/presencas/aluno/${student.id}/saida-ativa`);
-                    const saidaAtiva = await saidaResponse.json();
-                    if (saidaAtiva.sucesso) {
-                        student.status = saidaAtiva.dados?.status === 'AGUARDANDO_CONFIRMACAO' ? 'AGUARDANDO_CONFIRMACAO' : student.status;
+                    // CORRIGIDO:
+                    const saidaAtiva = await fetchWithAuth(`/api/presencas/aluno/${student.id}/saida-ativa`);
+                    if (saidaAtiva.sucesso && saidaAtiva.dados?.status === 'AGUARDANDO_CONFIRMACAO') {
+                        student.status = 'AGUARDANDO_CONFIRMACAO';
                     }
                 } catch (error) {
-                    console.warn(`Erro ao buscar saída ativa para aluno ${student.id}:`, error);
+                    console.warn(`Erro ao buscar saÃ­da ativa para aluno ${student.id}:`, error);
                 }
                 return student;
             });
