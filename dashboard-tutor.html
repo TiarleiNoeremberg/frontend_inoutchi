@@ -666,11 +666,6 @@ main {
         }
     }
 
-
-
-
-
-
         // O SCRIPT JAVASCRIPT PERMANECE IDÊNTICO AO DA VERSÃO ANTERIOR
     // As mudanças foram apenas no CSS.
     const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
@@ -717,33 +712,6 @@ main {
             document.getElementById('generateTokenForm')?.addEventListener('submit', handleGenerateTokenSubmit);
         }
 
-        /*
-        function openGenerateTokenModal(event, alunoId, alunoNome) {
-            if (event) event.stopPropagation(); // Stop click from bubbling to the card
-
-            document.getElementById('generateTokenForm').reset();
-            document.getElementById('tokenAlunoId').value = alunoId;
-            document.getElementById('tokenAlunoNome').innerText = alunoNome;
-            document.getElementById('generateTokenError').style.display = 'none';
-
-            const submitBtn = document.getElementById('generateTokenSubmitBtn');
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = 'Gerar Token';
-
-            // Set default expiration to 24 hours from now
-            const now = new Date();
-            now.setHours(now.getHours() + 24);
-            const year = now.getFullYear();
-            const month = String(now.getMonth() + 1).padStart(2, '0');
-            const day = String(now.getDate()).padStart(2, '0');
-            const hours = String(now.getHours()).padStart(2, '0');
-            const minutes = String(now.getMinutes()).padStart(2, '0');
-            document.getElementById('dataExpiracao').value = `${year}-${month}-${day}T${hours}:${minutes}`;
-
-            generateTokenModal.show();
-        }
-        */
-
         // ATUALIZADA: Abre o modal de geração de token, agora sem preenchimento automático.
         function openGenerateTokenModal(event, alunoId, alunoNome) {
             if (event) event.stopPropagation();
@@ -777,18 +745,8 @@ main {
             containerEl.style.display = 'none';
 
             try {
-                const accessToken = await garantirAutenticacao(); // Assumes this function exists
-                if (!accessToken) return;
-
-                const response = await fetch(`${BACKEND_URL}/api/tokens/meus-tokens`, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ mensagem: "Falha ao buscar tokens." }));
-                    throw new Error(errorData.mensagem || 'Falha ao buscar tokens.');
-                }
-                const data = await response.json();
+                // A chamada agora é direta para o fetchWithAuth, que gerencia o cookie.
+                const data = await fetchWithAuth(`${BACKEND_URL}/api/tokens/meus-tokens`);
 
                 if (data.sucesso && data.tokens) {
                     renderTokensList(data.tokens);
@@ -800,7 +758,6 @@ main {
                 errorEl.innerText = `Erro: ${error.message}`;
                 errorEl.style.display = 'block';
             } finally {
-                // This ensures the spinner is always hidden after the operation
                 loadingEl.style.display = 'none';
             }
         }
@@ -845,38 +802,29 @@ main {
             });
         }
 
+        // VERSÃO CORRIGIDA (usando fetchWithAuth)
         async function handleRevokeToken(tokenValue) {
             if (!confirm('Tem certeza que deseja revogar este token? Esta ação não pode ser desfeita.')) return;
 
             try {
-                const accessToken = await garantirAutenticacao();
-                if (!accessToken) return;
-
-                const response = await fetch(`${BACKEND_URL}/api/tokens/revogar/${tokenValue}`, {
-                    method: 'DELETE',
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                const result = await fetchWithAuth(`${BACKEND_URL}/api/tokens/revogar/${tokenValue}`, {
+                    method: 'DELETE'
                 });
 
-                const result = await response.json();
-                if (response.ok && result.sucesso) {
-                    showAlert('Token revogado com sucesso!', 'success'); // Assumes showAlert exists
-                    await openMyTokensModal();
+                if (result.sucesso) {
+                    showAlert('Token revogado com sucesso!', 'success');
                 } else {
                     throw new Error(result.erro || 'Não foi possível revogar o token.');
                 }
             } catch (error) {
                 showAlert(`Erro ao revogar: ${error.message}`, 'danger');
+            } finally {
+                // Recarrega a lista de tokens para refletir a alteração.
+                await openMyTokensModal();
             }
         }
 
-        /**
-         * VERSÃO CORRIGIDA: Ajustado o nome do campo de 'parentesco' para 'tipoParentesco'.
-         *
-         * Lida com o envio do formulário para gerar token.
-         * - Usa FormData para coletar os dados de forma segura.
-         * - Valida campos obrigatórios.
-         * - Processa e envia 'tipoParentesco' e 'tipoOperacao' em maiúsculas e no formato correto.
-         */
+        // VERSÃO CORRIGIDA (usando fetchWithAuth)
         async function handleGenerateTokenSubmit(event) {
             event.preventDefault();
             const form = event.target;
@@ -889,50 +837,31 @@ main {
 
             try {
                 const formData = new FormData(form);
-
-                // Validação dos campos obrigatórios
                 const requiredFields = ['alunoId', 'destinatarioNome', 'tipoParentesco', 'dataExpiracao', 'tipoOperacao'];
                 for (const field of requiredFields) {
                     if (!formData.get(field)) {
                         throw new Error(`O campo obrigatório '${field}' não foi preenchido.`);
                     }
                 }
-                
-                // --- INÍCIO DA SUGESTÃO DE CORREÇÃO ---
 
-                // Monta o objeto 'command' com TODOS os campos do formulário
                 const command = {
                     alunoId: parseInt(formData.get('alunoId')),
                     destinatarioNome: formData.get('destinatarioNome'),
                     tipoParentesco: formData.get('tipoParentesco').toUpperCase(),
                     dataExpiracao: new Date(formData.get('dataExpiracao')).toISOString(),
-                    tipoOperacao: formData.get('tipoOperacao').toUpperCase().replace('Í', 'I'), // Garante SAIDA
-
-                    // CAMPOS QUE FALTAVAM: Adicionados para serem enviados ao backend
+                    tipoOperacao: formData.get('tipoOperacao').toUpperCase().replace('Í', 'I'),
                     destinatarioTelefone: formData.get('destinatarioTelefone'),
                     destinatarioEmail: formData.get('destinatarioEmail'),
                     observacao: formData.get('observacao')
                 };
                 
-                // --- FIM DA SUGESTÃO DE CORREÇÃO ---
-
-                const accessToken = await garantirAutenticacao();
-                if (!accessToken) {
-                    throw new Error("Autenticação necessária. Faça o login novamente.");
-                }
-
-                const response = await fetch(`${BACKEND_URL}/api/tokens/gerar`, {
+                // A chamada agora usa fetchWithAuth, que já cuida da autenticação
+                const result = await fetchWithAuth(`${BACKEND_URL}/api/tokens/gerar`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${accessToken}`
-                    },
-                    // Agora o 'command' está completo, com todos os dados.
                     body: JSON.stringify(command)
                 });
 
-                const result = await response.json();
-                if (response.ok && result.sucesso) {
+                if (result.sucesso) {
                     generateTokenModal.hide();
                     showTokenSuccessModal(result.linkAcesso);
                 } else {
@@ -1000,7 +929,7 @@ main {
 
         async function initializeDashboard() {
             await verificarSessao();
-            
+
         initializeDOMElements();
         initializeTokenModals();
         actionLocationModalInstance = new bootstrap.Modal(document.getElementById('actionLocationModal'));
@@ -1014,12 +943,6 @@ main {
         historyPrevBtn.addEventListener('click', () => { if(historyCurrentPage > 1) { historyCurrentPage--; renderHistory(); } });
         historyNextBtn.addEventListener('click', () => { if(historyCurrentPage < totalPages()) { historyCurrentPage++; renderHistory(); } });
         historyLastBtn.addEventListener('click', () => { historyCurrentPage = totalPages(); renderHistory(); });
-
-        if (!localStorage.getItem('access_token')) {
-            alert("Sessão expirada. Faça login novamente.");
-            window.location.href = "index.html";
-            return;
-        }
 
         document.getElementById('loading').style.display = 'block';
         document.getElementById('content').style.display = 'none';
