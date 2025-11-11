@@ -709,78 +709,93 @@ main {
         async function loadAlunosVinculados(tutorName) {
             console.log(`Buscando alunos vinculados para o tutor: ${tutorName}`);
             const studentList = document.getElementById('studentList');
+
             if (!studentList) {
-                console.error("Elemento #studentList não encontrado no DOM.");
+                console.error("Erro crítico: O elemento #studentList não foi encontrado no DOM.");
                 return;
             }
+
             studentList.innerHTML = '<p class="text-center">Carregando alunos...</p>';
 
             try {
+                // 1. BUSCAR OS DADOS DOS ALUNOS DO TUTOR
                 const response = await fetchWithAuth(`${BACKEND_URL}/api/tutores/${encodeURIComponent(tutorName)}/alunos`);
 
                 if (!response.ok) {
                     const errorText = await response.text();
-                    throw new Error(`Falha ao carregar alunos. Status: ${response.status}. Detalhes: ${errorText}`);
+                    throw new Error(`Falha na API ao buscar alunos. Status: ${response.status}. Detalhes: ${errorText}`);
                 }
-                
+
                 const tutorData = await response.json();
                 const students = tutorData.alunos || [];
 
                 studentList.innerHTML = ''; // Limpa a mensagem de "carregando"
 
-                if (students.length > 0) {
-                    students.forEach(student => {
-                        const studentCard = document.createElement('div');
-                        studentCard.className = 'student-card';
-                        studentCard.id = `aluno-${student.id}`; // Adiciona um ID para futuras atualizações em tempo real
-
-                        const safeStudentName = student.nome ? student.nome.replace(/'/g, "\\'") : 'Aluno';
-                        
-                        let statusHtml = '';
-                        let mainActionHtml = '';
-
-                        // Define o status e o botão de ação principal com base na situação do aluno
-                        switch (student.status) {
-                            case 'PRESENTE':
-                                statusHtml = `<span class="status-badge status-present">Presente</span>`;
-                                mainActionHtml = `<button class="btn btn-sm btn-danger" onclick="openActionModal('${student.id}', '${safeStudentName}', 'SAIDA')"><i class="fas fa-sign-out-alt"></i> Autorizar Saída</button>`;
-                                break;
-                            case 'AGUARDANDO_CONFIRMACAO':
-                                statusHtml = `<span class="status-badge status-awaiting">Aguardando</span>`;
-                                mainActionHtml = `<button class="btn btn-sm btn-secondary" disabled><i class="fas fa-hourglass-half"></i> Pendente</button>`;
-                                break;
-                            case 'AUSENTE':
-                            default:
-                                statusHtml = `<span class="status-badge status-absent">Ausente</span>`;
-                                mainActionHtml = `<button class="btn btn-sm btn-success" onclick="openActionModal('${student.id}', '${safeStudentName}', 'ENTRADA')"><i class="fas fa-sign-in-alt"></i> Registrar Entrada</button>`;
-                                break;
-                        }
-
-                        // Monta o HTML do card do aluno com todas as informações e botões solicitados
-                        studentCard.innerHTML = `
-                            <div class="student-info-top">
-                                <div class="student-details">
-                                    <h4 class="student-name">${student.nome}</h4>
-                                    <p class="student-class">${student.salaNome || 'Sala não informada'}</p>
-                                </div>
-                                <div class="student-status">
-                                    ${statusHtml}
-                                </div>
-                            </div>
-                            <div class="student-card-actions">
-                                ${mainActionHtml}
-                                <button class="btn btn-sm btn-info" onclick="openGenerateTokenModal('${student.id}', '${safeStudentName}')"><i class="fas fa-key"></i> Gerar Token</button>
-                                <button class="btn btn-sm btn-secondary" onclick="viewStudentHistory('${student.id}', '${safeStudentName}')"><i class="fas fa-history"></i> Histórico</button>
-                            </div>
-                        `;
-                        studentList.appendChild(studentCard);
-                    });
-                } else {
+                // 2. VERIFICAR SE EXISTEM ALUNOS
+                if (students.length === 0) {
                     studentList.innerHTML = '<div class="alert alert-info">Nenhum aluno vinculado a você foi encontrado.</div>';
+                    return;
                 }
+
+                // 3. ITERAR E RENDERIZAR CADA ALUNO NO ESTILO ANTIGO
+                students.forEach(student => {
+                    const studentCard = document.createElement('div');
+                    studentCard.className = 'student-card';
+                    studentCard.id = `aluno-${student.id}`;
+
+                    // Tratamento para nomes com apóstrofos para não quebrar o HTML
+                    const safeStudentName = student.nome ? student.nome.replace(/'/g, "\\'") : 'Aluno';
+
+                    // Normaliza o status para garantir consistência (ex: "presente" -> "PRESENTE")
+                    const studentStatus = (student.status || 'AUSENTE').toUpperCase();
+
+                    let statusClass = '';
+                    let statusText = '';
+                    let mainActionHtml = '';
+
+                    // Define o HTML e as classes com base no status do aluno
+                    switch (studentStatus) {
+                        case 'PRESENTE':
+                            statusClass = 'status-present';
+                            statusText = 'Presente';
+                            mainActionHtml = `<button class="btn btn-sm btn-danger" onclick="openActionModal('${student.id}', '${safeStudentName}', 'SAIDA')"><i class="fas fa-sign-out-alt"></i> Autorizar Saída</button>`;
+                            break;
+                        case 'AGUARDANDO_CONFIRMACAO':
+                            statusClass = 'status-awaiting';
+                            statusText = 'Aguardando';
+                            mainActionHtml = `<button class="btn btn-sm btn-secondary" disabled><i class="fas fa-hourglass-half"></i> Saída Pendente</button>`;
+                            break;
+                        case 'AUSENTE':
+                        default:
+                            statusClass = 'status-absent';
+                            statusText = 'Ausente';
+                            mainActionHtml = `<button class="btn btn-sm btn-success" onclick="openActionModal('${student.id}', '${safeStudentName}', 'ENTRADA')"><i class="fas fa-sign-in-alt"></i> Registrar Entrada</button>`;
+                            break;
+                    }
+
+                    // Monta o HTML do card replicando a estrutura do arquivo antigo
+                    studentCard.innerHTML = `
+                        <div class="student-card-header">
+                             <img src="${student.imgUrl || 'https://i.imgur.com/rsJggSg.png'}" alt="Foto do Aluno" class="student-avatar">
+                            <div class="student-info">
+                                <h4 class="student-name">${student.nome}</h4>
+                                <p class="student-class">${student.salaNome || 'Sala não informada'}</p>
+                            </div>
+                        </div>
+                        <div class="student-card-body">
+                            <span class="status-badge ${statusClass}">${statusText}</span>
+                        </div>
+                        <div class="student-card-actions">
+                            ${mainActionHtml}
+                            <button class="btn btn-sm btn-info" onclick="openGenerateTokenModal('${student.id}', '${safeStudentName}')"><i class="fas fa-key"></i> Gerar Token</button>
+                        </div>
+                    `;
+                    studentList.appendChild(studentCard);
+                });
+
             } catch (error) {
-                console.error('Erro de rede ou de processamento ao carregar alunos vinculados:', error);
-                studentList.innerHTML = `<div class="alert alert-danger"><b>Erro ao buscar seus alunos.</b><br><small>${error.message}</small></div>`;
+                console.error('Erro detalhado ao carregar alunos vinculados:', error);
+                studentList.innerHTML = `<div class="alert alert-danger"><b>Ocorreu um erro ao carregar seus alunos.</b><br><small>Por favor, atualize a página. Se o problema persistir, contate o suporte.</small><br><small><i>Detalhes: ${error.message}</i></small></div>`;
             }
         }
 
