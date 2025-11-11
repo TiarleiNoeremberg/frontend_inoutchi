@@ -605,11 +605,13 @@ main {
     }
     
     /**
+     * FUNÇÃO ATUALIZADA E CORRIGIDA:
      * Realiza uma chamada fetch para a API, garantindo o envio de cookies de sessão (HttpOnly).
-     * Esta função substitui a implementação antiga de fetch que adicionava o token manualmente.
-     * @param {string} url - O endpoint da API.
+     * AGORA INCLUI TRATAMENTO PARA RESPOSTAS '204 No Content'.
+     *
+     * @param {string} url - O endpoint da API (sem o BACKEND_URL).
      * @param {object} options - As opções da requisição fetch (method, body, etc.).
-     * @returns {Promise<any>} A resposta da API em formato JSON.
+     * @returns {Promise<any>} A resposta da API em formato JSON, ou um objeto de sucesso padrão para 204.
      */
     async function fetchWithAuth(url, options = {}) {
         // A propriedade 'credentials: include' é a chave para o navegador gerenciar
@@ -623,10 +625,13 @@ main {
             credentials: 'include'
         };
 
-        const response = await fetch(url, finalOptions);
+        // Monta a URL completa
+        const fullUrl = `${BACKEND_URL}${url}`;
+
+        const response = await fetch(fullUrl, finalOptions);
 
         // Se o cookie de sessão expirou ou é inválido, o backend retornará 401 ou 403.
-        // Nestes casos, redirecionamos o usuário para a tela de login.
+        // Nestes casos, redirecionamos o usuÃ¡rio para a tela de login.
         if (response.status === 401 || response.status === 403) {
             showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
             setTimeout(() => window.location.href = 'index.html', 3000);
@@ -634,16 +639,23 @@ main {
             throw new Error('Não autorizado. Redirecionando para o login.');
         }
 
+        // --- PONTO CRÍTICO DA CORREÇÃO ---
+        // Verifica se a resposta é '204 No Content'.
+        // Isso acontece, por exemplo, ao verificar a 'saida-ativa' de um aluno que não tem uma.
+        if (response.status === 204) {
+            console.log(`Recebida resposta 204 No Content para a URL: ${url}`);
+            // Retorna um objeto que simula uma resposta de sucesso da API,
+            // garantindo que o '.json()' que vem a seguir não quebre.
+            return { sucesso: true, dados: null, message: 'Operação bem-sucedida sem conteúdo de retorno.' };
+        }
+        
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({})); // Tenta pegar o erro do corpo
             const errorMessage = errorData.message || errorData.mensagem || `Erro na requisição: ${response.status}`;
             throw new Error(errorMessage);
         }
 
-        if (response.status === 204) { // Resposta "No Content"
-            return { success: true, message: 'Operação realizada com sucesso.' };
-        }
-
+        // Para todas as outras respostas OK (200, 201, etc.), processa o JSON normalmente.
         return response.json();
     }
 
