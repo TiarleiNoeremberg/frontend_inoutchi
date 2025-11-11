@@ -576,6 +576,101 @@ main {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
 
+    /**
+     * Verifica se o usuário possui uma sessão ativa no backend.
+     * Deve ser chamada no início do carregamento da página.
+     * Se a sessão não for válida, redireciona o usuário para a página de login.
+     * @returns {Promise<object|null>} Os dados do usuário em caso de sucesso, ou null em caso de falha.
+     */
+    async function verificarSessao() {
+        try {
+            // Tenta buscar um recurso protegido. A chamada falhará se não houver um cookie de sessão válido.
+            const response = await fetch(`${BACKEND_URL}/api/users/me`, {
+                method: 'GET',
+                credentials: 'include' // Essencial para o navegador enviar o cookie HttpOnly
+            });
+
+            if (!response.ok) {
+                throw new Error('Sessão inválida ou expirada. O usuário precisa fazer login.');
+            }
+
+            console.log('Sessão de usuário validada com sucesso.');
+            return await response.json(); // Retorna os dados do usuário (ex: { nome, email, roles })
+
+        } catch (error) {
+            console.error('Falha na verificação de sessão. Redirecionando para a página de login.', error);
+            window.location.href = 'index.html'; // Redirecionamento de segurança
+            return null;
+        }
+    }
+    
+    /**
+     * Realiza uma chamada fetch para a API, garantindo o envio de cookies de sessão (HttpOnly).
+     * Esta função substitui a implementação antiga de fetch que adicionava o token manualmente.
+     * @param {string} url - O endpoint da API.
+     * @param {object} options - As opções da requisição fetch (method, body, etc.).
+     * @returns {Promise<any>} A resposta da API em formato JSON.
+     */
+    async function fetchWithAuth(url, options = {}) {
+        // A propriedade 'credentials: include' é a chave para o navegador gerenciar
+        // o envio do cookie HttpOnly automaticamente em cada requisição.
+        const finalOptions = {
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers,
+            },
+            credentials: 'include'
+        };
+
+        const response = await fetch(url, finalOptions);
+
+        // Se o cookie de sessão expirou ou é inválido, o backend retornará 401 ou 403.
+        // Nestes casos, redirecionamos o usuário para a tela de login.
+        if (response.status === 401 || response.status === 403) {
+            showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
+            setTimeout(() => window.location.href = 'index.html', 3000);
+            // Interrompe a execução para evitar outros erros na tela.
+            throw new Error('Não autorizado. Redirecionando para o login.');
+        }
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({})); // Tenta pegar o erro do corpo
+            const errorMessage = errorData.message || errorData.mensagem || `Erro na requisição: ${response.status}`;
+            throw new Error(errorMessage);
+        }
+
+        if (response.status === 204) { // Resposta "No Content"
+            return { success: true, message: 'Operação realizada com sucesso.' };
+        }
+
+        return response.json();
+    }
+
+    /**
+     * Realiza o logout do usuário.
+     * Esta função notifica o backend para invalidar o cookie de sessão antes de redirecionar.
+     */
+    async function logout() {
+        try {
+            // Notifica o backend para que ele possa invalidar a sessão/cookie no lado do servidor.
+            await fetch(`${BACKEND_URL}/api/auth/logout`, {
+                method: 'POST',
+                credentials: 'include'
+            });
+        } catch (error) {
+            console.error('Ocorreu um erro ao tentar fazer logout no backend, mas o redirecionamento será forçado.', error);
+        } finally {
+            // Redireciona para a página de login independentemente do resultado da chamada de API.
+            window.location.href = 'index.html';
+        }
+    }
+
+
+
+
+
+
         // O SCRIPT JAVASCRIPT PERMANECE IDÊNTICO AO DA VERSÃO ANTERIOR
     // As mudanças foram apenas no CSS.
     const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
@@ -904,6 +999,8 @@ main {
         }
 
         async function initializeDashboard() {
+            await verificarSessao();
+            
         initializeDOMElements();
         initializeTokenModals();
         actionLocationModalInstance = new bootstrap.Modal(document.getElementById('actionLocationModal'));
@@ -1139,190 +1236,9 @@ main {
              btn.blur();
              const { studentId } = btn.dataset; if (!studentId) return showAlert('ID do aluno não encontrado.', 'danger'); isActionProcessing = true; btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Confirmando...'; try { await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' }); showAlert('Saída confirmada com sucesso!', 'success'); manualConfirmExitModalInstance.hide(); await refreshStudentsData(); } catch (error) { showAlert(error.message, 'danger'); } finally { isActionProcessing = false; btn.disabled = false; btn.innerHTML = '<i class="fas fa-check-circle"></i> Sim, Confirmar'; } }
         
-        /*
-        async function garantirAutenticacao() {
-            let accessToken = localStorage.getItem('access_token');
-            const expiryTime = localStorage.getItem('token_expiry');
-
-            // 1. Verifica se o token existe e não está expirado
-            if (accessToken && expiryTime && new Date().getTime() < parseInt(expiryTime)) {
-                return accessToken;
-            }
-
-            // 2. Se expirado ou ausente, tenta renovar
-            console.log("Token expirado ou ausente. Tentando renovar...");
-            const newAccessToken = await renovarToken();
-            if (newAccessToken) {
-                console.log("Token renovado com sucesso.");
-                return newAccessToken;
-            }
-
-            // 3. Se a renovação falhar, efetua o logout
-            console.error("Falha ao renovar o token. Redirecionando para o login.");
-            showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
-            setTimeout(() => logout(), 3000); // Dá tempo para o usuário ver a mensagem
-            return null; // Retorna nulo pois o token não é válido
-        }
-        */
-
-        
-        /**
-         * Garante que o usuário tenha um token de acesso válido, renovando-o se necessário.
-         * Esta função centraliza a lógica de autenticação antes de fazer chamadas à API.
-         * @returns {Promise<string|null>} O token de acesso válido ou null se a autenticação falhar.
-         */
-        async function garantirAutenticacao() {
-            console.log('ð§ Verificando a necessidade de autenticaÃ§Ã£o...');
-            let accessToken = localStorage.getItem('access_token');
-            const refreshToken = localStorage.getItem('refresh_token');
-
-            // Se nÃ£o tivermos um token de acesso, precisamos de um refresh token para continuar.
-            if (!accessToken && !refreshToken) {
-                console.log('â Nenhum token de acesso ou de renovaÃ§Ã£o encontrado. Desconectando.');
-                showAlert('SessÃ£o invÃ¡lida. Por favor, faÃ§a login novamente.', 'danger');
-                logout();
-                return null;
-            }
-
-            // Testa se o token de acesso atual ainda Ã© vÃ¡lido.
-            if (accessToken) {
-                try {
-                    const response = await fetch(`${BACKEND_URL}/api/users/me`, {
-                        headers: { 'Authorization': `Bearer ${accessToken}` }
-                    });
-                    if (response.ok) {
-                        console.log('Token de acesso ainda é válido. Usando o existente.');
-                        return accessToken;
-                    }
-                    console.log('Token de acesso expirado ou inválido. Tentando renovar...');
-                } catch (error) {
-                    console.error('Erro ao testar o token de acesso. Tentando renovar...', error);
-                }
-            }
-
-            // Se o token de acesso nÃ£o for vÃ¡lido ou nÃ£o existir, e nÃ£o houver refresh token, nÃ£o hÃ¡ o que fazer.
-            if (!refreshToken) {
-                console.log('Não há¡ refresh token disponí­vel para renovar a sessão.');
-                showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
-                logout();
-                return null;
-            }
-
-            // Tenta renovar o token usando o refresh token.
-            try {
-                console.log('Executando a renovação do token de acesso...');
-                // ===== CORREÃÃO APLICADA AQUI =====
-                // O endpoint foi corrigido para o correto, que Ã© '/api/auth/refresh-token'.
-                const response = await fetch(`${BACKEND_URL}/api/auth/refresh-token`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ refreshToken: refreshToken })
-                });
-
-                if (response.ok) {
-                    const tokenData = await response.json();
-                    localStorage.setItem('access_token', tokenData.access_token);
-                    if (tokenData.refresh_token) {
-                        localStorage.setItem('refresh_token', tokenData.refresh_token);
-                    }
-                    console.log('Token de acesso renovado com sucesso!');
-                    return tokenData.access_token;
-                } else {
-                    throw new Error(`Falha ao renovar a sessÃ£o (status: ${response.status}).`);
-                }
-            } catch (error) {
-                console.error('Erro crí­tico na renovação do token:', error);
-                showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
-                logout();
-                return null;
-            }
-        }    
-
-        /**
-         * Função CORRIGIDA para renovar o token de acesso.
-         * Utiliza o endpoint padrão do OAuth2 (/oauth2/token) com o grant_type 'refresh_token'.
-         *
-         * @returns {Promise<string|null>} O novo token de acesso ou null em caso de falha.
-         */
-        async function renovarToken() {
-            console.log('🔄 Executando a função de renovação de token CORRIGIDA...');
-            
-            const refreshToken = localStorage.getItem('refresh_token');
-            if (!refreshToken) {
-                console.error('❌ FATAL: Refresh token não encontrado. Redirecionando para login.');
-                window.location.href = 'index.html';
-                return null;
-            }
-
-            // !! IMPORTANTE !!
-            // Substitua pelos seus valores de client-id e client-secret.
-            // Eles devem ser os mesmos do seu arquivo application.properties ou application.yml.
-            const clientId = 'myclientid'; // Substitua pelo seu Client ID
-            const clientSecret = 'myclientsecret'; // Substitua pelo seu Client Secret
-
-            // O corpo para este tipo de requisição é 'x-www-form-urlencoded'
-            const body = new URLSearchParams();
-            body.append('grant_type', 'refresh_token');
-            body.append('refresh_token', refreshToken);
-
-            try {
-                // A chamada é para o endpoint /oauth2/token.
-                const response = await fetch(`${BACKEND_URL}/oauth2/token`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        // A autenticação do cliente é enviada no header, codificada em Base64.
-                        'Authorization': 'Basic ' + btoa(clientId + ':' + clientSecret)
-                    },
-                    body: body
-                });
-
-                if (!response.ok) {
-                    // Se a resposta não for 200 OK, o refresh token é inválido ou expirou.
-                    const errorText = await response.text();
-                    throw new Error(`Falha ao renovar token. Status: ${response.status}. Resposta: ${errorText}`);
-                }
-
-                const tokenData = await response.json();
-
-                // Salva os novos tokens no localStorage
-                localStorage.setItem('access_token', tokenData.access_token);
-                if (tokenData.refresh_token) {
-                    localStorage.setItem('refresh_token', tokenData.refresh_token);
-                }
-                const expiry = new Date().getTime() + (tokenData.expires_in * 1000);
-                localStorage.setItem('token_expiry', expiry.toString());
-
-                console.log('✅ Token renovado com sucesso via /oauth2/token!');
-                return tokenData.access_token;
-
-            } catch (error) {
-                console.error('❌ Erro crítico ao renovar token. Limpando sessão e redirecionando para login.', error);
-                
-                // Limpa tudo para forçar um login seguro.
-                localStorage.removeItem('access_token');
-                localStorage.removeItem('refresh_token');
-                localStorage.removeItem('token_expiry');
-                
-                window.location.href = 'index.html';
-                return null;
-            }
-        }   
-
-        async function fetchWithAuth(endpoint, options = {}) { const headers = { 'Authorization': `Bearer ${localStorage.getItem('access_token')}`, 'Content-Type': 'application/json', ...options.headers }; const response = await fetch(BACKEND_URL + endpoint, { ...options, headers }); if (!response.ok) { const errorData = await response.json().catch(() => ({})); throw new Error(errorData.mensagem || `Erro ${response.status}: ${response.statusText}`); } return response; }
+ 
         function showAlert(message, type = 'success') { alertBox.textContent = message; alertBox.className = `alert alert-${type} alert-dismissible fade show`; alertBox.style.display = 'block'; setTimeout(() => { if (alertBox && alertBox.style.display !== 'none') bootstrap.Alert.getOrCreateInstance(alertBox).close(); }, 5000); }
         function setModalLoading(isLoading, text = 'Processando...') { const modalLoading = document.getElementById('modalLoading'); if(modalLoading) { modalLoading.style.display = isLoading ? 'flex' : 'none'; document.getElementById('modalLoadingText').textContent = text; } }
-        
-        window.logout = function() {
-            if (studentRefreshInterval) {
-                clearInterval(studentRefreshInterval);
-                console.log('🛑 Student auto-refresh stopped.');
-            }
-
-             localStorage.clear();
-             window.location.href = 'index.html'; };
-
-        
         
         </script>
 
