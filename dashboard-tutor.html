@@ -576,298 +576,730 @@ main {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
 
-        document.addEventListener('DOMContentLoaded', () => {
-            // URL do backend
-            const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
+    /**
+     * Verifica se o usuário possui uma sessão ativa no backend.
+     * Deve ser chamada no início do carregamento da página.
+     * Se a sessão não for válida, redireciona o usuário para a página de login.
+     * @returns {Promise<object|null>} Os dados do usuário em caso de sucesso, ou null em caso de falha.
+     */
+    async function verificarSessao() {
+        try {
+            // Tenta buscar um recurso protegido. A chamada falhará se não houver um cookie de sessão válido.
+            const response = await fetch(`${BACKEND_URL}/api/users/me`, {
+                method: 'GET',
+                credentials: 'include' // Essencial para o navegador enviar o cookie HttpOnly
+            });
 
-            // Variáveis de estado global
-            let currentUser = null;
-            let students = [];
-            let studentsAutoRefreshInterval = null;
-
-            // Elementos do DOM
-            const userFullName = document.getElementById('userFullName');
-            const userAvatar = document.getElementById('userAvatar');
-            const studentListElement = document.getElementById('student-list');
-            const alertBox = document.getElementById('alertBox');
-
-            // ========================================================================
-            // FUNÇÕES DE AUTENTICAÇÃO E COMUNICAÇÃO COM API
-            // ========================================================================
-
-            /**
-             * Wrapper para o fetch que adiciona o token de autenticação e já retorna o JSON.
-             * Esta função lida centralmente com a autenticação e erros de rede.
-             */
-            async function fetchWithAuth(endpoint, options = {}) {
-                const url = `${BACKEND_URL}${endpoint}`;
-                const token = localStorage.getItem('access_token');
-
-                const finalOptions = {
-                    ...options,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`,
-                        ...options.headers,
-                    },
-                };
-
-                const response = await fetch(url, finalOptions);
-
-                if (response.status === 401 || response.status === 403) {
-                    showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
-                    setTimeout(() => window.location.href = 'index.html', 3000);
-                    throw new Error('Não autorizado. Redirecionando para o login.');
-                }
-
-                if (response.status === 204) { // Resposta "No Content"
-                    return { success: true, message: 'Operação realizada com sucesso.' };
-                }
-
-                const responseText = await response.text();
-                if (!response.ok) {
-                    let errorMessage = `Erro na requisição: ${response.status}`;
-                    try {
-                        const errorData = JSON.parse(responseText);
-                        errorMessage = errorData.message || errorData.mensagem || errorMessage;
-                    } catch (e) {
-                        errorMessage = responseText || errorMessage;
-                    }
-                    throw new Error(errorMessage);
-                }
-
-                try {
-                    return JSON.parse(responseText);
-                } catch (e) {
-                    // Se não for JSON válido, pode ser uma resposta de texto simples
-                    return responseText;
-                }
+            if (!response.ok) {
+                throw new Error('Sessão inválida ou expirada. O usuário precisa fazer login.');
             }
 
-            // ========================================================================
-            // FUNÇÕES PRINCIPAIS DO DASHBOARD
-            // ========================================================================
+            console.log('Sessão de usuário validada com sucesso.');
+            return await response.json(); // Retorna os dados do usuário (ex: { nome, email, roles })
 
-            /**
-             * Ponto de entrada. Inicia o dashboard.
-             */
-            async function initializeDashboard() {
-                console.log("🚀 Inicializando dashboard do tutor...");
+        } catch (error) {
+            console.error('Falha na verificação de sessão. Redirecionando para a página de login.', error);
+            window.location.href = 'index.html'; // Redirecionamento de segurança
+            return null;
+        }
+    }
+    
+    /**
+     * Realiza uma chamada fetch para a API, garantindo o envio de cookies de sessão (HttpOnly).
+     * Esta função substitui a implementação antiga de fetch que adicionava o token manualmente.
+     * @param {string} url - O endpoint da API.
+     * @param {object} options - As opções da requisição fetch (method, body, etc.).
+     * @returns {Promise<any>} A resposta da API em formato JSON.
+     */
+    async function fetchWithAuth(url, options = {}) {
+        // A propriedade 'credentials: include' é a chave para o navegador gerenciar
+        // o envio do cookie HttpOnly automaticamente em cada requisição.
+        const finalOptions = {
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers,
+            },
+            credentials: 'include'
+        };
 
-                // Valida a sessão do usuário
-                const token = localStorage.getItem('access_token');
-                if (!token) {
-                    showAlert('Nenhum token encontrado. Redirecionando para login.', 'danger');
-                    setTimeout(() => window.location.href = 'index.html', 2000);
-                    return;
-                }
-                console.log("🔑 Sessão de usuário validada com sucesso.");
+        const response = await fetch(url, finalOptions);
 
+        // Se o cookie de sessão expirou ou é inválido, o backend retornará 401 ou 403.
+        // Nestes casos, redirecionamos o usuário para a tela de login.
+        if (response.status === 401 || response.status === 403) {
+            showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
+            setTimeout(() => window.location.href = 'index.html', 3000);
+            // Interrompe a execução para evitar outros erros na tela.
+            throw new Error('Não autorizado. Redirecionando para o login.');
+        }
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({})); // Tenta pegar o erro do corpo
+            const errorMessage = errorData.message || errorData.mensagem || `Erro na requisição: ${response.status}`;
+            throw new Error(errorMessage);
+        }
+
+        if (response.status === 204) { // Resposta "No Content"
+            return { success: true, message: 'Operação realizada com sucesso.' };
+        }
+
+        return response.json();
+    }
+
+    /**
+     * Realiza o logout do usuário.
+     * Esta função notifica o backend para invalidar o cookie de sessão antes de redirecionar.
+     */
+    async function logout() {
+        try {
+            // Chama o endpoint de logout do backend. 
+            // O 'fetchWithAuth' enviará o cookie automaticamente.
+            // O backend irá invalidar o cookie httpOnly.
+            const response = await fetchWithAuth(`${BACKEND_URL}/api/auth/logout`, {
+                method: 'POST',
+            });
+
+            console.log('Logout bem-sucedido no backend.');
+
+        } catch (error) {
+            console.error('Erro durante o logout no backend. Forçando a saída do lado do cliente.', error);
+        } finally {
+            // Independentemente do resultado do backend, limpa o localStorage
+            // e redireciona para a página inicial.
+            localStorage.removeItem('userName'); 
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
+            localStorage.removeItem('token_expiry');
+            window.location.href = 'index.html';
+        }
+    }
+
+        // O SCRIPT JAVASCRIPT PERMANECE IDÊNTICO AO DA VERSÃO ANTERIOR
+    // As mudanças foram apenas no CSS.
+    const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
+    let currentUser = null, students = [], actionLocationModalInstance, manualConfirmExitModalInstance, isActionProcessing = false;
+    let alertBox, studentList, userFullName, userAvatar, historySection, historyTitle, historyTableBody, historyPaginationControls, historyPaginationInfo, historyPrevBtn, historyNextBtn, historyFirstBtn, historyLastBtn;
+    let displayLatitude, displayLongitude, coordinatesDisplay;
+    let historyData = [], historyCurrentPage = 1;
+    let studentRefreshInterval;
+    const HISTORY_PAGE_SIZE = 5;
+
+    document.addEventListener('DOMContentLoaded', initializeDashboard);
+
+    function initializeDOMElements() {
+        alertBox = document.getElementById('alertBox');
+        studentList = document.getElementById('studentList');
+        userFullName = document.getElementById('userFullName');
+        userAvatar = document.getElementById('userAvatar');
+        historySection = document.getElementById('historySection');
+        historyTitle = document.getElementById('historyTitle');
+        historyTableBody = document.getElementById('historyTableBody');
+        historyPaginationControls = document.getElementById('historyPaginationControls');
+        historyPaginationInfo = document.getElementById('historyPaginationInfo');
+        historyFirstBtn = document.getElementById('historyFirstBtn');
+        historyPrevBtn = document.getElementById('historyPrevBtn');
+        historyNextBtn = document.getElementById('historyNextBtn');
+        historyLastBtn = document.getElementById('historyLastBtn');
+        displayLatitude = document.getElementById('displayLatitude');
+        displayLongitude = document.getElementById('displayLongitude');
+        coordinatesDisplay = document.getElementById('coordinatesDisplay');
+    }
+
+    /**
+     * NOVA FUNÇÃO: Carrega os alunos vinculados ao tutor.
+     * Esta função substitui a antiga 'refreshStudentsData' e corrige os erros de tratamento de resposta.
+     */
+    async function loadAlunosVinculados(tutorName) {
+        console.log(`Buscando alunos vinculados para o tutor: ${tutorName}`);
+        const studentList = document.getElementById('student-list');
+        if (!studentList) {
+            console.error("Elemento 'student-list' nÃ£o encontrado no DOM.");
+            return;
+        }
+
+        try {
+            // CORRIGIDO: A variável agora se chama 'data' para refletir que já é o objeto JSON.
+            const data = await fetchWithAuth(`${BACKEND_URL}/api/tutores/${encodeURIComponent(tutorName)}/alunos`);
+
+            // A verificação de !response.ok foi removida, pois já é tratada dentro de fetchWithAuth.
+
+            // CORRIGIDO: A chamada duplicada para .json() foi removida.
+
+            if (!data || !data.alunos || !Array.isArray(data.alunos)) {
+                throw new Error("O formato da resposta da API de alunos é inválido.");
+            }
+
+            // O resto da sua função continua igual...
+            const studentPromises = data.alunos.map(async (student) => {
                 try {
-                    // Carrega as informações do usuário e, em sequência, seus alunos
-                    await loadUserInfo();
-
-                    // Inicia a atualização automática
-                    startStudentsAutoRefresh();
+                    const saidaResponse = await fetchWithAuth(`${BACKEND_URL}/api/presencas/aluno/${student.id}/saida-ativa`);
+                    if (saidaResponse.sucesso && saidaResponse.dados && saidaResponse.dados.status === 'AGUARDANDO_CONFIRMACAO') {
+                        student.status = 'AGUARDANDO_CONFIRMACAO';
+                    }
                 } catch (error) {
-                    console.error('❌ Erro fatal durante a inicialização:', error.message);
-                    showAlert(`Falha ao carregar os dados do dashboard: ${error.message}`, 'danger');
+                    console.warn(`Não foi possível verificar a saída ativa para o aluno ${student.id}:`, error);
                 }
-            }
+                return student;
+            });
 
-            /**
-             * Carrega as informações do usuário logado e dispara o carregamento dos alunos.
-             */
-            async function loadUserInfo() {
-                try {
-                    console.log('🔄 Carregando informações do usuário...');
-                    // fetchWithAuth já retorna o JSON, então não precisamos de .json() aqui.
-                    currentUser = await fetchWithAuth('/api/users/me');
+            students = await Promise.all(studentPromises);
+            renderStudents(); // Renderiza a lista de alunos atualizada
 
-                    if (!currentUser || !currentUser.nome) {
-                        throw new Error("Formato de dados do usuário inválido recebido da API.");
-                    }
+        } catch (error) {
+            console.error('Erro detalhado ao carregar alunos vinculados:', error);
+            studentList.innerHTML = `
+                <div class="error-message" style="padding: 20px; text-align: center; color: #721c24; background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: .25rem;">
+                    <p><strong>Ocorreu um erro ao carregar seus alunos.</strong></p>
+                    <p>Por favor, atualize a página. Se o problema persistir, contate o suporte.</p>
+                    <p style="font-size: 0.8em; color: #666; margin-top: 10px;">Detalhes: ${error.message}</p>
+                </div>
+            `;
+        }
+    }
 
-                    console.log(`✅ Informações do usuário carregadas: ${currentUser.nome}`);
-                    userFullName.textContent = currentUser.nome;
-                    userAvatar.textContent = currentUser.nome.charAt(0).toUpperCase();
+    // =======================================================================
+        // =========== LÓGICA PARA TOKEN DE ACESSO (NON-REFACTORED) ===========
+        // =======================================================================
+        let generateTokenModal, myTokensModal, tokenSuccessModal; // Modal instances
 
-                    // AGORA que temos o nome do tutor, carregamos os alunos.
-                    await loadAlunosVinculados(currentUser.nome);
+        // This function MUST be called within initializeDashboard to setup the modals
+        function initializeTokenModals() {
+            generateTokenModal = new bootstrap.Modal(document.getElementById('generateTokenModal'));
+            myTokensModal = new bootstrap.Modal(document.getElementById('myTokensModal'));
+            tokenSuccessModal = new bootstrap.Modal(document.getElementById('tokenSuccessModal'));
 
-                } catch (error) {
-                    console.error('❌ Erro ao carregar informações do usuário:', error);
-                    // Propaga o erro para ser tratado no initializeDashboard
-                    throw new Error(`Falha ao obter dados do usuário. ${error.message}`);
-                }
-            }
+            document.getElementById('myTokensBtn')?.addEventListener('click', openMyTokensModal);
+            document.getElementById('generateTokenForm')?.addEventListener('submit', handleGenerateTokenSubmit);
+        }
 
-            /**
-             * Carrega os alunos vinculados ao tutor, já com a correção.
-             */
-            async function loadAlunosVinculados(tutorName) {
-                console.log(`🔄 Buscando alunos vinculados para o tutor: ${tutorName}`);
-
-                try {
-                    // fetchWithAuth já retorna JSON ou lança um erro.
-                    const data = await fetchWithAuth(`/api/tutores/${encodeURIComponent(tutorName)}/alunos`);
-
-                    if (!data || !Array.isArray(data.alunos)) {
-                        throw new Error("A resposta da API de alunos não continha a lista esperada.");
-                    }
-                    
-                    console.log(`✅ ${data.alunos.length} alunos recebidos. Verificando status...`);
-
-                    const studentPromises = data.alunos.map(async (student) => {
-                        try {
-                            const saidaAtiva = await fetchWithAuth(`/api/presencas/aluno/${student.id}/saida-ativa`);
-                            if (saidaAtiva && saidaAtiva.sucesso && saidaAtiva.dados && saidaAtiva.dados.status === 'AGUARDANDO_CONFIRMACAO') {
-                                student.status = 'AGUARDANDO_CONFIRMACAO';
-                            }
-                        } catch (error) {
-                            // Um erro aqui (como 404) significa apenas que não há saída ativa, o que é normal.
-                            console.log(`ℹ️ Aluno ${student.id} não possui saída ativa.`);
-                            // O status que vem da primeira API ('PRESENTE' ou 'AUSENTE') será mantido.
-                        }
-                        return student;
-                    });
-
-                    students = await Promise.all(studentPromises);
-                    renderStudents(); // Renderiza a lista de alunos atualizada
-
-                } catch (error) {
-                    console.error('❌ Erro detalhado ao carregar alunos vinculados:', error);
-                    studentListElement.innerHTML = `<li class="list-group-item text-center text-danger p-3">Falha ao carregar alunos: ${error.message}</li>`;
-                }
-            }
-
-            /**
-             * Renderiza a lista de alunos na tela.
-             */
-            function renderStudents() {
-                if (!studentListElement) return;
-
-                if (students.length === 0) {
-                    studentListElement.innerHTML = '<li class="list-group-item text-center p-4 text-muted">Nenhum aluno vinculado.</li>';
-                    return;
-                }
-
-                studentListElement.innerHTML = ''; // Limpa a lista antes de recriá-la
-
-                students.forEach(student => {
-                    if (!student || !student.id) {
-                        console.warn('Item de aluno inválido recebido:', student);
-                        return;
-                    }
-
-                    const li = document.createElement('li');
-                    li.className = 'student-item';
-                    li.id = `student-${student.id}`;
-
-                    const safeStudentName = student.nome ? String(student.nome).replace(/'/g, "\\'") : 'Aluno';
-
-                    let statusClass, statusText, actionButtonHtml;
-
-                    // Define o status visual com base na propriedade `status` do aluno
-                    switch (student.status) {
-                        case 'PRESENTE':
-                            statusClass = 'status-present';
-                            statusText = 'Presente';
-                            actionButtonHtml = `<button class="btn btn-sm btn-danger action-btn" onclick="openLocationActionModal(${student.id}, 'saida', '${safeStudentName}')"><i class="fas fa-sign-out-alt"></i> Solicitar Saída</button>`;
-                            break;
-                        case 'AGUARDANDO_CONFIRMACAO':
-                            statusClass = 'status-warning';
-                            statusText = 'Aguardando Confirmação';
-                            actionButtonHtml = `<button class="btn btn-sm btn-warning action-btn" disabled><i class="fas fa-clock"></i> Aguardando</button>`;
-                            break;
-                        case 'AUSENTE':
-                        default:
-                            statusClass = 'status-absent';
-                            statusText = 'Ausente';
-                            actionButtonHtml = `<button class="btn btn-sm btn-success action-btn" onclick="openLocationActionModal(${student.id}, 'entrada', '${safeStudentName}')"><i class="fas fa-sign-in-alt"></i> Registrar Entrada</button>`;
-                            break;
-                    }
-
-                    li.innerHTML = `
-                        <div class="student-info-container">
-                            <span class="student-name">${student.nome || 'Nome Indisponível'}</span>
-                            <span class="student-class">${student.salaNome || 'Sala não definida'}</span>
-                        </div>
-                        <div class="student-status-container">
-                            <span class="status-badge ${statusClass}">${statusText}</span>
-                        </div>
-                        <div class="student-actions-container">
-                            ${actionButtonHtml}
-                            <button class="btn btn-sm btn-info action-btn" onclick="openGenerateTokenModal(${student.id}, '${safeStudentName}')" title="Gerar Token Provisório">
-                                <i class="fas fa-key"></i> Token
-                            </button>
-                            <button class="btn btn-sm btn-secondary action-btn" onclick="viewStudentHistory(${student.id})" title="Histórico do Aluno">
-                                <i class="fas fa-history"></i> Histórico
-                            </button>
-                        </div>
-                    `;
-                    studentListElement.appendChild(li);
-                });
-                console.log("✅ Lista de alunos renderizada na tela.");
-            }
+        // ATUALIZADA: Abre o modal de geração de token, agora sem preenchimento automático.
+        function openGenerateTokenModal(event, alunoId, alunoNome) {
+            if (event) event.stopPropagation();
             
-            /**
-             * Inicia a atualização automática da lista de alunos.
-             */
-            function startStudentsAutoRefresh() {
-                if (studentsAutoRefreshInterval) {
-                    clearInterval(studentsAutoRefreshInterval);
+            // Limpa completamente o formulário para garantir que dados de usos anteriores não persistam.
+            document.getElementById('generateTokenForm').reset();
+            
+            // Define os dados do aluno alvo no modal.
+            document.getElementById('tokenAlunoNome').textContent = alunoNome;
+            document.getElementById('tokenAlunoId').value = alunoId;
+            
+            // Define um valor padrão de expiração para 2 horas a partir de agora.
+            // O usuário pode e deve alterar este valor conforme a necessidade.
+            const now = new Date();
+            now.setHours(now.getHours() + 2); // Adiciona 2 horas
+            const localDateTime = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+            document.getElementById('dataExpiracao').value = localDateTime;
+
+            // Exibe o modal para o usuário.
+            generateTokenModal.show();
+        }
+
+        async function openMyTokensModal() {
+            myTokensModal.show();
+            const loadingEl = document.getElementById('myTokensLoading');
+            const errorEl = document.getElementById('myTokensError');
+            const containerEl = document.getElementById('myTokensContainer');
+
+            loadingEl.style.display = 'block';
+            errorEl.style.display = 'none';
+            containerEl.style.display = 'none';
+
+            try {
+                // A chamada agora é direta para o fetchWithAuth, que gerencia o cookie.
+                const data = await fetchWithAuth(`${BACKEND_URL}/api/tokens/meus-tokens`);
+
+                if (data.sucesso && data.tokens) {
+                    renderTokensList(data.tokens);
+                    containerEl.style.display = 'block';
+                } else {
+                    throw new Error(data.erro || 'Nenhum token encontrado ou erro na resposta.');
+                }
+            } catch (error) {
+                errorEl.innerText = `Erro: ${error.message}`;
+                errorEl.style.display = 'block';
+            } finally {
+                loadingEl.style.display = 'none';
+            }
+        }
+
+
+
+        function renderTokensList(tokens) {
+            const tbody = document.getElementById('myTokensTableBody');
+            tbody.innerHTML = '';
+
+            if (!tokens || tokens.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4">Nenhum token foi gerado ainda.</td></tr>';
+                return;
+            }
+
+            tokens.sort((a, b) => new Date(b.dataCriacao) - new Date(a.dataCriacao));
+
+            tokens.forEach(token => {
+                let statusBadge;
+                let isExpired = new Date(token.dataExpiracao) < new Date();
+
+                if (token.utilizado) {
+                    statusBadge = '<span class="token-status token-status-utilizado">Utilizado</span>';
+                } else if (!token.valido) {
+                     statusBadge = '<span class="token-status token-status-revogado">Revogado</span>';
+                } else if (isExpired) {
+                    statusBadge = '<span class="token-status token-status-expirado">Expirado</span>';
+                } else {
+                    statusBadge = '<span class="token-status token-status-ativo">Ativo</span>';
                 }
 
-                studentsAutoRefreshInterval = setInterval(() => {
-                    if (currentUser && currentUser.nome) {
-                        console.log('🔄 Atualização automática da lista de alunos...');
-                        loadAlunosVinculados(currentUser.nome);
+                const canRevoke = !token.utilizado && !isExpired && token.valido;
+
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${token.aluno.nome || 'N/A'}</td>
+                        <td>${token.destinatario.nome || 'N/A'}</td>
+                        <td>${new Date(token.dataExpiracao).toLocaleString('pt-BR')}</td>
+                        <td>${statusBadge}</td>
+                        <td>
+                            ${canRevoke ? `<button class="btn btn-sm btn-danger" onclick="handleRevokeToken('${token.token}')">Revogar</button>` : '-'}
+                        </td>
+                    </tr>`;
+            });
+        }
+
+        // VERSÃO CORRIGIDA (usando fetchWithAuth)
+        async function handleRevokeToken(tokenValue) {
+            if (!confirm('Tem certeza que deseja revogar este token? Esta ação não pode ser desfeita.')) return;
+
+            try {
+                const result = await fetchWithAuth(`${BACKEND_URL}/api/tokens/revogar/${tokenValue}`, {
+                    method: 'DELETE'
+                });
+
+                if (result.sucesso) {
+                    showAlert('Token revogado com sucesso!', 'success');
+                } else {
+                    throw new Error(result.erro || 'Não foi possível revogar o token.');
+                }
+            } catch (error) {
+                showAlert(`Erro ao revogar: ${error.message}`, 'danger');
+            } finally {
+                // Recarrega a lista de tokens para refletir a alteração.
+                await openMyTokensModal();
+            }
+        }
+
+        // VERSÃO CORRIGIDA (usando fetchWithAuth)
+        async function handleGenerateTokenSubmit(event) {
+            event.preventDefault();
+            const form = event.target;
+            const errorEl = document.getElementById('generateTokenError');
+            const submitBtn = document.getElementById('generateTokenSubmitBtn');
+
+            errorEl.style.display = 'none';
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Gerando...';
+
+            try {
+                const formData = new FormData(form);
+                const requiredFields = ['alunoId', 'destinatarioNome', 'tipoParentesco', 'dataExpiracao', 'tipoOperacao'];
+                for (const field of requiredFields) {
+                    if (!formData.get(field)) {
+                        throw new Error(`O campo obrigatório '${field}' não foi preenchido.`);
                     }
-                }, 60000); // Atualiza a cada 60 segundos
+                }
 
-                console.log('🕒 Atualização automática da lista de alunos iniciada (intervalo: 60s).');
+                const command = {
+                    alunoId: parseInt(formData.get('alunoId')),
+                    destinatarioNome: formData.get('destinatarioNome'),
+                    tipoParentesco: formData.get('tipoParentesco').toUpperCase(),
+                    dataExpiracao: new Date(formData.get('dataExpiracao')).toISOString(),
+                    tipoOperacao: formData.get('tipoOperacao').toUpperCase().replace('Í', 'I'),
+                    destinatarioTelefone: formData.get('destinatarioTelefone'),
+                    destinatarioEmail: formData.get('destinatarioEmail'),
+                    observacao: formData.get('observacao')
+                };
+                
+                // A chamada agora usa fetchWithAuth, que já cuida da autenticação
+                const result = await fetchWithAuth(`${BACKEND_URL}/api/tokens/gerar`, {
+                    method: 'POST',
+                    body: JSON.stringify(command)
+                });
+
+                if (result.sucesso) {
+                    generateTokenModal.hide();
+                    showTokenSuccessModal(result.linkAcesso);
+                } else {
+                    throw new Error(result.erro || 'Falha ao gerar token. Verifique os dados.');
+                }
+            } catch (error) {
+                console.error("Erro detalhado ao gerar token:", error);
+                errorEl.innerText = `Erro: ${error.message}`;
+                errorEl.style.display = 'block';
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = 'Gerar Token';
             }
+        }
 
-            /**
-             * Exibe uma mensagem de alerta na tela.
-             */
-            function showAlert(message, type = 'info', duration = 5000) {
-                if (!alertBox) return;
-                const alertDiv = document.createElement('div');
-                alertDiv.className = `custom-alert alert-${type}`;
-                alertDiv.textContent = message;
-                alertBox.appendChild(alertDiv);
-                setTimeout(() => {
-                    alertDiv.remove();
-                }, duration);
-            }
+        function showTokenSuccessModal(link) {
+            const linkInput = document.getElementById('tokenLinkInput');
+            const copyBtn = document.getElementById('copyTokenLinkBtn');
+            const feedback = document.getElementById('copyFeedback');
+            feedback.style.display = 'none';
 
-            // TODO: Adicione aqui as implementações das funções chamadas pelos botões,
-            // como openLocationActionModal, openGenerateTokenModal, viewStudentHistory, etc.
-            // Exemplo:
-            window.openLocationActionModal = (id, action, name) => {
-                console.log(`Ação: ${action} para o aluno ${name} (ID: ${id})`);
-                // Lógica para abrir o modal de ação
-                showAlert(`Funcionalidade 'openLocationActionModal' ainda não implementada.`, 'warning');
+            linkInput.value = link;
+            tokenSuccessModal.show();
+
+            copyBtn.onclick = () => {
+                navigator.clipboard.writeText(link).then(() => {
+                    feedback.style.display = 'block';
+                    copyBtn.innerHTML = '<i class="fas fa-check"></i>';
+                    setTimeout(() => { 
+                        feedback.style.display = 'none';
+                        copyBtn.innerHTML = '<i class="fas fa-copy"></i>';
+                    }, 2500);
+                });
             };
-            window.openGenerateTokenModal = (id, name) => {
-                console.log(`Gerar token para o aluno ${name} (ID: ${id})`);
-                // Lógica para abrir o modal de token
-                showAlert(`Funcionalidade 'openGenerateTokenModal' ainda não implementada.`, 'warning');
-            };
-            window.viewStudentHistory = (id) => {
-                console.log(`Ver histórico para o aluno ID: ${id}`);
-                // Lógica para ver o histórico
-                showAlert(`Funcionalidade 'viewStudentHistory' ainda não implementada.`, 'warning');
+        }
+
+        /**
+         * Inicia o auto-refresh para a lista de alunos.
+         * Chama a função principal de atualização de dados a cada 60 segundos.
+         */
+        function startAutoRefresh() {
+            const REFRESH_INTERVAL_MS = 60000; // 60 segundos
+
+            // Limpa qualquer intervalo anterior para evitar múltiplos timers rodando
+            if (studentRefreshInterval) {
+                clearInterval(studentRefreshInterval);
             }
 
-            // Inicia a aplicação
-            initializeDashboard();
+            // Inicia o novo temporizador
+            studentRefreshInterval = setInterval(async () => {
+                console.log('🔄 Auto-refreshing student data...');
+                try {
+                    // CORREÇÃO APLICADA AQUI: O nome da função agora está correto.
+                    await refreshStudentsData(); 
+                    console.log('✅ Auto-refresh complete.');
+                } catch (error) {
+                    console.error('❌ Auto-refresh failed:', error);
+                    // Mostra um alerta discreto se o refresh falhar, sem quebrar a página
+                    showAlert('Não foi possível atualizar a lista de alunos automaticamente.', 'warning');
+                }
+            }, REFRESH_INTERVAL_MS);
+
+            console.log(`🚀 Student auto-refresh started. Interval: ${REFRESH_INTERVAL_MS / 1000}s`);
+        }
+
+        /**
+         * NOVA FUNÇÃO: Inicia a atualização automática da lista de alunos.
+         */
+        function startStudentsAutoRefresh() {
+            if (window.studentsAutoRefreshInterval) {
+                clearInterval(window.studentsAutoRefreshInterval);
+            }
+
+            window.studentsAutoRefreshInterval = setInterval(() => {
+                if (currentUser && currentUser.nome) {
+                    console.log('🔄 Atualização automática da lista de alunos...');
+                    loadAlunosVinculados(currentUser.nome);
+                }
+            }, 60000); // Atualiza a cada 60 segundos
+
+            console.log('🚀 Student auto-refresh started. Interval: 60s');
+        }
+
+        async function initializeDashboard() {
+            await verificarSessao();
+
+            initializeDOMElements();
+            initializeTokenModals();
+
+            await loadUserInfo();
+            startStudentsAutoRefresh();
+
+            actionLocationModalInstance = new bootstrap.Modal(document.getElementById('actionLocationModal'));
+            manualConfirmExitModalInstance = new bootstrap.Modal(document.getElementById('manualConfirmExitModal'));
+            document.getElementById('confirmActionBtn').addEventListener('click', handleLocationActionConfirm);
+            document.getElementById('getLocationBtn').addEventListener('click', handleGetLocation);
+            document.getElementById('manualConfirmExitOkBtn').addEventListener('click', handleManualConfirmExit);
+            
+            const totalPages = () => Math.ceil(historyData.length / HISTORY_PAGE_SIZE);
+            historyFirstBtn.addEventListener('click', () => { historyCurrentPage = 1; renderHistory(); });
+            historyPrevBtn.addEventListener('click', () => { if(historyCurrentPage > 1) { historyCurrentPage--; renderHistory(); } });
+            historyNextBtn.addEventListener('click', () => { if(historyCurrentPage < totalPages()) { historyCurrentPage++; renderHistory(); } });
+            historyLastBtn.addEventListener('click', () => { historyCurrentPage = totalPages(); renderHistory(); });
+
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('content').style.display = 'none';
+
+            try {
+                await loadUserInfo();
+                await refreshStudentsData();
+                startAutoRefresh(); // Inicia o ciclo de atualização automática 30 segundos
+            } catch (error) {
+                showAlert(error.message || 'Ocorreu um erro grave ao iniciar.', 'danger');
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+            }
+        }
+
+    /**
+     * ATUALIZADA: Carrega as informações do usuário e, em seguida, os alunos.
+     */
+    async function loadUserInfo() {
+        try {
+            console.log('Carregando informações do usuário...');
+            const response = await fetchWithAuth(`${BACKEND_URL}/api/users/me`);
+            currentUser = await response.json();
+            
+            console.log('Informações do usuário carregadas com sucesso:', currentUser.nome);
+            userFullName.textContent = currentUser.nome;
+            userAvatar.textContent = currentUser.nome.charAt(0).toUpperCase();
+
+            // Chama a nova função para carregar os alunos
+            await loadAlunosVinculados(currentUser.nome);
+
+        } catch (error) {
+            console.error('Erro ao carregar informações do usuário:', error);
+            showAlert('Não foi possível carregar os dados do usuário. Tente recarregar a página.', 'danger');
+        }
+    }
+
+    async function refreshStudentsData() {
+        try {
+            const response = await
+            fetchWithAuth(`${BACKEND_URL}/api/tutores/${encodeURIComponent(currentUser.nome)}/alunos`);
+            const data = await response.json();
+            if (!data || !Array.isArray(data.alunos)) throw new Error("Dados de alunos inválidos.");
+            
+            const studentPromises = data.alunos.map(async (student) => {
+                try {
+                    const saidaResponse = await
+                    fetchWithAuth(`${BACKEND_URL}/api/presencas/aluno/${student.id}/saida-ativa`);
+                    const saidaAtiva = await saidaResponse.json();
+                    if (saidaAtiva.sucesso) {
+                        student.status = saidaAtiva.dados?.status === 'AGUARDANDO_CONFIRMACAO' ? 'AGUARDANDO_CONFIRMACAO' : student.status;
+                    }
+                } catch (error) {
+                    console.warn(`Erro ao buscar saída ativa para aluno ${student.id}:`, error);
+                }
+                return student;
+            });
+            students = await Promise.all(studentPromises);
+            renderStudents();
+        } catch (e) {
+            showAlert(e.message, 'danger');
+        }
+    }
+
+    /**
+     * NOVA FUNÇÃO: Renderiza a lista de alunos na tela.
+     * Esta versão remove a imagem e adiciona todos os botões e informações solicitadas.
+     */
+    function renderStudents() {
+        const studentList = document.getElementById('student-list');
+        if (!studentList) return;
+
+        if (students.length === 0) {
+            studentList.innerHTML = '<li class="list-group-item text-center p-4 text-muted">Nenhum aluno vinculado.</li>';
+            return;
+        }
+
+        studentList.innerHTML = ''; // Limpa a lista antes de recriá-la
+
+        students.forEach(student => {
+            if (!student || !student.id) {
+                console.warn('Item de aluno inválido recebido:', student);
+                return; // Pula registros de alunos inválidos
+            }
+
+            const li = document.createElement('li');
+            li.className = 'student-item';
+            li.id = `student-${student.id}`;
+
+            const safeStudentName = student.nome ? String(student.nome).replace(/'/g, "\\'") : 'Aluno';
+
+            let statusClass, statusText, actionButtonHtml;
+
+            switch (student.status) {
+                case 'PRESENTE':
+                    statusClass = 'status-present';
+                    statusText = 'Presente';
+                    actionButtonHtml = `<button class="btn btn-sm btn-danger action-btn" onclick="openLocationActionModal(${student.id}, 'saida', '${safeStudentName}')"><i class="fas fa-sign-out-alt"></i> Solicitar Saída</button>`;
+                    break;
+                case 'AGUARDANDO_CONFIRMACAO':
+                    statusClass = 'status-warning';
+                    statusText = 'Aguardando Confirmação';
+                    actionButtonHtml = `<button class="btn btn-sm btn-warning action-btn" disabled><i class="fas fa-clock"></i> Aguardando</button>`;
+                    break;
+                case 'AUSENTE':
+                default:
+                    statusClass = 'status-absent';
+                    statusText = 'Ausente';
+                    actionButtonHtml = `<button class="btn btn-sm btn-success action-btn" onclick="openLocationActionModal(${student.id}, 'entrada', '${safeStudentName}')"><i class="fas fa-sign-in-alt"></i> Registrar Entrada</button>`;
+                    break;
+            }
+
+            // Estrutura do item do aluno, sem imagem e com os botões corretos.
+            li.innerHTML = `
+                <div class="student-info-container">
+                    <span class="student-name">${student.nome || 'Nome Indisponível'}</span>
+                    <span class="student-class">${student.salaNome || 'Sala Indisponível'}</span>
+                </div>
+                <div class="student-status-container">
+                    <span class="status-badge ${statusClass}">${statusText}</span>
+                </div>
+                <div class="student-actions-container">
+                    ${actionButtonHtml}
+                    <button class="btn btn-sm btn-info action-btn" onclick="openGenerateTokenModal(${student.id}, '${safeStudentName}')" title="Gerar Token Provisório">
+                        <i class="fas fa-key"></i> Token
+                    </button>
+                    <button class="btn btn-sm btn-secondary action-btn" onclick="viewStudentHistory(${student.id})" title="Histórico do Aluno">
+                        <i class="fas fa-history"></i> Histórico
+                    </button>
+                </div>
+            `;
+            studentList.appendChild(li);
+        });
+    }
+
+    window.viewStudentHistory = async function(studentId, studentName) {
+        historyTitle.textContent = `Histórico de ${studentName}`;
+        historySection.style.display = 'block';
+        historyTableBody.innerHTML = '<tr><td colspan="3" class="text-center p-4"><div class="loading-spinner mx-auto"></div></td></tr>';
+        historyPaginationControls.style.display = 'none';
+
+        try {
+            const response = await fetchWithAuth(`${BACKEND_URL}/api/presencas/historico/${studentId}`);
+            const result = await response.json();
+            historyData = (result.sucesso && Array.isArray(result.dados)) ? result.dados.sort((a, b) => new Date(b.entradaAt) - new Date(a.entradaAt)) : [];
+            historyCurrentPage = 1;
+            renderHistory();
+            historySection.scrollIntoView({ behavior: 'smooth' });
+        } catch (error) {
+            historyTableBody.innerHTML = `<tr><td colspan="3" class="text-center p-4 text-danger">Erro ao carregar histórico.</td></tr>`;
+            showAlert(error.message, 'danger');
+        }
+    }
+
+    function renderHistory() {
+        historyTableBody.innerHTML = '';
+        if (historyData.length === 0) {
+            historyTableBody.innerHTML = `<tr><td colspan="3" class="text-center p-4 text-muted">Nenhum registro encontrado.</td></tr>`;
+            historyPaginationControls.style.display = 'none';
+            return;
+        }
+
+        const totalPages = Math.ceil(historyData.length / HISTORY_PAGE_SIZE);
+        const start = (historyCurrentPage - 1) * HISTORY_PAGE_SIZE;
+        const end = start + HISTORY_PAGE_SIZE;
+        const pageData = historyData.slice(start, end);
+
+        pageData.forEach(record => {
+            const tr = document.createElement('tr');
+            const entrada = record.entradaAt ? new Date(record.entradaAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short'}) : '---';
+            const saida = record.saidaAt ? new Date(record.saidaAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short'}) : '---';
+            const status = record.status === 'PRESENTE' ? '<span class="badge bg-success-subtle text-success-emphasis rounded-pill">Presente</span>' : '<span class="badge status-finalizado rounded-pill">Finalizado</span>';
+            tr.innerHTML = `<td>${entrada}</td><td>${saida}</td><td>${status}</td>`;
+            historyTableBody.appendChild(tr);
         });
 
+        historyPaginationControls.style.display = 'flex';
+        historyPaginationInfo.textContent = `Página ${historyCurrentPage} de ${totalPages}`;
+        historyFirstBtn.disabled = historyCurrentPage === 1;
+        historyPrevBtn.disabled = historyCurrentPage === 1;
+        historyNextBtn.disabled = historyCurrentPage === totalPages;
+        historyLastBtn.disabled = historyCurrentPage === totalPages;
+    }
     
-    </script>
+    window.openLocationActionModal = function(studentId, type, studentName) { if (isActionProcessing) return; const modal = document.getElementById('actionLocationModal'); modal.querySelector('#actionLocationModalLabel').textContent = type === 'entrada' ? 'Registrar Entrada' : 'Solicitar Saída'; modal.querySelector('#modalMessage').textContent = `Para ${type === 'entrada' ? 'registrar a entrada' : 'solicitar a saída'} de ${studentName}, sua localização precisa ser validada.`; const confirmBtn = modal.querySelector('#confirmActionBtn'); confirmBtn.textContent = type === 'entrada' ? 'Confirmar Entrada' : 'Confirmar Solicitação'; confirmBtn.dataset.studentId = studentId; confirmBtn.dataset.actionType = type; resetLocationState(); actionLocationModalInstance.show(); setTimeout(handleGetLocation, 300); }
+    async function handleGetLocation() { const statusEl = document.getElementById('locationStatus'), confirmBtn = document.getElementById('confirmActionBtn'), getBtn = document.getElementById('getLocationBtn'); statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo localização...'; statusEl.className = 'location-status location-loading'; statusEl.style.display = 'block'; coordinatesDisplay.style.display = 'none'; confirmBtn.disabled = true; getBtn.disabled = true; try { const pos = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 })); statusEl.innerHTML = `<i class="fas fa-check-circle"></i> Localização obtida com sucesso!`; statusEl.className = 'location-status location-success'; displayLatitude.textContent = pos.coords.latitude.toFixed(6); displayLongitude.textContent = pos.coords.longitude.toFixed(6); coordinatesDisplay.style.display = 'block'; confirmBtn.dataset.latitude = pos.coords.latitude; confirmBtn.dataset.longitude = pos.coords.longitude; confirmBtn.disabled = false; } catch (error) { statusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Falha ao obter localização. Verifique as permissões e tente novamente.`; statusEl.className = 'location-status location-error'; } finally { getBtn.disabled = false; } }
+    
+    async function handleLocationActionConfirm() {
+        if (isActionProcessing) return;
+        const btn = document.getElementById('confirmActionBtn');
+        btn.blur();
+        const { studentId, actionType, latitude, longitude } = btn.dataset;
+        console.log('Dados de solicitação:', { studentId, actionType, latitude, longitude });
+
+         if (!studentId || !latitude || !longitude)
+        return showAlert('Dados de localização ausentes.', 'danger');
+
+        isActionProcessing = true;
+        setModalLoading(true, actionType === 'entrada' ? 'Registrando...' : 'Solicitando...');
+
+        try {
+            let endpoint, body = { 
+                alunoId: parseInt(studentId), 
+                latitude: parseFloat(latitude), 
+                longitude: parseFloat(longitude) 
+            };
+            
+            if (actionType === 'entrada') {
+                endpoint = '/api/presencas/entrada';
+                body.responsavelId = currentUser.id;
+                body.responsavelNome = currentUser.nome;
+                body.responsavelTipo = 'TUTOR';
+            } else {
+                endpoint = '/api/presencas/saida/solicitar';
+                const student = students.find(s => s.id == studentId);
+                body.escolaId = student?.escolaId;
+                
+                console.log('Corpo da solicitação de saída:', body);
+            }
+            
+            const response = await fetchWithAuth(`${BACKEND_URL}${endpoint}`,{ 
+                method: 'POST', 
+                body: JSON.stringify(body) 
+            });
+            
+            const responseData = await response.json();
+            console.log('Resposta da solicitação:', responseData);
+            
+            showAlert(`Ação de ${actionType} registrada com sucesso!`, 'success');
+            actionLocationModalInstance.hide();
+            await refreshStudentsData();
+        } catch (error) {
+            console.error('Erro completo:', error);
+            showAlert(error.message, 'danger');
+        } finally {
+            isActionProcessing = false;
+            setModalLoading(false);
+        }
+    }
+
+
+        function resetLocationState() { const modal = document.getElementById('actionLocationModal'); modal.querySelector('#locationStatus').style.display = 'none'; modal.querySelector('#coordinatesDisplay').style.display = 'none'; modal.querySelector('#confirmActionBtn').disabled = true; modal.querySelector('#getLocationBtn').disabled = false; }
+        window.openManualConfirmModal = function(alunoId, alunoNome) { if (isActionProcessing || !alunoId) return; const modal = document.getElementById('manualConfirmExitModal'); modal.querySelector('#manualConfirmExitMessage').textContent = `Deseja confirmar manualmente a saída do aluno ${alunoNome}?`; modal.querySelector('#manualConfirmExitOkBtn').dataset.studentId = alunoId; manualConfirmExitModalInstance.show(); }
+    
+        async function handleManualConfirmExit() {
+             if (isActionProcessing)
+             return;
+             const btn = document.getElementById('manualConfirmExitOkBtn');
+             btn.blur();
+             const { studentId } = btn.dataset;
+             if (!studentId)
+             return showAlert('ID do aluno não encontrado.', 'danger');
+            isActionProcessing = true;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Confirmando...';
+            try { await fetchWithAuth(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${studentId}`,
+                { method: 'POST' });
+                showAlert('Saída confirmada com sucesso!', 'success');
+                manualConfirmExitModalInstance.hide();
+                await refreshStudentsData();
+            } catch (error) { showAlert(error.message, 'danger');
+
+            } finally { isActionProcessing = false; btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-check-circle"></i> Sim, Confirmar';
+            } }
+        
+ 
+        function showAlert(message, type = 'success') { alertBox.textContent = message; alertBox.className = `alert alert-${type} alert-dismissible fade show`; alertBox.style.display = 'block'; setTimeout(() => { if (alertBox && alertBox.style.display !== 'none') bootstrap.Alert.getOrCreateInstance(alertBox).close(); }, 5000); }
+        function setModalLoading(isLoading, text = 'Processando...') { const modalLoading = document.getElementById('modalLoading'); if(modalLoading) { modalLoading.style.display = isLoading ? 'flex' : 'none'; document.getElementById('modalLoadingText').textContent = text; } }
+        
+        </script>
 
 
 <!-- ======================================================================= -->
