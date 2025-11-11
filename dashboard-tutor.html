@@ -713,45 +713,47 @@ main {
     async function loadAlunosVinculados(tutorName) {
         console.log(`Buscando alunos vinculados para o tutor: ${tutorName}`);
         const studentList = document.getElementById('studentList');
+        
         if (!studentList) {
-            console.error("Elemento 'student-list' não encontrado no DOM.");
+            console.error("Elemento 'studentList' não encontrado no DOM.");
             return;
         }
 
         try {
-            // CORRIGIDO: A variável agora se chama 'data' para refletir que já é o objeto JSON.
+            // 1ª Chamada (já corrigida)
             const data = await fetchWithAuth(`${BACKEND_URL}/api/tutores/${encodeURIComponent(tutorName)}/alunos`);
-
-            // A verificação de !response.ok foi removida, pois já é tratada dentro de fetchWithAuth.
-
-            // CORRIGIDO: A chamada duplicada para .json() foi removida.
 
             if (!data || !data.alunos || !Array.isArray(data.alunos)) {
                 throw new Error("O formato da resposta da API de alunos é inválido.");
             }
 
-            // O resto da sua função continua igual...
             const studentPromises = data.alunos.map(async (student) => {
                 try {
-                    const saidaResponse = await fetchWithAuth(`${BACKEND_URL}/api/presencas/aluno/${student.id}/saida-ativa`);
-                    if (saidaResponse.sucesso && saidaResponse.dados && saidaResponse.dados.status === 'AGUARDANDO_CONFIRMACAO') {
+                    // 2ª Chamada (agora corrigida!)
+                    const saidaAtiva = await fetchWithAuth(`${BACKEND_URL}/api/presencas/aluno/${student.id}/saida-ativa`);
+                    
+                    // LÓGICA CORRIGIDA: Checa o JSON diretamente
+                    if (saidaAtiva.sucesso && saidaAtiva.dados && saidaAtiva.dados.status === 'AGUARDANDO_CONFIRMACAO') {
                         student.status = 'AGUARDANDO_CONFIRMACAO';
                     }
                 } catch (error) {
+                    // Se a verificação de status de um aluno falhar, apenas avisa no console, mas não para o processo.
                     console.warn(`Não foi possível verificar a saída ativa para o aluno ${student.id}:`, error);
                 }
                 return student;
             });
 
+            // Aguarda todas as verificações de status terminarem
             students = await Promise.all(studentPromises);
-            renderStudents(); // Renderiza a lista de alunos atualizada
+            
+            // Finalmente, renderiza os cards dos alunos na tela!
+            renderStudents(); 
 
         } catch (error) {
             console.error('Erro detalhado ao carregar alunos vinculados:', error);
             studentList.innerHTML = `
                 <div class="error-message" style="padding: 20px; text-align: center; color: #721c24; background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: .25rem;">
                     <p><strong>Ocorreu um erro ao carregar seus alunos.</strong></p>
-                    <p>Por favor, atualize a página. Se o problema persistir, contate o suporte.</p>
                     <p style="font-size: 0.8em; color: #666; margin-top: 10px;">Detalhes: ${error.message}</p>
                 </div>
             `;
