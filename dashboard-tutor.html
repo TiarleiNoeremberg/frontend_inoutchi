@@ -1114,74 +1114,76 @@ main {
     }
 
     /**
-     * NOVA FUNÇÃO: Renderiza a lista de alunos na tela.
-     * Esta versão remove a imagem e adiciona todos os botões e informações solicitadas.
+     * Renderiza a lista de alunos na tela.
+     * Esta função é chamada depois que os dados dos alunos são buscados e processados.
      */
     function renderStudents() {
-        const studentList = document.getElementById('student-list');
-        if (!studentList) return;
-
-        if (students.length === 0) {
-            studentList.innerHTML = '<li class="list-group-item text-center p-4 text-muted">Nenhum aluno vinculado.</li>';
+        // Garante que o elemento onde os cards serão inseridos existe.
+        if (!studentList) {
+            console.error("Função renderStudents chamada, mas a variável global 'studentList' é nula.");
             return;
         }
 
-        studentList.innerHTML = ''; // Limpa a lista antes de recriá-la
+        // Adiciona um log para sabermos que a função foi chamada e com quantos alunos.
+        console.log(`Renderizando ${students ? students.length : 0} alunos.`);
 
-        students.forEach(student => {
-            if (!student || !student.id) {
-                console.warn('Item de aluno inválido recebido:', student);
-                return; // Pula registros de alunos inválidos
-            }
-
-            const li = document.createElement('li');
-            li.className = 'student-item';
-            li.id = `student-${student.id}`;
-
-            const safeStudentName = student.nome ? String(student.nome).replace(/'/g, "\\'") : 'Aluno';
-
-            let statusClass, statusText, actionButtonHtml;
-
-            switch (student.status) {
-                case 'PRESENTE':
-                    statusClass = 'status-present';
-                    statusText = 'Presente';
-                    actionButtonHtml = `<button class="btn btn-sm btn-danger action-btn" onclick="openLocationActionModal(${student.id}, 'saida', '${safeStudentName}')"><i class="fas fa-sign-out-alt"></i> Solicitar Saída</button>`;
-                    break;
-                case 'AGUARDANDO_CONFIRMACAO':
-                    statusClass = 'status-warning';
-                    statusText = 'Aguardando Confirmação';
-                    actionButtonHtml = `<button class="btn btn-sm btn-warning action-btn" disabled><i class="fas fa-clock"></i> Aguardando</button>`;
-                    break;
-                case 'AUSENTE':
-                default:
-                    statusClass = 'status-absent';
-                    statusText = 'Ausente';
-                    actionButtonHtml = `<button class="btn btn-sm btn-success action-btn" onclick="openLocationActionModal(${student.id}, 'entrada', '${safeStudentName}')"><i class="fas fa-sign-in-alt"></i> Registrar Entrada</button>`;
-                    break;
-            }
-
-            // Estrutura do item do aluno, sem imagem e com os botões corretos.
-            li.innerHTML = `
-                <div class="student-info-container">
-                    <span class="student-name">${student.nome || 'Nome Indisponível'}</span>
-                    <span class="student-class">${student.salaNome || 'Sala Indisponível'}</span>
-                </div>
-                <div class="student-status-container">
-                    <span class="status-badge ${statusClass}">${statusText}</span>
-                </div>
-                <div class="student-actions-container">
-                    ${actionButtonHtml}
-                    <button class="btn btn-sm btn-info action-btn" onclick="openGenerateTokenModal(${student.id}, '${safeStudentName}')" title="Gerar Token Provisório">
-                        <i class="fas fa-key"></i> Token
-                    </button>
-                    <button class="btn btn-sm btn-secondary action-btn" onclick="viewStudentHistory(${student.id})" title="Histórico do Aluno">
-                        <i class="fas fa-history"></i> Histórico
-                    </button>
+        // Se a lista de alunos estiver vazia, exibe uma mensagem amigável.
+        if (!students || students.length === 0) {
+            studentList.innerHTML = `
+                <div class="col-12 text-center" style="padding: 20px; background-color: #f8f9fa; border-radius: 8px;">
+                    <p class="mb-0">Nenhum aluno vinculado a você no momento.</p>
                 </div>
             `;
-            studentList.appendChild(li);
-        });
+            return;
+        }
+
+        // Mapeia a lista de objetos 'students' para uma lista de strings HTML (os cards).
+        const studentCardsHTML = students.map(student => {
+            const isPresent = student.status === 'PRESENTE';
+            const isAwaitingExit = student.status === 'AGUARDANDO_CONFIRMACAO';
+
+            // Define a cor e o texto do status baseado na presença.
+            let statusClass = 'bg-secondary'; // Cinza para ausente
+            let statusText = 'Ausente';
+            if (isPresent) {
+                statusClass = 'bg-success'; // Verde para presente
+                statusText = 'Presente';
+            } else if (isAwaitingExit) {
+                statusClass = 'bg-warning text-dark'; // Laranja para aguardando saída
+                statusText = 'Aguardando Saída';
+            }
+
+            return `
+                <div class="col-md-6 col-lg-4 mb-4">
+                    <div class="card student-card h-100">
+                        <div class="card-body text-center">
+                            <span class="avatar mb-3">${student.nome.charAt(0)}</span>
+                            <h5 class="card-title">${student.nome}</h5>
+                            <p class="card-text text-muted">${student.escolaNome || 'Escola não informada'}</p>
+                            
+                            <div class="status-badge ${statusClass}">
+                                ${statusText}
+                            </div>
+
+                            <div class="d-grid gap-2 mt-3">
+                                <button class="btn btn-primary" onclick="openActionLocationModal(${student.id}, 'ENTRADA')" ${isPresent || isAwaitingExit ? 'disabled' : ''}>
+                                    <i class="fas fa-arrow-right-to-bracket"></i> Registrar Entrada
+                                </button>
+                                <button class="btn btn-outline-danger" onclick="openActionLocationModal(${student.id}, 'SAIDA')" ${!isPresent ? 'disabled' : ''}>
+                                    <i class="fas fa-arrow-right-from-bracket"></i> Solicitar Saída
+                                </button>
+                                <button class="btn btn-outline-secondary btn-sm mt-2" onclick="showHistory(${student.id})">
+                                    <i class="fas fa-history"></i> Ver Histórico
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join(''); // Junta todos os cards gerados em uma única string HTML.
+
+        // Finalmente, insere o HTML de todos os cards dentro do elemento 'studentList'.
+        studentList.innerHTML = studentCardsHTML;
     }
 
     window.viewStudentHistory = async function(studentId, studentName) {
