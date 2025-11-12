@@ -222,11 +222,9 @@
             const togglePassword = document.getElementById('togglePassword');
 
             const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
+            const CLIENT_ID = 'myclientid';
+            const CLIENT_SECRET = 'myclientsecret';
 
-            // --- 3. Execução Inicial ---
-            // Agora, a chamada está no lugar certo: dentro e ao final do listener.
-            verificarSessaoEredirecionar();
-            
             // Alternar visibilidade da senha
             togglePassword.addEventListener('click', () => {
                 const isPasswordVisible = passwordInput.getAttribute('type') === 'text';
@@ -241,11 +239,43 @@
                     togglePassword.alt = 'Ocultar senha';
                 }
             });
-        
+
+            // Verificar token existente
+            const token = localStorage.getItem('access_token');
+            const tokenExpiry = localStorage.getItem('token_expiry');
+            if (token && tokenExpiry && new Date().getTime() < parseInt(tokenExpiry)) {
+                // Se já tem token, verificar o ROLE para redirecionar corretamente
+                getUserRole(token)
+                    .then(userRole => {
+                        if (userRole.includes('ROLE_TUTOR')) {
+                            showAlert('Login automático realizado. Redirecionando para área do Tutor...', 'success');
+                            setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
+                        } else if (userRole.includes('ROLE_DIRETOR')) {
+                            showAlert('Login automático realizado. Redirecionando para área do Diretor...', 'success');
+                            setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
+                        } else if (userRole.includes('ROLE_ESCOLA')) {
+                            showAlert('Login automático realizado. Redirecionando para área da Escola...', 'success');
+                            setTimeout(() => { window.location.href = 'dashboard-escola.html'; }, 1500);
+                        } else if (userRole.includes('ROLE_SALA')) {
+                            showAlert('Login automático realizado. Redirecionando para área da Sala...', 'success');
+                            setTimeout(() => { window.location.href = 'dashboard-sala.html'; }, 1500);    
+                        } else {
+                            showAlert('Login automático realizado. Redirecionando...', 'success');
+                            setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Erro ao verificar ROLE:', error);
+                        showAlert('Login automático realizado. Redirecionando...', 'success');
+                        setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
+                    });
+            }
+
             loginForm.addEventListener('submit', async function(e) {
                 e.preventDefault();
 
-                const email = document.getElementById('email').value.toLowerCase();
+                // Garante que o email enviado para o backend esteja sempre em minúsculas
+                const email = document.getElementById('email').value.toLowerCase(); 
                 const password = passwordInput.value;
 
                 if (!email || !password) {
@@ -257,42 +287,38 @@
                 loginBtn.disabled = true;
 
                 try {
-                    console.group('Tentativa de Login (Nova Arquitetura)');
-                    console.log('URL:', `${BACKEND_URL}/api/auth/login`); // <-- NOVO ENDPOINT
-                    console.log('Enviando usuário:', email);
+                    console.group('Tentativa de Login');
+                    console.log('URL:', BACKEND_URL + '/oauth2/token');
+                    console.log('Email (enviado):', email);
 
-                    // A chamada fetch ficou MUITO mais simples e segura
-                    const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
+                    const response = await fetch(`${BACKEND_URL}/oauth2/token`, {
                         method: 'POST',
                         headers: {
-                            // Apenas informamos que estamos enviando JSON
-                            'Content-Type': 'application/json'
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'Authorization': 'Basic ' + btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)
                         },
-                        // O corpo envia apenas o necessário, sem segredos!
-                        body: JSON.stringify({
-                            username: email,
-                            password: password
-                        }),
-                        credentials: 'include'
+                        body: new URLSearchParams({
+                            'grant_type': 'password',
+                            'username': email,
+                            'password': password,
+                            'scope': 'read write'
+                        })
                     });
 
-                    console.log('Status da resposta:', response.status);
-                    console.groupEnd();
-
-                    // Se a resposta for OK, o cookie HttpOnly já foi configurado pelo navegador!
+                    // Se a resposta for OK (status 2xx), processa o sucesso
                     if (response.ok) {
-                        // ***** REMOVA TODA A LÓGICA DE LOCALSTORAGE *****
-                        // Não precisamos mais salvar tokens manualmente. O navegador já fez isso.
-                        // Ex.: REMOVA localStorage.setItem('access_token', ...);
-                        // Ex.: REMOVA localStorage.setItem('token_expiry', ...);
-                        // Ex.: REMOVA localStorage.setItem('refresh_token', ...);
+                        const data = await response.json();
+                        
+                        const expiresIn = data.expires_in * 1000;
+                        const expiryTime = new Date().getTime() + expiresIn;
 
+                        localStorage.setItem('access_token', data.access_token);
+                        localStorage.setItem('token_expiry', expiryTime.toString());
+                        localStorage.setItem('refresh_token', data.refresh_token || 'no-refresh-token');
+                        
+                        // Redireciona com base no ROLE
+                        const userRole = await getUserRole(data.access_token);
                         showAlert('Login realizado com sucesso! Redirecionando...', 'success');
-
-                        // A lógica de redirecionamento baseada no role pode ser mantida.
-                        // Para isso, precisamos pegar o role do usuário.
-                        // A forma mais segura é chamar o endpoint /api/users/me APÓS o login.
-                        const userRole = await getUserRole(); // Vamos adaptar esta função no próximo passo.
                         
                         if (userRole.includes('ROLE_TUTOR')) {
                             setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
@@ -303,90 +329,60 @@
                         } else if (userRole.includes('ROLE_SALA')) {
                             setTimeout(() => { window.location.href = 'dashboard-sala.html'; }, 1500);
                         } else {
-                            // Se chegar aqui, o usuário está autenticado mas não tem um role conhecido.
-                            // Você pode redirecionar para a página do diretor como padrão, por exemplo.
-                            showAlert('Role de usuário não reconhecido. Redirecionando para o dashboard principal.', 'error');
-                            setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
+                            setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
                         }
 
                     } else {
-                        // A lógica de erro continua similar, tratando as respostas do backend
-                        loading.style.display = 'none';
-                        loginBtn.disabled = false;
-                        try {
-                            const errorData = await response.json();
-                            const errorMessage = errorData.message || errorData.detail || 'Credenciais inválidas ou usuário não encontrado.';
-                            showAlert(errorMessage, 'error');
-                        } catch (e) {
-                            showAlert('Erro ao tentar fazer login. Verifique suas credenciais.', 'error');
+                        // ===== INÍCIO DA NOVA LÓGICA DE ERRO =====
+                        // Se a resposta NÃO for OK, lemos como texto para evitar erros de parsing.
+                        const errorText = await response.text();
+                        console.error("Resposta de erro do servidor:", errorText); // Log para depuração
+
+                        // Verificamos se o texto de erro contém a mensagem que queremos substituir.
+                        if (errorText.includes("Invalid credentials")) {
+                            showAlert('Usuário não cadastrado ou senha incorreta. Verifique os dados inseridos.', 'error');
+                        } else {
+                            // Tenta extrair uma mensagem mais detalhada do JSON, se possível.
+                            try {
+                                const errorJson = JSON.parse(errorText);
+                                showAlert(errorJson.error_description || errorJson.error || 'Ocorreu um erro.', 'error');
+                            } catch (e) {
+                                // Se não for JSON, mostra o texto do erro como fallback.
+                                showAlert(errorText, 'error');
+                            }
                         }
+                        // ===== FIM DA NOVA LÓGICA DE ERRO =====
                     }
 
                 } catch (error) {
-                    console.error('Erro de conexão durante o login:', error);
+                    console.error('Erro de conexão ou script:', error);
+                    showAlert('Erro de conexão: ' + error.message, 'error');
+                } finally {
                     loading.style.display = 'none';
                     loginBtn.disabled = false;
-                    showAlert('Não foi possível conectar ao servidor. Tente novamente mais tarde.', 'error');
+                    console.groupEnd();
                 }
             });
 
-            /**
-             * Nova função getUserRole.
-             * Não precisa mais de argumento, pois o navegador enviará o cookie automaticamente.
-             * Ela busca os dados do usuário e extrai os roles.
-             */
-            async function getUserRole() {
+            // Função para obter o ROLE do usuário
+            async function getUserRole(accessToken) {
                 try {
-                    // O navegador anexa o cookie HttpOnly a esta requisição automaticamente
                     const response = await fetch(`${BACKEND_URL}/api/users/me`, {
-                        method: 'GET',
                         headers: {
-                            'Content-Type': 'application/json'},
-                        credentials: 'include'
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json'
+                        }
                     });
 
-                    if (!response.ok) {
-                        // Se a requisição falhar (ex: 401), significa que não há sessão válida.
-                        return [];
-                    }
-
-                    const userData = await response.json();
-                    return userData.roles || []; // Retorna os roles ou um array vazio
-
-                } catch (error) {
-                    console.error("Erro ao buscar user role:", error);
-                    return []; // Em caso de erro de rede, etc.
-                }
-            }
-
-            /**
-             * Nova função para verificar a sessão na inicialização da página.
-             * Ela substitui a verificação do localStorage.
-             */
-            async function verificarSessaoEredirecionar() {
-                console.log("Verificando sessão existente...");
-                const userRole = await getUserRole();
-
-                if (userRole.length > 0) {
-                    // Se encontramos roles, significa que o usuário tem uma sessão ativa.
-                    if (userRole.includes('ROLE_TUTOR')) {
-                        showAlert('Sessão ativa encontrada. Redirecionando para área do Tutor...', 'success');
-                        setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
-                    } else if (userRole.includes('ROLE_DIRETOR')) {
-                        showAlert('Sessão ativa encontrada. Redirecionando para área do Diretor...', 'success');
-                        setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
-                    } else if (userRole.includes('ROLE_ESCOLA')) {
-                        showAlert('Sessão ativa encontrada. Redirecionando para área da Escola...', 'success');
-                        setTimeout(() => { window.location.href = 'dashboard-escola.html'; }, 1500);
-                    } else if (userRole.includes('ROLE_SALA')) {
-                        showAlert('Sessão ativa encontrada. Redirecionando para área da Sala...', 'success');
-                        setTimeout(() => { window.location.href = 'dashboard-sala.html'; }, 1500);
+                    if (response.ok) {
+                        const userData = await response.json();
+                        return userData.roles || [];
                     } else {
-                        showAlert('Sessão ativa encontrada. Redirecionando...', 'success');
-                        setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
+                        throw new Error('Erro ao obter informações do usuário');
                     }
-                } else {
-                    console.log("Nenhuma sessão ativa encontrada. Aguardando login do usuário.");
+                } catch (error) {
+                    console.error('Erro ao obter ROLE:', error);
+                    throw error;
                 }
             }
 
@@ -396,7 +392,6 @@
                 alertBox.style.display = 'block';
                 setTimeout(() => { alertBox.style.display = 'none'; }, 5000);
             }
-            
         });
     </script>
 </body>
