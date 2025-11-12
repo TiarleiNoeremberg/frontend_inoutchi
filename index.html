@@ -272,8 +272,7 @@
             loginForm.addEventListener('submit', async function(e) {
                 e.preventDefault();
 
-                // Garante que o email enviado para o backend esteja sempre em minúsculas
-                const email = document.getElementById('email').value.toLowerCase(); 
+                const email = document.getElementById('email').value.toLowerCase();
                 const password = passwordInput.value;
 
                 if (!email || !password) {
@@ -285,36 +284,38 @@
                 loginBtn.disabled = true;
 
                 try {
-                    console.group('Tentativa de Login');
-                    console.log('URL:', BACKEND_URL + '/oauth2/token');
-                    console.log('Email (enviado):', email);
-
-                    const response = await fetch(`${BACKEND_URL}/oauth2/token`, {
+                    console.group('Tentativa de Login (via Proxy Backend)');
+                    
+                    // ***** AQUI ESTÁ A CHAMADA CORRETA *****
+                    // Apontando para o endpoint que VOCÊ criou, que mantém as credenciais seguras no backend.
+                    const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
                         method: 'POST',
                         headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded'
+                            'Content-Type': 'application/json'
                         },
-                        body: new URLSearchParams({
-                            'username': email,
-                            'password': password
+                        body: JSON.stringify({
+                            username: email,
+                            password: password
                         })
                     });
 
-                    // Se a resposta for OK (status 2xx), processa o sucesso
+                    const data = await response.json();
+                    console.log('Resposta do proxy:', data);
+
                     if (response.ok) {
-                        const data = await response.json();
-                        
-                        const expiresIn = data.expires_in * 1000;
+                        const expiresIn = (data.expires_in || 3600) * 1000;
                         const expiryTime = new Date().getTime() + expiresIn;
 
                         localStorage.setItem('access_token', data.access_token);
                         localStorage.setItem('token_expiry', expiryTime.toString());
-                        localStorage.setItem('refresh_token', data.refresh_token || 'no-refresh-token');
+                        if (data.refresh_token) {
+                            localStorage.setItem('refresh_token', data.refresh_token);
+                        }
                         
-                        // Redireciona com base no ROLE
                         const userRole = await getUserRole(data.access_token);
                         showAlert('Login realizado com sucesso! Redirecionando...', 'success');
                         
+                        // Lógica de redirecionamento (continua a mesma)
                         if (userRole.includes('ROLE_TUTOR')) {
                             setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
                         } else if (userRole.includes('ROLE_DIRETOR')) {
@@ -328,30 +329,14 @@
                         }
 
                     } else {
-                        // ===== INÍCIO DA NOVA LÓGICA DE ERRO =====
-                        // Se a resposta NÃO for OK, lemos como texto para evitar erros de parsing.
-                        const errorText = await response.text();
-                        console.error("Resposta de erro do servidor:", errorText); // Log para depuração
-
-                        // Verificamos se o texto de erro contém a mensagem que queremos substituir.
-                        if (errorText.includes("Invalid credentials")) {
-                            showAlert('Usuário não cadastrado ou senha incorreta. Verifique os dados inseridos.', 'error');
-                        } else {
-                            // Tenta extrair uma mensagem mais detalhada do JSON, se possível.
-                            try {
-                                const errorJson = JSON.parse(errorText);
-                                showAlert(errorJson.error_description || errorJson.error || 'Ocorreu um erro.', 'error');
-                            } catch (e) {
-                                // Se não for JSON, mostra o texto do erro como fallback.
-                                showAlert(errorText, 'error');
-                            }
-                        }
-                        // ===== FIM DA NOVA LÓGICA DE ERRO =====
+                        // O erro agora vem do corpo da resposta do proxy
+                        const errorMessage = data.message || data.error_description || 'Usuário ou senha inválidos.';
+                        showAlert(errorMessage, 'error');
                     }
 
                 } catch (error) {
                     console.error('Erro de conexão ou script:', error);
-                    showAlert('Erro de conexão: ' + error.message, 'error');
+                    showAlert('Erro de conexão ao tentar autenticar. Verifique o console.', 'error');
                 } finally {
                     loading.style.display = 'none';
                     loginBtn.disabled = false;
