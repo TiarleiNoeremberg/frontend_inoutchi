@@ -269,51 +269,71 @@
                     });
             }
 
-            loginForm.addEventListener('submit', async function(event) {
-    event.preventDefault();
+            loginForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
 
-    const email = document.getElementById('email').value;
-    const password = document.getElementById('password').value;
+                const email = document.getElementById('email').value.toLowerCase();
+                const password = passwordInput.value;
 
-    // MUDANÇA CRÍTICA 1: A URL agora aponta para o endpoint padrão do OAuth2
-    const loginUrl = `${BACKEND_URL}/oauth2/token`;
+                if (!email || !password) {
+                    showAlert('Por favor, preencha todos os campos.', 'error');
+                    return;
+                }
 
-    // MUDANÇA CRÍTICA 2: O body precisa ser enviado como 'x-www-form-urlencoded'
-    const body = new URLSearchParams({
-        'grant_type': 'password',
-        'username': email,
-        'password': password,
-        'scope': 'read write' // Escopos que você deseja solicitar
-    });
+                loading.style.display = 'block';
+                loginBtn.disabled = true;
 
-    try {
-        console.log(`Tentativa de Login para: ${loginUrl}`);
+                try {
+                    console.group('Tentativa de Login (via Proxy Seguro)');
+                    
+                    // Chamando o endpoint de proxy seguro que você já criou.
+                    const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            username: email,
+                            password: password
+                        })
+                    });
 
-        const response = await fetch(loginUrl, {
-            method: 'POST',
-            headers: {
-                // MUDANÇA CRÍTICA 3: O Content-Type e a Autorização do Cliente
-                'Content-Type': 'application/x-www-form-urlencoded',
-                // O 'Authorization' com as credenciais do cliente é essencial para o grant_type 'password'
-                'Authorization': 'Basic ' + btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)
-            },
-            body: body
-        });
+                    // Este erro "Unexpected end of JSON input" acontece quando a resposta 401 vem vazia.
+                    // O if/else abaixo lida com isso corretamente.
+                    if (response.ok) {
+                        const data = await response.json();
+                        console.log('Sucesso via Proxy:', data);
 
-        const data = await response.json();
+                        const expiryTime = new Date().getTime() + (data.expires_in * 1000);
+                        localStorage.setItem('access_token', data.access_token);
+                        localStorage.setItem('token_expiry', expiryTime.toString());
+                        if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
+                        
+                        showAlert('Login realizado com sucesso! Redirecionando...', 'success');
+                        // A lógica de redirecionamento pode ser adicionada aqui.
+                        setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
 
-        if (response.ok) {
-            console.log('Login bem-sucedido:', data);
-            localStorage.setItem('accessToken', data.access_token);
-            // Redirecionar ou atualizar a UI
-        } else {
-            console.error('Erro no login:', data);
-            // Exibir mensagem de erro
-        }
-    } catch (error) {
-        console.error('Erro de conexão:', error);
-    }
-});
+                    } else {
+                        // Se a resposta for um erro (como 401), tente ler como JSON, se falhar, mostre um erro genérico.
+                        let errorMsg = 'Usuário ou senha inválidos.';
+                        try {
+                            const errorData = await response.json();
+                            errorMsg = errorData.message || errorData.error_description || errorMsg;
+                        } catch (jsonError) {
+                            console.error('Não foi possível parsear a resposta de erro como JSON.');
+                        }
+                        showAlert(errorMsg, 'error');
+                    }
+
+                } catch (error) {
+                    console.error('Erro de conexão ou script:', error);
+                    showAlert('Erro de conexão ao servidor.', 'error');
+                } finally {
+                    loading.style.display = 'none';
+                    loginBtn.disabled = false;
+                    console.groupEnd();
+                }
+            });
 
             // Função para obter o ROLE do usuário
             async function getUserRole(accessToken) {
