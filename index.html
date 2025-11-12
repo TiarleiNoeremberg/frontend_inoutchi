@@ -222,7 +222,9 @@
             const togglePassword = document.getElementById('togglePassword');
 
             const BACKEND_URL = 'https://inoutchi-cd92743c8443.herokuapp.com';
-            
+            const CLIENT_ID = 'myclientid';
+            const CLIENT_SECRET = 'myclientsecret';
+
             // Alternar visibilidade da senha
             togglePassword.addEventListener('click', () => {
                 const isPasswordVisible = passwordInput.getAttribute('type') === 'text';
@@ -272,7 +274,8 @@
             loginForm.addEventListener('submit', async function(e) {
                 e.preventDefault();
 
-                const email = document.getElementById('email').value.toLowerCase();
+                // Garante que o email enviado para o backend esteja sempre em minúsculas
+                const email = document.getElementById('email').value.toLowerCase(); 
                 const password = passwordInput.value;
 
                 if (!email || !password) {
@@ -284,50 +287,76 @@
                 loginBtn.disabled = true;
 
                 try {
-                    console.group('Tentativa de Login (via Proxy Seguro)');
-                    
-                    // Chamando o endpoint de proxy seguro que você já criou.
-                    const response = await fetch(`${BACKEND_URL}/api/auth/login`, {
+                    console.group('Tentativa de Login');
+                    console.log('URL:', BACKEND_URL + '/oauth2/token');
+                    console.log('Email (enviado):', email);
+
+                    const response = await fetch(`${BACKEND_URL}/oauth2/token`, {
                         method: 'POST',
                         headers: {
-                            'Content-Type': 'application/json'
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'Authorization': 'Basic ' + btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)
                         },
-                        body: JSON.stringify({
-                            username: email,
-                            password: password
+                        body: new URLSearchParams({
+                            'grant_type': 'password',
+                            'username': email,
+                            'password': password,
+                            'scope': 'read write'
                         })
                     });
 
-                    // Este erro "Unexpected end of JSON input" acontece quando a resposta 401 vem vazia.
-                    // O if/else abaixo lida com isso corretamente.
+                    // Se a resposta for OK (status 2xx), processa o sucesso
                     if (response.ok) {
                         const data = await response.json();
-                        console.log('Sucesso via Proxy:', data);
+                        
+                        const expiresIn = data.expires_in * 1000;
+                        const expiryTime = new Date().getTime() + expiresIn;
 
-                        const expiryTime = new Date().getTime() + (data.expires_in * 1000);
                         localStorage.setItem('access_token', data.access_token);
                         localStorage.setItem('token_expiry', expiryTime.toString());
-                        if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
+                        localStorage.setItem('refresh_token', data.refresh_token || 'no-refresh-token');
                         
+                        // Redireciona com base no ROLE
+                        const userRole = await getUserRole(data.access_token);
                         showAlert('Login realizado com sucesso! Redirecionando...', 'success');
-                        // A lógica de redirecionamento pode ser adicionada aqui.
-                        setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
+                        
+                        if (userRole.includes('ROLE_TUTOR')) {
+                            setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
+                        } else if (userRole.includes('ROLE_DIRETOR')) {
+                            setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
+                        } else if (userRole.includes('ROLE_ESCOLA')) {
+                            setTimeout(() => { window.location.href = 'dashboard-escola.html'; }, 1500);
+                        } else if (userRole.includes('ROLE_SALA')) {
+                            setTimeout(() => { window.location.href = 'dashboard-sala.html'; }, 1500);
+                        } else {
+                            setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
+                        }
 
                     } else {
-                        // Se a resposta for um erro (como 401), tente ler como JSON, se falhar, mostre um erro genérico.
-                        let errorMsg = 'Usuário ou senha inválidos.';
-                        try {
-                            const errorData = await response.json();
-                            errorMsg = errorData.message || errorData.error_description || errorMsg;
-                        } catch (jsonError) {
-                            console.error('Não foi possível parsear a resposta de erro como JSON.');
+                        // ===== INÍCIO DA NOVA LÓGICA DE ERRO =====
+                        // Se a resposta NÃO for OK, lemos como texto para evitar erros de parsing.
+                        const errorText = await response.text();
+                        console.error("Resposta de erro do servidor:", errorText); // Log para depuração
+
+                        // Verificamos se o texto de erro contém a mensagem que queremos substituir.
+                        if (errorText.includes("Invalid credentials")) {
+                            showAlert('Usuário não cadastrado ou senha incorreta. Verifique os dados inseridos.', 'error');
+                        } else {
+                            // Tenta extrair uma mensagem mais detalhada do JSON, se possível.
+                            try {
+                                const errorJson = JSON.parse(errorText);
+                                showAlert(errorJson.error_description || errorJson.error || 'Ocorreu um erro.', 'error');
+                            } catch (e) {
+                                // Se não for JSON, mostra o texto do erro como fallback.
+                                showAlert(errorText, 'error');
+                            }
                         }
-                        showAlert(errorMsg, 'error');
+                        // ===== FIM DA NOVA LÓGICA DE ERRO =====
                     }
 
                 } catch (error) {
                     console.error('Erro de conexão ou script:', error);
-                    showAlert('Erro de conexão ao servidor.', 'error');
+                    showAlert('Erro de conexão: ' + error.message, 'error');
                 } finally {
                     loading.style.display = 'none';
                     loginBtn.disabled = false;
