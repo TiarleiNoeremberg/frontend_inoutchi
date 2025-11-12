@@ -269,84 +269,51 @@
                     });
             }
 
-            loginForm.addEventListener('submit', async function(e) {
-                e.preventDefault();
+            loginForm.addEventListener('submit', async function(event) {
+    event.preventDefault();
 
-                const email = document.getElementById('email').value.toLowerCase();
-                const password = passwordInput.value;
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
 
-                if (!email || !password) {
-                    showAlert('Por favor, preencha todos os campos.', 'error');
-                    return;
-                }
+    // MUDANÇA CRÍTICA 1: A URL agora aponta para o endpoint padrão do OAuth2
+    const loginUrl = `${BACKEND_URL}/oauth2/token`;
 
-                loading.style.display = 'block';
-                loginBtn.disabled = true;
+    // MUDANÇA CRÍTICA 2: O body precisa ser enviado como 'x-www-form-urlencoded'
+    const body = new URLSearchParams({
+        'grant_type': 'password',
+        'username': email,
+        'password': password,
+        'scope': 'read write' // Escopos que você deseja solicitar
+    });
 
-                try {
-                    console.group('Tentativa de Login (via Proxy Backend)');
-                    console.log('URL:', BACKEND_URL + '/oauth2/token');
+    try {
+        console.log(`Tentativa de Login para: ${loginUrl}`);
 
-                    // ***** AQUI ESTÁ A CHAMADA CORRETA *****
-                    // Apontando para o endpoint que VOCÊ criou, que mantém as credenciais seguras no backend.
-                    const response = await fetch(`${BACKEND_URL}/oauth2/token`, { // MUDANÇA AQUI
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                            'Authorization': 'Basic ' + btoa(`${CLIENT_ID}:${CLIENT_SECRET}`) // Isso está correto
-                        },
-                        body: new URLSearchParams({
-                            'grant_type': 'password',
-                            'username': email,
-                            'password': password,
-                            'scope': 'read write'
-                        })
-                    });
+        const response = await fetch(loginUrl, {
+            method: 'POST',
+            headers: {
+                // MUDANÇA CRÍTICA 3: O Content-Type e a Autorização do Cliente
+                'Content-Type': 'application/x-www-form-urlencoded',
+                // O 'Authorization' com as credenciais do cliente é essencial para o grant_type 'password'
+                'Authorization': 'Basic ' + btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)
+            },
+            body: body
+        });
 
-                    const data = await response.json();
-                    console.log('Resposta do proxy:', data);
+        const data = await response.json();
 
-                    if (response.ok) {
-                        const expiresIn = (data.expires_in || 3600) * 1000;
-                        const expiryTime = new Date().getTime() + expiresIn;
-
-                        localStorage.setItem('access_token', data.access_token);
-                        localStorage.setItem('token_expiry', expiryTime.toString());
-                        if (data.refresh_token) {
-                            localStorage.setItem('refresh_token', data.refresh_token);
-                        }
-                        
-                        const userRole = await getUserRole(data.access_token);
-                        showAlert('Login realizado com sucesso! Redirecionando...', 'success');
-                        
-                        // Lógica de redirecionamento (continua a mesma)
-                        if (userRole.includes('ROLE_TUTOR')) {
-                            setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
-                        } else if (userRole.includes('ROLE_DIRETOR')) {
-                            setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
-                        } else if (userRole.includes('ROLE_ESCOLA')) {
-                            setTimeout(() => { window.location.href = 'dashboard-escola.html'; }, 1500);
-                        } else if (userRole.includes('ROLE_SALA')) {
-                            setTimeout(() => { window.location.href = 'dashboard-sala.html'; }, 1500);
-                        } else {
-                            setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
-                        }
-
-                    } else {
-                        // O erro agora vem do corpo da resposta do proxy
-                        const errorMessage = data.message || data.error_description || 'Usuário ou senha inválidos.';
-                        showAlert(errorMessage, 'error');
-                    }
-
-                } catch (error) {
-                    console.error('Erro de conexão ou script:', error);
-                    showAlert('Erro de conexão ao tentar autenticar. Verifique o console.', 'error');
-                } finally {
-                    loading.style.display = 'none';
-                    loginBtn.disabled = false;
-                    console.groupEnd();
-                }
-            });
+        if (response.ok) {
+            console.log('Login bem-sucedido:', data);
+            localStorage.setItem('accessToken', data.access_token);
+            // Redirecionar ou atualizar a UI
+        } else {
+            console.error('Erro no login:', data);
+            // Exibir mensagem de erro
+        }
+    } catch (error) {
+        console.error('Erro de conexão:', error);
+    }
+});
 
             // Função para obter o ROLE do usuário
             async function getUserRole(accessToken) {
