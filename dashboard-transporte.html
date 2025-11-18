@@ -267,6 +267,28 @@
             text-align: center;
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
         }
+
+        .btn-confirm-receipt {
+            padding: 5px 10px;
+            font-size: 0.85em;
+            font-weight: 600;
+            background-color: #2ecc71; /* Verde sucesso, consistente com a paleta */
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .btn-confirm-receipt:hover {
+            background-color: #27ae60; /* Verde mais escuro */
+        }
+
+        .btn-confirm-receipt:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
     </style>
 </head>
 
@@ -309,6 +331,7 @@
                         <th><input type="checkbox" id="selecionar-todos" class="custom-checkbox"></th>
                         <th>Aluno</th>
                         <th>Status</th>
+                        <th>Ação</th>
                     </tr>
                 </thead>
                 <tbody id="student-list-body">
@@ -411,35 +434,57 @@
                 document.getElementById('transportador-nome').textContent = currentUser.nome.split(' ')[0];
             }
 
-            async function loadStudents(token) {
-                // exibe spinner
-                studentListBody.innerHTML = `
-                <tr>
-                <td colspan="3" style="text-align:center; padding:40px;">
-                    <i class="fas fa-spinner fa-spin"></i> Carregando...
-                </td>
-                </tr>`;
-
+            async function loadStudents(accessToken) {
                 try {
-                    const res = await fetch(
-                        `https://inoutchi-cd92743c8443.herokuapp.com/api/transporte/meus-alunos`,
-                        { headers: { 'Authorization': `Bearer ${token}` } }
-                    );
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const response = await fetch('/api/transporte/alunos', {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                    });
+                    if (!response.ok) throw new Error('Falha ao carregar alunos');
 
-                    // aqui a resposta é um array JSON puro de AlunoResumoDTO
-                    const alunos = await res.json();
-                    studentsData = Array.isArray(alunos) ? alunos : [];
-                    renderStudents();
-                } catch (err) {
-                    console.error(err);
-                    studentListBody.innerHTML = `
-                <tr>
-                    <td colspan="3"
-                        style="text-align:center; color:var(--danger-color); padding:20px;">
-                    ${err.message}
-                    </td>
-                </tr>`;
+                    const responseData = await response.json();
+                    studentsData = responseData.alunos; // Armazena os dados globalmente
+
+                    studentListBody.innerHTML = ''; // Limpa a lista antes de recriar
+
+                    studentsData.forEach(aluno => {
+                        const tr = document.createElement('tr');
+                        let statusText, statusClass;
+                        let actionCellHtml = '<td></td>'; // Célula de ação vazia por padrão
+                        let checkboxDisabled = false;
+
+                        // **LÓGICA ATUALIZADA AQUI**
+                        if (aluno.saidaPendente) {
+                            statusText = 'Saída Pendente';
+                            statusClass = 'status-pending';
+                            checkboxDisabled = true;
+                            // Adiciona o botão de confirmação na célula de ação
+                            actionCellHtml = `<td><button class="btn-confirm-receipt" onclick="handleConfirmacaoIndividual(${aluno.id})">Confirmar</button></td>`;
+                        } else if (aluno.status === 'PRESENTE') {
+                            statusText = 'Presente';
+                            statusClass = 'status-present';
+                        } else {
+                            statusText = 'Ausente';
+                            statusClass = 'status-absent';
+                            checkboxDisabled = true; // Também desabilita para ausentes
+                        }
+
+                        tr.innerHTML = `
+                            <td>
+                                <input type="checkbox" class="custom-checkbox student-checkbox" value="${aluno.id}" ${checkboxDisabled ? 'disabled' : ''}>
+                            </td>
+                            <td>${aluno.nome}</td>
+                            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                            ${actionCellHtml}
+                        `;
+                        studentListBody.appendChild(tr);
+                    });
+
+                    updateActionButtonsState();
+
+                } catch (error) {
+                    console.error("Erro ao carregar estudantes:", error);
+                    studentListBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: red;">Erro ao carregar dados.</td></tr>';
+                    disableAllActions();
                 }
             }
 
@@ -770,7 +815,36 @@
                 });
             }
 
+            /**
+             * NOVA FUNÇÃO: Processa a confirmação de recebimento para um único aluno.
+             */
+            async function handleConfirmacaoIndividual(alunoId) {
+                showFeedback('Processando...', `Confirmando o recebimento do aluno.`);
 
+                try {
+                    const accessToken = localStorage.getItem('access_token');
+                    const response = await fetch(`/api/chamadas/confirmar-manual/${alunoId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+
+                    if (response.ok) {
+                        showFeedback('Sucesso!', 'Recebimento do aluno confirmado com sucesso.');
+                        // Recarrega a lista para atualizar o status de todos
+                        await loadStudents(accessToken);
+                    } else {
+                        // Trata erros específicos da API se necessário
+                        const errorData = await response.json();
+                        throw new Error(errorData.mensagem || 'Falha ao confirmar o recebimento.');
+                    }
+                } catch (error) {
+                    console.error('Erro na confirmação individual:', error);
+                    showFeedback('Erro', error.message);
+                }
+            }
 
 
         });
