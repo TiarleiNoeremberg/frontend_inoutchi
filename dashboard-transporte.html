@@ -600,54 +600,49 @@
                     // Verifica se a resposta é 403 e tenta extrair a mensagem de erro
                     if (!response.ok) {
                         let errorMessage = 'Erro desconhecido do servidor.';
-                        
+                        let errorData = null;
+
                         try {
-                            const errorResult = await response.json();
-                            
-                            if (response.status === 403) {
-                                // Verifica se é erro de geofence baseado na mensagem do servidor
-                                const responseText = JSON.stringify(errorResult).toLowerCase();
-                                if (responseText.includes('fora') || 
-                                    responseText.includes('geofence') || 
-                                    responseText.includes('área') ||
-                                    responseText.includes('raio')) {
-                                    errorMessage = `📍 Você está fora da área permitida para registrar ${currentAction}. \n\nAproxime-se da escola para realizar esta ação.`;
-                                } else {
-                                    errorMessage = 'Acesso negado. Verifique suas permissões.';
-                                }
-                            } else if (errorResult.erros && errorResult.erros.length > 0) {
-                                errorMessage = errorResult.erros[0];
-                            } else if (errorResult.message) {
-                                errorMessage = errorResult.message;
-                            }
-                        } catch (parseError) {
-                            // Se não conseguir parsear o JSON de erro, usa mensagem genérica baseada no status
-                            if (response.status === 403) {
-                                errorMessage = `📍 Não foi possível registrar ${currentAction}. Você pode estar fora da área permitida.`;
+                            errorData = await response.json();
+                            errorMessage = errorData.message || JSON.stringify(errorData);
+                        } catch {
+                            errorMessage = `Erro ${response.status}: ${response.statusText}`;
+                        }
+
+                        // Detectar erro de permissão
+                        if (response.status === 400) {
+                            if (errorMessage.includes('role') ||
+                                errorMessage.includes('DIRETOR') ||
+                                errorMessage.includes('TUTOR') ||
+                                errorMessage.includes('permissão') ||
+                                errorMessage.includes('autoridade')) {
+                                errorMessage = `🔐 **Permissão Insuficiente**\n\nSeu usuário não tem permissão para registrar ${currentAction}.\n\n**Solução:**\n• Entre em contato com o administrador\n• Solicite a role de TUTOR ou DIRETOR`;
                             }
                         }
-                        
+
+                        // Detectar erro de geofence (mantém o anterior)
+                        if (response.status === 403 && (
+                            errorMessage.toLowerCase().includes('fora') ||
+                            errorMessage.toLowerCase().includes('geofence') ||
+                            errorMessage.toLowerCase().includes('área') ||
+                            errorMessage.toLowerCase().includes('raio')
+                        )) {
+                            errorMessage = `📍 **Fora da Área Permitida**\n\nVocê está fora da área autorizada para registrar ${currentAction}.\n\nAproxime-se da escola para realizar esta ação.`;
+                        }
+
                         throw new Error(errorMessage);
                     }
 
-                    // Se chegou aqui, a requisição foi bem-sucedida
+                    // Sucesso
                     const result = await response.json();
                     closeConfirmationModal();
-                    showFeedback('Sucesso!', `Ação de ${currentAction} foi processada com sucesso. A lista será atualizada.`);
+                    showFeedback('Sucesso!', `Ação de ${currentAction} processada com sucesso!`);
                     await loadStudents(accessToken);
-                    
+
                 } catch (error) {
                     console.error(`Erro ao executar ${currentAction}:`, error);
                     closeConfirmationModal();
-                    
-                    // Mensagem mais amigável para erro de geofence
-                    let userFriendlyMessage = error.message;
-                    
-                    if (error.message.includes('fora da área permitida')) {
-                        userFriendlyMessage = `📍 **Localização Bloqueada**\n\nVocê está fora da área autorizada para registrar ${currentAction} dos alunos.\n\n**Solução:**\n• Aproxime-se da escola\n• Verifique seu GPS está ativo\n• Tente novamente quando estiver mais próximo`;
-                    }
-                    
-                    showFeedback('Erro na Ação', userFriendlyMessage);
+                    showFeedback('Erro na Ação', error.message);
                 } finally {
                     currentAction = null;
                     currentActionPayload = null;
