@@ -290,6 +290,30 @@
             background-color: #ccc;
             cursor: not-allowed;
         }
+
+        .user-info p {
+            margin: 0;
+        }
+
+        .btn-danger {
+            background-color: var(--danger-color);
+            color: white;
+        }
+
+        .btn-success {
+            background-color: var(--success-color);
+            color: white;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .modal-actions {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+        }
     </style>
 </head>
 
@@ -332,7 +356,7 @@
                         <th><input type="checkbox" id="selecionar-todos" class="custom-checkbox"></th>
                         <th>Aluno</th>
                         <th>Status</th>
-                        <th>Ação</th>
+                        <th class="text-center">Ação</th>
                     </tr>
                 </thead>
                 <tbody id="student-list-body">
@@ -387,7 +411,7 @@
         <div class="modal-content">
             <h3 id="feedbackTitle"></h3>
             <p id="feedbackMessage"></p>
-            <div class="modal-actions">
+            <div class="modal-actions" style="justify-content: center;">
                 <button class="btn btn-primary modal-btn" id="closeFeedback">OK</button>
             </div>
         </div>
@@ -417,12 +441,22 @@
                         window.location.href = 'index.html';
                         return;
                     }
+
+                    const payload = JSON.parse(atob(accessToken.split('.')[1]));
+                    currentUser = {
+                        username: payload.username,
+                        nome: payload.nome,
+                        escolaId: payload.escola_id
+                    };
+                    document.getElementById('transportador-nome').textContent = currentUser.nome;
+
                     await loadUserData(accessToken);
                     await loadStudents(accessToken);
                     setupEventListeners();
                 } catch (error) {
                     console.error('Erro na inicialização:', error);
                     showFeedback('Erro Crítico', 'Não foi possível carregar os dados. Por favor, tente fazer login novamente.');
+                    localStorage.removeItem('access_token');
                 }
             }
 
@@ -488,13 +522,14 @@
             }
 
             function renderStudents() {
-                // Ordena os alunos por nome (ordem alfabética)
+                // MANTIDO: Ordena os alunos por nome
                 studentsData.sort((a, b) => a.nome.toLowerCase().localeCompare(b.nome.toLowerCase()));
 
                 studentListBody.innerHTML = '';
+                // MANTIDO: Trata o caso de lista vazia (com colspan ajustado)
                 if (studentsData.length === 0) {
-                    studentListBody.innerHTML = `<tr><td colspan="3" style="text-align: center; padding: 20px; color: #666;">
-            Nenhum aluno associado a você.</td></tr>`;
+                    studentListBody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 20px; color: #666;">
+Nenhum aluno associado a você.</td></tr>`;
                     disableAllActions();
                     return;
                 }
@@ -502,12 +537,20 @@
                 studentsData.forEach(aluno => {
                     const tr = document.createElement('tr');
                     let statusText, statusClass, checkboxDisabled = false;
+                    let actionCell = '<td></td>'; // NOVO: Célula de ação começa vazia
 
-                    // Se o aluno tiver a flag de saída pendente, use o novo estilo
+                    // MANTIDO: Lógica de status
                     if (aluno.saidaPendente) {
                         statusText = 'Saída Pendente';
                         statusClass = 'status-pending';
                         checkboxDisabled = true;
+                        // NOVO: Adiciona o botão se a saída estiver pendente
+                        actionCell = `
+                <td class="text-center">
+                    <button class="btn btn-success btn-sm confirmar-saida-btn" data-aluno-id="${aluno.id}">
+                        <i class="fa-solid fa-check"></i> Confirmar
+                    </button>
+                </td>`;
                     } else if (aluno.status === 'PRESENTE') {
                         statusText = 'Presente';
                         statusClass = 'status-present';
@@ -516,17 +559,19 @@
                         statusClass = 'status-absent';
                     }
 
+                    // MANTIDO E ATUALIZADO: InnerHTML agora inclui a actionCell
                     tr.innerHTML = `
-                <td>
+            <td>
                 <input type="checkbox" class="custom-checkbox student-checkbox" value="${aluno.id}" ${checkboxDisabled ? 'disabled' : ''}>
-                </td>
-                <td>${aluno.nome}</td>
-                <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-            `;
+            </td>
+            <td>${aluno.nome}</td>
+            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+            ${actionCell}
+        `;
                     studentListBody.appendChild(tr);
                 });
 
-
+                // MANTIDO: Garante que os botões de lote funcionem
                 updateActionButtonsState();
             }
 
@@ -550,6 +595,9 @@
             function setupEventListeners() {
                 if (selecionarTodosCheckbox) selecionarTodosCheckbox.addEventListener('change', handleSelectAll);
                 if (studentListBody) studentListBody.addEventListener('change', handleStudentSelection);
+                if (studentListBody) {
+                    studentListBody.addEventListener('click', handleActionClick); // ADICIONE ESTA LINHA
+                }
                 if (btnRegistrarEntrada) btnRegistrarEntrada.addEventListener('click', () => preareBatchAction('entrada'));
                 if (btnSolicitarSaida) btnSolicitarSaida.addEventListener('click', () => preareBatchAction('saida'));
                 if (cancelActionBtn) cancelActionBtn.addEventListener('click', closeConfirmationModal);
@@ -842,6 +890,51 @@
                 } catch (error) {
                     console.error('Erro na confirmação individual:', error);
                     showFeedback('Erro', error.message);
+                }
+            }
+
+            async function handleActionClick(event) {
+                const target = event.target.closest('.confirmar-saida-btn');
+                if (target) {
+                    const alunoId = target.dataset.alunoId;
+                    const student = studentsData.find(s => s.id == alunoId);
+
+                    // Apenas uma confirmação simples
+                    const userConfirmed = confirm(`Você confirma a retirada do aluno(a) ${student.nome}?`);
+
+                    if (userConfirmed) {
+                        try {
+                            target.disabled = true;
+                            target.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+                            const accessToken = localStorage.getItem('access_token');
+
+                            const response = await fetch('/api/transporte/chamadas/confirmar', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${accessToken}`
+                                },
+                                // MUDANÇA: Enviando apenas o ID do aluno
+                                body: JSON.stringify({
+                                    alunoId: Number(alunoId)
+                                })
+                            });
+
+                            if (!response.ok) {
+                                const errorData = await response.json();
+                                throw new Error(errorData.mensagem || 'Falha ao confirmar a saída.');
+                            }
+
+                            showFeedback('Sucesso!', 'A saída foi confirmada com sucesso.');
+                            await loadStudents(accessToken);
+
+                        } catch (error) {
+                            showFeedback('Erro', error.message);
+                            target.disabled = false;
+                            target.innerHTML = '<i class="fa-solid fa-check"></i> Confirmar';
+                        }
+                    }
                 }
             }
 
