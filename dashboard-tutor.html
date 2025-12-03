@@ -357,6 +357,7 @@
             height: 28px;
             /* Ajuste a altura do seu logotipo principal */
             width: auto;
+            margin-right: 15px;
         }
 
         .header-logomark {
@@ -375,7 +376,7 @@
             <!-- Substitua os valores 'src' pelos links das suas imagens -->
             <img src="img/LogoMarcaInoutchi.png" alt="Logotipo Inoutchi" class="header-logomark">
             <img src="img/LogoTipoInoutchi.png" alt="Logomarca Inoutchi" class="header-logo">
-
+            <span>Dashboard Tutor</span>
         </div>
         <div class="user-info">
             <button id="myTokensBtn" class="btn btn-info" title="Meus Tokens">
@@ -658,9 +659,10 @@
         let currentUser = null, students = [], actionLocationModalInstance, manualConfirmExitModalInstance, logoutConfirmModalInstance, isActionProcessing = false;
         let alertBox, studentList, userFullName, userAvatar, historySection, historyTitle, historyTableBody, historyPaginationControls, historyPaginationInfo, historyPrevBtn, historyNextBtn, historyFirstBtn, historyLastBtn;
         let displayLatitude, displayLongitude, coordinatesDisplay;
-        let historyData = [], historyCurrentPage = 1;
+        let historyData = [], historyCurrentPage = 1, historyViewingStudentId = null;
         let studentRefreshInterval;
         const HISTORY_PAGE_SIZE = 5;
+
 
         document.addEventListener('DOMContentLoaded', initializeDashboard);
 
@@ -1110,6 +1112,7 @@
         }
 
         window.viewStudentHistory = async function (studentId, studentName) {
+            historyViewingStudentId = studentId;
             historyTitle.textContent = `Histórico de ${studentName}`;
             historySection.style.display = 'block';
             historyTableBody.innerHTML = '<tr><td colspan="3" class="text-center p-4"><div class="loading-spinner mx-auto"></div></td></tr>';
@@ -1213,6 +1216,15 @@
                 showAlert(`Ação de ${actionType} registrada com sucesso!`, 'success');
                 actionLocationModalInstance.hide();
                 await refreshStudentsData();
+
+                // Verifica se o histórico do aluno modificado está aberto e o atualiza
+                if (historySection.style.display === 'block' && historyViewingStudentId == studentId) {
+                    console.log('Atualizando o histórico aberto para o aluno ID:', studentId);
+                    // Precisamos do nome do aluno, que pode ser pego do botão que abriu o modal
+                    const student = students.find(s => s.id == studentId);
+                    await viewStudentHistory(studentId, student.nome);
+                }
+
             } catch (error) {
                 console.error('Erro completo:', error);
                 showAlert(error.message, 'danger');
@@ -1230,7 +1242,35 @@
             if (isActionProcessing) return;
             const btn = document.getElementById('manualConfirmExitOkBtn');
             btn.blur();
-            const { studentId } = btn.dataset; if (!studentId) return showAlert('ID do aluno não encontrado.', 'danger'); isActionProcessing = true; btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Confirmando...'; try { await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' }); showAlert('Saída confirmada com sucesso!', 'success'); manualConfirmExitModalInstance.hide(); await refreshStudentsData(); } catch (error) { showAlert(error.message, 'danger'); } finally { isActionProcessing = false; btn.disabled = false; btn.innerHTML = '<i class="fas fa-check-circle"></i> Sim, Confirmar'; }
+            const { studentId } = btn.dataset;
+            if (!studentId)
+                return showAlert('ID do aluno não encontrado.', 'danger');
+            isActionProcessing = true;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Confirmando...';
+            try {
+                await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, {
+                    method: 'POST'
+                });
+                showAlert('Saída confirmada com sucesso!', 'success');
+                manualConfirmExitModalInstance.hide();
+                await refreshStudentsData();
+
+                if (historySection.style.display === 'block' && historyViewingStudentId == studentId) {
+                    console.log('Atualizando o histórico aberto para o aluno ID:', studentId);
+                    // Precisamos do nome do aluno, que pode ser pego do botão que abriu o modal
+                    const student = students.find(s => s.id == studentId);
+                    await viewStudentHistory(studentId, student.nome);
+                }
+
+            } catch (error) {
+                showAlert(error.message, 'danger');
+            } finally {
+                isActionProcessing = false;
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-check-circle"></i> Sim, Confirmar';
+            }
+
         }
 
         /**
