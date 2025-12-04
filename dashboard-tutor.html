@@ -523,12 +523,12 @@
                             <div class="col-md-6">
                                 <label for="tipoParentesco" class="form-label">Parentesco</label>
                                 <select class="form-select" id="tipoParentesco" name="tipoParentesco" required>
-                                    <option value="PARENTE">Parente</option>
-                                    <option value="AMIGO">Amigo</option>
-                                    <option value="IRMAO">Irmão</option>
+                                    <option value="PARENTE" selected>Parente</option>
+                                    <option value="AMIGO">Amigo(a)</option>
+                                    <option value="IRMAO">Irmão/Irmã</option>
+                                    <option value="OUTRO">Outro</option>
                                 </select>
                             </div>
-
                             <div class="col-md-6">
                                 <label for="destinatarioTelefone" class="form-label">Telefone do Destinatário</label>
                                 <input type="tel" class="form-control" id="destinatarioTelefone"
@@ -539,11 +539,10 @@
                                 <input type="email" class="form-control" id="destinatarioEmail" name="destinatarioEmail"
                                     placeholder="nome@email.com">
                             </div>
-
                             <div class="col-md-6">
                                 <label for="tipoOperacao" class="form-label">Tipo de Operação</label>
                                 <select class="form-select" id="tipoOperacao" name="tipoOperacao" required>
-                                    <option value="SAIDA" selected>Saída</option>
+                                    <option value="SAIDA">Saída</option>
                                     <option value="ENTRADA">Entrada</option>
                                 </select>
                             </div>
@@ -552,14 +551,30 @@
                                 <input type="datetime-local" class="form-control" id="dataExpiracao"
                                     name="dataExpiracao" required>
                             </div>
-
                             <div class="col-12">
                                 <label for="observacao" class="form-label">Observação (Opcional)</label>
                                 <textarea class="form-control" id="observacao" name="observacao" rows="2"
                                     placeholder="Ex: Buscar na saída da escola."></textarea>
                             </div>
+
+                            <!-- === CAMPO ADICIONADO CORRETAMENTE === -->
+                            <div class="col-12">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="tokenRecorrente"
+                                        name="recorrente">
+                                    <label class="form-check-label" for="tokenRecorrente">
+                                        <strong>Token Recorrente:</strong> Permitir que seja usado múltiplas vezes.
+                                    </label>
+                                    <div class="form-text">
+                                        Se marcado, o mesmo link poderá ser utilizado várias vezes para a mesma operação
+                                        até a data de expiração.
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- ======================================= -->
+
                         </div>
-                        <div id="generateTokenError" class="alert alert-danger mt-3" style="display:none;"></div>
+                        <div id="generateTokenError" class="alert alert-danger mt-3" style="display: none;"></div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -866,71 +881,63 @@
             const errorEl = document.getElementById('generateTokenError');
             const submitBtn = document.getElementById('generateTokenSubmitBtn');
 
-            errorEl.style.display = 'none';
+            // Desabilita o botão e mostra o spinner
             submitBtn.disabled = true;
-            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Gerando...';
+            submitBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Gerando...`;
+            errorEl.style.display = 'none';
 
             try {
+                // Coleta os dados do formulário
                 const formData = new FormData(form);
+                const command = Object.fromEntries(formData.entries());
 
-                // A validação agora deve funcionar, pois os campos têm o atributo "name"
-                const requiredFields = ['alunoId', 'destinatarioNome', 'tipoParentesco', 'dataExpiracao', 'tipoOperacao'];
+                // Validação dos campos obrigatórios
+                const requiredFields = ['alunoId', 'destinatarioNome', 'dataExpiracao', 'tipoOperacao'];
                 for (const field of requiredFields) {
-                    if (!formData.get(field)) {
-                        // Este erro não deve mais acontecer
+                    if (!command[field]) {
+                        // O erro no seu log era aqui! O campo 'destinatarioNome' não tinha o atributo 'name'.
                         throw new Error(`O campo obrigatório '${field}' não foi preenchido.`);
                     }
                 }
 
-                // Monta o objeto 'command' com TODOS os campos do formulário
-                const command = {
-                    alunoId: parseInt(formData.get('alunoId')),
-                    destinatarioNome: formData.get('destinatarioNome'),
-                    tipoParentesco: formData.get('tipoParentesco').toUpperCase(),
-                    dataExpiracao: new Date(formData.get('dataExpiracao')).toISOString(),
-                    tipoOperacao: formData.get('tipoOperacao').toUpperCase(),
+                // Converte o valor do checkbox para booleano (true/false)
+                const isRecorrente = document.getElementById('tokenRecorrente').checked;
 
-                    destinatarioTelefone: formData.get('destinatarioTelefone'),
-                    destinatarioEmail: formData.get('destinatarioEmail'),
-                    observacao: formData.get('observacao'),
-
-                    // --- LINHA ADICIONADA PARA O NOVO CAMPO ---
-                    // Converte o valor do checkbox ('on' ou null) para um booleano (true/false)
-                    reutilizavel: !!formData.get('reutilizavel')
+                // Monta o payload final para o backend
+                const payload = {
+                    alunoId: parseInt(command.alunoId),
+                    destinatarioNome: command.destinatarioNome,
+                    tipoParentesco: command.tipoParentesco,
+                    destinatarioTelefone: command.destinatarioTelefone || null,
+                    destinatarioEmail: command.destinatarioEmail || null,
+                    tipoOperacao: command.tipoOperacao,
+                    dataExpiracao: new Date(command.dataExpiracao).toISOString(),
+                    observacao: command.observacao || null,
+                    recorrente: isRecorrente // Envia true ou false
                 };
 
                 const accessToken = await garantirAutenticacao();
-                if (!accessToken) {
-                    throw new Error("Autenticação necessária. Faça o login novamente.");
-                }
-
-                const response = await fetch(`${BACKEND_URL}/api/tokens/gerar`, {
+                const response = await fetchWithAuth('/api/tokens/gerar', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${accessToken}`
-                    },
-                    body: JSON.stringify(command)
+                    body: JSON.stringify(payload)
                 });
 
-                // O tratamento de erro foi melhorado para exibir a mensagem do backend
-                if (!response.ok) {
-                    const errorResult = await response.json().catch(() => ({ erro: `Erro HTTP ${response.status}` }));
-                    throw new Error(errorResult.erro || errorResult.message || 'Falha ao gerar token.');
+                const result = await response.json();
+
+                if (!result.sucesso) {
+                    throw new Error(result.mensagem || 'Ocorreu um erro no servidor.');
                 }
 
-                const result = await response.json();
-                if (result.sucesso) {
-                    generateTokenModal.hide();
-                    showTokenSuccessModal(result.linkAcesso);
-                } else {
-                    throw new Error(result.erro || 'Falha ao gerar token. Verifique os dados.');
-                }
+                // Esconde o modal de geração e mostra o de sucesso
+                generateTokenModalInstance.hide();
+                showTokenSuccessModal(result.linkAcesso);
+
             } catch (error) {
                 console.error("Erro detalhado ao gerar token:", error);
-                errorEl.innerText = `Erro: ${error.message}`;
+                errorEl.textContent = error.message;
                 errorEl.style.display = 'block';
             } finally {
+                // Reabilita o botão
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = 'Gerar Token';
             }
