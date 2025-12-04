@@ -868,67 +868,62 @@
         }
 
         /**
-         * VERSÃO CORRIGIDA: Ajustado o nome do campo de 'parentesco' para 'tipoParentesco'.
-         *
-         * Lida com o envio do formulário para gerar token.
-         * - Usa FormData para coletar os dados de forma segura.
-         * - Valida campos obrigatórios.
-         * - Processa e envia 'tipoParentesco' e 'tipoOperacao' em maiúsculas e no formato correto.
-         */
+ * Lida com o envio do formulário para gerar um token de acesso.
+ * A função foi refatorada para garantir consistência com o HTML,
+ * validar os campos de forma robusta e fornecer feedback claro ao usuário.
+ *
+ * @param {Event} event - O evento de submissão do formulário.
+ */
         async function handleGenerateTokenSubmit(event) {
-            event.preventDefault();
+            event.preventDefault(); // Impede o recarregamento da página
             const form = event.target;
             const errorEl = document.getElementById('generateTokenError');
             const submitBtn = document.getElementById('generateTokenSubmitBtn');
 
-            // Desabilita o botão e mostra o spinner
+            // Fornece feedback visual imediato e previne cliques duplos
             submitBtn.disabled = true;
             submitBtn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Gerando...`;
             errorEl.style.display = 'none';
 
             try {
-                // Coleta os dados do formulário
+                // FormData coleta eficientemente todos os campos com o atributo 'name'
                 const formData = new FormData(form);
-                const command = Object.fromEntries(formData.entries());
 
-                // Validação dos campos obrigatórios
-                const requiredFields = ['alunoId', 'destinatarioNome', 'dataExpiracao', 'tipoOperacao'];
+                // Validação centralizada de campos obrigatórios
+                const requiredFields = ['alunoId', 'destinatarioNome', 'dataExpiracao', 'tipoOperacao', 'tipoParentesco'];
                 for (const field of requiredFields) {
-                    if (!command[field]) {
-                        // O erro no seu log era aqui! O campo 'destinatarioNome' não tinha o atributo 'name'.
-                        throw new Error(`O campo obrigatório '${field}' não foi preenchido.`);
+                    if (!formData.get(field)) {
+                        throw new Error(`O campo '${field}' é obrigatório e não foi preenchido.`);
                     }
                 }
 
-                // Converte o valor do checkbox para booleano (true/false)
-                const isRecorrente = document.getElementById('tokenRecorrente').checked;
-
-                // Monta o payload final para o backend
+                // Monta o payload para a API, garantindo a tipagem correta dos dados
                 const payload = {
-                    alunoId: parseInt(command.alunoId),
-                    destinatarioNome: command.destinatarioNome,
-                    tipoParentesco: command.tipoParentesco,
-                    destinatarioTelefone: command.destinatarioTelefone || null,
-                    destinatarioEmail: command.destinatarioEmail || null,
-                    tipoOperacao: command.tipoOperacao,
-                    dataExpiracao: new Date(command.dataExpiracao).toISOString(),
-                    observacao: command.observacao || null,
-                    recorrente: isRecorrente // Envia true ou false
+                    alunoId: parseInt(formData.get('alunoId'), 10),
+                    destinatarioNome: formData.get('destinatarioNome'),
+                    tipoParentesco: formData.get('tipoParentesco'),
+                    destinatarioTelefone: formData.get('destinatarioTelefone') || null,
+                    destinatarioEmail: formData.get('destinatarioEmail') || null,
+                    tipoOperacao: formData.get('tipoOperacao'),
+                    dataExpiracao: new Date(formData.get('dataExpiracao')).toISOString(),
+                    observacao: formData.get('observacao') || null,
+                    // Converte o valor do checkbox para booleano (true/false)
+                    // O '!!' transforma 'on' (se marcado) em true e null (se desmarcado) em false.
+                    reutilizavel: !!formData.get('reutilizavel')
                 };
 
-                const accessToken = await garantirAutenticacao();
-                const response = await fetchWithAuth('/api/tokens/gerar', {
+                // Envia a requisição para o backend
+                const result = await fetchWithAuth('/api/tokens/gerar', {
                     method: 'POST',
                     body: JSON.stringify(payload)
                 });
 
-                const result = await response.json();
-
+                // Utiliza a mensagem de erro do backend para um feedback mais preciso
                 if (!result.sucesso) {
-                    throw new Error(result.mensagem || 'Ocorreu um erro no servidor.');
+                    throw new Error(result.mensagem || result.erro || 'Ocorreu um erro no servidor ao gerar o token.');
                 }
 
-                // Esconde o modal de geração e mostra o de sucesso
+                // Exibe o modal de sucesso e esconde o de geração
                 generateTokenModalInstance.hide();
                 showTokenSuccessModal(result.linkAcesso);
 
@@ -937,7 +932,7 @@
                 errorEl.textContent = error.message;
                 errorEl.style.display = 'block';
             } finally {
-                // Reabilita o botão
+                // Garante que o botão seja reabilitado, independentemente do resultado
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = 'Gerar Token';
             }
@@ -1459,98 +1454,86 @@
     <!-- ======================= MODALS PARA TOKEN DE ACESSO =================== -->
     <!-- ======================================================================= -->
 
-    <!-- Modal: Gerar Token de Acesso -->
-    <div id="generateTokenModal" class="modal" style="display:none;">
-        <div class="modal-content large">
-            <div class="modal-header">
-                <h2>Gerar Token de Acesso para <span id="tokenStudentName"></span></h2>
-                <span class="close-btn" onclick="closeModal('generateTokenModal')">&times;</span>
-            </div>
-            <div class="modal-body">
-                <form id="generateTokenForm">
-                    <!-- O ID do aluno fica escondido, mas é essencial -->
-                    <input type="hidden" id="tokenAlunoId" name="alunoId">
-
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="destinatarioNome">Nome do Destinatário:</label>
-                            <!-- Adicionado: name="destinatarioNome" -->
-                            <input type="text" id="destinatarioNome" name="destinatarioNome" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="tipoParentesco">Parentesco:</label>
-                            <!-- Adicionado: name="tipoParentesco" -->
-                            <select id="tipoParentesco" name="tipoParentesco" required>
-                                <option value="PAI">Pai</option>
-                                <option value="MAE">Mãe</option>
-                                <option value="IRMAO">Irmão/Irmã</option>
-                                <option value="PARENTE">Parente</option>
-                                <option value="AMIGO">Amigo</option>
-                                <option value="OUTRO" selected>Outro</option>
-                            </select>
-                        </div>
+    <!-- Modal para Gerar Token (VERSÃO CORRIGIDA E UNIFICADA) -->
+    <div class="modal fade" id="generateTokenModal" tabindex="-1" aria-labelledby="generateTokenModalLabel"
+        aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <form id="generateTokenForm" novalidate onsubmit="handleGenerateTokenSubmit(event)">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="generateTokenModalLabel">Gerar Token de Acesso para <span
+                                id="tokenAlunoNome"></span></h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
+                    <div class="modal-body">
+                        <input type="hidden" id="tokenAlunoId" name="alunoId">
 
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="destinatarioTelefone">Telefone do Destinatário:</label>
-                            <!-- Adicionado: name="destinatarioTelefone" -->
-                            <input type="tel" id="destinatarioTelefone" name="destinatarioTelefone"
-                                placeholder="(XX) XXXXX-XXXX">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label for="destinatarioNome" class="form-label">Nome do Destinatário</label>
+                                <input type="text" class="form-control" id="destinatarioNome" name="destinatarioNome"
+                                    required>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="tipoParentesco" class="form-label">Parentesco</label>
+                                <select class="form-select" id="tipoParentesco" name="tipoParentesco" required>
+                                    <option value="PARENTE" selected>Parente</option>
+                                    <option value="AMIGO">Amigo(a)</option>
+                                    <option value="IRMAO">Irmão/Irmã</option>
+                                    <option value="OUTRO">Outro</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="destinatarioTelefone" class="form-label">Telefone do Destinatário</label>
+                                <input type="tel" class="form-control" id="destinatarioTelefone"
+                                    name="destinatarioTelefone" placeholder="(11) 99999-9999">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="destinatarioEmail" class="form-label">E-mail do Destinatário</label>
+                                <input type="email" class="form-control" id="destinatarioEmail" name="destinatarioEmail"
+                                    placeholder="nome@email.com">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="tipoOperacao" class="form-label">Tipo de Operação</label>
+                                <select class="form-select" id="tipoOperacao" name="tipoOperacao" required>
+                                    <option value="SAIDA">Saída</option>
+                                    <option value="ENTRADA">Entrada</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="dataExpiracao" class="form-label">Data e Hora de Expiração</label>
+                                <input type="datetime-local" class="form-control" id="dataExpiracao"
+                                    name="dataExpiracao" required>
+                            </div>
+                            <div class="col-12">
+                                <label for="observacao" class="form-label">Observação (Opcional)</label>
+                                <textarea class="form-control" id="observacao" name="observacao" rows="2"
+                                    placeholder="Ex: Buscar na saída da escola."></textarea>
+                            </div>
+
+                            <!-- === CAMPO CORRIGIDO === -->
+                            <div class="col-12">
+                                <div class="form-check form-switch">
+                                    <!-- O 'name' foi alterado para 'reutilizavel' para alinhar com o JS -->
+                                    <input class="form-check-input" type="checkbox" id="tokenReutilizavel"
+                                        name="reutilizavel">
+                                    <label class="form-check-label" for="tokenReutilizavel">
+                                        <strong>Token Reutilizável:</strong> Permitir uso múltiplo.
+                                    </label>
+                                    <div class="form-text">
+                                        Se marcado, o mesmo link poderá ser utilizado várias vezes até a data de
+                                        expiração.
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- ======================= -->
+
                         </div>
-                        <div class="form-group">
-                            <label for="destinatarioEmail">E-mail do Destinatário:</label>
-                            <!-- Adicionado: name="destinatarioEmail" -->
-                            <input type="email" id="destinatarioEmail" name="destinatarioEmail"
-                                placeholder="email@exemplo.com">
-                        </div>
+                        <div id="generateTokenError" class="alert alert-danger mt-3" style="display: none;"></div>
                     </div>
-
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="tipoOperacao">Tipo de Operação:</label>
-                            <!-- Adicionado: name="tipoOperacao" -->
-                            <select id="tipoOperacao" name="tipoOperacao" required>
-                                <option value="SAIDA">Saída</option>
-                                <option value="ENTRADA">Entrada</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="dataExpiracao">Data e Hora de Expiração:</label>
-                            <!-- Adicionado: name="dataExpiracao" -->
-                            <input type="datetime-local" id="dataExpiracao" name="dataExpiracao" required>
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="observacao">Observação:</label>
-                        <!-- Adicionado: name="observacao" -->
-                        <textarea id="observacao" name="observacao" rows="2"
-                            placeholder="Ex: Autorizado a buscar meu filho(a) na escola."></textarea>
-                    </div>
-
-                    <!-- ================================================== -->
-                    <!-- ============ NOVO CAMPO ADICIONADO AQUI ============ -->
-                    <!-- ================================================== -->
-                    <div class="form-group">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="reutilizavel" name="reutilizavel">
-                            <label class="form-check-label" for="reutilizavel">
-                                Permitir Uso Recorrente
-                            </label>
-                            <small class="form-text text-muted">
-                                Marque esta opção se o token puder ser usado várias vezes até a data de expiração.
-                            </small>
-                        </div>
-                    </div>
-
-                    <div id="generateTokenError" class="alert alert-danger" style="display: none;"></div>
-
                     <div class="modal-footer">
-                        <!-- O botão de submit precisa estar dentro do form -->
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                        <button type="submit" id="generateTokenSubmitBtn" class="btn btn-primary"><i
-                                class="fas fa-check"></i> Gerar Token</button>
+                        <button type="submit" class="btn btn-primary" id="generateTokenSubmitBtn">Gerar Token</button>
                     </div>
                 </form>
             </div>
