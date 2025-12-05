@@ -355,11 +355,10 @@
     <!-- Header -->
     <header>
         <div class="header-left">
-            <img src="img/LogoInoutchi_linha.png" class="header-logo"
-                alt="Logotipo Transportador" />
+            <img src="img/LogoInoutchi_linha.png" class="header-logo" alt="Logotipo Transportador" />
         </div>
         <div class="header-center">
-            
+
         </div>
         <div class="header-right">
             <div class="user-info">
@@ -928,49 +927,54 @@ Nenhum aluno associado a você.</td></tr>`;
             }
 
             async function handleActionClick(event) {
-                const target = event.target.closest('.confirmar-saida-btn');
-                if (target) {
-                    const alunoId = target.dataset.alunoId;
-                    const student = studentsData.find(s => s.id == alunoId);
+                // Verifica se o clique foi no botÃ£o de confirmar saÃ­da
+                if (event.target.closest('.confirmar-saida-btn')) {
+                    const button = event.target.closest('.confirmar-saida-btn');
+                    const alunoId = button.dataset.alunoId;
+                    const aluno = studentsData.find(s => s.id == alunoId);
+                    if (!aluno) return;
 
-                    // Apenas uma confirmação simples
-                    const userConfirmed = confirm(`Você confirma a retirada do aluno(a) ${student.nome}?`);
+                    // Pede a confirmaÃ§Ã£o do usuÃ¡rio
+                    const confirmation = confirm(`Você confirma a retirada do aluno(a) ${aluno.nome}?`);
+                    if (!confirmation) return;
 
-                    if (userConfirmed) {
-                        try {
-                            target.disabled = true;
-                            target.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                    // Garante que temos os dados do transportador logado (currentUser)
+                    if (!currentUser || !currentUser.id) {
+                        showFeedback('Erro Crí­tico', 'Não foi possí­vel identificar o usuário transportador. Por favor, faça login novamente.');
+                        return;
+                    }
 
-                            const accessToken = localStorage.getItem('access_token');
+                    // 1. Monta o payload (corpo da requisiÃ§Ã£o) no formato JSON correto
+                    const payload = {
+                        alunoId: Number(alunoId),
+                        transportadorId: currentUser.id
+                    };
 
-                            const response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`, {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'Authorization': `Bearer ${accessToken}`
-                                },
-                                body: JSON.stringify({
-                                    alunoId: Number(alunoId)
-                                })
+                    try {
+                        // 2. Faz a chamada para a URL CORRETA (/api/transporte/confirmar-saida)
+                        const response = await fetch(`${BACKEND_URL}/api/transporte/confirmar-saida`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json', // Informa que o corpo Ã© JSON
+                                'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+                            },
+                            body: JSON.stringify(payload) // 3. Envia o payload como uma string JSON no corpo
+                        });
 
-                            });
+                        // Pega a resposta do backend para exibir uma mensagem mais clara
+                        const result = await response.json();
 
-
-
-
-                            if (!response.ok) {
-                                const errorData = await response.json();
-                                throw new Error(errorData.mensagem || 'Falha ao confirmar a saída.');
-                            }
-
-                            showFeedback('Sucesso!', 'A saída foi confirmada com sucesso.');
-                            await loadStudents(accessToken);
-
-                        } catch (error) {
-                            showFeedback('Erro', error.message);
-                            target.disabled = false;
-                            target.innerHTML = '<i class="fa-solid fa-check"></i> Confirmar';
+                        if (!response.ok) {
+                            // Usa a mensagem de erro do backend, se disponÃ­vel
+                            throw new Error(result.mensagem || 'Falha ao processar a confirmação no servidor.');
                         }
+
+                        showFeedback('Sucesso', result.mensagem || `Saí­da de ${aluno.nome} confirmada com sucesso.`);
+                        loadStudents(); // Recarrega a lista de alunos para atualizar o status
+
+                    } catch (error) {
+                        console.error('Erro ao confirmar saí­da:', error);
+                        showFeedback('Erro', error.message);
                     }
                 }
             }
