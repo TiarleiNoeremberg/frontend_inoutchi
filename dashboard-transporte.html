@@ -926,58 +926,67 @@ Nenhum aluno associado a você.</td></tr>`;
                 }
             }
 
-            async function handleActionClick(event) {
+                        async function handleActionClick(event) {
                 // Garante que o clique foi no botão ou em um ícone dentro dele
                 const button = event.target.closest('.confirmar-saida-btn');
-                if (button) {
-                    const alunoId = button.dataset.alunoId;
-                    const aluno = studentsData.find(s => s.id == alunoId);
-                    if (!aluno) {
-                        console.error('Aluno não encontrado nos dados locais:', alunoId);
-                        return;
-                    }
+                if (!button) return;
 
-                    const confirmation = confirm(`Você confirma a retirada do aluno(a) ${aluno.nome}?`);
-                    if (!confirmation) return;
-
-                    try {
-                        const accessToken = localStorage.getItem('access_token');
-                        if (!accessToken) {
-                            showFeedback('Erro de Autenticação', 'Sessão expirada. Por favor, faça login novamente.');
-                            return;
-                        }
-
-                        // CORREÇÃO 1: O 'alunoId' é agora um parâmetro na URL.
-                        const response = await fetch(`${BACKEND_URL}/api/transporte/confirmar-saida?alunoId=${alunoId}`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${accessToken}`
-                            }
-                            // CORREÇÃO 2: O corpo (body) da requisição foi removido.
-                        });
-
-                        const result = await response.json();
-
-                        if (!response.ok) {
-                            throw new Error(result.mensagem || `Erro ${response.status} ao confirmar saída.`);
-                        }
-
-                        showFeedback('Sucesso', result.mensagem || `Saída de ${aluno.nome} confirmada.`);
-
-                        // CORREÇÃO 3: Passa o 'accessToken' para recarregar a lista de alunos
-                        // e evitar o erro 401 Unauthorized.
-                        await loadStudents(accessToken);
-
-                    } catch (error) {
-                        console.error('Erro detalhado ao confirmar saída:', error);
-                        showFeedback('Erro', error.message);
-                    }
+                const alunoId = button.dataset.alunoId;
+                const aluno = studentsData.find(s => s.id == alunoId);
+                if (!aluno) {
+                    console.error('Aluno não encontrado nos dados locais:', alunoId);
+                    showFeedback('Erro', 'Não foi possível encontrar os dados do aluno para confirmar a saída.');
+                    return;
                 }
+
+                const confirmation = confirm(`Você confirma a retirada do aluno(a) ${aluno.nome}?`);
+                if (!confirmation) return;
+
+                // Mostra um feedback de carregamento
+                showFeedback('Processando...', `Confirmando a saída de ${aluno.nome}...`);
+
+                // [INÍCIO DA CORREÇÃO]
+                try {
+                    // 1. O payload (corpo) agora envia APENAS o que o DTO do backend espera.
+                    //    O backend já sabe o ID do transportador pelo token.
+                    const payload = {
+                        alunoId: Number(alunoId)
+                    };
+
+                    // 2. A URL é "limpa", sem parâmetros, como o endpoint @PostMapping espera.
+                    const response = await fetch(`${BACKEND_URL}/api/transporte/confirmar-saida`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json', // Essencial para enviar JSON
+                            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+                        },
+                        // 3. O payload é enviado no corpo (body) da requisição.
+                        body: JSON.stringify(payload)
+                    });
+
+                    // O restante do tratamento de sucesso e erro permanece.
+                    const result = await response.json();
+
+                    if (!response.ok) {
+                        // Usa a mensagem de erro do backend, se disponível, ou uma padrão.
+                        throw new Error(result.mensagem || result.erro || `Erro ${response.status} ao confirmar a saída.`);
+                    }
+
+                    showFeedback('Sucesso!', result.mensagem || `Saída de ${aluno.nome} confirmada com sucesso.`);
+
+                    // Recarrega a lista de alunos para refletir a mudança de status
+                    await loadStudents(localStorage.getItem('access_token'));
+
+                } catch (error) {
+                    console.error('Erro detalhado ao confirmar saída:', error);
+                    showFeedback('Erro na Confirmação', error.message);
+                }
+                // [FIM DA CORREÇÃO]
             }
 
+
         });
-        
+
     </script>
 </body>
 
