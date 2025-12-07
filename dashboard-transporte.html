@@ -468,6 +468,113 @@
             let currentActionPayload = null;
             let studentRefreshInterval = null;
 
+            /**
+             * Renova o token de acesso utilizando o refresh_token e o endpoint padrão do OAuth2.
+             * Esta é a abordagem padrão e mais segura.
+             * @returns {Promise<string|null>} O novo token de acesso ou null em caso de falha.
+             */
+            async function renovarToken() {
+                console.log('ð Executando a renovaÃ§Ã£o de token via /oauth2/token...');
+
+                const refreshToken = localStorage.getItem('refresh_token');
+                if (!refreshToken) {
+                    console.error('â FATAL: Refresh token nÃ£o encontrado. Redirecionando para login.');
+                    window.location.href = 'index.html';
+                    return null;
+                }
+
+                // !! IMPORTANTE !!
+                // Substitua pelos seus valores de client-id e client-secret.
+                // Eles devem ser os mesmos do seu arquivo application.properties ou application.yml.
+                const clientId = 'myclientid'; // SUBSTITUA PELO SEU CLIENT ID
+                const clientSecret = 'myclientsecret'; // SUBSTITUA PELO SEU CLIENT SECRET
+
+                // O corpo para este tipo de requisiÃ§Ã£o Ã© 'x-www-form-urlencoded'
+                const body = new URLSearchParams();
+                body.append('grant_type', 'refresh_token');
+                body.append('refresh_token', refreshToken);
+
+                try {
+                    const response = await fetch(`${BACKEND_URL}/oauth2/token`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            // A autenticaÃ§Ã£o do cliente Ã© enviada no header, codificada em Base64.
+                            'Authorization': 'Basic ' + btoa(clientId + ':' + clientSecret)
+                        },
+                        body: body
+                    });
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`Falha ao renovar token. Status: ${response.status}. Resposta: ${errorText}`);
+                    }
+
+                    const tokenData = await response.json();
+
+                    // Salva os novos tokens no localStorage
+                    localStorage.setItem('access_token', tokenData.access_token);
+                    if (tokenData.refresh_token) {
+                        // Um novo refresh token pode ser retornado, Ã© uma boa prÃ¡tica atualizÃ¡-lo
+                        localStorage.setItem('refresh_token', tokenData.refresh_token);
+                    }
+
+                    console.log('Token renovado com sucesso!');
+                    return tokenData.access_token;
+
+                } catch (error) {
+                    console.error('Erro crÃ­tico ao renovar token. Limpando sessÃ£o e redirecionando para login.', error);
+
+                    localStorage.removeItem('access_token');
+                    localStorage.removeItem('refresh_token');
+                    window.location.href = 'index.html';
+                    return null;
+                }
+            }
+
+            /**
+ * Realiza uma chamada 'fetch', garantindo a autenticaÃ§Ã£o e renovando o token se necessÃ¡rio.
+ * @param {string} endpoint - O endpoint da API (ex: /api/users/me).
+ * @param {object} options - As opÃ§Ãµes da requisiÃ§Ã£o fetch.
+ * @returns {Promise<Response>} A resposta da requisiÃ§Ã£o.
+ */
+            async function fetchWithAuth(endpoint, options = {}) {
+                let accessToken = localStorage.getItem('access_token');
+                if (!accessToken) {
+                    console.log('Nenhum token de acesso. Tentando renovar...');
+                    accessToken = await renovarToken();
+                    if (!accessToken) {
+                        throw new Error("NÃ£o foi possÃ­vel obter um token de acesso vÃ¡lido.");
+                    }
+                }
+
+                const doFetch = async (token) => {
+                    const headers = {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    };
+                    return fetch(BACKEND_URL + endpoint, { ...options, headers });
+                };
+
+                let response = await doFetch(accessToken);
+
+                if (response.status === 401) {
+                    console.log('Token invÃ¡lido ou expirado (401). Renovando...');
+                    const newAccessToken = await renovarToken();
+                    if (newAccessToken) {
+                        response = await doFetch(newAccessToken); // Tenta novamente com o novo token
+                    }
+                }
+
+                // Se a resposta ainda nÃ£o for OK apÃ³s a tentativa de renovaÃ§Ã£o, lanÃ§a o erro.
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.message || errorData.erro || `Erro ${response.status}: ${response.statusText}`);
+                }
+
+                return response;
+            }
 
             async function initializeApp() {
                 try {
@@ -498,9 +605,7 @@
             }
 
             async function loadUserData(token) {
-                const response = await fetch(`${BACKEND_URL}/api/users/me`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
+                const response = await fetchWithAuth('/api/users/me');
                 if (!response.ok) throw new Error('Falha ao carregar dados do usuário');
                 currentUser = await response.json();
                 //document.getElementById('transportador-nome').textContent = currentUser.nome.split(' ')[0];
@@ -516,21 +621,8 @@
                 </tr>`;
 
                 try {
-                    const res = await fetch(
-                        `${BACKEND_URL}/api/transporte/meus-alunos`,
-                        { headers: { 'Authorization': `Bearer ${token}` } }
-                    );
-
-                    if (!res.ok) {
-                        let errorText = `HTTP ${res.status}`;
-                        try {
-                            const errorBody = await res.json();
-                            errorText = errorBody.message || JSON.stringify(errorBody);
-                        } catch (e) { /* ignora se não for json */ }
-                        throw new Error(errorText);
-                    }
-
-                    const responseData = await res.json();
+                    const response = await fetchWithAuth('/api/transporte/meus-alunos');
+                    const responseData = await response.json();
 
                     // ===== CORREÇÃO ROBUSTA =====
                     // Verifica se a resposta é o novo objeto wrapper OU o array direto.
@@ -717,320 +809,268 @@ Nenhum aluno associado a você.</td></tr>`;
                 console.log('tipo alunoIds:', payload.alunoIds.map(id => typeof id));
 
                 try {
-                    const accessToken = localStorage.getItem('access_token');
-                    const response = await fetch(`${BACKEND_URL}${endpoint}`, {
+                    const response = await fetchWithAuth(endpoint, {
                         method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json'
-                        },
                         body: JSON.stringify(payload)
                     });
 
-                    // Verifica se a resposta é 403 e tenta extrair a mensagem de erro
-                    if (!response.ok) {
-                        let errorMessage = 'Erro desconhecido do servidor.';
-                        let errorData = null;
-
-                        try {
-                            errorData = await response.json();
-                            errorMessage = errorData.message || JSON.stringify(errorData);
-                        } catch {
-                            errorMessage = `Erro ${response.status}: ${response.statusText}`;
-                        }
-
-                        // Detectar erro de permissão
-                        if (response.status === 400) {
-                            if (errorMessage.includes('role') ||
-                                errorMessage.includes('DIRETOR') ||
-                                errorMessage.includes('TUTOR') ||
-                                errorMessage.includes('permissão') ||
-                                errorMessage.includes('autoridade')) {
-                                errorMessage = `🔐 **Permissão Insuficiente**\n\nSeu usuário não tem permissão para registrar ${currentAction}.\n\n**Solução:**\n• Entre em contato com o administrador\n• Solicite a role de TUTOR ou DIRETOR`;
-                            }
-                        }
-
-                        // Detectar erro de geofence (mantém o anterior)
-                        if (response.status === 403 && (
-                            errorMessage.toLowerCase().includes('fora') ||
-                            errorMessage.toLowerCase().includes('geofence') ||
-                            errorMessage.toLowerCase().includes('área') ||
-                            errorMessage.toLowerCase().includes('raio')
-                        )) {
-                            errorMessage = `📍 **Fora da Área Permitida**\n\nVocê está fora da área autorizada para registrar ${currentAction}.\n\nAproxime-se da escola para realizar esta ação.`;
-                        }
-
-                        throw new Error(errorMessage);
-                    }
-
-                    // Sucesso
                     const result = await response.json();
                     closeConfirmationModal();
                     showFeedback('Sucesso!', `Ação de ${currentAction} processada com sucesso!`);
-                    await loadStudents(accessToken);
+                    await loadStudents(); // Não precisa passar o token, loadStudents já o obtém
 
                 } catch (error) {
                     console.error(`Erro ao executar ${currentAction}:`, error);
                     closeConfirmationModal();
+                    // A mensagem de erro de fetchWithAuth já é mais detalhada
                     showFeedback('Erro na Ação', error.message);
                 } finally {
                     currentAction = null;
                     currentActionPayload = null;
                 }
-            }
 
-            function openConfirmationModal() {
-                const confirmationModal = document.getElementById('confirmationModal');
-                const locationStatusEl = document.getElementById('locationStatus');
-                const coordinatesDisplay = document.getElementById('coordinatesDisplay');
-                const confirmActionBtn = document.getElementById('confirmAction');
-                const locationSuccessMessage = document.getElementById('locationSuccessMessage');
+                function openConfirmationModal() {
+                    const confirmationModal = document.getElementById('confirmationModal');
+                    const locationStatusEl = document.getElementById('locationStatus');
+                    const coordinatesDisplay = document.getElementById('coordinatesDisplay');
+                    const confirmActionBtn = document.getElementById('confirmAction');
+                    const locationSuccessMessage = document.getElementById('locationSuccessMessage');
 
-                // Exibe o modal
-                if (confirmationModal) confirmationModal.style.display = 'flex';
+                    // Exibe o modal
+                    if (confirmationModal) confirmationModal.style.display = 'flex';
 
-                // Inicializa a indicação visual da coleta de localização:
-                if (locationStatusEl) {
-                    locationStatusEl.className = 'location-status location-loading';
-                    locationStatusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo sua localização...';
-                    locationStatusEl.style.display = 'block';
-                }
-                // Oculta os demais elementos até a localização ser obtida:
-                if (coordinatesDisplay) {
-                    coordinatesDisplay.style.display = 'none';
-                }
-                if (locationSuccessMessage) {
-                    locationSuccessMessage.style.display = 'none';
-                }
-                // Desabilita o botão de confirmação até que a localização seja coletada
-                if (confirmActionBtn) confirmActionBtn.disabled = true;
-
-                // Chama a função que coleta a localização (supondo que getLocation retorne uma Promise)
-                getLocation().then(location => {
-                    // Armazena a localização, se necessário
-                    currentActionPayload.location = location;
-                    // Oculta o status de carregamento
+                    // Inicializa a indicação visual da coleta de localização:
                     if (locationStatusEl) {
-                        locationStatusEl.style.display = 'none';
+                        locationStatusEl.className = 'location-status location-loading';
+                        locationStatusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo sua localização...';
+                        locationStatusEl.style.display = 'block';
                     }
-                    // Atualiza os campos de latitude e longitude e os exibe
+                    // Oculta os demais elementos até a localização ser obtida:
                     if (coordinatesDisplay) {
-                        document.getElementById('displayLatitude').textContent = location.latitude.toFixed(6);
-                        document.getElementById('displayLongitude').textContent = location.longitude.toFixed(6);
-                        coordinatesDisplay.style.display = 'block';
+                        coordinatesDisplay.style.display = 'none';
                     }
-                    // Exibe a mensagem de sucesso com o ícone
                     if (locationSuccessMessage) {
-                        locationSuccessMessage.style.display = 'block';
+                        locationSuccessMessage.style.display = 'none';
                     }
-                    // Habilita o botão de confirmação
-                    if (confirmActionBtn) confirmActionBtn.disabled = false;
-                }).catch(error => {
-                    if (locationStatusEl) {
-                        locationStatusEl.className = 'location-status location-error';
-                        locationStatusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${error.message}`;
-                    }
-                });
-            }
+                    // Desabilita o botão de confirmação até que a localização seja coletada
+                    if (confirmActionBtn) confirmActionBtn.disabled = true;
+
+                    // Chama a função que coleta a localização (supondo que getLocation retorne uma Promise)
+                    getLocation().then(location => {
+                        // Armazena a localização, se necessário
+                        currentActionPayload.location = location;
+                        // Oculta o status de carregamento
+                        if (locationStatusEl) {
+                            locationStatusEl.style.display = 'none';
+                        }
+                        // Atualiza os campos de latitude e longitude e os exibe
+                        if (coordinatesDisplay) {
+                            document.getElementById('displayLatitude').textContent = location.latitude.toFixed(6);
+                            document.getElementById('displayLongitude').textContent = location.longitude.toFixed(6);
+                            coordinatesDisplay.style.display = 'block';
+                        }
+                        // Exibe a mensagem de sucesso com o ícone
+                        if (locationSuccessMessage) {
+                            locationSuccessMessage.style.display = 'block';
+                        }
+                        // Habilita o botão de confirmação
+                        if (confirmActionBtn) confirmActionBtn.disabled = false;
+                    }).catch(error => {
+                        if (locationStatusEl) {
+                            locationStatusEl.className = 'location-status location-error';
+                            locationStatusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${error.message}`;
+                        }
+                    });
+                }
 
 
-            function closeConfirmationModal() {
-                const confirmationModal = document.getElementById('confirmationModal');
-                const locationStatusEl = document.getElementById('locationStatus');
-                if (confirmationModal) confirmationModal.style.display = 'none';
-                if (confirmActionBtn) confirmActionBtn.disabled = true;
-                if (locationStatusEl) locationStatusEl.style.display = 'none';
-            }
+                function closeConfirmationModal() {
+                    const confirmationModal = document.getElementById('confirmationModal');
+                    const locationStatusEl = document.getElementById('locationStatus');
+                    if (confirmationModal) confirmationModal.style.display = 'none';
+                    if (confirmActionBtn) confirmActionBtn.disabled = true;
+                    if (locationStatusEl) locationStatusEl.style.display = 'none';
+                }
 
-            function showFeedback(title, message) {
-                const feedbackModal = document.getElementById('feedbackModal');
-                const feedbackTitle = document.getElementById('feedbackTitle');
-                const feedbackMessage = document.getElementById('feedbackMessage');
-                if (feedbackTitle) feedbackTitle.textContent = title;
-                if (feedbackMessage) feedbackMessage.textContent = message;
-                if (feedbackModal) feedbackModal.style.display = 'flex';
-            }
+                function showFeedback(title, message) {
+                    const feedbackModal = document.getElementById('feedbackModal');
+                    const feedbackTitle = document.getElementById('feedbackTitle');
+                    const feedbackMessage = document.getElementById('feedbackMessage');
+                    if (feedbackTitle) feedbackTitle.textContent = title;
+                    if (feedbackMessage) feedbackMessage.textContent = message;
+                    if (feedbackModal) feedbackModal.style.display = 'flex';
+                }
 
-            function closeFeedbackModal() {
-                const feedbackModal = document.getElementById('feedbackModal');
-                if (feedbackModal) feedbackModal.style.display = 'none';
-            }
+                function closeFeedbackModal() {
+                    const feedbackModal = document.getElementById('feedbackModal');
+                    if (feedbackModal) feedbackModal.style.display = 'none';
+                }
 
-            function getLocation() {
-                return new Promise((resolve, reject) => {
-                    if (!navigator.geolocation) {
-                        reject(new Error("Geolocalização não é suportada pelo seu navegador."));
-                        return;
-                    }
-                    navigator.geolocation.getCurrentPosition(
-                        position => {
-                            resolve({
-                                latitude: position.coords.latitude,
-                                longitude: position.coords.longitude
-                            });
-                        },
-                        error => {
-                            let message = "Não foi possível obter a localização. ";
-                            switch (error.code) {
-                                case error.PERMISSION_DENIED: message += "Você negou a permissão."; break;
-                                case error.POSITION_UNAVAILABLE: message += "Informação de localização indisponível."; break;
-                                case error.TIMEOUT: message += "A requisição expirou."; break;
-                                default: message += "Ocorreu um erro desconhecido."; break;
+                function getLocation() {
+                    return new Promise((resolve, reject) => {
+                        if (!navigator.geolocation) {
+                            reject(new Error("Geolocalização não é suportada pelo seu navegador."));
+                            return;
+                        }
+                        navigator.geolocation.getCurrentPosition(
+                            position => {
+                                resolve({
+                                    latitude: position.coords.latitude,
+                                    longitude: position.coords.longitude
+                                });
+                            },
+                            error => {
+                                let message = "Não foi possível obter a localização. ";
+                                switch (error.code) {
+                                    case error.PERMISSION_DENIED: message += "Você negou a permissão."; break;
+                                    case error.POSITION_UNAVAILABLE: message += "Informação de localização indisponível."; break;
+                                    case error.TIMEOUT: message += "A requisição expirou."; break;
+                                    default: message += "Ocorreu um erro desconhecido."; break;
+                                }
+                                reject(new Error(message));
+                            },
+                            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                        );
+                    });
+                }
+
+                function logout() {
+                    stopAutoRefresh(); // <<< ADICIONAR ESTA LINHA
+
+                    // Limpa os dados de sessão e redireciona
+                    localStorage.removeItem('access_token');
+                    localStorage.removeItem('user_info'); // ou qualquer outra chave que você use
+                    window.location.href = 'index.html';
+                }
+
+                /**
+                 * Inicia o auto-refresh para a lista de alunos do transportador.
+                 * A função é chamada a cada 30 segundos.
+                 */
+                function startAutoRefresh() {
+                    const REFRESH_INTERVAL_MS = 30000; // 30 segundos
+                    stopAutoRefresh();
+
+                    console.log(`🚀 Iniciando auto-refresh a cada ${REFRESH_INTERVAL_MS / 1000}s...`);
+                    studentRefreshInterval = setInterval(async () => {
+                        console.log('🔄 Executando auto-refresh da lista de alunos...');
+                        try {
+                            // <<< CORREÇÃO APLICADA AQUI
+                            // Busca o token do localStorage e o passa para a função
+                            const accessToken = localStorage.getItem('access_token');
+                            if (accessToken) {
+                                await loadStudents(accessToken);
+                            } else {
+                                console.warn('⚠️ Token não encontrado no localStorage durante o auto-refresh. Parando o ciclo.');
+                                stopAutoRefresh(); // Para o ciclo se o usuário deslogou
                             }
-                            reject(new Error(message));
-                        },
-                        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-                    );
-                });
-            }
+                        } catch (error) {
+                            console.error('❌ Falha no auto-refresh:', error);
+                            // Se o erro for 401, pode ser que o token expirou. Parar o ciclo.
+                            if (error.message.includes('401')) {
+                                stopAutoRefresh();
+                            }
+                        }
+                    }, REFRESH_INTERVAL_MS);
+                }
 
-            function logout() {
-                stopAutoRefresh(); // <<< ADICIONAR ESTA LINHA
+                // Inicia a aplicação
+                initializeApp();
 
-                // Limpa os dados de sessão e redireciona
-                localStorage.removeItem('access_token');
-                localStorage.removeItem('user_info'); // ou qualquer outra chave que você use
-                window.location.href = 'index.html';
-            }
+                // Configura o botão de logout com confirmação
+                const logoutButton = document.getElementById('logout-button');
+                if (logoutButton) {
+                    logoutButton.addEventListener('click', () => {
+                        if (confirm("Você tem certeza que deseja sair do sistema?")) {
+                            stopAutoRefresh();
+                            localStorage.removeItem('access_token');
+                            localStorage.removeItem('refresh_token');
+                            localStorage.removeItem('token_expiry');
+                            window.location.href = 'index.html';
+                        }
+                    });
+                }
 
-            /**
-             * Inicia o auto-refresh para a lista de alunos do transportador.
-             * A função é chamada a cada 30 segundos.
-             */
-            function startAutoRefresh() {
-                const REFRESH_INTERVAL_MS = 30000; // 30 segundos
-                stopAutoRefresh();
+                /**
+                 * NOVA FUNÇÃO: Processa a confirmação de recebimento para um único aluno.
+                 */
+                async function handleConfirmacaoIndividual(alunoId) {
+                    showFeedback('Processando...', `Confirmando o recebimento do aluno.`);
 
-                console.log(`🚀 Iniciando auto-refresh a cada ${REFRESH_INTERVAL_MS / 1000}s...`);
-                studentRefreshInterval = setInterval(async () => {
-                    console.log('🔄 Executando auto-refresh da lista de alunos...');
                     try {
-                        // <<< CORREÇÃO APLICADA AQUI
-                        // Busca o token do localStorage e o passa para a função
                         const accessToken = localStorage.getItem('access_token');
-                        if (accessToken) {
+                        const response = await fetch(`${BACKEND_URL}/api/chamadas/confirmar-manual/${alunoId}`, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${accessToken}`,
+                                'Content-Type': 'application/json'
+                            }
+                        });
+
+                        if (response.ok) {
+                            showFeedback('Sucesso!', 'Recebimento do aluno confirmado com sucesso.');
+                            // Recarrega a lista para atualizar o status de todos
                             await loadStudents(accessToken);
                         } else {
-                            console.warn('⚠️ Token não encontrado no localStorage durante o auto-refresh. Parando o ciclo.');
-                            stopAutoRefresh(); // Para o ciclo se o usuário deslogou
+                            // Trata erros específicos da API se necessário
+                            const errorData = await response.json();
+                            throw new Error(errorData.mensagem || 'Falha ao confirmar o recebimento.');
                         }
                     } catch (error) {
-                        console.error('❌ Falha no auto-refresh:', error);
-                        // Se o erro for 401, pode ser que o token expirou. Parar o ciclo.
-                        if (error.message.includes('401')) {
-                            stopAutoRefresh();
-                        }
+                        console.error('Erro na confirmação individual:', error);
+                        showFeedback('Erro', error.message);
                     }
-                }, REFRESH_INTERVAL_MS);
-            }
-
-            // Inicia a aplicação
-            initializeApp();
-
-            // Configura o botão de logout com confirmação
-            const logoutButton = document.getElementById('logout-button');
-            if (logoutButton) {
-                logoutButton.addEventListener('click', () => {
-                    if (confirm("Você tem certeza que deseja sair do sistema?")) {
-                        stopAutoRefresh();
-                        localStorage.removeItem('access_token');
-                        localStorage.removeItem('refresh_token');
-                        localStorage.removeItem('token_expiry');
-                        window.location.href = 'index.html';
-                    }
-                });
-            }
-
-            /**
-             * NOVA FUNÇÃO: Processa a confirmação de recebimento para um único aluno.
-             */
-            async function handleConfirmacaoIndividual(alunoId) {
-                showFeedback('Processando...', `Confirmando o recebimento do aluno.`);
-
-                try {
-                    const accessToken = localStorage.getItem('access_token');
-                    const response = await fetch(`${BACKEND_URL}/api/chamadas/confirmar-manual/${alunoId}`, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json'
-                        }
-                    });
-
-                    if (response.ok) {
-                        showFeedback('Sucesso!', 'Recebimento do aluno confirmado com sucesso.');
-                        // Recarrega a lista para atualizar o status de todos
-                        await loadStudents(accessToken);
-                    } else {
-                        // Trata erros específicos da API se necessário
-                        const errorData = await response.json();
-                        throw new Error(errorData.mensagem || 'Falha ao confirmar o recebimento.');
-                    }
-                } catch (error) {
-                    console.error('Erro na confirmação individual:', error);
-                    showFeedback('Erro', error.message);
-                }
-            }
-
-            async function handleActionClick(event) {
-                // Garante que o clique foi no botão ou em um ícone dentro dele
-                const button = event.target.closest('.confirmar-saida-btn');
-                if (!button) return;
-
-                const alunoId = button.dataset.alunoId;
-                const aluno = studentsData.find(s => s.id == alunoId);
-                if (!aluno) {
-                    console.error('Aluno não encontrado nos dados locais:', alunoId);
-                    showFeedback('Erro', 'Não foi possível encontrar os dados do aluno para confirmar a saída.');
-                    return;
                 }
 
-                const confirmation = confirm(`Você confirma a retirada do aluno(a) ${aluno.nome}?`);
-                if (!confirmation) return;
+                async function handleActionClick(event) {
+                    // Garante que o clique foi no botão ou em um ícone dentro dele
+                    const button = event.target.closest('.confirmar-saida-btn');
+                    if (!button) return;
 
-                // Mostra um feedback de carregamento
-                showFeedback('Processando...', `Confirmando a saída de ${aluno.nome}...`);
-
-                // [INÍCIO DA CORREÇÃO]
-                try {
-                    // 1. O payload (corpo) agora envia APENAS o que o DTO do backend espera.
-                    //    O backend já sabe o ID do transportador pelo token.
-                    const payload = {
-                        alunoId: Number(alunoId)
-                    };
-
-                    // 2. A URL é "limpa", sem parâmetros, como o endpoint @PostMapping espera.
-                    const response = await fetch(`${BACKEND_URL}/api/transporte/confirmar-saida`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json', // Essencial para enviar JSON
-                            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-                        },
-                        // 3. O payload é enviado no corpo (body) da requisição.
-                        body: JSON.stringify(payload)
-                    });
-
-                    // O restante do tratamento de sucesso e erro permanece.
-                    const result = await response.json();
-
-                    if (!response.ok) {
-                        // Usa a mensagem de erro do backend, se disponível, ou uma padrão.
-                        throw new Error(result.mensagem || result.erro || `Erro ${response.status} ao confirmar a saída.`);
+                    const alunoId = button.dataset.alunoId;
+                    const aluno = studentsData.find(s => s.id == alunoId);
+                    if (!aluno) {
+                        console.error('Aluno não encontrado nos dados locais:', alunoId);
+                        showFeedback('Erro', 'Não foi possível encontrar os dados do aluno para confirmar a saída.');
+                        return;
                     }
 
-                    showFeedback('Sucesso!', result.mensagem || `Saída de ${aluno.nome} confirmada com sucesso.`);
+                    const confirmation = confirm(`Você confirma a retirada do aluno(a) ${aluno.nome}?`);
+                    if (!confirmation) return;
 
-                    // Recarrega a lista de alunos para refletir a mudança de status
-                    await loadStudents(localStorage.getItem('access_token'));
+                    // Mostra um feedback de carregamento
+                    showFeedback('Processando...', `Confirmando a saída de ${aluno.nome}...`);
 
-                } catch (error) {
-                    console.error('Erro detalhado ao confirmar saída:', error);
-                    showFeedback('Erro na Confirmação', error.message);
+                    // [INÍCIO DA CORREÇÃO]
+                    try {
+                        // 1. O payload (corpo) agora envia APENAS o que o DTO do backend espera.
+                        //    O backend já sabe o ID do transportador pelo token.
+                        const payload = {
+                            alunoId: Number(alunoId)
+                        };
+
+                        // 2. A URL é "limpa", sem parâmetros, como o endpoint @PostMapping espera.
+                        const response = await fetchWithAuth('/api/transporte/confirmar-saida', {
+                            method: 'POST',
+                            body: JSON.stringify(payload)
+                        });
+
+                        // O restante do tratamento de sucesso e erro permanece.
+                        const result = await response.json();
+
+                        showFeedback('Sucesso!', result.mensagem || `Saída de ${aluno.nome} confirmada com sucesso.`);
+
+                        // Recarrega a lista de alunos para refletir a mudança de status
+                        await loadStudents(localStorage.getItem('access_token'));
+
+                    } catch (error) {
+                        console.error('Erro detalhado ao confirmar saída:', error);
+                        showFeedback('Erro na Confirmação', error.message);
+                    }
+                    // [FIM DA CORREÇÃO]
                 }
-                // [FIM DA CORREÇÃO]
+
             }
-
-
         });
 
     </script>
