@@ -1705,9 +1705,12 @@
         let pendingExitConfirmation = null;
 
         let detailedStudentsData = []; // Variável para cache dos dados dos alunos
+        let directorStatus = 'AUSENTE'; // Variável global para o status do diretor
 
         let stompClient = null;
         let webSocketConnectionEstablished = false;
+
+
 
         // ========== FUNÇÕES GLOBAIS ==========
 
@@ -3124,6 +3127,12 @@
 
             const students = data.content || [];
 
+
+            // Verifica se os botões devem estar desabilitados
+            const isDisabled = directorStatus !== 'PRESENTE';
+            const disabledAttr = isDisabled ? 'disabled' : '';
+            const disabledTitle = isDisabled ? 'title="Você precisa registrar sua presença para realizar esta ação"' : '';
+
             if (students.length > 0) {
                 students.forEach(student => {
                     // 1. Primeiro, definimos todas as variáveis necessárias
@@ -3137,20 +3146,20 @@
                     switch (student.status) {
                         case 'PRESENTE':
                             statusHtml = `<span class="status-badge status-present">Presente</span>`;
-                            actionsHtml = `<button class="btn btn-danger" onclick="openStudentActionModal(${student.id},
-                            'saida', '${safeStudentName}')"><i class="fas fa-sign-out-alt"></i> Saída</button>`;
+                            // Adiciona os atributos 'disabled' e 'title' ao botão
+                            actionsHtml = `<button class="btn btn-danger"${disabledAttr} ${disabledTitle} onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')"><i class="fas fa-sign-out-alt"></i> Saída</button>`;
                             break;
 
                         case 'AUSENTE':
                             statusHtml = `<span class="status-badge status-absent">Ausente</span>`;
-                            actionsHtml = `<button class="btn btn-success" onclick="openStudentActionModal(${student.id},
-                            'entrada', '${safeStudentName}')"><i class="fas fa-sign-in-alt"></i> Entrada</button>`;
+                            // Adiciona os atributos 'disabled' e 'title' ao botão
+                            actionsHtml = `<button class="btn btn-success" ${disabledAttr} ${disabledTitle} onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')"><i class="fas fa-sign-in-alt"></i> Entrada</button>`;
                             break;
 
                         case 'AGUARDANDO_CONFIRMACAO':
                             statusHtml = `<span class="status-badge status-awaiting">Aguardando</span>`;
-                            actionsHtml = `<button class="btn btn-warning" onclick="openDirectorConfirmExitModal(${student.id},
-                            '${safeStudentName}')"><i class="fas fa-check-circle"></i> Confirmar</button>`;
+                            // Adiciona os atributos 'disabled' e 'title' ao botão
+                            actionsHtml = `<button class="btn btn-warning" ${disabledAttr} ${disabledTitle} onclick="openDirectorConfirmExitModal(${student.id}, '${safeStudentName}')"><i class="fas fa-check-circle"></i> Confirmar</button>`;
                             break;
 
                         default:
@@ -3733,7 +3742,8 @@
                     }
                 });
 
-                let directorStatus = 'AUSENTE';
+
+                directorStatus = 'AUSENTE';
                 let hasActiveSession = false;
 
                 if (statusResponse.ok) {
@@ -3785,7 +3795,7 @@
 
             } catch (error) {
                 console.error('❌ Erro ao carregar dados do diretor:', error);
-                // Em caso de erro, assume status como AUSENTE
+                directorStatus = 'AUSENTE'; // Garante que em caso de erro, o status global seja 'AUSENTE'
                 updateDirectorUI('AUSENTE', false);
                 showAlert('Erro ao verificar seu status de presença', 'error');
             }
@@ -4512,8 +4522,14 @@
             console.log('✅ Confirmando ação:', { studentId, type, studentName });
 
             try {
-                const accessToken = localStorage.getItem('access_token');
+                // Verifica o status global do diretor antes de prosseguir.
+                if (directorStatus !== 'PRESENTE') {
+                    showAlert('Ação não permitida. Você precisa registrar sua entrada na escola para gerenciar os alunos.', 'error');
+                    closeModal(); // Fecha o modal que estava aberto
+                    return; // Interrompe toda a execução da função
+                }
 
+                const accessToken = localStorage.getItem('access_token');
                 const latitude = parseFloat(document.getElementById('displayLatitude').textContent);
                 const longitude = parseFloat(document.getElementById('displayLongitude').textContent);
 
@@ -4521,7 +4537,6 @@
                     throw new Error('Localização não disponível. Obtenha a localização primeiro.');
                 }
 
-                // ======================= INÍCIO DA CORREÇÃO =======================
                 let endpointUrl;
                 let requestData;
 
@@ -4539,18 +4554,16 @@
                 } else { // type === 'saida'
                     endpointUrl = `${BACKEND_URL}/api/presencas/saida/solicitar`;
                     // Payload para o endpoint de SOLICITAÇÃO DE SAÍDA
-                    // Note a inclusão do 'escolaId' e o uso de 'solicitante'
                     requestData = {
                         alunoId: studentId,
                         solicitanteId: currentDirectorId,
                         solicitanteNome: currentUser.nome,
                         solicitanteTipo: 'DIRETOR',
-                        escolaId: currentSchoolId, // <-- CORREÇÃO CRÍTICA
+                        escolaId: currentSchoolId,
                         latitude: latitude,
                         longitude: longitude
                     };
                 }
-                // ======================== FIM DA CORREÇÃO =========================
 
                 console.log('📤 Enviando dados:', requestData);
 
@@ -5522,6 +5535,12 @@
             }
 
             try {
+                // Verifica o status global do diretor antes de prosseguir.
+                if (directorStatus !== 'PRESENTE') {
+                    showAlert('Ação não permitida. Você precisa registrar sua entrada na escola para confirmar a saída de alunos.', 'error');
+                    return; // Interrompe toda a execução da função
+                }
+                
                 const accessToken = await garantirAutenticacao();
                 if (!accessToken) throw new Error("Falha na autenticação.");
 
