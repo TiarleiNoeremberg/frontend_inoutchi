@@ -1965,7 +1965,7 @@
                                 atualizarContagemTutoresAtivos();
                                 break;
                         }
-                        
+
                     } catch (e) {
                         console.error("❌ Erro ao processar mensagem do WebSocket:", e, "Mensagem original:", message.body);
                     }
@@ -2341,13 +2341,10 @@
         // ATUALIZAR a função initializeDashboard para verificar status ao logar
         async function initializeDashboard() {
             console.log('Inicializando dashboard diretor...');
-
-
             initializeDOMElements();
 
             // 2. Configura a interatividade da UI (abas, botões, etc.)
             //setupTabNavigation();
-
             const accessToken = localStorage.getItem('access_token');
             const expiry = localStorage.getItem('token_expiry');
 
@@ -2360,33 +2357,35 @@
             }
 
             try {
-                // 1. Obter informações do usuá¡rio (ESSENCIAL PRIMEIRO)
+                // 1. Carrega dados essenciais
                 await loadUserInfo();
-
-                // 2. INICIAR O WEBSOCKET (AGORA É O LUGAR CERTO)
-                // A conexão será estabelecida em segundo plano enquanto o resto carrega.
                 if (currentSchoolId) {
                     setupWebSocket(currentSchoolId);
                 } else {
-                    throw new Error("ID da Escola não encontrado após carregar usuário. Dashboard não pode continuar.");
+                    throw new Error("ID da Escola não encontrado. Dashboard não pode continuar.");
                 }
 
-                // 3. Carregar o resto dos dados
-                console.log('Verificando status do diretor e alunos...');
-                await loadDirectorData(); // Agora esta função apenas carrega dados, sem iniciar WS
+                // 2. Carrega o resto dos dados
+                await loadDirectorData();
                 await loadAllStudents();
                 setupTabs();
-                await loadOverviewData();   // Esta também não iniciará mais o WS
-                await atualizarContagemTutoresAtivos();
+                await loadOverviewData();
 
-                // 4. Mostrar conteúdo
+                // 3. Mostrar conteúdo principal
                 showContent();
 
-                console.log('Dashboard inicializado com sucesso e conectado ao WebSocket!');
+                // 4. INICIAR ATUALIZAÇÃO PERIÓDICA (POLLING)
+                // Chama a função pela primeira vez
+                await atualizarContagemTutoresAtivos();
+                // Configura o intervalo para as próximas execuções
+                setInterval(atualizarContagemTutoresAtivos, 15000); // A cada 15 segundos
+
+                console.log('Dashboard inicializado com sucesso e polling de tutores iniciado!');
 
             } catch (error) {
+                // O erro que você viu estava sendo capturado aqui
                 console.error('Erro ao inicializar dashboard:', error);
-                showAlert('Erro ao carregar informaÃ§Ãµes. Tente novamente.', 'error');
+                showAlert('Erro ao carregar informações. Tente novamente.', 'error');
             }
         }
 
@@ -2671,30 +2670,37 @@
         }
 
         /**
- * Busca o número de tutores com fluxo ativo e atualiza o card na Visão Geral.
- */
+         * Busca o número de tutores com fluxo ativo e atualiza o card na Visão Geral.
+         */
         async function atualizarContagemTutoresAtivos() {
             const accessToken = localStorage.getItem('access_token');
-            // Assumindo que 'userEscolaId' está disponível globalmente após o login
-            if (!userEscolaId) return;
+
+            // Validação para garantir que o ID da escola foi carregado
+            if (!currentSchoolId) {
+                console.error('ID da escola (currentSchoolId) não encontrado. A contagem de tutores não pode ser atualizada.');
+                return;
+            }
 
             try {
-                const response = await fetch(`${BACKEND_URL}/api/diretores/escola/${userEscolaId}/tutores-ativos`, {
+                const response = await fetch(`${BACKEND_URL}/api/escolas/${currentSchoolId}/tutores/ativos`, {
                     headers: {
-                        'Authorization': `Bearer ${accessToken}`
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
                     }
                 });
 
                 if (response.ok) {
                     const data = await response.json();
-                    // Assumindo que o elemento do card tem o id 'totalTutors'
-                    document.getElementById('totalTutors').textContent = data.totalAtivos;
+                    const count = data.dados || 0;
+                    const tutorElement = document.getElementById('activeTutorsCount'); // Certifique-se que este ID existe no seu HTML
+                    if (tutorElement) {
+                        tutorElement.textContent = count;
+                    }
                 } else {
-                    document.getElementById('totalTutors').textContent = '0'; // Ou 'N/A' em caso de erro
+                    console.error('Falha ao buscar a contagem de tutores ativos. Status:', response.status);
                 }
             } catch (error) {
-                console.error('Erro ao buscar contagem de tutores ativos:', error);
-                document.getElementById('totalTutors').textContent = '0'; // Ou 'N/A'
+                console.error('Erro de rede ao buscar contagem de tutores:', error);
             }
         }
 
