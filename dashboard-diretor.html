@@ -2649,7 +2649,7 @@
             }
         }
 
-        
+
         // Variáveis para controle de atualização automática
         let studentsAutoRefreshInterval = null;
         const STUDENTS_REFRESH_INTERVAL = 60000; // 30 segundos
@@ -2833,8 +2833,10 @@
                 console.log(`Buscando TODOS os alunos... Termo: "${searchTerm}"`);
 
                 const accessToken = localStorage.getItem('access_token');
+
+
                 // Pede um número muito grande de alunos para garantir que todos venham.
-                let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=0&size=3000`;
+                let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=${page}&size=${pageSize}`;
 
                 if (searchTerm) {
                     url += `&nome=${encodeURIComponent(searchTerm)}`;
@@ -2845,55 +2847,39 @@
                 });
 
                 if (response.ok) {
-                    const data = await response.json();
-                    let allStudents = data.content || [];
+                    // A variável 'paginatedData' já contém o objeto de paginação da API
+                    // com 'content', 'totalPages', 'totalElements', etc.
+                    paginatedData = await response.json();
 
-                    // VERIFICAR E ATRIBUIR O STATUS CORRETO A CADA ALUNO
-                    console.log('🔍 Verificando status de todos os alunos em lote...');
-                    allStudents = await checkAllStudentsStatus(allStudents);
+                    // Opcional, mas recomendado:
+                    // Se a verificação de status em tempo real for crucial, podemos mantê-la
+                    // para a página atual de alunos.
+                    if (paginatedData.content && paginatedData.content.length > 0) {
+                        paginatedData.content = await checkAllStudentsStatus(paginatedData.content);
 
-                    // APLICA A ORDENAÇÃO GLOBAL POR PRIORIDADE
-                    console.log('🔄 Ordenando a lista COMPLETA de alunos por status...');
-                    const getStatusPriority = (status) => {
-                        if (status === 'AGUARDANDO' || status === 'AGUARDANDO_CONFIRMACAO') return 0;
-                        if (status === 'PRESENTE') return 1;
-                        return 2;
-                    };
-                    allStudents.sort((a, b) => {
-                        const priorityA = getStatusPriority(a.status);
-                        const priorityB = getStatusPriority(b.status);
-                        if (priorityA !== priorityB) return priorityA - priorityB;
-                        return (a.nome || '').localeCompare(b.nome || '');
-                    });
+                        // Ordena apenas a lista da página atual para manter a consistência visual.
+                        const getStatusPriority = (status) => {
+                            if (status === 'AGUARDANDO' || status === 'AGUARDANDO_CONFIRMACAO') return 0;
+                            if (status === 'PRESENTE') return 1;
+                            return 2;
+                        };
+                        paginatedData.content.sort((a, b) => {
+                            const priorityA = getStatusPriority(a.status);
+                            const priorityB = getStatusPriority(b.status);
+                            if (priorityA !== priorityB) return priorityA - priorityB;
+                            return (a.nome || '').localeCompare(b.nome || '');
+                        });
+                    }
 
-                    // Armazena a lista completa e ordenada no cache global.
-                    detailedStudentsData = allStudents;
-                    console.log(`💾 ${allStudents.length} alunos carregados e ordenados no cache.`);
-
-                    // Após o cache ser atualizado com a verdade, manda a Visão Geral se redesenhar.
-                    // Esta função já sabe ler do cache "detailedStudentsData".
-                    refreshOverviewData();
-
-                    // Exibe a página correta a partir da lista completa
-                    const totalPages = Math.ceil(allStudents.length / pageSize);
-                    const pageData = allStudents.slice(page * pageSize, (page + 1) * pageSize);
-
-                    // Cria um "falso" objeto de dados paginado para alimentar as funções existentes
-                    const paginatedData = {
-                        content: pageData,
-                        totalPages: totalPages,
-                        totalElements: allStudents.length,
-                        number: page
-                    };
-
+                    // As funções de renderização recebem diretamente a resposta paginada da API.
+                    // Não é mais necessário fatiar (slice) ou calcular páginas no cliente.
                     renderStudentsTable(paginatedData);
                     setupStudentsPagination(paginatedData);
-
                 } else {
                     throw new Error(`Erro ${response.status}: ${response.statusText}`);
                 }
             } catch (error) {
-                console.error('Erro ao carregar a lista completa de alunos:', error);
+                console.error('Erro ao carregar a lista de alunos:', error);
                 showAlert('Erro grave ao carregar lista de alunos.', 'error');
             }
         }
