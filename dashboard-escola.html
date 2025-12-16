@@ -1,0 +1,2296 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard da Escola - Inoutchi</title>
+    <!-- Font Awesome para ícones -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+
+    <!-- Leaflet.js (para o mapa) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Leaflet.draw (para desenhar no mapa) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+
+    <!-- Estilos (CSS) -->
+    <style>
+        /* Estilos Globais e Variáveis (inspirado nos outros dashboards) */
+        :root {
+            --primary-color: #3B82F6;
+            --secondary-color: #1E40AF;
+            --background-color: #F3F4F6;
+            --sidebar-bg: #1F2937;
+            --sidebar-text: #D1D5DB;
+            --sidebar-active: #3B82F6;
+            --text-color: #111827;
+            --card-bg: #FFFFFF;
+            --border-color: #E5E7EB;
+            --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--background-color);
+            color: var(--text-color);
+        }
+
+        /* Cabeçalho Superior */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 20px;
+            background-color: var(--card-bg);
+            border-bottom: 1px solid var(--border-color);
+            box-shadow: var(--shadow);
+        }
+
+        .header .logo img {
+            height: 40px;
+        }
+
+        .header .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .user-info .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: var(--primary-color);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+        }
+
+        .btn-logout {
+            background-color: #EF4444;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .btn-logout:hover {
+            background-color: #DC2626;
+        }
+
+        /* Layout Principal */
+        .dashboard-container {
+            display: flex;
+            height: calc(100vh - 61px);
+            /* Altura total menos o cabeçalho */
+        }
+
+        /* Barra Lateral (Sidebar) */
+        .sidebar {
+            width: 250px;
+            background-color: var(--sidebar-bg);
+            color: var(--sidebar-text);
+            padding-top: 20px;
+            flex-shrink: 0;
+        }
+
+        .sidebar-nav {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .sidebar-nav li a {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 15px 20px;
+            color: var(--sidebar-text);
+            text-decoration: none;
+            font-weight: 500;
+            transition: background-color 0.2s, color 0.2s;
+        }
+
+        .sidebar-nav li a .icon {
+            width: 20px;
+            text-align: center;
+        }
+
+        .sidebar-nav li a:hover {
+            background-color: #374151;
+        }
+
+        .sidebar-nav li a.active {
+            background-color: var(--sidebar-active);
+            color: white;
+            font-weight: 600;
+        }
+
+        /* Área de Conteúdo Principal */
+        .main-content {
+            flex-grow: 1;
+            padding: 30px;
+            overflow-y: auto;
+        }
+
+        .content-section {
+            display: none;
+            /* Todas as seções começam escondidas */
+        }
+
+        .content-section.active {
+            display: block;
+            /* A seção ativa é mostrada */
+        }
+
+        .section-header h1 {
+            margin-top: 0;
+            font-size: 28px;
+            color: var(--text-color);
+        }
+
+        /* Estilos para a Seção de Conteúdo */
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 15px;
+            margin-bottom: 25px;
+        }
+
+        .btn {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: background-color 0.2s;
+        }
+
+        .btn-primary {
+            background-color: var(--primary-color);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--secondary-color);
+        }
+
+        /* Tabela */
+        .content-table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: var(--card-bg);
+            box-shadow: var(--shadow);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .content-table th,
+        .content-table td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .content-table th {
+            background-color: #F9FAFB;
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #6B7280;
+        }
+
+        .content-table td {
+            color: var(--text-color);
+        }
+
+        .content-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .action-buttons .btn {
+            padding: 6px 10px;
+            font-size: 12px;
+            margin-right: 5px;
+        }
+
+        .btn-edit {
+            background-color: #FBBF24;
+            color: #78350F;
+        }
+
+        .btn-edit:hover {
+            background-color: #F59E0B;
+        }
+
+        .btn-delete {
+            background-color: #F87171;
+            color: #7F1D1D;
+        }
+
+        .btn-delete:hover {
+            background-color: #EF4444;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 50px;
+            color: #6B7280;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background-color: var(--card-bg);
+            margin: auto;
+            padding: 25px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 20px;
+        }
+
+        .close-button {
+            color: #9CA3AF;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close-button:hover {
+            color: var(--text-color);
+        }
+
+        .modal-body {
+            padding: 20px 0;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            box-sizing: border-box;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            padding-top: 15px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .btn-secondary {
+            background-color: #E5E7EB;
+            color: #374151;
+        }
+
+        .btn-secondary:hover {
+            background-color: #D1D5DB;
+        }
+
+        .form-group select[multiple] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            box-sizing: border-box;
+            background-color: white;
+        }
+
+        #map {
+            height: 400px;
+            /* Altura do mapa */
+            width: 100%;
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            margin-bottom: 20px;
+        }
+
+        .geofence-form-container {
+            padding: 20px;
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+        }
+
+        .geofence-form-container h3 {
+            margin-top: 0;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        /* Para dividir o formulário em colunas */
+        .form-row {
+            display: flex;
+            gap: 20px;
+        }
+
+        .form-row .form-group {
+            flex: 1;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Cabeçalho Padrão do Sistema -->
+    <header class="header">
+        <div class="logo">
+            <!-- Usaremos a mesma logo dos outros dashboards para consistência -->
+            <img src="img/LogoTipoInoutchi.png" alt="Logomarca Inoutchi">
+        </div>
+        <div class="user-info">
+            <span id="userName">Admin Escola</span>
+            <div class="user-avatar" id="userAvatar">E</div>
+            <button class="btn-logout" onclick="logout()">Sair</button>
+        </div>
+    </header>
+
+    <!-- Container Principal do Dashboard -->
+    <div class="dashboard-container">
+
+        <!-- Menu de Navegação Lateral -->
+        <aside class="sidebar">
+            <ul class="sidebar-nav">
+                <li>
+                    <a href="#" class="nav-link active" data-target="visao-geral">
+                        <i class="fas fa-tachometer-alt icon"></i> Visão Geral
+                    </a>
+                </li>
+                <li>
+                    <a href="#" class="nav-link" data-target="geolocalizacao">
+                        <i class="fas fa-map-marker-alt icon"></i> Geolocalização
+                    </a>
+                </li>
+                <li>
+                    <a href="#" class="nav-link" data-target="diretores">
+                        <i class="fas fa-user-tie icon"></i> Diretores
+                    </a>
+                </li>
+                <li>
+                    <a href="#" class="nav-link" data-target="tutores">
+                        <i class="fas fa-user-friends icon"></i> Tutores
+                    </a>
+                </li>
+                <li>
+                    <a href="#" class="nav-link" data-target="transportes">
+                        <i class="fas fa-bus icon"></i> Transportes
+                    </a>
+                </li>
+                <li>
+                    <a href="#" class="nav-link" data-target="salas">
+                        <i class="fas fa-chalkboard-teacher icon"></i> Salas
+                    </a>
+                </li>
+                <li>
+                    <a href="#" class="nav-link" data-target="alunos">
+                        <i class="fas fa-child icon"></i> Alunos
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" id="nav-token-management">
+                        <i class="fas fa-shield-alt me-2"></i>
+                        Gestão de Tokens
+                    </a>
+                </li>
+            </ul>
+        </aside>
+
+        <!-- Área de Conteúdo Dinâmico -->
+        <main class="main-content">
+            <!-- Seção Visão Geral (Padrão) -->
+            <section id="visao-geral-content" class="content-section active">
+                <div class="section-header">
+                    <h1>Visão Geral</h1>
+                </div>
+                <p>Bem-vindo ao painel de administração da escola. Em breve, esta área exibirá gráficos e relatórios
+                    sobre o fluxo da sua escola.</p>
+            </section>
+
+            <!-- Seção Geolocalização -->
+            <section id="geolocalizacao-content" class="content-section">
+                <div class="section-header">
+                    <h1>Gestão de Geolocalização (Geofence)</h1>
+                </div>
+                <div class="section-header">
+                    <h1>Gestão de Geolocalização (Geofence)</h1>
+                </div>
+
+                <!-- Onde o mapa será renderizado -->
+                <div id="map"></div>
+
+                <!-- Formulário para criar/editar a geofence -->
+                <div class="geofence-form-container">
+                    <form id="geofenceForm" onsubmit="saveGeofence(event)">
+                        <h3>Detalhes da Cerca Virtual</h3>
+                        <input type="hidden" id="geofenceId">
+                        <input type="hidden" id="geofenceLatitude">
+                        <input type="hidden" id="geofenceLongitude">
+                        <input type="hidden" id="geofenceRaio">
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="geofenceNome">Nome da Área</label>
+                                <input type="text" id="geofenceNome" placeholder="Ex: Portão Principal" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="geofenceTipo">Tipo de Operação</label>
+                                <select id="geofenceTipo" required>
+                                    <option value="">Selecione...</option>
+                                    <option value="ENTRADA">ENTRADA</option>
+                                    <option value="SAIDA">SAÍDA</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <p style="color: #6B7280; margin-top: 15px;">
+                                <i class="fas fa-info-circle"></i> Use a ferramenta de círculo <i
+                                    class="leaflet-draw-draw-circle"></i> no canto do mapa para desenhar uma nova área.
+                                Os dados serão preenchidos automaticamente.
+                            </p>
+                        </div>
+                        <div style="text-align: right; margin-top: 20px;">
+                            <button type="submit" class="btn btn-primary">Salvar Área</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Futura lista de geofences salvas -->
+                <div id="geofenceList" style="margin-top: 30px;"></div>
+            </section>
+
+            <!-- Seção Diretores -->
+            <section id="diretores-content" class="content-section">
+                <div class="section-header">
+                    <h1>Gestão de Diretores</h1>
+                </div>
+                <!-- Cabeçalho da Seção de Diretores -->
+                <div class="section-header">
+                    <h1>Gestão de Diretores</h1>
+                    <button class="btn btn-primary" onclick="openDiretorModal()">
+                        <i class="fas fa-plus"></i> Adicionar Novo Diretor
+                    </button>
+                </div>
+
+                <!-- Tabela para Listar os Diretores -->
+                <table class="content-table">
+                    <thead>
+                        <tr>
+                            <th>Nome</th>
+                            <th>Email</th>
+                            <th style="width: 150px;">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="diretoresTableBody">
+                        <!-- Linhas da tabela serão inseridas aqui pelo JavaScript -->
+                        <tr>
+                            <td colspan="3" class="empty-state">Carregando diretores...</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <!-- Modal para Adicionar/Editar Diretor -->
+                <div id="diretorModal" class="modal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h2 id="diretorModalTitle">Adicionar Novo Diretor</h2>
+                            <span class="close-button" onclick="closeDiretorModal()">&times;</span>
+                        </div>
+                        <form id="diretorForm" onsubmit="saveDiretor(event)">
+                            <div class="modal-body">
+                                <input type="hidden" id="diretorId">
+                                <div class="form-group">
+                                    <label for="diretorNome">Nome Completo</label>
+                                    <input type="text" id="diretorNome" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="diretorEmail">Email</label>
+                                    <input type="email" id="diretorEmail" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="diretorCpf">CPF</label>
+                                    <input type="text" id="diretorCpf" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="diretorSenha">Senha</label>
+                                    <input type="password" id="diretorSenha"
+                                        placeholder="Deixe em branco para não alterar">
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary"
+                                    onclick="closeDiretorModal()">Cancelar</button>
+                                <button type="submit" class="btn btn-primary">Salvar</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Seção Tutores -->
+            <section id="tutores-content" class="content-section">
+                <div class="section-header">
+                    <h1>Gestão de Tutores</h1>
+                </div>
+                <!-- Cabeçalho da Seção de Tutores -->
+                <div class="section-header">
+                    <h1>Gestão de Tutores</h1>
+                    <button class="btn btn-primary" onclick="openTutorModal()">
+                        <i class="fas fa-plus"></i> Adicionar Novo Tutor
+                    </button>
+                </div>
+
+                <!-- Tabela para Listar os Tutores -->
+                <table class="content-table">
+                    <thead>
+                        <tr>
+                            <th>Nome</th>
+                            <th>Email</th>
+                            <th>Alunos Vinculados</th>
+                            <th style="width: 150px;">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tutoresTableBody">
+                        <tr>
+                            <td colspan="4" class="empty-state">Carregando tutores...</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <!-- Modal para Adicionar/Editar Tutor -->
+                <div id="tutorModal" class="modal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h2 id="tutorModalTitle">Adicionar Novo Tutor</h2>
+                            <span class="close-button" onclick="closeTutorModal()">&times;</span>
+                        </div>
+                        <form id="tutorForm" onsubmit="saveTutor(event)">
+                            <div class="modal-body">
+                                <input type="hidden" id="tutorId">
+                                <div class="form-group">
+                                    <label for="tutorNome">Nome Completo</label>
+                                    <input type="text" id="tutorNome" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="tutorEmail">Email</label>
+                                    <input type="email" id="tutorEmail" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="tutorCpf">CPF</label>
+                                    <input type="text" id="tutorCpf" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="tutorSenha">Senha</label>
+                                    <input type="password" id="tutorSenha"
+                                        placeholder="Deixe em branco para não alterar">
+                                </div>
+                                <hr>
+                                <div class="form-group">
+                                    <label for="tutorAlunos">Alunos Vinculados (segure Ctrl/Cmd para selecionar
+                                        vários)</label>
+                                    <select multiple id="tutorAlunos" required size="5"></select>
+                                    <small style="color: #6B7280; margin-top: 5px; display: block;">É obrigatório
+                                        vincular pelo menos um aluno.</small>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary"
+                                    onclick="closeTutorModal()">Cancelar</button>
+                                <button type="submit" class="btn btn-primary">Salvar</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Seção Transportes -->
+            <section id="transportes-content" class="content-section">
+                <div class="section-header">
+                    <h1>Gestão de Transportes</h1>
+                </div>
+                <!-- Cabeçalho da Seção de Transportes -->
+                <div class="section-header">
+                    <h1>Gestão de Transportes</h1>
+                    <button class="btn btn-primary" onclick="openTransporteModal()">
+                        <i class="fas fa-plus"></i> Adicionar Novo Transporte
+                    </button>
+                </div>
+
+                <!-- Tabela para Listar os Transportes -->
+                <table class="content-table">
+                    <thead>
+                        <tr>
+                            <th>Nome/Empresa</th>
+                            <th>Email de Contato</th>
+                            <th>Telefone</th>
+                            <th style="width: 150px;">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="transportesTableBody">
+                        <!-- Linhas da tabela serão inseridas aqui pelo JavaScript -->
+                        <tr>
+                            <td colspan="4" class="empty-state">Carregando transportes...</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <!-- Modal para Adicionar/Editar Transporte -->
+                <div id="transporteModal" class="modal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h2 id="transporteModalTitle">Adicionar Novo Transporte</h2>
+                            <span class="close-button" onclick="closeTransporteModal()">&times;</span>
+                        </div>
+                        <form id="transporteForm" onsubmit="saveTransporte(event)">
+                            <div class="modal-body">
+                                <input type="hidden" id="transporteId">
+                                <div class="form-group">
+                                    <label for="transporteNome">Nome (Empresa ou Motorista)</label>
+                                    <input type="text" id="transporteNome" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="transporteEmail">Email de Contato</label>
+                                    <input type="email" id="transporteEmail" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="transporteTelefone">Telefone</label>
+                                    <input type="text" id="transporteTelefone">
+                                </div>
+                                <div class="form-group">
+                                    <label for="transporteDocumento">CPF/CNPJ</label>
+                                    <input type="text" id="transporteDocumento">
+                                </div>
+                                <div class="form-group">
+                                    <label for="transporteSenha">Senha de Acesso</label>
+                                    <input type="password" id="transporteSenha"
+                                        placeholder="Deixe em branco para não alterar">
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary"
+                                    onclick="closeTransporteModal()">Cancelar</button>
+                                <button type="submit" class="btn btn-primary">Salvar</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Seção Salas -->
+            <section id="salas-content" class="content-section">
+                <div class="section-header">
+                    <h1>Gestão de Salas</h1>
+                </div>
+                <div class="section-header">
+                    <h1>Gestão de Salas</h1>
+                    <button class="btn btn-primary" onclick="openSalaModal()">
+                        <i class="fas fa-plus"></i> Adicionar Nova Sala
+                    </button>
+                </div>
+
+                <!-- Tabela para Listar as Salas -->
+                <table class="content-table">
+                    <thead>
+                        <tr>
+                            <th>Nome da Sala</th>
+                            <th style="width: 150px;">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="salasTableBody">
+                        <!-- Linhas da tabela serão inseridas aqui pelo JavaScript -->
+                        <tr>
+                            <td colspan="2" class="empty-state">Carregando salas...</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <!-- Modal para Adicionar/Editar Sala -->
+                <div id="salaModal" class="modal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h2 id="salaModalTitle">Adicionar Nova Sala</h2>
+                            <span class="close-button" onclick="closeSalaModal()">&times;</span>
+                        </div>
+                        <form id="salaForm" onsubmit="saveSala(event)">
+                            <div class="modal-body">
+                                <input type="hidden" id="salaId">
+                                <div class="form-group">
+                                    <label for="salaNome">Nome da Sala</label>
+                                    <input type="text" id="salaNome" required placeholder="Ex: Maternal II">
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary"
+                                    onclick="closeSalaModal()">Cancelar</button>
+                                <button type="submit" class="btn btn-primary">Salvar</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Seção Alunos -->
+            <section id="alunos-content" class="content-section">
+                <div class="section-header">
+                    <h1>Gestão de Alunos</h1>
+                </div>
+                <!-- Cabeçalho da Seção de Alunos -->
+                <div class="section-header">
+                    <h1>Gestão de Alunos</h1>
+                    <button class="btn btn-primary" onclick="openAlunoModal()">
+                        <i class="fas fa-plus"></i> Adicionar Novo Aluno
+                    </button>
+                </div>
+
+                <!-- Tabela para Listar os Alunos -->
+                <table class="content-table">
+                    <thead>
+                        <tr>
+                            <th>Nome do Aluno</th>
+                            <th>Sala</th>
+                            <th>Tutor(es)</th>
+                            <th>Transporte</th>
+                            <th style="width: 150px;">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="alunosTableBody">
+                        <tr>
+                            <td colspan="5" class="empty-state">Carregando alunos...</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <!-- Modal para Adicionar/Editar Aluno -->
+                <div id="alunoModal" class="modal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h2 id="alunoModalTitle">Adicionar Novo Aluno</h2>
+                            <span class="close-button" onclick="closeAlunoModal()">&times;</span>
+                        </div>
+                        <form id="alunoForm" onsubmit="saveAluno(event)">
+                            <div class="modal-body">
+                                <input type="hidden" id="alunoId">
+
+                                <h4>Dados Pessoais</h4>
+                                <div class="form-group">
+                                    <label for="alunoNome">Nome Completo</label>
+                                    <input type="text" id="alunoNome" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="alunoNascimento">Data de Nascimento</label>
+                                    <input type="date" id="alunoNascimento" required>
+                                </div>
+
+                                <hr style="margin: 20px 0;">
+
+                                <h4>Vínculos Escolares</h4>
+                                <div class="form-group">
+                                    <label for="alunoSala">Sala</label>
+                                    <select id="alunoSala" required></select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="alunoTransporte">Transporte (Opcional)</label>
+                                    <select id="alunoTransporte"></select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="alunoTutores">Tutor(es) Responsáveis (segure Ctrl/Cmd para selecionar
+                                        vários)</label>
+                                    <select multiple id="alunoTutores" required size="5"></select>
+                                    <small style="color: #6B7280; margin-top: 5px; display: block;">É obrigatório
+                                        vincular pelo menos um tutor.</small>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary"
+                                    onclick="closeAlunoModal()">Cancelar</button>
+                                <button type="submit" class="btn btn-primary">Salvar</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </section>
+            <section id="token-management-view" class="container-fluid" style="display: none;">
+                <h2 class="mb-4">Gestão e Auditoria de Tokens de Acesso</h2>
+
+                <!-- Filtros e Busca -->
+                <div class="card mb-4">
+                    <div class="card-body">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-6">
+                                <label for="token-search-input" class="form-label">Buscar por Aluno ou Tutor</label>
+                                <input type="text" class="form-control" id="token-search-input"
+                                    placeholder="Digite um nome...">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="token-status-filter" class="form-label">Filtrar por Status</label>
+                                <select id="token-status-filter" class="form-select">
+                                    <option value="ALL" selected>Todos</option>
+                                    <option value="ACTIVE">Ativos</option>
+                                    <option value="USED">Utilizados</option>
+                                    <option value="EXPIRED">Expirados</option>
+                                    <option value="REVOKED">Revogados</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2 d-flex align-items-end">
+                                <button class="btn btn-primary w-100" id="apply-token-filters-btn">Aplicar</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Container da Tabela de Tokens -->
+                <div id="all-tokens-container" class="card">
+                    <div class="card-body">
+                        <div id="all-tokens-loading" class="text-center py-5" style="display: none;">
+                            <div class="spinner-border text-primary" role="status"></div>
+                            <p class="mt-2">Carregando tokens...</p>
+                        </div>
+                        <div id="all-tokens-error" class="alert alert-danger" style="display: none;"></div>
+                        <div id="all-tokens-table-container" class="table-responsive" style="display: none;">
+                            <table class="table table-striped table-hover align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>Aluno</th>
+                                        <th>Tutor Responsável</th>
+                                        <th>Destinatário</th>
+                                        <th>Expira em</th>
+                                        <th>Status</th>
+                                        <th>Ação</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="all-tokens-tbody">
+                                    <!-- Linhas de tokens serão inseridas aqui pelo JavaScript -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        const API_URL = 'https://inoutchi-backend.onrender.com'; // URL base da sua API backend
+        const ESCOLA_ID = 1; // ID da escola logada (será dinâmico no futuro)
+        const AUTH_TOKEN = 'seu_token_jwt'; // Token de autenticação (será dinâmico)
+
+        let map; // Variável global para o mapa
+        let drawnItems; // Camada para os desenhos
+        let savedGeofencesLayer; // Camada para exibir TODAS as geofences salvas
+
+        // Lógica para navegação entre as abas
+        document.addEventListener('DOMContentLoaded', function () {
+            const navLinks = document.querySelectorAll('.nav-link');
+            const contentSections = document.querySelectorAll('.content-section');
+
+            navLinks.forEach(link => {
+                link.addEventListener('click', function (event) {
+                    event.preventDefault();
+
+                    // Remove a classe 'active' de todos os links e seções
+                    navLinks.forEach(nav => nav.classList.remove('active'));
+                    contentSections.forEach(section => section.classList.remove('active'));
+
+                    // Adiciona a classe 'active' ao link clicado
+                    this.classList.add('active');
+
+                    // Adiciona a classe 'active' à seção de conteúdo correspondente
+                    const targetId = this.getAttribute('data-target');
+                    const targetSection = document.getElementById(targetId + '-content');
+                    if (targetSection) {
+                        targetSection.classList.add('active');
+                    }
+                });
+            });
+        });
+
+        // Função de logout (placeholder)
+        function logout() {
+            console.log("Sessão encerrada.");
+            // Aqui entraria a lógica real de logout, como limpar o token e redirecionar
+            // window.location.href = 'index.html';
+            alert("Função de logout chamada.");
+        }
+
+        // Função para carregar e exibir as salas
+        async function loadSalas() {
+            const tableBody = document.getElementById('salasTableBody');
+            tableBody.innerHTML = '<tr><td colspan="2" class="empty-state">Carregando salas...</td></tr>';
+
+            try {
+                // Endpoint baseado na análise do DiretorController
+                const response = await fetch(`${API_URL}/api/diretores/${ESCOLA_ID}/salas`, {
+                    headers: {
+                        'Authorization': `Bearer ${AUTH_TOKEN}`
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Erro na API: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                // O backend retorna um objeto com 'sucesso' e 'mensagem' para lista vazia
+                if (data.sucesso && data.codigo === "NENHUMA_SALA") {
+                    tableBody.innerHTML = `<tr><td colspan="2" class="empty-state">${data.mensagem}</td></tr>`;
+                    return;
+                }
+
+                renderSalas(data);
+
+            } catch (error) {
+                console.error('Falha ao carregar salas:', error);
+                tableBody.innerHTML = '<tr><td colspan="2" class="empty-state">Erro ao carregar as salas. Tente novamente.</td></tr>';
+            }
+        }
+
+        // Função para renderizar os dados na tabela
+        function renderSalas(salas) {
+            const tableBody = document.getElementById('salasTableBody');
+            tableBody.innerHTML = '';
+
+            salas.forEach(sala => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+            <td>${sala.nome}</td>
+            <td class="action-buttons">
+                <button class="btn btn-edit" onclick="openSalaModal(${sala.id}, '${sala.nome}')">
+                    <i class="fas fa-pencil-alt"></i>
+                </button>
+                <button class="btn btn-delete" onclick="deleteSala(${sala.id}, '${sala.nome}')">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        // Funções para controlar o Modal
+        const salaModal = document.getElementById('salaModal');
+
+        function openSalaModal(id = null, nome = '') {
+            const form = document.getElementById('salaForm');
+            form.reset();
+
+            const modalTitle = document.getElementById('salaModalTitle');
+            const salaIdInput = document.getElementById('salaId');
+            const salaNomeInput = document.getElementById('salaNome');
+
+            if (id) {
+                modalTitle.textContent = 'Editar Sala';
+                salaIdInput.value = id;
+                salaNomeInput.value = nome;
+            } else {
+                modalTitle.textContent = 'Adicionar Nova Sala';
+                salaIdInput.value = '';
+            }
+            salaModal.style.display = 'flex';
+        }
+
+        function closeSalaModal() {
+            salaModal.style.display = 'none';
+        }
+
+        // Fecha o modal se o usuário clicar fora dele
+        window.onclick = function (event) {
+            if (event.target == salaModal) {
+                closeSalaModal();
+            }
+        }
+
+        // Função para Salvar (Criar ou Editar) uma sala
+        async function saveSala(event) {
+            event.preventDefault();
+
+            const salaId = document.getElementById('salaId').value;
+            const nome = document.getElementById('salaNome').value;
+            const isEditing = !!salaId;
+
+            // Assumindo endpoints REST padrão para POST e PUT
+            const url = isEditing ? `${API_URL}/api/salas/${salaId}` : `${API_URL}/api/salas`;
+            const method = isEditing ? 'PUT' : 'POST';
+
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${AUTH_TOKEN}`
+                    },
+                    body: JSON.stringify({ nome: nome, escolaId: ESCOLA_ID }) // Enviando o nome e o ID da escola
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.mensagem || 'Erro ao salvar a sala.');
+                }
+
+                closeSalaModal();
+                loadSalas(); // Recarrega a lista
+                alert(`Sala "${nome}" salva com sucesso!`);
+
+            } catch (error) {
+                console.error('Erro ao salvar sala:', error);
+                alert(`Erro: ${error.message}`);
+            }
+        }
+
+        // Função para Deletar uma sala
+        async function deleteSala(id, nome) {
+            if (!confirm(`Tem certeza que deseja excluir a sala "${nome}"?`)) {
+                return;
+            }
+
+            try {
+                // Assumindo endpoint REST padrão para DELETE
+                const response = await fetch(`${API_URL}/api/salas/${id}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${AUTH_TOKEN}`
+                    }
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.mensagem || 'Erro ao excluir a sala.');
+                }
+
+                loadSalas(); // Recarrega a lista
+                alert(`Sala "${nome}" excluída com sucesso!`);
+
+            } catch (error) {
+                console.error('Erro ao excluir sala:', error);
+                alert(`Erro: ${error.message}`);
+            }
+        }
+
+        // Gatilho para carregar as salas quando a aba for clicada
+        document.querySelector('a[data-target="salas"]').addEventListener('click', loadSalas);
+
+        // Carrega as salas da visão geral se for a primeira aba ativa (opcional)
+        // document.addEventListener('DOMContentLoaded', () => {
+        //     if(document.querySelector('.content-section.active').id === 'salas-content') {
+        //         loadSalas();
+        //     }
+        // });
+
+        // --- LÓGICA PARA O CRUD DE DIRETORES ---
+
+        // Função para carregar e exibir os diretores
+        async function loadDiretores() {
+            const tableBody = document.getElementById('diretoresTableBody');
+            tableBody.innerHTML = '<tr><td colspan="3" class="empty-state">Carregando diretores...</td></tr>';
+
+            try {
+                // Endpoint para buscar diretores associados à escola
+                const response = await fetch(`${API_URL}/api/escolas/${ESCOLA_ID}/diretores`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+
+                if (!response.ok) throw new Error(`Erro na API: ${response.statusText}`);
+
+                const diretores = await response.json();
+                renderDiretores(diretores);
+
+            } catch (error) {
+                console.error('Falha ao carregar diretores:', error);
+                tableBody.innerHTML = '<tr><td colspan="3" class="empty-state">Erro ao carregar os diretores.</td></tr>';
+            }
+        }
+
+        // Função para renderizar os dados na tabela de diretores
+        function renderDiretores(diretores) {
+            const tableBody = document.getElementById('diretoresTableBody');
+            tableBody.innerHTML = '';
+
+            if (!diretores || diretores.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="3" class="empty-state">Nenhum diretor cadastrado.</td></tr>';
+                return;
+            }
+
+            diretores.forEach(diretor => {
+                const row = document.createElement('tr');
+                // A função openDiretorModal agora passa o objeto inteiro para facilitar
+                row.innerHTML = `
+            <td>${diretor.nome}</td>
+            <td>${diretor.email}</td>
+            <td class="action-buttons">
+                <button class="btn btn-edit" onclick='openDiretorModal(${JSON.stringify(diretor)})'>
+                    <i class="fas fa-pencil-alt"></i>
+                </button>
+                <button class="btn btn-delete" onclick="deleteDiretor(${diretor.id}, '${diretor.nome}')">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        // Funções para controlar o Modal de Diretor
+        const diretorModal = document.getElementById('diretorModal');
+
+        function openDiretorModal(diretor = null) {
+            const form = document.getElementById('diretorForm');
+            form.reset();
+
+            const modalTitle = document.getElementById('diretorModalTitle');
+            document.getElementById('diretorSenha').placeholder = "Deixe em branco para não alterar";
+
+            if (diretor && diretor.id) { // Modo de edição
+                modalTitle.textContent = 'Editar Diretor';
+                document.getElementById('diretorId').value = diretor.id;
+                document.getElementById('diretorNome').value = diretor.nome;
+                document.getElementById('diretorEmail').value = diretor.email;
+                document.getElementById('diretorCpf').value = diretor.cpf;
+            } else { // Modo de criação
+                modalTitle.textContent = 'Adicionar Novo Diretor';
+                document.getElementById('diretorId').value = '';
+                document.getElementById('diretorSenha').placeholder = "Crie uma senha para o novo diretor";
+                document.getElementById('diretorSenha').required = true;
+            }
+            diretorModal.style.display = 'flex';
+        }
+
+        function closeDiretorModal() {
+            document.getElementById('diretorSenha').required = false;
+            diretorModal.style.display = 'none';
+        }
+
+        // Fecha o modal de diretor se o usuário clicar fora dele
+        window.addEventListener('click', function (event) {
+            if (event.target == diretorModal) {
+                closeDiretorModal();
+            }
+        });
+
+        // Função para Salvar (Criar ou Editar) um diretor
+        async function saveDiretor(event) {
+            event.preventDefault();
+
+            const diretorId = document.getElementById('diretorId').value;
+            const nome = document.getElementById('diretorNome').value;
+            const email = document.getElementById('diretorEmail').value;
+            const cpf = document.getElementById('diretorCpf').value;
+            const senha = document.getElementById('diretorSenha').value;
+            const isEditing = !!diretorId;
+
+            const url = isEditing ? `${API_URL}/api/diretores/${diretorId}` : `${API_URL}/api/diretores`;
+            const method = isEditing ? 'PUT' : 'POST';
+
+            let payload = { nome, email, cpf, escolaId: ESCOLA_ID };
+            // Só adiciona a senha ao payload se ela foi digitada
+            if (senha) {
+                payload.senha = senha;
+            }
+
+            // Validação para criação: a senha é obrigatória
+            if (!isEditing && !senha) {
+                alert('Por favor, defina uma senha para o novo diretor.');
+                return;
+            }
+
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${AUTH_TOKEN}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.mensagem || 'Erro ao salvar o diretor.');
+                }
+
+                closeDiretorModal();
+                loadDiretores();
+                alert(`Diretor "${nome}" salvo com sucesso!`);
+
+            } catch (error) {
+                console.error('Erro ao salvar diretor:', error);
+                alert(`Erro: ${error.message}`);
+            }
+        }
+
+        // Função para Deletar um diretor
+        async function deleteDiretor(id, nome) {
+            if (!confirm(`Tem certeza que deseja excluir o diretor "${nome}"?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/api/diretores/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.mensagem || 'Erro ao excluir o diretor.');
+                }
+
+                loadDiretores();
+                alert(`Diretor "${nome}" excluído com sucesso!`);
+
+            } catch (error) {
+                console.error('Erro ao excluir diretor:', error);
+                alert(`Erro: ${error.message}`);
+            }
+        }
+
+        // Gatilho para carregar os diretores quando a aba for clicada
+        document.querySelector('a[data-target="diretores"]').addEventListener('click', loadDiretores);
+
+        // --- LÓGICA PARA O CRUD DE TRANSPORTES ---
+
+        // Função para carregar e exibir os transportes
+        async function loadTransportes() {
+            const tableBody = document.getElementById('transportesTableBody');
+            tableBody.innerHTML = '<tr><td colspan="4" class="empty-state">Carregando transportes...</td></tr>';
+
+            try {
+                // Assumindo endpoint para buscar transportadores da escola
+                const response = await fetch(`${API_URL}/api/escolas/${ESCOLA_ID}/transportadores`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+
+                if (!response.ok) throw new Error(`Erro na API: ${response.statusText}`);
+
+                const transportes = await response.json();
+                renderTransportes(transportes);
+
+            } catch (error) {
+                console.error('Falha ao carregar transportes:', error);
+                tableBody.innerHTML = '<tr><td colspan="4" class="empty-state">Erro ao carregar os transportes.</td></tr>';
+            }
+        }
+
+        // Função para renderizar os dados na tabela de transportes
+        function renderTransportes(transportes) {
+            const tableBody = document.getElementById('transportesTableBody');
+            tableBody.innerHTML = '';
+
+            if (!transportes || transportes.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="4" class="empty-state">Nenhum transporte cadastrado.</td></tr>';
+                return;
+            }
+
+            transportes.forEach(transporte => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+            <td>${transporte.nome}</td>
+            <td>${transporte.email}</td>
+            <td>${transporte.telefone || '-'}</td>
+            <td class="action-buttons">
+                <button class="btn btn-edit" onclick='openTransporteModal(${JSON.stringify(transporte)})'>
+                    <i class="fas fa-pencil-alt"></i>
+                </button>
+                <button class="btn btn-delete" onclick="deleteTransporte(${transporte.id}, '${transporte.nome}')">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        // Funções para controlar o Modal de Transporte
+        const transporteModal = document.getElementById('transporteModal');
+
+        function openTransporteModal(transporte = null) {
+            const form = document.getElementById('transporteForm');
+            form.reset();
+
+            const modalTitle = document.getElementById('transporteModalTitle');
+            document.getElementById('transporteSenha').placeholder = "Deixe em branco para não alterar";
+            document.getElementById('transporteSenha').required = false;
+
+            if (transporte && transporte.id) { // Modo de edição
+                modalTitle.textContent = 'Editar Transporte';
+                document.getElementById('transporteId').value = transporte.id;
+                document.getElementById('transporteNome').value = transporte.nome;
+                document.getElementById('transporteEmail').value = transporte.email;
+                document.getElementById('transporteTelefone').value = transporte.telefone;
+                document.getElementById('transporteDocumento').value = transporte.documento;
+            } else { // Modo de criação
+                modalTitle.textContent = 'Adicionar Novo Transporte';
+                document.getElementById('transporteId').value = '';
+                document.getElementById('transporteSenha').placeholder = "Crie uma senha para o novo usuário";
+                document.getElementById('transporteSenha').required = true;
+            }
+            transporteModal.style.display = 'flex';
+        }
+
+        function closeTransporteModal() {
+            transporteModal.style.display = 'none';
+        }
+
+        // Fecha o modal se o usuário clicar fora dele
+        window.addEventListener('click', function (event) {
+            if (event.target == transporteModal) {
+                closeTransporteModal();
+            }
+        });
+
+        // Função para Salvar (Criar ou Editar) um transporte
+        async function saveTransporte(event) {
+            event.preventDefault();
+
+            const transporteId = document.getElementById('transporteId').value;
+            const nome = document.getElementById('transporteNome').value;
+            const email = document.getElementById('transporteEmail').value;
+            const telefone = document.getElementById('transporteTelefone').value;
+            const documento = document.getElementById('transporteDocumento').value;
+            const senha = document.getElementById('transporteSenha').value;
+            const isEditing = !!transporteId;
+
+            const url = isEditing ? `${API_URL}/api/transporte/${transporteId}` : `${API_URL}/api/transporte`;
+            const method = isEditing ? 'PUT' : 'POST';
+
+            let payload = { nome, email, telefone, documento, escolaId: ESCOLA_ID };
+            if (senha) {
+                payload.senha = senha;
+            }
+
+            if (!isEditing && !senha) {
+                alert('Por favor, defina uma senha para o novo transporte.');
+                return;
+            }
+
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${AUTH_TOKEN}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.mensagem || 'Erro ao salvar o transporte.');
+                }
+
+                closeTransporteModal();
+                loadTransportes();
+                alert(`Transporte "${nome}" salvo com sucesso!`);
+
+            } catch (error) {
+                console.error('Erro ao salvar transporte:', error);
+                alert(`Erro: ${error.message}`);
+            }
+        }
+
+        // Função para Deletar um transporte
+        async function deleteTransporte(id, nome) {
+            if (!confirm(`Tem certeza que deseja excluir o transporte "${nome}"?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/api/transporte/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.mensagem || 'Erro ao excluir o transporte.');
+                }
+
+                loadTransportes();
+                alert(`Transporte "${nome}" excluído com sucesso!`);
+
+            } catch (error) {
+                console.error('Erro ao excluir transporte:', error);
+                alert(`Erro: ${error.message}`);
+            }
+        }
+
+        // Gatilho para carregar os transportes quando a aba for clicada
+        document.querySelector('a[data-target="transportes"]').addEventListener('click', loadTransportes);
+
+        // --- LÓGICA PARA O CRUD DE TUTORES ---
+
+        // Função para carregar e exibir os tutores
+        async function loadTutores() {
+            const tableBody = document.getElementById('tutoresTableBody');
+            tableBody.innerHTML = '<tr><td colspan="4" class="empty-state">Carregando tutores...</td></tr>';
+
+            try {
+                const response = await fetch(`${API_URL}/api/escolas/${ESCOLA_ID}/tutores`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+                if (!response.ok) throw new Error(`Erro na API: ${response.statusText}`);
+                const tutores = await response.json();
+                renderTutores(tutores);
+            } catch (error) {
+                console.error('Falha ao carregar tutores:', error);
+                tableBody.innerHTML = '<tr><td colspan="4" class="empty-state">Erro ao carregar os tutores.</td></tr>';
+            }
+        }
+
+        // Função para renderizar os dados na tabela de tutores
+        function renderTutores(tutores) {
+            const tableBody = document.getElementById('tutoresTableBody');
+            tableBody.innerHTML = '';
+
+            if (!tutores || tutores.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="4" class="empty-state">Nenhum tutor cadastrado.</td></tr>';
+                return;
+            }
+
+            tutores.forEach(tutor => {
+                const row = document.createElement('tr');
+                // Mapeia os alunos vinculados para exibir os nomes
+                const alunosNomes = tutor.alunos && tutor.alunos.length > 0
+                    ? tutor.alunos.map(a => a.nome).join(', ')
+                    : '<span style="color: #9CA3AF;">Nenhum</span>';
+
+                row.innerHTML = `
+            <td>${tutor.nome}</td>
+            <td>${tutor.email}</td>
+            <td>${alunosNomes}</td>
+            <td class="action-buttons">
+                <button class="btn btn-edit" onclick='openTutorModal(${JSON.stringify(tutor)})'>
+                    <i class="fas fa-pencil-alt"></i>
+                </button>
+                <button class="btn btn-delete" onclick="deleteTutor(${tutor.id}, '${tutor.nome}')">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        // Função para popular a caixa de seleção de alunos
+        async function populateAlunosSelect(selectedAlunoIds = []) {
+            const select = document.getElementById('tutorAlunos');
+            select.innerHTML = '<option disabled>Carregando alunos...</option>';
+
+            try {
+                const response = await fetch(`${API_URL}/api/escolas/${ESCOLA_ID}/alunos`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+                if (!response.ok) throw new Error('Falha ao buscar alunos');
+
+                const alunos = await response.json();
+                select.innerHTML = ''; // Limpa as opções
+
+                if (alunos && alunos.length > 0) {
+                    alunos.forEach(aluno => {
+                        const option = document.createElement('option');
+                        option.value = aluno.id;
+                        option.textContent = aluno.nome;
+                        // Se o ID do aluno estiver na lista de selecionados, marca o option
+                        if (selectedAlunoIds.includes(aluno.id)) {
+                            option.selected = true;
+                        }
+                        select.appendChild(option);
+                    });
+                } else {
+                    select.innerHTML = '<option disabled>Nenhum aluno cadastrado na escola</option>';
+                }
+
+            } catch (error) {
+                console.error(error);
+                select.innerHTML = '<option disabled>Erro ao carregar alunos</option>';
+            }
+        }
+
+        // Funções para controlar o Modal de Tutor
+        const tutorModal = document.getElementById('tutorModal');
+
+        async function openTutorModal(tutor = null) {
+            const form = document.getElementById('tutorForm');
+            form.reset();
+
+            const modalTitle = document.getElementById('tutorModalTitle');
+            document.getElementById('tutorSenha').placeholder = "Deixe em branco para não alterar";
+            document.getElementById('tutorSenha').required = false;
+
+            if (tutor && tutor.id) { // Modo de edição
+                modalTitle.textContent = 'Editar Tutor';
+                document.getElementById('tutorId').value = tutor.id;
+                document.getElementById('tutorNome').value = tutor.nome;
+                document.getElementById('tutorEmail').value = tutor.email;
+                document.getElementById('tutorCpf').value = tutor.cpf;
+                // Popula o select e pré-seleciona os alunos já vinculados
+                const alunoIds = tutor.alunos ? tutor.alunos.map(a => a.id) : [];
+                await populateAlunosSelect(alunoIds);
+            } else { // Modo de criação
+                modalTitle.textContent = 'Adicionar Novo Tutor';
+                document.getElementById('tutorId').value = '';
+                document.getElementById('tutorSenha').placeholder = "Crie uma senha para o novo tutor";
+                document.getElementById('tutorSenha').required = true;
+                // Apenas popula o select com todos os alunos
+                await populateAlunosSelect();
+            }
+            tutorModal.style.display = 'flex';
+        }
+
+        function closeTutorModal() {
+            tutorModal.style.display = 'none';
+        }
+
+        window.addEventListener('click', function (event) {
+            if (event.target == tutorModal) {
+                closeTutorModal();
+            }
+        });
+
+        // Função para Salvar (Criar ou Editar) um tutor
+        async function saveTutor(event) {
+            event.preventDefault();
+
+            const tutorId = document.getElementById('tutorId').value;
+            const isEditing = !!tutorId;
+
+            // Pega os IDs dos alunos selecionados no <select multiple>
+            const alunosSelect = document.getElementById('tutorAlunos');
+            const alunoIds = [...alunosSelect.options]
+                .filter(option => option.selected)
+                .map(option => parseInt(option.value));
+
+            // Validação da regra de negócio
+            if (alunoIds.length === 0) {
+                alert('É obrigatório vincular pelo menos um aluno ao tutor.');
+                return;
+            }
+
+            let payload = {
+                nome: document.getElementById('tutorNome').value,
+                email: document.getElementById('tutorEmail').value,
+                cpf: document.getElementById('tutorCpf').value,
+                alunoIds: alunoIds // Array de IDs
+            };
+
+            const senha = document.getElementById('tutorSenha').value;
+            if (senha) payload.senha = senha;
+            if (!isEditing && !senha) {
+                alert('Por favor, defina uma senha para o novo tutor.');
+                return;
+            }
+
+            const url = isEditing ? `${API_URL}/api/tutores/${tutorId}` : `${API_URL}/api/tutores`;
+            const method = isEditing ? 'PUT' : 'POST';
+
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${AUTH_TOKEN}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.mensagem || 'Erro ao salvar o tutor.');
+                }
+
+                closeTutorModal();
+                loadTutores();
+                alert(`Tutor "${payload.nome}" salvo com sucesso!`);
+
+            } catch (error) {
+                console.error('Erro ao salvar tutor:', error);
+                alert(`Erro: ${error.message}`);
+            }
+        }
+
+        // Função para Deletar um tutor
+        async function deleteTutor(id, nome) {
+            if (!confirm(`Tem certeza que deseja excluir o tutor "${nome}"? Esta ação não pode ser desfeita.`)) {
+                return;
+            }
+            try {
+                const response = await fetch(`${API_URL}/api/tutores/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.mensagem || 'Erro ao excluir o tutor.');
+                }
+                loadTutores();
+                alert(`Tutor "${nome}" excluído com sucesso!`);
+            } catch (error) {
+                console.error('Erro ao excluir tutor:', error);
+                alert(`Erro: ${error.message}`);
+            }
+        }
+
+        // Gatilho para carregar os tutores quando a aba for clicada
+        document.querySelector('a[data-target="tutores"]').addEventListener('click', loadTutores);
+
+        // --- LÓGICA PARA O CRUD DE ALUNOS ---
+
+        // Função para carregar e exibir os alunos
+        async function loadAlunos() {
+            const tableBody = document.getElementById('alunosTableBody');
+            tableBody.innerHTML = '<tr><td colspan="5" class="empty-state">Carregando alunos...</td></tr>';
+
+            try {
+                const response = await fetch(`${API_URL}/api/escolas/${ESCOLA_ID}/alunos`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+                if (!response.ok) throw new Error(`Erro na API: ${response.statusText}`);
+                const alunos = await response.json();
+                renderAlunos(alunos);
+            } catch (error) {
+                console.error('Falha ao carregar alunos:', error);
+                tableBody.innerHTML = '<tr><td colspan="5" class="empty-state">Erro ao carregar os alunos.</td></tr>';
+            }
+        }
+
+        // Função para renderizar os dados na tabela de alunos
+        function renderAlunos(alunos) {
+            const tableBody = document.getElementById('alunosTableBody');
+            tableBody.innerHTML = '';
+
+            if (!alunos || alunos.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum aluno cadastrado.</td></tr>';
+                return;
+            }
+
+            alunos.forEach(aluno => {
+                const row = document.createElement('tr');
+                const tutoresNomes = aluno.tutores.map(t => t.nome).join(', ');
+                const transporteNome = aluno.transporte ? aluno.transporte.nome : '<span style="color: #9CA3AF;">-</span>';
+
+                row.innerHTML = `
+            <td>${aluno.nome}</td>
+            <td>${aluno.sala.nome}</td>
+            <td>${tutoresNomes}</td>
+            <td>${transporteNome}</td>
+            <td class="action-buttons">
+                <button class="btn btn-edit" onclick='openAlunoModal(${JSON.stringify(aluno)})'>
+                    <i class="fas fa-pencil-alt"></i>
+                </button>
+                <button class="btn btn-delete" onclick="deleteAluno(${aluno.id}, '${aluno.nome}')">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        // --- Funções para popular os <select> do modal de Aluno ---
+        async function populateSalasSelect(selectedId = null) {
+            const select = document.getElementById('alunoSala');
+            select.innerHTML = '<option value="">Carregando...</option>';
+            const response = await fetch(`${API_URL}/api/diretores/${ESCOLA_ID}/salas`, { headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` } });
+            const salas = await response.json();
+            select.innerHTML = '<option value="">Selecione uma sala</option>';
+            salas.forEach(sala => {
+                const option = new Option(sala.nome, sala.id);
+                if (sala.id === selectedId) option.selected = true;
+                select.add(option);
+            });
+        }
+
+        async function populateTransportesSelect(selectedId = null) {
+            const select = document.getElementById('alunoTransporte');
+            select.innerHTML = '<option value="">Carregando...</option>';
+            const response = await fetch(`${API_URL}/api/escolas/${ESCOLA_ID}/transportadores`, { headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` } });
+            const transportes = await response.json();
+            select.innerHTML = '<option value="">Nenhum (Opcional)</option>';
+            transportes.forEach(transporte => {
+                const option = new Option(transporte.nome, transporte.id);
+                if (transporte.id === selectedId) option.selected = true;
+                select.add(option);
+            });
+        }
+
+        async function populateTutoresMultiSelect(selectedIds = []) {
+            const select = document.getElementById('alunoTutores');
+            select.innerHTML = '<option>Carregando...</option>';
+            const response = await fetch(`${API_URL}/api/escolas/${ESCOLA_ID}/tutores`, { headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` } });
+            const tutores = await response.json();
+            select.innerHTML = '';
+            tutores.forEach(tutor => {
+                const option = new Option(tutor.nome, tutor.id);
+                if (selectedIds.includes(tutor.id)) option.selected = true;
+                select.add(option);
+            });
+        }
+
+        // Funções para controlar o Modal de Aluno
+        const alunoModal = document.getElementById('alunoModal');
+
+        async function openAlunoModal(aluno = null) {
+            document.getElementById('alunoForm').reset();
+            const modalTitle = document.getElementById('alunoModalTitle');
+
+            // 1. Exibe o modal imediatamente com o estado de carregamento
+            alunoModal.style.display = 'flex';
+            modalTitle.textContent = 'Carregando Dados...';
+            document.getElementById('alunoSala').innerHTML = '<option>Carregando salas...</option>';
+            document.getElementById('alunoTransporte').innerHTML = '<option>Carregando transportes...</option>';
+            document.getElementById('alunoTutores').innerHTML = '<option>Carregando tutores...</option>';
+
+            try {
+                // 2. Dispara todas as chamadas para popular os selects em paralelo
+                const promises = [
+                    populateSalasSelect(aluno ? aluno.sala.id : null),
+                    populateTransportesSelect(aluno && aluno.transporte ? aluno.transporte.id : null),
+                    populateTutoresMultiSelect(aluno ? aluno.tutores.map(t => t.id) : [])
+                ];
+
+                await Promise.all(promises); // Espera todas as chamadas terminarem
+
+                // 3. Após o sucesso, configura o modal para criação ou edição
+                if (aluno && aluno.id) { // Modo de edição
+                    modalTitle.textContent = 'Editar Aluno';
+                    document.getElementById('alunoId').value = aluno.id;
+                    document.getElementById('alunoNome').value = aluno.nome;
+                    document.getElementById('alunoNascimento').value = aluno.dataNascimento.split('T')[0];
+                } else { // Modo de criação
+                    modalTitle.textContent = 'Adicionar Novo Aluno';
+                    document.getElementById('alunoId').value = '';
+                }
+            } catch (error) {
+                // 4. Se qualquer promessa falhar, captura o erro, alerta o usuário e fecha o modal
+                console.error("Falha ao carregar dados para o modal de aluno:", error);
+                alert("Não foi possível carregar os dados necessários (salas, tutores, etc.). Verifique o console para mais detalhes e tente novamente.");
+                closeAlunoModal();
+            }
+        }
+
+        function closeAlunoModal() {
+            alunoModal.style.display = 'none';
+        }
+
+        window.addEventListener('click', function (event) {
+            if (event.target == alunoModal) {
+                closeAlunoModal();
+            }
+        });
+
+        // Função para Salvar (Criar ou Editar) um aluno
+        async function saveAluno(event) {
+            event.preventDefault();
+
+            const alunoId = document.getElementById('alunoId').value;
+            const isEditing = !!alunoId;
+
+            const tutoresSelect = document.getElementById('alunoTutores');
+            const tutorIds = [...tutoresSelect.options].filter(o => o.selected).map(o => parseInt(o.value));
+
+            if (tutorIds.length === 0) {
+                alert('É obrigatório vincular pelo menos um tutor ao aluno.');
+                return;
+            }
+
+            let payload = {
+                nome: document.getElementById('alunoNome').value,
+                dataNascimento: document.getElementById('alunoNascimento').value,
+                salaId: parseInt(document.getElementById('alunoSala').value),
+                transporteId: document.getElementById('alunoTransporte').value ? parseInt(document.getElementById('alunoTransporte').value) : null,
+                tutorIds: tutorIds
+            };
+
+            const url = isEditing ? `${API_URL}/api/alunos/${alunoId}` : `${API_URL}/api/alunos`;
+            const method = isEditing ? 'PUT' : 'POST';
+
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AUTH_TOKEN}` },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.mensagem || 'Erro ao salvar o aluno.');
+                }
+                closeAlunoModal();
+                loadAlunos();
+                alert(`Aluno "${payload.nome}" salvo com sucesso!`);
+            } catch (error) {
+                console.error('Erro ao salvar aluno:', error);
+                alert(`Erro: ${error.message}`);
+            }
+        }
+
+        // Função para Deletar um aluno
+        async function deleteAluno(id, nome) {
+            if (!confirm(`Tem certeza que deseja excluir o aluno "${nome}"? Esta ação removerá todos os vínculos.`)) {
+                return;
+            }
+            try {
+                const response = await fetch(`${API_URL}/api/alunos/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.mensagem || 'Erro ao excluir o aluno.');
+                }
+                loadAlunos();
+                alert(`Aluno "${nome}" excluído com sucesso!`);
+            } catch (error) {
+                console.error('Erro ao excluir aluno:', error);
+                alert(`Erro: ${error.message}`);
+            }
+        }
+
+        // Gatilho para carregar os alunos quando a aba for clicada
+        document.querySelector('a[data-target="alunos"]').addEventListener('click', loadAlunos);
+
+        // --- LÓGICA PARA A GEOLOCALIZAÇÃO ---
+
+        // Função para inicializar o mapa
+        function initMap() {
+            if (map) return;
+
+            map = L.map('map').setView([-15.7801, -47.9292], 4);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+
+            navigator.geolocation.getCurrentPosition(
+                (position) => map.setView([position.coords.latitude, position.coords.longitude], 15),
+                () => console.warn("Não foi possível obter a localização. Usando visão geral.")
+            );
+
+            // Inicializa as camadas
+            drawnItems = new L.FeatureGroup();
+            savedGeofencesLayer = new L.FeatureGroup();
+            map.addLayer(drawnItems);
+            map.addLayer(savedGeofencesLayer);
+
+            const drawControl = new L.Control.Draw({
+                edit: { featureGroup: drawnItems, remove: false, edit: false },
+                draw: { polygon: false, polyline: false, rectangle: false, marker: false, circle: true }
+            });
+            map.addControl(drawControl);
+
+            map.on(L.Draw.Event.CREATED, function (event) {
+                const layer = event.layer;
+                const latlng = layer.getLatLng();
+                const radius = layer.getRadius();
+
+                document.getElementById('geofenceLatitude').value = latlng.lat.toFixed(6);
+                document.getElementById('geofenceLongitude').value = latlng.lng.toFixed(6);
+                document.getElementById('geofenceRaio').value = radius.toFixed(2);
+
+                showAlert('Área desenhada! Preencha os detalhes e salve.', 'info');
+
+                drawnItems.clearLayers();
+                drawnItems.addLayer(layer);
+            });
+
+            // Carrega as geofences existentes da API
+            loadGeofences();
+        }
+
+        // Limpa o formulário e o desenho temporário
+        function resetGeofenceForm() {
+            document.getElementById('geofenceForm').reset();
+            document.getElementById('geofenceId').value = '';
+            document.getElementById('geofenceLatitude').value = '';
+            document.getElementById('geofenceLongitude').value = '';
+            document.getElementById('geofenceRaio').value = '';
+            drawnItems.clearLayers();
+        }
+
+        // Carrega as geofences da API e as exibe no mapa e na lista
+        async function loadGeofences() {
+            if (!currentUser || !currentUser.escolaId) {
+                console.error("ID da escola não encontrado para carregar geofences.");
+                return;
+            }
+
+            const accessToken = localStorage.getItem('access_token');
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/geofences/escola/${currentUser.escolaId}`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+
+                if (!response.ok) {
+                    // Se a resposta for um erro, mas não for 404 (nenhuma encontrada), exibe o erro
+                    if (response.status !== 404) throw new Error('Falha ao carregar as áreas de geolocalização.');
+                }
+
+                const geofences = response.status === 404 ? [] : await response.json();
+
+                // Limpa a camada do mapa e a lista HTML antes de adicionar os itens atualizados
+                savedGeofencesLayer.clearLayers();
+                const listElement = document.getElementById('geofenceList');
+                listElement.innerHTML = '<h3>Áreas Salvas</h3>';
+
+                if (geofences.length === 0 || geofences.erro === 'NENHUMA_GEOFENCE') {
+                    listElement.innerHTML += '<p>Nenhuma área de geolocalização foi criada ainda.</p>';
+                    return;
+                }
+
+                geofences.forEach(geofence => {
+                    // Adiciona o círculo no mapa
+                    const color = geofence.tipo === 'ENTRADA' ? 'green' : 'orange';
+                    L.circle([geofence.latitude, geofence.longitude], {
+                        radius: geofence.raioMetros,
+                        color: color,
+                        fillColor: color,
+                        fillOpacity: 0.3
+                    }).addTo(savedGeofencesLayer);
+
+                    // Adiciona o item na lista
+                    const item = document.createElement('div');
+                    item.className = 'list-item';
+                    item.innerHTML = `
+                <span><i class="fas fa-map-marker-alt" style="color:${color};"></i> ${geofence.nome} <strong>(${geofence.tipo})</strong></span>
+                <div>
+                    <button class="btn-icon" onclick='populateGeofenceForm(${JSON.stringify(geofence)})'><i class="fas fa-edit"></i></button>
+                    <button class="btn-icon btn-delete" onclick='deleteGeofence(${geofence.id}, "${geofence.nome}")'><i class="fas fa-trash"></i></button>
+                </div>
+            `;
+                    listElement.appendChild(item);
+                });
+
+            } catch (error) {
+                showAlert(error.message, 'error');
+            }
+        }
+
+        // Preenche o formulário com os dados de uma geofence para edição
+        function populateGeofenceForm(geofence) {
+            document.getElementById('geofenceId').value = geofence.id;
+            document.getElementById('geofenceNome').value = geofence.nome;
+            document.getElementById('geofenceTipo').value = geofence.tipo;
+            document.getElementById('geofenceLatitude').value = geofence.latitude;
+            document.getElementById('geofenceLongitude').value = geofence.longitude;
+            document.getElementById('geofenceRaio').value = geofence.raioMetros;
+
+            // Desenha o círculo no mapa para visualização
+            drawnItems.clearLayers();
+            const circle = L.circle([geofence.latitude, geofence.longitude], { radius: geofence.raioMetros });
+            drawnItems.addLayer(circle);
+            map.fitBounds(circle.getBounds()); // Centraliza o mapa no círculo
+
+            window.scrollTo(0, 0); // Rola a página para o topo
+            showAlert('Editando área. Modifique os dados ou o desenho e salve.', 'info');
+        }
+
+        // Salva (cria ou atualiza) a geofence
+        async function saveGeofence(event) {
+            event.preventDefault();
+            const accessToken = localStorage.getItem('access_token');
+
+            const geofenceId = document.getElementById('geofenceId').value;
+            const latitude = document.getElementById('geofenceLatitude').value;
+
+            if (!latitude) {
+                showAlert("Desenhe uma área no mapa antes de salvar.", "error");
+                return;
+            }
+
+            const body = {
+                escolaId: currentUser.escolaId,
+                nome: document.getElementById('geofenceNome').value,
+                tipo: document.getElementById('geofenceTipo').value,
+                latitude: parseFloat(latitude),
+                longitude: parseFloat(document.getElementById('geofenceLongitude').value),
+                raioMetros: parseFloat(document.getElementById('geofenceRaio').value),
+                ativo: true // Sempre ativo por padrão
+            };
+
+            // Se houver um ID, é uma atualização (PUT), senão é uma criação (POST)
+            const isUpdate = !!geofenceId;
+            const url = isUpdate ? `${BACKEND_URL}/api/geofences/${geofenceId}` : `${BACKEND_URL}/api/geofences`;
+            const method = isUpdate ? 'PUT' : 'POST';
+
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${accessToken}`
+                    },
+                    body: JSON.stringify(body)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.mensagem || 'Falha ao salvar a área.');
+                }
+
+                showAlert('Área salva com sucesso!', 'success');
+                resetGeofenceForm();
+                loadGeofences(); // Recarrega a lista e o mapa
+
+            } catch (error) {
+                showAlert(error.message, 'error');
+            }
+        }
+
+        // Deleta uma geofence
+        async function deleteGeofence(id, nome) {
+            if (!confirm(`Tem certeza que deseja excluir a área "${nome}"?`)) {
+                return;
+            }
+
+            const accessToken = localStorage.getItem('access_token');
+            // Assumindo que o endpoint de deleção seja DELETE /api/geofences/{id}
+            const url = `${BACKEND_URL}/api/geofences/${id}`;
+
+            try {
+                const response = await fetch(url, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Falha ao excluir a área.');
+                }
+
+                showAlert('Área excluída com sucesso!', 'success');
+                loadGeofences(); // Recarrega
+
+            } catch (error) {
+                showAlert(error.message, 'error');
+            }
+        }
+
+        // Placeholder para a função de salvar
+        function saveGeofence(event) {
+            event.preventDefault();
+            const nome = document.getElementById('geofenceNome').value;
+            const lat = document.getElementById('geofenceLatitude').value;
+
+            if (!lat) {
+                alert("Por favor, desenhe uma área no mapa primeiro usando a ferramenta de círculo.");
+                return;
+            }
+
+            alert(`Simulação de salvamento:\nNome: ${nome}\nDados: (serão enviados para a API)`);
+            // Lógica de fetch para a API virá aqui
+        }
+
+        // Gatilho para inicializar o mapa quando a aba for clicada
+        document.querySelector('a[data-target="geolocalizacao"]').addEventListener('click', initMap);
+
+        //=======================================================================
+        // =========== LÓGICA PARA GESTÃO DE TOKENS (DASHBOARD ESCOLA) ===========
+        //=======================================================================
+
+        // --- 1. Variáveis e Event Listeners ---
+        const navTokenManagement = document.getElementById('nav-token-management');
+        const tokenManagementView = document.getElementById('token-management-view');
+
+        const allTokensLoading = document.getElementById('all-tokens-loading');
+        const allTokensError = document.getElementById('all-tokens-error');
+        const allTokensTableContainer = document.getElementById('all-tokens-table-container');
+        const allTokensTbody = document.getElementById('all-tokens-tbody');
+
+        const applyTokenFiltersBtn = document.getElementById('apply-token-filters-btn');
+
+        // Adiciona o listener para o novo item de menu
+        navTokenManagement.addEventListener('click', (e) => {
+            e.preventDefault();
+            showView(tokenManagementView);
+            loadAllTokens(); // Carrega os tokens ao exibir a view
+        });
+
+        // Adiciona listener para o botão de aplicar filtros
+        applyTokenFiltersBtn.addEventListener('click', loadAllTokens);
+
+        // --- 2. Função Principal para Carregar Tokens ---
+        async function loadAllTokens() {
+            allTokensLoading.style.display = 'block';
+            allTokensError.style.display = 'none';
+            allTokensTableContainer.style.display = 'none';
+
+            try {
+                const accessToken = await garantirAutenticacao(); // Reutiliza a função de autenticação
+                if (!accessToken) return;
+
+                // NOTA: Este é um NOVO ENDPOINT que precisa ser criado no backend.
+                // Ele deve retornar todos os tokens associados à escola do diretor logado.
+                const response = await fetch(`${BACKEND_URL}/api/escolas/tokens/all`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ mensagem: "Falha ao buscar os tokens da escola." }));
+                    throw new Error(errorData.mensagem || 'Ocorreu um erro no servidor.');
+                }
+
+                const data = await response.json();
+
+                if (data.sucesso && Array.isArray(data.tokens)) {
+                    renderAllTokens(data.tokens);
+                    allTokensTableContainer.style.display = 'block';
+                } else {
+                    throw new Error(data.erro || 'A resposta do servidor não continha uma lista de tokens.');
+                }
+
+            } catch (error) {
+                allTokensError.textContent = `Erro: ${error.message}`;
+                allTokensError.style.display = 'block';
+            } finally {
+                allTokensLoading.style.display = 'none';
+            }
+        }
+
+        // --- 3. Função para Renderizar a Tabela de Tokens ---
+        function renderAllTokens(tokens) {
+            allTokensTbody.innerHTML = '';
+
+            // Filtra os tokens com base nos controles da UI
+            const searchTerm = document.getElementById('token-search-input').value.toLowerCase();
+            const statusFilter = document.getElementById('token-status-filter').value;
+
+            const filteredTokens = tokens.filter(token => {
+                const isMatchSearch = !searchTerm ||
+                    token.aluno.nome.toLowerCase().includes(searchTerm) ||
+                    token.tutor.nome.toLowerCase().includes(searchTerm);
+
+                if (!isMatchSearch) return false;
+
+                const isExpired = new Date(token.dataExpiracao) < new Date();
+                let currentStatus = '';
+                if (token.utilizado) currentStatus = 'USED';
+                else if (!token.valido) currentStatus = 'REVOKED';
+                else if (isExpired) currentStatus = 'EXPIRED';
+                else currentStatus = 'ACTIVE';
+
+                return statusFilter === 'ALL' || statusFilter === currentStatus;
+            });
+
+            if (filteredTokens.length === 0) {
+                allTokensTbody.innerHTML = '<tr><td colspan="6" class="text-center py-4">Nenhum token encontrado para os filtros aplicados.</td></tr>';
+                return;
+            }
+
+            // Ordena por data de criação, dos mais recentes para os mais antigos
+            filteredTokens.sort((a, b) => new Date(b.dataCriacao) - new Date(a.dataCriacao));
+
+            filteredTokens.forEach(token => {
+                let statusBadge;
+                const isExpired = new Date(token.dataExpiracao) < new Date();
+
+                if (token.utilizado) {
+                    statusBadge = '<span class="token-status token-status-utilizado">Utilizado</span>';
+                } else if (!token.valido) {
+                    statusBadge = '<span class="token-status token-status-revogado">Revogado</span>';
+                } else if (isExpired) {
+                    statusBadge = '<span class="token-status token-status-expirado">Expirado</span>';
+                } else {
+                    statusBadge = '<span class="token-status token-status-ativo">Ativo</span>';
+                }
+
+                const canRevoke = !token.utilizado && !isExpired && token.valido;
+
+                const row = `
+            <tr>
+                <td>${token.aluno.nome || 'N/A'}</td>
+                <td>${token.tutor.nome || 'N/A'}</td>
+                <td>${token.destinatario.nome || 'N/A'}</td>
+                <td>${new Date(token.dataExpiracao).toLocaleString('pt-BR')}</td>
+                <td>${statusBadge}</td>
+                <td>
+                    ${canRevoke ? `<button class="btn btn-sm btn-danger" onclick="handleRevokeTokenByAdmin('${token.token}')" title="Revogar token"><i class="fas fa-ban"></i></button>` : '-'}
+                </td>
+            </tr>`;
+                allTokensTbody.innerHTML += row;
+            });
+        }
+
+        // --- 4. Função para Revogar Token (pela Escola) ---
+        async function handleRevokeTokenByAdmin(tokenValue) {
+            if (!confirm('ATENÇÃO: Tem certeza que deseja revogar este token? Esta ação é irreversível e impedirá o uso do link de acesso.')) return;
+
+            try {
+                const accessToken = await garantirAutenticacao();
+                if (!accessToken) return;
+
+                // Endpoint para revogação pelo administrador
+                const response = await fetch(`${BACKEND_URL}/api/tokens/revogar/${tokenValue}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+
+                const result = await response.json();
+                if (response.ok && result.sucesso) {
+                    showAlert('Token revogado com sucesso!', 'success');
+                    loadAllTokens(); // Recarrega a lista para refletir a mudança
+                } else {
+                    throw new Error(result.erro || 'Não foi possível revogar o token.');
+                }
+            } catch (error) {
+                showAlert(`Erro ao revogar: ${error.message}`, 'danger');
+            }
+        }
+
+    </script>
+
+</body>
+
+</html>
