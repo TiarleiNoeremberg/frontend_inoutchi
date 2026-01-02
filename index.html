@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -156,8 +157,13 @@
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         .debug-info {
@@ -176,11 +182,13 @@
         }
     </style>
 </head>
+
 <body>
     <div class="login-container">
         <div class="logo">
-            <img src="img/inoutchi2.png" alt="Logotipo INOUTCHI" style="width: 100%; max-width: 280px; height: auto; margin-bottom: 10px;">
-            
+            <img src="img/inoutchi2.png" alt="Logotipo INOUTCHI"
+                style="width: 100%; max-width: 280px; height: auto; margin-bottom: 10px;">
+
         </div>
 
         <div id="alertBox" class="alert"></div>
@@ -213,7 +221,7 @@
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             const loginForm = document.getElementById('loginForm');
             const alertBox = document.getElementById('alertBox');
             const loading = document.getElementById('loading');
@@ -228,7 +236,7 @@
             // Alternar visibilidade da senha
             togglePassword.addEventListener('click', () => {
                 const isPasswordVisible = passwordInput.getAttribute('type') === 'text';
-                
+
                 if (isPasswordVisible) {
                     passwordInput.setAttribute('type', 'password');
                     togglePassword.src = 'img/eye-closed.png';
@@ -245,8 +253,8 @@
             const tokenExpiry = localStorage.getItem('token_expiry');
             if (token && tokenExpiry && new Date().getTime() < parseInt(tokenExpiry)) {
                 // Se já tem token, verificar o ROLE para redirecionar corretamente
-                getUserRole(token)
-                    .then(userRole => {
+                getUserData(token)
+                    .then(userData => {
                         if (userRole.includes('ROLE_TUTOR')) {
                             showAlert('Login automático realizado. Redirecionando para área do Tutor...', 'success');
                             setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
@@ -254,14 +262,17 @@
                             showAlert('Login automático realizado. Redirecionando para área do Diretor...', 'success');
                             setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
                         } else if (userRole.includes('ROLE_ESCOLA')) {
+                            if (userData.escolaId) {
+                                localStorage.setItem('escolaId', userData.escolaId);
+                            }
                             showAlert('Login automático realizado. Redirecionando para área da Escola...', 'success');
                             setTimeout(() => { window.location.href = 'dashboard-escola.html'; }, 1500);
                         } else if (userRole.includes('ROLE_SALA')) {
                             showAlert('Login automático realizado. Redirecionando para área da Sala...', 'success');
-                            setTimeout(() => { window.location.href = 'dashboard-sala.html'; }, 1500);    
+                            setTimeout(() => { window.location.href = 'dashboard-sala.html'; }, 1500);
                         } else if (userRole.includes('ROLE_TRANSPORTE')) {
                             showAlert('Login automático realizado. Redirecionando para área da Sala...', 'success');
-                            setTimeout(() => { window.location.href = 'dashboard-transporte.html'; }, 1500);    
+                            setTimeout(() => { window.location.href = 'dashboard-transporte.html'; }, 1500);
                         } else {
                             showAlert('Login automático realizado. Redirecionando...', 'success');
                             setTimeout(() => { window.location.href = 'index.html'; }, 1500);
@@ -272,15 +283,16 @@
                         localStorage.removeItem('access_token');
                         localStorage.removeItem('refresh_token');
                         localStorage.removeItem('token_expiry');
+                        localStorage.removeItem('escolaId');
                         showAlert('Sua sessão expirou. Faça login novamente.', 'error');
                     });
             }
 
-            loginForm.addEventListener('submit', async function(e) {
+            loginForm.addEventListener('submit', async function (e) {
                 e.preventDefault();
 
                 // Garante que o email enviado para o backend esteja sempre em minúsculas
-                const email = document.getElementById('email').value.toLowerCase(); 
+                const email = document.getElementById('email').value.toLowerCase();
                 const password = passwordInput.value;
 
                 if (!email || !password) {
@@ -313,18 +325,31 @@
                     // Se a resposta for OK (status 2xx), processa o sucesso
                     if (response.ok) {
                         const data = await response.json();
-                        
+
                         const expiresIn = data.expires_in * 1000;
                         const expiryTime = new Date().getTime() + expiresIn;
 
                         localStorage.setItem('access_token', data.access_token);
                         localStorage.setItem('token_expiry', expiryTime.toString());
                         localStorage.setItem('refresh_token', data.refresh_token || 'no-refresh-token');
-                        
+
+                        // 1. Busca o objeto completo do usuário
+                        const userData = await getUserData(data.access_token);
+                        const userRole = userData.roles || [];
+                        // 2. Se for uma escola, extrai o ID e SALVA no localStorage
+                        if (userRole.includes('ROLE_ESCOLA')) {
+                            if (userData.escolaId) {
+                                localStorage.setItem('escolaId', userData.escolaId);
+                            } else {
+                                // Se não encontrar o ID, impede o login e avisa o usuário
+                                throw new Error("Dados do usuário não contêm um ID de escola associado.");
+                            }
+                        }
+
                         // Redireciona com base no ROLE
-                        const userRole = await getUserRole(data.access_token);
+                        //const userRole = await getUserRole(data.access_token);
                         showAlert('Login realizado com sucesso! Redirecionando...', 'success');
-                        
+
                         if (userRole.includes('ROLE_TUTOR')) {
                             setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
                         } else if (userRole.includes('ROLE_DIRETOR')) {
@@ -383,7 +408,7 @@
 
                     if (response.ok) {
                         const userData = await response.json();
-                        return userData.roles || [];
+                        return userData;
                     } else {
                         throw new Error('Erro ao obter informações do usuário');
                     }
@@ -402,4 +427,5 @@
         });
     </script>
 </body>
+
 </html>
