@@ -812,6 +812,7 @@
                         </tr>
                     </tbody>
                 </table>
+                <div id="pagination-controls" class="pagination"></div>
 
                 <!-- Modal para Adicionar/Editar Aluno -->
                 <div id="alunoModal" class="modal">
@@ -927,15 +928,44 @@
     <!-- Scripts -->
     <script>
         const API_URL = 'https://inoutchi-backend.onrender.com'; // URL base da sua API backend
-        const ESCOLA_ID = 1; // ID da escola logada (será dinâmico no futuro)
-        const AUTH_TOKEN = 'seu_token_jwt'; // Token de autenticação (será dinâmico)
+        let ESCOLA_ID = localStorage.getItem('escolaId');     // Pega o ID da escola salvo no login
+        let AUTH_TOKEN = localStorage.getItem('access_token'); // Pega o token salvo no login
 
         let map; // Variável global para o mapa
         let drawnItems; // Camada para os desenhos
         let savedGeofencesLayer; // Camada para exibir TODAS as geofences salvas
+        let currentPage = 0;
 
         // Lógica para navegação entre as abas
         document.addEventListener('DOMContentLoaded', function () {
+            // Verifica se o usuário está logado
+            if (!AUTH_TOKEN || !ESCOLA_ID) {
+                alert("Sessão inválida ou expirada. Por favor, faça o login novamente.");
+                window.location.href = 'index.html'; // Redireciona para a página de login
+                return;
+            }
+
+            // Gatilho para carregar os alunos quando a aba for clicada
+            const alunosLink = document.querySelector('a[data-target="alunos"]');
+            if (alunosLink) {
+                alunosLink.addEventListener('click', () => loadAlunos(0)); // Carrega a primeira página
+            }
+
+            // Evento para o botão "Adicionar Aluno"
+            const btnAdicionar = document.getElementById('btnAdicionarAluno');
+            if (btnAdicionar) {
+                btnAdicionar.addEventListener('click', () => openAlunoModal());
+            }
+
+            // Evento para o formulário de salvar aluno
+            const alunoForm = document.getElementById('alunoForm');
+            if (alunoForm) {
+                alunoForm.addEventListener('submit', saveAluno);
+            }
+
+
+
+
             const navLinks = document.querySelectorAll('.nav-link');
             const contentSections = document.querySelectorAll('.content-section');
 
@@ -1215,7 +1245,7 @@
             diretorModal.style.display = 'none';
         }
 
-        // Fecha o modal de diretor se o usuário clicar fora dele
+        // Lógica para fechar o modal
         window.addEventListener('click', function (event) {
             if (event.target == diretorModal) {
                 closeDiretorModal();
@@ -1690,24 +1720,72 @@
 
         // --- LÓGICA PARA O CRUD DE ALUNOS ---
 
+        /**
+         * Carrega a lista de alunos da escola logada e renderiza na tabela.
+         */
         // Função para carregar e exibir os alunos
-        async function loadAlunos() {
+        async function loadAlunos(page = 0) {
+            currentPage = page; // Atualiza a página atual
             const tableBody = document.getElementById('alunosTableBody');
             tableBody.innerHTML = '<tr><td colspan="5" class="empty-state">Carregando alunos...</td></tr>';
 
             try {
-                const response = await fetch(`${API_URL}/api/escolas/${ESCOLA_ID}/alunos`, {
+                // Adicionamos os parâmetros de paginação na URL
+                const response = await fetch(`${API_URL}/api/alunos?page=${page}&size=10&sort=nome,asc`, {
                     headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
                 });
+
                 if (!response.ok) throw new Error(`Erro na API: ${response.statusText}`);
-                const alunos = await response.json();
-                renderAlunos(alunos);
+
+                const pageData = await response.json();
+
+                // O conteúdo da página está em pageData.content
+                renderAlunos(pageData.content);
+
+                // Renderiza os controles de paginação
+                renderPagination(pageData);
+
             } catch (error) {
                 console.error('Falha ao carregar alunos:', error);
                 tableBody.innerHTML = '<tr><td colspan="5" class="empty-state">Erro ao carregar os alunos.</td></tr>';
             }
         }
 
+        /**
+     * Renderiza os controles de paginação (botões, informação da página).
+     */
+        function renderPagination(pageData) {
+            const paginationControls = document.getElementById('pagination-controls');
+            paginationControls.innerHTML = ''; // Limpa os controles antigos
+
+            const totalPages = pageData.totalPages;
+            const pageNumber = pageData.number; // 0-indexed
+
+            if (totalPages <= 1) return; // Não mostra controles se só há uma página
+
+            // Botão "Anterior"
+            const prevButton = document.createElement('button');
+            prevButton.textContent = 'Anterior';
+            prevButton.disabled = pageData.first; // Desabilita se for a primeira página
+            prevButton.onclick = () => loadAlunos(pageNumber - 1);
+            paginationControls.appendChild(prevButton);
+
+            // Informação da página
+            const pageInfo = document.createElement('span');
+            pageInfo.textContent = `Página ${pageNumber + 1} de ${totalPages}`;
+            paginationControls.appendChild(pageInfo);
+
+            // Botão "Próximo"
+            const nextButton = document.createElement('button');
+            nextButton.textContent = 'Próximo';
+            nextButton.disabled = pageData.last; // Desabilita se for a última página
+            nextButton.onclick = () => loadAlunos(pageNumber + 1);
+            paginationControls.appendChild(nextButton);
+        }
+
+        /**
+         * Renderiza os dados dos alunos na tabela.
+         */
         // Função para renderizar os dados na tabela de alunos
         function renderAlunos(alunos) {
             const tableBody = document.getElementById('alunosTableBody');
@@ -1720,23 +1798,20 @@
 
             alunos.forEach(aluno => {
                 const row = document.createElement('tr');
-                const tutoresNomes = aluno.tutores.map(t => t.nome).join(', ');
-                const transporteNome = aluno.transporte ? aluno.transporte.nome : '<span style="color: #9CA3AF;">-</span>';
-
                 row.innerHTML = `
-            <td>${aluno.nome}</td>
-            <td>${aluno.sala.nome}</td>
-            <td>${tutoresNomes}</td>
-            <td>${transporteNome}</td>
-            <td class="action-buttons">
-                <button class="btn btn-edit" onclick='openAlunoModal(${JSON.stringify(aluno)})'>
-                    <i class="fas fa-pencil-alt"></i>
-                </button>
-                <button class="btn btn-delete" onclick="deleteAluno(${aluno.id}, '${aluno.nome}')">
-                    <i class="fas fa-trash"></i>
-                </button>
-            </td>
-        `;
+                <td>${aluno.id}</td>
+                <td>${aluno.nome}</td>
+                <td>${aluno.dataAniversario}</td>
+                <td>${aluno.salaNome}</td>
+                <td class="action-buttons">
+                    <button class="btn btn-edit" onclick='openAlunoModal(${JSON.stringify(aluno)})'>
+                        <i class="fas fa-pencil-alt"></i> Editar
+                    </button>
+                    <button class="btn btn-delete" onclick="deleteAluno(${aluno.id}, '${aluno.nome}')">
+                        <i class="fas fa-trash"></i> Excluir
+                    </button>
+                </td>
+            `;
                 tableBody.appendChild(row);
             });
         }
@@ -1784,47 +1859,40 @@
         // Funções para controlar o Modal de Aluno
         const alunoModal = document.getElementById('alunoModal');
 
+        /**
+         * Abre o modal para criar ou editar um aluno.
+         * Se um aluno for passado como parâmetro, preenche o formulário para edição.
+         */
         async function openAlunoModal(aluno = null) {
-            document.getElementById('alunoForm').reset();
+            const form = document.getElementById('alunoForm');
+            form.reset();
+
             const modalTitle = document.getElementById('alunoModalTitle');
+            document.getElementById('alunoId').value = '';
 
-            // 1. Exibe o modal imediatamente com o estado de carregamento
-            alunoModal.style.display = 'flex';
-            modalTitle.textContent = 'Carregando Dados...';
-            document.getElementById('alunoSala').innerHTML = '<option>Carregando salas...</option>';
-            document.getElementById('alunoTransporte').innerHTML = '<option>Carregando transportes...</option>';
-            document.getElementById('alunoTutores').innerHTML = '<option>Carregando tutores...</option>';
+            // Antes de abrir o modal, carrega as salas disponíveis
+            await loadSalasDropdown();
 
-            try {
-                // 2. Dispara todas as chamadas para popular os selects em paralelo
-                const promises = [
-                    populateSalasSelect(aluno ? aluno.sala.id : null),
-                    populateTransportesSelect(aluno && aluno.transporte ? aluno.transporte.id : null),
-                    populateTutoresMultiSelect(aluno ? aluno.tutores.map(t => t.id) : [])
-                ];
-
-                await Promise.all(promises); // Espera todas as chamadas terminarem
-
-                // 3. Após o sucesso, configura o modal para criação ou edição
-                if (aluno && aluno.id) { // Modo de edição
-                    modalTitle.textContent = 'Editar Aluno';
-                    document.getElementById('alunoId').value = aluno.id;
-                    document.getElementById('alunoNome').value = aluno.nome;
-                    document.getElementById('alunoNascimento').value = aluno.dataNascimento.split('T')[0];
-                } else { // Modo de criação
-                    modalTitle.textContent = 'Adicionar Novo Aluno';
-                    document.getElementById('alunoId').value = '';
-                }
-            } catch (error) {
-                // 4. Se qualquer promessa falhar, captura o erro, alerta o usuário e fecha o modal
-                console.error("Falha ao carregar dados para o modal de aluno:", error);
-                alert("Não foi possível carregar os dados necessários (salas, tutores, etc.). Verifique o console para mais detalhes e tente novamente.");
-                closeAlunoModal();
+            if (aluno) { // Modo de edição
+                modalTitle.textContent = 'Editar Aluno';
+                document.getElementById('alunoId').value = aluno.id;
+                document.getElementById('alunoNome').value = aluno.nome;
+                document.getElementById('alunoDataAniversario').value = aluno.dataAniversario;
+                document.getElementById('alunoImgUrl').value = aluno.imgUrl;
+                document.getElementById('alunoSala').value = aluno.salaId;
+                document.getElementById('alunoStatus').value = aluno.status;
+            } else { // Modo de criação
+                modalTitle.textContent = 'Adicionar Novo Aluno';
             }
+
+            document.getElementById('alunoModal').style.display = 'flex';
         }
 
+        /**
+         * Fecha o modal de aluno.
+         */
         function closeAlunoModal() {
-            alunoModal.style.display = 'none';
+            document.getElementById('alunoModal').style.display = 'none';
         }
 
         window.addEventListener('click', function (event) {
@@ -1833,6 +1901,9 @@
             }
         });
 
+        /**
+         * Salva um aluno (cria um novo ou atualiza um existente).
+         */
         // Função para Salvar (Criar ou Editar) um aluno
         async function saveAluno(event) {
             event.preventDefault();
@@ -1840,20 +1911,13 @@
             const alunoId = document.getElementById('alunoId').value;
             const isEditing = !!alunoId;
 
-            const tutoresSelect = document.getElementById('alunoTutores');
-            const tutorIds = [...tutoresSelect.options].filter(o => o.selected).map(o => parseInt(o.value));
-
-            if (tutorIds.length === 0) {
-                alert('É obrigatório vincular pelo menos um tutor ao aluno.');
-                return;
-            }
-
-            let payload = {
+            const payload = {
                 nome: document.getElementById('alunoNome').value,
-                dataNascimento: document.getElementById('alunoNascimento').value,
-                salaId: parseInt(document.getElementById('alunoSala').value),
-                transporteId: document.getElementById('alunoTransporte').value ? parseInt(document.getElementById('alunoTransporte').value) : null,
-                tutorIds: tutorIds
+                dataAniversario: document.getElementById('alunoDataAniversario').value,
+                imgUrl: document.getElementById('alunoImgUrl').value,
+                salaId: document.getElementById('alunoSala').value,
+                status: document.getElementById('alunoStatus').value,
+                escolaId: ESCOLA_ID // ESSENCIAL PARA SEGURANÇA NO BACKEND!
             };
 
             const url = isEditing ? `${API_URL}/api/alunos/${alunoId}` : `${API_URL}/api/alunos`;
@@ -1862,41 +1926,84 @@
             try {
                 const response = await fetch(url, {
                     method: method,
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AUTH_TOKEN}` },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${AUTH_TOKEN}`
+                    },
                     body: JSON.stringify(payload)
                 });
+
                 if (!response.ok) {
                     const errorData = await response.json();
-                    throw new Error(errorData.mensagem || 'Erro ao salvar o aluno.');
+                    throw new Error(errorData.message || 'Erro ao salvar o aluno.');
                 }
+
                 closeAlunoModal();
-                loadAlunos();
+                loadAlunos(); // Recarrega a lista para mostrar a alteração
                 alert(`Aluno "${payload.nome}" salvo com sucesso!`);
+
             } catch (error) {
                 console.error('Erro ao salvar aluno:', error);
                 alert(`Erro: ${error.message}`);
             }
         }
 
+        /**
+         * Exclui um aluno após confirmação.
+         */
         // Função para Deletar um aluno
         async function deleteAluno(id, nome) {
-            if (!confirm(`Tem certeza que deseja excluir o aluno "${nome}"? Esta ação removerá todos os vínculos.`)) {
+            if (!confirm(`Tem certeza que deseja excluir o aluno "${nome}"? Esta ação não pode ser desfeita.`)) {
                 return;
             }
+
             try {
                 const response = await fetch(`${API_URL}/api/alunos/${id}`, {
                     method: 'DELETE',
                     headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
                 });
+
                 if (!response.ok) {
                     const errorData = await response.json();
-                    throw new Error(errorData.mensagem || 'Erro ao excluir o aluno.');
+                    throw new Error(errorData.message || 'Erro ao excluir o aluno.');
                 }
-                loadAlunos();
+
+                loadAlunos(); // Recarrega a lista
                 alert(`Aluno "${nome}" excluído com sucesso!`);
+
             } catch (error) {
                 console.error('Erro ao excluir aluno:', error);
                 alert(`Erro: ${error.message}`);
+            }
+        }
+
+        /**
+     * Carrega as salas da escola logada e preenche o dropdown no modal.
+     */
+        async function loadSalasDropdown() {
+            const selectSala = document.getElementById('alunoSala');
+            selectSala.innerHTML = '<option value="">Carregando salas...</option>';
+
+            try {
+                // Assumindo que você tenha um endpoint para listar salas da escola
+                const response = await fetch(`${API_URL}/api/escolas/${ESCOLA_ID}/salas`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+
+                if (!response.ok) throw new Error('Falha ao buscar salas.');
+
+                const salas = await response.json();
+                selectSala.innerHTML = '<option value="">Selecione uma sala</option>';
+                salas.forEach(sala => {
+                    const option = document.createElement('option');
+                    option.value = sala.id;
+                    option.textContent = sala.nome;
+                    selectSala.appendChild(option);
+                });
+
+            } catch (error) {
+                console.error(error);
+                selectSala.innerHTML = '<option value="">Erro ao carregar salas</option>';
             }
         }
 
