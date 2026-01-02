@@ -222,6 +222,9 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
+            // =================================================================
+            // 1. DECLARAÇÃO DE VARIÁVEIS
+            // =================================================================
             const loginForm = document.getElementById('loginForm');
             const alertBox = document.getElementById('alertBox');
             const loading = document.getElementById('loading');
@@ -233,65 +236,98 @@
             const CLIENT_ID = 'myclientid';
             const CLIENT_SECRET = 'myclientsecret';
 
+            // =================================================================
+            // 2. DEFINIÇÃO DAS FUNÇÕES AUXILIARES (MOVIDAS PARA O TOPO)
+            // =================================================================
+
+            /**
+             * Busca os dados completos do usuário autenticado a partir do token.
+             * @param {string} accessToken - O token JWT.
+             * @returns {Promise<object>} - Os dados do usuário (incluindo roles, escolaId, etc.).
+             */
+            async function getUserData(accessToken) {
+                try {
+                    const response = await fetch(`${BACKEND_URL}/api/users/me`, {
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+
+                    if (response.ok) {
+                        const userData = await response.json();
+                        return userData; // Retorna o objeto completo
+                    } else {
+                        throw new Error('Erro ao obter informações do usuário');
+                    }
+                } catch (error) {
+                    console.error('Erro ao obter dados do usuário:', error);
+                    throw error;
+                }
+            }
+
+            /**
+             * Exibe uma mensagem de alerta na tela.
+             * @param {string} message - A mensagem a ser exibida.
+             * @param {string} type - 'success' ou 'error'.
+             */
+            function showAlert(message, type) {
+                alertBox.textContent = message;
+                alertBox.className = type === 'error' ? 'alert alert-error' : 'alert alert-success';
+                alertBox.style.display = 'block';
+                setTimeout(() => { alertBox.style.display = 'none'; }, 5000);
+            }
+
+            // =================================================================
+            // 3. LÓGICA PRINCIPAL E EVENT LISTENERS
+            // =================================================================
+
             // Alternar visibilidade da senha
             togglePassword.addEventListener('click', () => {
                 const isPasswordVisible = passwordInput.getAttribute('type') === 'text';
-
-                if (isPasswordVisible) {
-                    passwordInput.setAttribute('type', 'password');
-                    togglePassword.src = 'img/eye-closed.png';
-                    togglePassword.alt = 'Mostrar senha';
-                } else {
-                    passwordInput.setAttribute('type', 'text');
-                    togglePassword.src = 'img/eye-open.png';
-                    togglePassword.alt = 'Ocultar senha';
-                }
+                passwordInput.setAttribute('type', isPasswordVisible ? 'password' : 'text');
+                togglePassword.src = isPasswordVisible ? 'img/eye-closed.png' : 'img/eye-open.png';
+                togglePassword.alt = isPasswordVisible ? 'Mostrar senha' : 'Ocultar senha';
             });
 
-            // Verificar token existente
+            // Verificação de token para login automático
             const token = localStorage.getItem('access_token');
             const tokenExpiry = localStorage.getItem('token_expiry');
             if (token && tokenExpiry && new Date().getTime() < parseInt(tokenExpiry)) {
-                // Se já tem token, verificar o ROLE para redirecionar corretamente
                 getUserData(token)
                     .then(userData => {
-                        if (userRole.includes('ROLE_TUTOR')) {
-                            showAlert('Login automático realizado. Redirecionando para área do Tutor...', 'success');
-                            setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
-                        } else if (userRole.includes('ROLE_DIRETOR')) {
-                            showAlert('Login automático realizado. Redirecionando para área do Diretor...', 'success');
-                            setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
-                        } else if (userRole.includes('ROLE_ESCOLA')) {
+                        const userRole = userData.roles || [];
+                        if (userRole.includes('ROLE_ESCOLA')) {
                             if (userData.escolaId) {
                                 localStorage.setItem('escolaId', userData.escolaId);
                             }
-                            showAlert('Login automático realizado. Redirecionando para área da Escola...', 'success');
+                        }
+
+                        showAlert('Login automático realizado. Redirecionando...', 'success');
+                        if (userRole.includes('ROLE_TUTOR')) {
+                            setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
+                        } else if (userRole.includes('ROLE_DIRETOR')) {
+                            setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
+                        } else if (userRole.includes('ROLE_ESCOLA')) {
                             setTimeout(() => { window.location.href = 'dashboard-escola.html'; }, 1500);
                         } else if (userRole.includes('ROLE_SALA')) {
-                            showAlert('Login automático realizado. Redirecionando para área da Sala...', 'success');
                             setTimeout(() => { window.location.href = 'dashboard-sala.html'; }, 1500);
                         } else if (userRole.includes('ROLE_TRANSPORTE')) {
-                            showAlert('Login automático realizado. Redirecionando para área da Sala...', 'success');
                             setTimeout(() => { window.location.href = 'dashboard-transporte.html'; }, 1500);
                         } else {
-                            showAlert('Login automático realizado. Redirecionando...', 'success');
                             setTimeout(() => { window.location.href = 'index.html'; }, 1500);
                         }
                     })
                     .catch(error => {
-                        console.error('Erro ao verificar ROLE:', error);
-                        localStorage.removeItem('access_token');
-                        localStorage.removeItem('refresh_token');
-                        localStorage.removeItem('token_expiry');
-                        localStorage.removeItem('escolaId');
+                        console.error('Sessão automática falhou:', error);
+                        localStorage.clear(); // Limpa todo o storage em caso de falha
                         showAlert('Sua sessão expirou. Faça login novamente.', 'error');
                     });
             }
 
+            // Evento de submit do formulário de login
             loginForm.addEventListener('submit', async function (e) {
                 e.preventDefault();
-
-                // Garante que o email enviado para o backend esteja sempre em minúsculas
                 const email = document.getElementById('email').value.toLowerCase();
                 const password = passwordInput.value;
 
@@ -304,10 +340,6 @@
                 loginBtn.disabled = true;
 
                 try {
-                    console.group('Tentativa de Login');
-                    console.log('URL:', BACKEND_URL + '/oauth2/token');
-                    console.log('Email (enviado):', email);
-
                     const response = await fetch(`${BACKEND_URL}/oauth2/token`, {
                         method: 'POST',
                         headers: {
@@ -322,34 +354,25 @@
                         })
                     });
 
-                    // Se a resposta for OK (status 2xx), processa o sucesso
                     if (response.ok) {
                         const data = await response.json();
-
-                        const expiresIn = data.expires_in * 1000;
-                        const expiryTime = new Date().getTime() + expiresIn;
-
                         localStorage.setItem('access_token', data.access_token);
-                        localStorage.setItem('token_expiry', expiryTime.toString());
+                        localStorage.setItem('token_expiry', (new Date().getTime() + (data.expires_in * 1000)).toString());
                         localStorage.setItem('refresh_token', data.refresh_token || 'no-refresh-token');
 
-                        // 1. Busca o objeto completo do usuário
                         const userData = await getUserData(data.access_token);
                         const userRole = userData.roles || [];
-                        // 2. Se for uma escola, extrai o ID e SALVA no localStorage
+
                         if (userRole.includes('ROLE_ESCOLA')) {
                             if (userData.escolaId) {
                                 localStorage.setItem('escolaId', userData.escolaId);
                             } else {
-                                // Se não encontrar o ID, impede o login e avisa o usuário
-                                throw new Error("Dados do usuário não contêm um ID de escola associado.");
+                                throw new Error("Login falhou: ID da escola não encontrado para este usuário.");
                             }
                         }
 
-                        // Redireciona com base no ROLE
-                        //const userRole = await getUserRole(data.access_token);
                         showAlert('Login realizado com sucesso! Redirecionando...', 'success');
-
+                        // Redirecionamento (mesma lógica do login automático)
                         if (userRole.includes('ROLE_TUTOR')) {
                             setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
                         } else if (userRole.includes('ROLE_DIRETOR')) {
@@ -365,67 +388,26 @@
                         }
 
                     } else {
-                        // ===== INÍCIO DA NOVA LÓGICA DE ERRO =====
-                        // Se a resposta NÃO for OK, lemos como texto para evitar erros de parsing.
                         const errorText = await response.text();
-                        console.error("Resposta de erro do servidor:", errorText); // Log para depuração
-
-                        // Verificamos se o texto de erro contém a mensagem que queremos substituir.
+                        console.error("Resposta de erro do servidor:", errorText);
                         if (errorText.includes("Invalid credentials")) {
-                            showAlert('Usuário não cadastrado ou senha incorreta. Verifique os dados inseridos.', 'error');
+                            showAlert('Usuário não cadastrado ou senha incorreta.', 'error');
                         } else {
-                            // Tenta extrair uma mensagem mais detalhada do JSON, se possível.
-                            try {
-                                const errorJson = JSON.parse(errorText);
-                                showAlert(errorJson.error_description || errorJson.error || 'Ocorreu um erro.', 'error');
-                            } catch (e) {
-                                // Se não for JSON, mostra o texto do erro como fallback.
-                                showAlert(errorText, 'error');
-                            }
+                            showAlert('Ocorreu um erro durante o login.', 'error');
                         }
-                        // ===== FIM DA NOVA LÓGICA DE ERRO =====
                     }
-
                 } catch (error) {
                     console.error('Erro de conexão ou script:', error);
-                    showAlert('Erro de conexão: ' + error.message, 'error');
+                    showAlert('Erro: ' + error.message, 'error');
+                    localStorage.clear(); // Limpa o storage em caso de erro grave
                 } finally {
                     loading.style.display = 'none';
                     loginBtn.disabled = false;
-                    console.groupEnd();
                 }
             });
-
-            // Função para obter o ROLE do usuário
-            async function getUserRole(accessToken) {
-                try {
-                    const response = await fetch(`${BACKEND_URL}/api/users/me`, {
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json'
-                        }
-                    });
-
-                    if (response.ok) {
-                        const userData = await response.json();
-                        return userData;
-                    } else {
-                        throw new Error('Erro ao obter informações do usuário');
-                    }
-                } catch (error) {
-                    console.error('Erro ao obter ROLE:', error);
-                    throw error;
-                }
-            }
-
-            function showAlert(message, type) {
-                alertBox.textContent = message;
-                alertBox.className = type === 'error' ? 'alert alert-error' : 'alert alert-success';
-                alertBox.style.display = 'block';
-                setTimeout(() => { alertBox.style.display = 'none'; }, 5000);
-            }
         });
     </script>
+
 </body>
 
 </html>
