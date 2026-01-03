@@ -1016,7 +1016,7 @@
             if (alunoForm) {
                 alunoForm.addEventListener('submit', saveAluno);
             }
-            
+
             const navLinks = document.querySelectorAll('.nav-link');
             const contentSections = document.querySelectorAll('.content-section');
 
@@ -1213,7 +1213,7 @@
 
         // Gatilho para carregar as salas quando a aba for clicada
         document.querySelector('a[data-target="salas"]').addEventListener('click', loadSalas);
-  
+
         // --- LÓGICA PARA O CRUD DE DIRETORES ---
 
         // Função para carregar e exibir os diretores
@@ -2014,25 +2014,37 @@
         // Função para Salvar (Criar ou Editar) um aluno
         async function saveAluno(event) {
             event.preventDefault();
-
-            // 1. Encontrar o botão de submit para podermos controlá-lo
             const submitButton = document.querySelector('#alunoForm button[type="submit"]');
 
             try {
-                // 2. Desabilitar o botão IMEDIATAMENTE e fornecer feedback
                 submitButton.disabled = true;
                 submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
 
                 const alunoId = document.getElementById('alunoId').value;
                 const isEditing = !!alunoId;
 
-                const tutorIds = selectedTutors.map(tutor => tutor.id);
-                if (tutorIds.length === 0 && !isEditing) {
-                    alert('É obrigatório selecionar pelo menos um tutor responsável para um novo aluno.');
-                    // Reabilita o botão em caso de erro de validação
-                    submitButton.disabled = false;
-                    submitButton.innerHTML = 'Salvar';
-                    return;
+                // 1. Prepara a lista para o novo formato do payload
+                const tutoresPayload = [];
+
+                // 2. Itera sobre cada tutor selecionado para pedir o parentesco
+                for (const tutor of selectedTutors) {
+                    const parentesco = prompt(`Qual o parentesco de "${tutor.nome}"? (Ex: PAI, MAE, AVO, RESPONSAVEL)`);
+
+                    if (!parentesco || parentesco.trim() === '') {
+                        alert('O parentesco é obrigatório. A operação foi cancelada.');
+                        throw new Error('Operação cancelada pelo usuário.');
+                    }
+
+                    tutoresPayload.push({
+                        id: tutor.id,
+                        // O backend espera um Enum, então enviamos o texto em maiúsculas
+                        parentesco: parentesco.trim().toUpperCase()
+                    });
+                }
+
+                if (tutoresPayload.length === 0 && !isEditing) {
+                    alert('É obrigatório adicionar ao menos um tutor para um novo aluno.');
+                    throw new Error('Validação falhou: nenhum tutor selecionado.');
                 }
 
                 const imgUrlElement = document.getElementById('alunoImgUrl');
@@ -2043,7 +2055,8 @@
                     dataAniversario: document.getElementById('alunoNascimento').value,
                     imgUrl: imgUrlElement ? imgUrlElement.value : null,
                     salaId: parseInt(document.getElementById('alunoSala').value),
-                    tutorIds: tutorIds
+                    // 3. Usa a nova lista de tutores no payload
+                    tutores: tutoresPayload
                 };
 
                 const url = isEditing ? `${API_URL}/api/alunos/${alunoId}` : `${API_URL}/api/alunos`;
@@ -2069,10 +2082,11 @@
 
             } catch (error) {
                 console.error('Erro ao salvar aluno:', error);
-                alert(`Erro: ${error.message}`);
+                // Não mostra o alerta de erro se foi cancelamento do usuário
+                if (error.message !== 'Operação cancelada pelo usuário.') {
+                    alert(`Erro: ${error.message}`);
+                }
             } finally {
-                // 3. Bloco FINALLY: Este código SEMPRE executa, tenha a operação dado certo ou errado.
-                // Garante que o botão seja reabilitado e o texto restaurado.
                 if (submitButton) {
                     submitButton.disabled = false;
                     submitButton.innerHTML = 'Salvar';
