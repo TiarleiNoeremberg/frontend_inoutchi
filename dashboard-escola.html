@@ -720,7 +720,7 @@
                 <div class="search-bar-container" style="margin-bottom: 20px; display: flex; gap: 10px;">
                     <input type="text" id="tutorSearch" class="form-control" placeholder="Buscar tutor por nome..."
                         style="flex-grow: 1; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px;">
-                    <button class="btn btn-primary" onclick="searchTutors()">
+                    <button class="btn btn-primary" onclick="searchTutorsOnListPage()">
                         <i class="fas fa-search"></i> Buscar
                     </button>
                 </div>
@@ -1713,38 +1713,58 @@
         document.querySelector('a[data-target="transportes"]').addEventListener('click', loadTransportes);
 
         // --- LÓGICA PARA O CRUD DE TUTORES ---
+        let currentTutorsPage = 0;
+        const tutorsPageSize = 10; // Define 10 tutores por página
 
-        // Função para carregar e exibir os tutores
-        async function loadTutores() {
+        // Gatilho para carregar os tutores quando a aba for clicada (chama a NOVA função)
+        document.querySelector('a[data-target="tutores"]').addEventListener('click', () => loadAllTutors());
+
+        /**
+ * Função principal para carregar os tutores com paginação e busca.
+ */
+        async function loadAllTutors(page = 0, searchTerm = '') {
+            currentTutorsPage = page;
             const tableBody = document.getElementById('tutoresTableBody');
             tableBody.innerHTML = '<tr><td colspan="4" class="empty-state">Carregando tutores...</td></tr>';
 
             try {
-                const response = await fetch(`${API_URL}/api/escolas/${ESCOLA_ID}/tutores`, {
+                // USANDO O ENDPOINT CORRETO E FUNCIONAL DO DIRETOR
+                let url = `${API_URL}/api/diretores/tutores?page=${page}&size=${tutorsPageSize}`;
+                if (searchTerm) {
+                    url += `&nome=${encodeURIComponent(searchTerm)}`;
+                }
+
+                const response = await fetch(url, {
                     headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
                 });
+
                 if (!response.ok) throw new Error(`Erro na API: ${response.statusText}`);
-                const tutores = await response.json();
-                renderTutores(tutores);
+
+                const pageData = await response.json();
+                renderTutorsTable(pageData.content); // A lista de tutores está em 'content'
+                setupTutorsPagination(pageData); // Configura a paginação com os dados da página
+
             } catch (error) {
                 console.error('Falha ao carregar tutores:', error);
                 tableBody.innerHTML = '<tr><td colspan="4" class="empty-state">Erro ao carregar os tutores.</td></tr>';
             }
         }
 
-        // Função para renderizar os dados na tabela de tutores
-        function renderTutores(tutores) {
+        /**
+ * Renderiza as linhas da tabela de tutores.
+ */
+        function renderTutorsTable(tutores) {
             const tableBody = document.getElementById('tutoresTableBody');
             tableBody.innerHTML = '';
 
             if (!tutores || tutores.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="4" class="empty-state">Nenhum tutor cadastrado.</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="4" class="empty-state">Nenhum tutor encontrado.</td></tr>';
                 return;
             }
 
             tutores.forEach(tutor => {
                 const row = document.createElement('tr');
-                // Mapeia os alunos vinculados para exibir os nomes
+                // Formata os nomes dos alunos vinculados
                 const alunosNomes = tutor.alunos && tutor.alunos.length > 0
                     ? tutor.alunos.map(a => a.nome).join(', ')
                     : '<span style="color: #9CA3AF;">Nenhum</span>';
@@ -1757,7 +1777,7 @@
                 <button class="btn btn-edit" onclick='openTutorModal(${JSON.stringify(tutor)})'>
                     <i class="fas fa-pencil-alt"></i>
                 </button>
-                <button class="btn btn-delete" onclick="deleteTutor(${tutor.id}, '${tutor.nome}')">
+                <button class="btn btn-delete" data-id="${tutor.id}" data-nome="${tutor.nome}">
                     <i class="fas fa-trash"></i>
                 </button>
             </td>
@@ -1765,6 +1785,52 @@
                 tableBody.appendChild(row);
             });
         }
+
+        /**
+ * Configura os botões e informações da paginação dos tutores.
+ */
+        function setupTutorsPagination(pageData) {
+            const paginationContainer = document.getElementById('tutorsPagination');
+            paginationContainer.innerHTML = '';
+            paginationContainer.className = 'pagination-container';
+
+            const totalPages = pageData.totalPages;
+            const pageNumber = pageData.number;
+            const totalElements = pageData.totalElements;
+
+            if (totalElements === 0) {
+                paginationContainer.style.display = 'none';
+                return;
+            }
+            paginationContainer.style.display = 'flex';
+
+            if (totalPages <= 1) {
+                paginationContainer.innerHTML = `<div class="pagination-info">Mostrando ${totalElements} de ${totalElements} registros</div>`;
+                return;
+            }
+
+            const startRecord = (pageNumber * pageData.size) + 1;
+            const endRecord = startRecord + pageData.numberOfElements - 1;
+            const isFirstPage = pageData.first;
+            const isLastPage = pageData.last;
+
+            // A função de busca é necessária para a paginação funcionar com o filtro
+            const searchTerm = document.getElementById('tutorSearch').value;
+
+            paginationContainer.innerHTML = `
+        <div class="pagination-info">Mostrando ${startRecord}-${endRecord} de ${totalElements} registros</div>
+        <div class="pagination-buttons">
+            <button class="btn pagination-btn" onclick="loadAllTutors(0, '${searchTerm}')" ${isFirstPage ? 'disabled' : ''}><i class="fas fa-angle-double-left"></i></button>
+            <button class="btn pagination-btn" onclick="loadAllTutors(${pageNumber - 1}, '${searchTerm}')" ${isFirstPage ? 'disabled' : ''}><i class="fas fa-angle-left"></i></button>
+            <span class="page-info-text">Página ${pageNumber + 1} de ${totalPages}</span>
+            <button class="btn pagination-btn" onclick="loadAllTutors(${pageNumber + 1}, '${searchTerm}')" ${isLastPage ? 'disabled' : ''}><i class="fas fa-angle-right"></i></button>
+            <button class="btn pagination-btn" onclick="loadAllTutors(${totalPages - 1}, '${searchTerm}')" ${isLastPage ? 'disabled' : ''}><i class="fas fa-angle-double-right"></i></button>
+        </div>
+    `;
+        }
+
+
+
 
         // Função para popular a caixa de seleção de alunos
         async function populateAlunosSelect(selectedAlunoIds = []) {
@@ -1925,8 +1991,7 @@
             }
         }
 
-        // Gatilho para carregar os tutores quando a aba for clicada
-        document.querySelector('a[data-target="tutores"]').addEventListener('click', loadTutores);
+
 
         // --- LÓGICA PARA O CRUD DE ALUNOS ---
 
@@ -2788,6 +2853,14 @@
         function handleRemoveTutor(tutorId) {
             selectedTutors = selectedTutors.filter(t => t.id !== tutorId);
             renderSelectedTutors();
+        }
+
+        /**
+         * Função de busca chamada pelo botão "Buscar" na PÁGINA DE TUTORES.
+         */
+        function searchTutorsOnListPage() {
+            const searchTerm = document.getElementById('tutorSearch').value;
+            loadAllTutors(0, searchTerm); // Sempre busca a partir da primeira página
         }
 
         // Função que busca tutores na API conforme o usuário digita
