@@ -1901,7 +1901,7 @@
                 const response = await fetch(`${API_URL}/api/diretores/${ESCOLA_ID}/transportadores`, {
                     headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
                 });
-                
+
                 if (!response.ok) {
                     throw new Error(`Falha na requisição: ${response.statusText}`);
                 }
@@ -1950,38 +1950,59 @@
          * Se um aluno for passado como parâmetro, preenche o formulário para edição.
          */
         async function openAlunoModal(aluno = null) {
-            // Limpa seleções anteriores ao abrir o modal
+            const modal = document.getElementById('alunoModal');
+            const modalTitle = document.getElementById('alunoModalTitle');
+            document.getElementById('alunoForm').reset();
+
+            // 1. Exibe o modal imediatamente com o estado de carregamento
+            modal.style.display = 'flex';
+            modalTitle.textContent = 'Carregando Dados...';
+
+            // Limpa seleções de tutor anteriores
             selectedTutors = [];
             renderSelectedTutors();
 
+            // Adiciona o listener para o campo de busca de tutor
             const tutorSearchInput = document.getElementById('tutorSearchInput');
-            // Usamos 'input' para disparar a busca a cada tecla digitada
             tutorSearchInput.addEventListener('input', (event) => {
                 searchTutors(event.target.value);
             });
 
-            const form = document.getElementById('alunoForm');
-            form.reset();
+            try {
+                // 2. Dispara TODAS as chamadas para popular os selects em paralelo
+                const promises = [
+                    populateSalasSelect(aluno ? aluno.sala.id : null),
+                    populateTransportesSelect(aluno && aluno.transporte ? aluno.transporte.id : null)
+                    // A função de tutores não precisa ser chamada aqui, pois agora é uma busca interativa
+                ];
 
-            const modalTitle = document.getElementById('alunoModalTitle');
-            document.getElementById('alunoId').value = '';
+                // Espera todas as chamadas terminarem
+                await Promise.all(promises);
 
-            // Antes de abrir o modal, carrega as salas disponíveis
-            await loadSalasDropdown();
+                // 3. Após o sucesso, configura o modal para criação ou edição
+                if (aluno && aluno.id) { // Modo de edição
+                    modalTitle.textContent = 'Editar Aluno';
+                    document.getElementById('alunoId').value = aluno.id;
+                    document.getElementById('alunoNome').value = aluno.nome;
+                    document.getElementById('alunoNascimento').value = aluno.dataNascimento.split('T')[0];
+                    document.getElementById('alunoImgUrl').value = aluno.imgUrl || '';
 
-            if (aluno) { // Modo de edição
-                modalTitle.textContent = 'Editar Aluno';
-                document.getElementById('alunoId').value = aluno.id;
-                document.getElementById('alunoNome').value = aluno.nome;
-                document.getElementById('alunoDataAniversario').value = aluno.dataAniversario;
-                document.getElementById('alunoImgUrl').value = aluno.imgUrl;
-                document.getElementById('alunoSala').value = aluno.salaId;
-                document.getElementById('alunoStatus').value = aluno.status;
-            } else { // Modo de criação
-                modalTitle.textContent = 'Adicionar Novo Aluno';
+                    // Pré-seleciona os tutores no modo de edição
+                    if (aluno.tutores && aluno.tutores.length > 0) {
+                        selectedTutors = aluno.tutores.map(t => ({ id: t.id, nome: t.nome }));
+                        renderSelectedTutors();
+                    }
+
+                } else { // Modo de criação
+                    modalTitle.textContent = 'Adicionar Novo Aluno';
+                    document.getElementById('alunoId').value = ''; // Garante que o ID esteja limpo
+                }
+
+            } catch (error) {
+                console.error("Erro ao preparar o modal do aluno:", error);
+                modalTitle.textContent = 'Erro ao Carregar';
+                // Você pode querer fechar o modal ou mostrar uma mensagem de erro mais explícita aqui
             }
-
-            document.getElementById('alunoModal').style.display = 'flex';
         }
 
         /**
