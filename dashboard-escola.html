@@ -415,6 +415,39 @@
             margin-left: 5px;
             font-weight: bold;
         }
+
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background-color: #28a745;
+            /* Verde para sucesso por padrão */
+            color: white;
+            padding: 15px 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 2000;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-20px);
+            transition: all 0.3s ease-in-out;
+        }
+
+        .toast.show {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        .toast.error {
+            background-color: #dc3545;
+            /* Vermelho para erro */
+        }
+
+        /* Ajuste no botão de exclusão do modal */
+        #confirmDeleteBtn:hover {
+            background-color: #B91C1C !important;
+        }
     </style>
 </head>
 
@@ -981,6 +1014,32 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Modal de Confirmação de Exclusão -->
+                <div id="deleteConfirmModal" class="modal">
+                    <div class="modal-content" style="max-width: 450px;">
+                        <div class="modal-header">
+                            <h2 id="deleteModalTitle">Confirmar Exclusão</h2>
+                            <span class="close-button" onclick="closeDeleteConfirmModal()">&times;</span>
+                        </div>
+                        <div class="modal-body">
+                            <p id="deleteConfirmMessage">Você tem certeza que deseja realizar esta ação?</p>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary"
+                                onclick="closeDeleteConfirmModal()">Cancelar</button>
+                            <!-- Este botão terá sua ação definida pelo JavaScript -->
+                            <button type="button" id="confirmDeleteBtn" class="btn btn-delete"
+                                style="background-color: #DC2626; color: white;">Sim, Excluir</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Notificação Toast (para mensagens de sucesso/erro) -->
+                <div id="toastNotification" class="toast">
+                    <p id="toastMessage">Operação realizada com sucesso!</p>
+                </div>
+
             </section>
 
         </main>
@@ -2106,37 +2165,7 @@
                 }
             }
         }
-
-
-        /**
-         * Exclui um aluno após confirmação.
-         */
-        // Função para Deletar um aluno
-        async function deleteAluno(id, nome) {
-            if (!confirm(`Tem certeza que deseja excluir o aluno "${nome}"? Esta ação não pode ser desfeita.`)) {
-                return;
-            }
-
-            try {
-                const response = await fetch(`${API_URL}/api/alunos/${id}`, {
-                    method: 'DELETE',
-                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.message || 'Erro ao excluir o aluno.');
-                }
-
-                loadAlunos(); // Recarrega a lista
-                alert(`Aluno "${nome}" excluído com sucesso!`);
-
-            } catch (error) {
-                console.error('Erro ao excluir aluno:', error);
-                alert(`Erro: ${error.message}`);
-            }
-        }
-
+        
         /**
      * Carrega as salas da escola logada e preenche o dropdown no modal.
      */
@@ -2678,6 +2707,96 @@
                 console.error("Erro ao buscar tutores:", error);
                 resultsContainer.innerHTML = '<div>Erro ao buscar.</div>';
             }
+        }
+
+        /**
+         * Exibe uma notificação toast na tela.
+         * @param {string} message - A mensagem a ser exibida.
+         * @param {string} type - 'success' (padrão) ou 'error'.
+         */
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toastNotification');
+            const toastMessage = document.getElementById('toastMessage');
+
+            toastMessage.textContent = message;
+            toast.className = 'toast'; // Reseta as classes
+            toast.classList.add(type); // Adiciona a classe de tipo (success ou error)
+
+            toast.classList.add('show'); // Mostra o toast
+
+            // Esconde o toast após 3 segundos
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        /**
+         * Abre o modal de confirmação de exclusão.
+         * Esta é a função que o botão "Excluir" na tabela deve chamar.
+         * @param {number} id - O ID do aluno a ser excluído.
+         * @param {string} nome - O nome do aluno.
+         */
+        function openDeleteConfirmModal(id, nome) {
+            const modal = document.getElementById('deleteConfirmModal');
+            const messageElement = document.getElementById('deleteConfirmMessage');
+            const confirmBtn = document.getElementById('confirmDeleteBtn');
+
+            // Personaliza a mensagem de confirmação
+            messageElement.textContent = `Você tem certeza que deseja excluir o aluno "${nome}"? Esta ação não pode ser desfeita.`;
+
+            // Define a ação do botão de confirmação para chamar a função de exclusão real
+            confirmBtn.onclick = () => executeDelete(id, nome);
+
+            // Exibe o modal
+            modal.style.display = 'flex';
+        }
+
+        /**
+         * Fecha o modal de confirmação.
+         */
+        function closeDeleteConfirmModal() {
+            document.getElementById('deleteConfirmModal').style.display = 'none';
+        }
+
+        /**
+ * Função que efetivamente executa a exclusão no backend.
+ * Chamada apenas pelo botão de confirmação do modal.
+ * @param {number} id - O ID do aluno a ser excluído.
+ * @param {string} nome - O nome do aluno (usado para a mensagem de sucesso).
+ */
+        async function executeDelete(id, nome) {
+            // Primeiro, fecha o modal
+            closeDeleteConfirmModal();
+
+            try {
+                const response = await fetch(`${API_URL}/api/alunos/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    // Lança um erro para ser pego pelo bloco catch
+                    throw new Error(errorData.message || 'Erro ao excluir o aluno.');
+                }
+
+                // Mostra a notificação de sucesso
+                showToast(`Aluno "${nome}" excluído com sucesso!`, 'success');
+
+                // Recarrega a lista de alunos para refletir a remoção
+                loadAlunos(currentPage);
+
+            } catch (error) {
+                console.error('Erro ao excluir aluno:', error);
+                // Mostra uma notificação de erro
+                showToast(error.message, 'error');
+            }
+        }
+
+        // A função deleteAluno agora é apenas um atalho para abrir o modal.
+        // Isso evita que a lógica antiga seja chamada por engano.
+        function deleteAluno(id, nome) {
+            openDeleteConfirmModal(id, nome);
         }
 
     </script>
