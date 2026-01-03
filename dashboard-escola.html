@@ -381,6 +381,39 @@
         .form-row .form-group {
             flex: 1;
         }
+
+        .search-results {
+            border: 1px solid #ccc;
+            max-height: 150px;
+            overflow-y: auto;
+            margin-top: 5px;
+        }
+
+        .search-results div {
+            padding: 8px;
+            cursor: pointer;
+        }
+
+        .search-results div:hover {
+            background-color: #f0f0f0;
+        }
+
+        .selected-items-list span {
+            display: inline-block;
+            background-color: #e0e0e0;
+            padding: 5px 10px;
+            border-radius: 15px;
+            margin: 5px 5px 0 0;
+        }
+
+        .selected-items-list span button {
+            background: none;
+            border: none;
+            color: red;
+            cursor: pointer;
+            margin-left: 5px;
+            font-weight: bold;
+        }
     </style>
 </head>
 
@@ -846,13 +879,32 @@
                                     <label for="alunoTransporte">Transporte (Opcional)</label>
                                     <select id="alunoTransporte"></select>
                                 </div>
+
                                 <div class="form-group">
-                                    <label for="alunoTutores">Tutor(es) Responsáveis (segure Ctrl/Cmd para selecionar
-                                        vários)</label>
-                                    <select multiple id="alunoTutores" required size="5"></select>
+                                    <label for="tutorSearchInput">Buscar e Adicionar Tutor(es) Responsáveis</label>
+                                    <!-- Campo de busca -->
+                                    <input type="text" id="tutorSearchInput"
+                                        placeholder="Digite o nome do tutor para buscar...">
+                                    <!-- Área onde os resultados da busca aparecerão -->
+                                    <div id="tutorSearchResults" class="search-results">
+                                        <!-- Os resultados da busca serão injetados aqui pelo JavaScript -->
+                                    </div>
+                                    <label style="margin-top: 15px;">Tutores Selecionados:</label>
+                                    <!-- Área para exibir os tutores que já foram selecionados -->
+                                    <div id="tutorSelectedList" class="selected-items-list">
+                                        <p>Nenhum tutor selecionado.</p>
+                                    </div>
                                     <small style="color: #6B7280; margin-top: 5px; display: block;">É obrigatório
                                         vincular pelo menos um tutor.</small>
                                 </div>
+
+
+
+
+
+
+
+
                             </div>
                             <div class="modal-footer">
                                 <button type="button" class="btn btn-secondary"
@@ -935,6 +987,8 @@
         let drawnItems; // Camada para os desenhos
         let savedGeofencesLayer; // Camada para exibir TODAS as geofences salvas
         let currentPage = 0;
+
+        let selectedTutors = [];
 
         // Lógica para navegação entre as abas
         document.addEventListener('DOMContentLoaded', function () {
@@ -1872,6 +1926,16 @@
          * Se um aluno for passado como parâmetro, preenche o formulário para edição.
          */
         async function openAlunoModal(aluno = null) {
+            // Limpa seleções anteriores ao abrir o modal
+            selectedTutors = [];
+            renderSelectedTutors();
+
+            const tutorSearchInput = document.getElementById('tutorSearchInput');
+            // Usamos 'input' para disparar a busca a cada tecla digitada
+            tutorSearchInput.addEventListener('input', (event) => {
+                searchTutors(event.target.value);
+            });
+
             const form = document.getElementById('alunoForm');
             form.reset();
 
@@ -1919,13 +1983,26 @@
             const alunoId = document.getElementById('alunoId').value;
             const isEditing = !!alunoId;
 
+            // Lógica para obter os tutores selecionados (está perfeita!)
+            const tutorIds = selectedTutors.map(tutor => tutor.id);
+            if (tutorIds.length === 0 && !isEditing) { // Validação só é crítica na criação
+                alert('É obrigatório selecionar pelo menos um tutor responsável para um novo aluno.');
+                return;
+            }
+
+            // --- Payload Corrigido e Refinado ---
             const payload = {
                 nome: document.getElementById('alunoNome').value,
-                dataAniversario: document.getElementById('alunoDataAniversario').value,
+                // Corrigido: O backend espera 'dataNascimento'
+                dataNascimento: document.getElementById('alunoNascimento').value,
+                // Corrigido: O ID do HTML pode ser diferente da propriedade do DTO
                 imgUrl: document.getElementById('alunoImgUrl').value,
-                salaId: document.getElementById('alunoSala').value,
-                status: document.getElementById('alunoStatus').value,
-                escolaId: ESCOLA_ID // ESSENCIAL PARA SEGURANÇA NO BACKEND!
+                // Corrigido: Garantir que o valor é um número
+                salaId: parseInt(document.getElementById('alunoSala').value),
+                // Corrigido: Passa os IDs dos tutores
+                tutorIds: tutorIds
+                // Removido: 'status' não deve ser definido manualmente.
+                // Removido: 'escolaId' deve ser definido pelo backend por segurança.
             };
 
             const url = isEditing ? `${API_URL}/api/alunos/${alunoId}` : `${API_URL}/api/alunos`;
@@ -1943,7 +2020,8 @@
 
                 if (!response.ok) {
                     const errorData = await response.json();
-                    throw new Error(errorData.message || 'Erro ao salvar o aluno.');
+                    // A mensagem de erro do backend é mais informativa
+                    throw new Error(errorData.mensagem || errorData.message || 'Erro ao salvar o aluno.');
                 }
 
                 closeAlunoModal();
@@ -2408,6 +2486,82 @@
                 }
             } catch (error) {
                 showAlert(`Erro ao revogar: ${error.message}`, 'danger');
+            }
+        }
+
+        //Inicio correções Modal Adicionar Novo Aluno 03/01/26
+        //
+        //
+        //
+        //////////////////////////////////////////////////////
+
+        // Função para renderizar a lista de tutores selecionados na UI
+        function renderSelectedTutors() {
+            const listElement = document.getElementById('tutorSelectedList');
+            listElement.innerHTML = '';
+            if (selectedTutors.length === 0) {
+                listElement.innerHTML = '<p>Nenhum tutor selecionado.</p>';
+                return;
+            }
+            selectedTutors.forEach(tutor => {
+                const tutorElement = document.createElement('span');
+                tutorElement.innerHTML = `${tutor.nome} <button onclick="removeTutorSelection(${tutor.id})">&times;</button>`;
+                listElement.appendChild(tutorElement);
+            });
+        }
+
+        // Função chamada quando um tutor é clicado nos resultados da busca
+        function addTutorSelection(tutorId, tutorNome) {
+            // Evita adicionar tutores duplicados
+            if (!selectedTutors.some(t => t.id === tutorId)) {
+                selectedTutors.push({ id: tutorId, nome: tutorNome });
+                renderSelectedTutors();
+            }
+            // Limpa a busca
+            document.getElementById('tutorSearchInput').value = '';
+            document.getElementById('tutorSearchResults').innerHTML = '';
+        }
+
+        // Função chamada pelo botão 'x' para remover um tutor
+        function removeTutorSelection(tutorId) {
+            selectedTutors = selectedTutors.filter(t => t.id !== tutorId);
+            renderSelectedTutors();
+        }
+
+        // Função principal que busca os tutores na API
+        async function searchTutors(searchTerm) {
+            const resultsElement = document.getElementById('tutorSearchResults');
+            if (!searchTerm || searchTerm.length < 2) {
+                resultsElement.innerHTML = '';
+                return;
+            }
+
+            try {
+                // Usa o endpoint de paginação que já existe!
+                const response = await fetch(`${API_URL}/api/diretores/tutores?nome=${searchTerm}&page=0&size=10`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+                if (!response.ok) throw new Error('Falha na busca');
+
+                const data = await response.json();
+                resultsElement.innerHTML = '';
+
+                // O endpoint paginado retorna um objeto com a propriedade 'content'
+                const tutores = data.content || [];
+                if (tutores.length > 0) {
+                    tutores.forEach(tutor => {
+                        const resultItem = document.createElement('div');
+                        resultItem.textContent = tutor.nome;
+                        // Passa o ID e o Nome para a função de seleção
+                        resultItem.onclick = () => addTutorSelection(tutor.id, tutor.nome);
+                        resultsElement.appendChild(resultItem);
+                    });
+                } else {
+                    resultsElement.innerHTML = '<div>Nenhum tutor encontrado.</div>';
+                }
+            } catch (error) {
+                console.error("Erro ao buscar tutores:", error);
+                resultsElement.innerHTML = '<div>Erro ao buscar.</div>';
             }
         }
 
