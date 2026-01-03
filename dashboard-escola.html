@@ -881,29 +881,40 @@
                                 </div>
 
                                 <div class="form-group">
-                                    <label for="tutorSearchInput">Buscar e Adicionar Tutor(es) Responsáveis</label>
-                                    <!-- Campo de busca -->
-                                    <input type="text" id="tutorSearchInput"
-                                        placeholder="Digite o nome do tutor para buscar...">
-                                    <!-- Área onde os resultados da busca aparecerão -->
-                                    <div id="tutorSearchResults" class="search-results">
-                                        <!-- Os resultados da busca serão injetados aqui pelo JavaScript -->
+                                    <label>Tutor(es) Responsáveis</label>
+
+                                    <!-- ÁREA DE SELEÇÃO E CONFIGURAÇÃO -->
+                                    <div class="tutor-adder"
+                                        style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; background-color: #f9fafb; padding: 10px; border-radius: 6px;">
+                                        <input type="text" id="tutorSearchInput" placeholder="Busque um tutor..."
+                                            style="flex: 2; min-width: 150px;">
+
+                                        <select id="tutorParentescoSelect"
+                                            style="flex: 1; min-width: 120px; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px;">
+                                            <option value="" disabled selected>Parentesco</option>
+                                            <option value="PAI">Pai</option>
+                                            <option value="MAE">Mãe</option>
+                                            <option value="IRMAO">Irmã(o)</option>
+                                            <option value="PARENTE">Parente</option>
+                                            <option value="AMIGO">AMIGO</vel>
+                                        </select>
+
+                                        <button type="button" id="addTutorBtn" class="btn btn-secondary"
+                                            style="flex-basis: 100%; margin-top: 5px;">Adicionar Tutor</button>
                                     </div>
-                                    <label style="margin-top: 15px;">Tutores Selecionados:</label>
-                                    <!-- Área para exibir os tutores que já foram selecionados -->
-                                    <div id="tutorSelectedList" class="selected-items-list">
-                                        <p>Nenhum tutor selecionado.</p>
+                                    <div id="tutorSearchResults" class="search-results"></div>
+
+                                    <!-- LISTA DE TUTORES JÁ ADICIONADOS -->
+                                    <div id="selectedTutorsListContainer">
+                                        <strong>Tutores Adicionados:</strong>
+                                        <div id="tutorSelectedList" class="selected-items-list"
+                                            style="margin-top: 10px;">
+                                            <!-- Tutores adicionados aparecerão aqui -->
+                                            <p id="noTutorsSelected" style="color: #6B7280;">Nenhum tutor adicionado
+                                                ainda.</p>
+                                        </div>
                                     </div>
-                                    <small style="color: #6B7280; margin-top: 5px; display: block;">É obrigatório
-                                        vincular pelo menos um tutor.</small>
                                 </div>
-
-
-
-
-
-
-
 
                             </div>
                             <div class="modal-footer">
@@ -1944,54 +1955,49 @@
             const modalTitle = document.getElementById('alunoModalTitle');
             document.getElementById('alunoForm').reset();
 
-            // 1. Exibe o modal imediatamente com o estado de carregamento
             modal.style.display = 'flex';
             modalTitle.textContent = 'Carregando Dados...';
 
-            // Limpa seleções de tutor anteriores
+            // 1. Limpa estado anterior e configura os novos listeners
             selectedTutors = [];
             renderSelectedTutors();
 
-            // Adiciona o listener para o campo de busca de tutor
-            const tutorSearchInput = document.getElementById('tutorSearchInput');
-            tutorSearchInput.addEventListener('input', (event) => {
-                searchTutors(event.target.value);
-            });
+            document.getElementById('tutorSearchInput').oninput = (e) => searchTutors(e.target.value);
+            document.getElementById('addTutorBtn').onclick = handleAddTutor;
+
+            // Limpa resultados de busca antigos
+            document.getElementById('tutorSearchResults').innerHTML = '';
+
 
             try {
-                // 2. Dispara TODAS as chamadas para popular os selects em paralelo
                 const promises = [
-                    populateSalasSelect(aluno ? aluno.sala.id : null),
-                    populateTransportesSelect(aluno && aluno.transporte ? aluno.transporte.id : null)
-                    // A função de tutores não precisa ser chamada aqui, pois agora é uma busca interativa
+                    populateSalasSelect(aluno ? aluno.salaId : null), // Corrigido para pegar salaId
+                    populateTransportesSelect(aluno && aluno.transporteId ? aluno.transporteId : null) // Corrigido para pegar transporteId
                 ];
-
-                // Espera todas as chamadas terminarem
                 await Promise.all(promises);
 
-                // 3. Após o sucesso, configura o modal para criação ou edição
-                if (aluno && aluno.id) { // Modo de edição
+                if (aluno && aluno.id) {
                     modalTitle.textContent = 'Editar Aluno';
                     document.getElementById('alunoId').value = aluno.id;
                     document.getElementById('alunoNome').value = aluno.nome;
-                    document.getElementById('alunoNascimento').value = aluno.dataNascimento.split('T')[0];
-                    document.getElementById('alunoImgUrl').value = aluno.imgUrl || '';
+                    // A data pode vir em formatos diferentes, tratamos isso
+                    document.getElementById('alunoNascimento').value = aluno.dataAniversario ? aluno.dataAniversario.split('T')[0] : '';
 
-                    // Pré-seleciona os tutores no modo de edição
+                    // Pré-popula os tutores se estiver editando
                     if (aluno.tutores && aluno.tutores.length > 0) {
-                        selectedTutors = aluno.tutores.map(t => ({ id: t.id, nome: t.nome }));
+                        // O DTO de Aluno precisa retornar o parentesco para a edição funcionar 100%
+                        selectedTutors = aluno.tutores.map(t => ({ id: t.id, nome: t.nome, parentesco: t.parentesco || 'INDEFINIDO' }));
                         renderSelectedTutors();
                     }
 
-                } else { // Modo de criação
+                } else {
                     modalTitle.textContent = 'Adicionar Novo Aluno';
-                    document.getElementById('alunoId').value = ''; // Garante que o ID esteja limpo
+                    document.getElementById('alunoId').value = '';
                 }
 
             } catch (error) {
                 console.error("Erro ao preparar o modal do aluno:", error);
                 modalTitle.textContent = 'Erro ao Carregar';
-                // Você pode querer fechar o modal ou mostrar uma mensagem de erro mais explícita aqui
             }
         }
 
@@ -2023,41 +2029,32 @@
                 const alunoId = document.getElementById('alunoId').value;
                 const isEditing = !!alunoId;
 
-                // 1. Prepara a lista para o novo formato do payload
-                const tutoresPayload = [];
-
-                // 2. Itera sobre cada tutor selecionado para pedir o parentesco
-                for (const tutor of selectedTutors) {
-                    const parentesco = prompt(`Qual o parentesco de "${tutor.nome}"? (Ex: PAI, MAE, AVO, RESPONSAVEL)`);
-
-                    if (!parentesco || parentesco.trim() === '') {
-                        alert('O parentesco é obrigatório. A operação foi cancelada.');
-                        throw new Error('Operação cancelada pelo usuário.');
-                    }
-
-                    tutoresPayload.push({
-                        id: tutor.id,
-                        // O backend espera um Enum, então enviamos o texto em maiúsculas
-                        parentesco: parentesco.trim().toUpperCase()
-                    });
-                }
-
-                if (tutoresPayload.length === 0 && !isEditing) {
-                    alert('É obrigatório adicionar ao menos um tutor para um novo aluno.');
+                // Validação: Garante que pelo menos um tutor foi adicionado
+                if (selectedTutors.length === 0) {
+                    alert('É obrigatório adicionar ao menos um tutor para o aluno.');
                     throw new Error('Validação falhou: nenhum tutor selecionado.');
                 }
 
-                const imgUrlElement = document.getElementById('alunoImgUrl');
+                // A MÁGICA ACONTECE AQUI: O payload já está pronto no formato correto!
+                // Apenas mapeamos para garantir que só 'id' e 'parentesco' sejam enviados.
+                const tutoresPayload = selectedTutors.map(t => ({
+                    id: t.id,
+                    parentesco: t.parentesco
+                }));
 
                 const payload = {
-                    escolaId: ESCOLA_ID,
+                    escolaId: parseInt(ESCOLA_ID),
                     nome: document.getElementById('alunoNome').value,
                     dataAniversario: document.getElementById('alunoNascimento').value,
-                    imgUrl: imgUrlElement ? imgUrlElement.value : null,
                     salaId: parseInt(document.getElementById('alunoSala').value),
-                    // 3. Usa a nova lista de tutores no payload
-                    tutores: tutoresPayload
+                    tutores: tutoresPayload // <-- Usa a lista de tutores já com parentesco
                 };
+
+                // Adiciona transporteId se ele for selecionado
+                const transporteId = document.getElementById('alunoTransporte').value;
+                if (transporteId) {
+                    payload.transporteId = parseInt(transporteId);
+                }
 
                 const url = isEditing ? `${API_URL}/api/alunos/${alunoId}` : `${API_URL}/api/alunos`;
                 const method = isEditing ? 'PUT' : 'POST';
@@ -2073,19 +2070,17 @@
 
                 if (!response.ok) {
                     const errorData = await response.json();
-                    throw new Error(errorData.message || 'Erro ao salvar o aluno.');
+                    // A mensagem de erro agora vem do backend
+                    throw new Error(errorData.message || 'Erro desconhecido ao salvar o aluno.');
                 }
 
                 closeAlunoModal();
-                loadAlunos();
+                loadAlunos(currentPage); // Recarrega a página atual
                 alert(`Aluno "${payload.nome}" salvo com sucesso!`);
 
             } catch (error) {
                 console.error('Erro ao salvar aluno:', error);
-                // Não mostra o alerta de erro se foi cancelamento do usuário
-                if (error.message !== 'Operação cancelada pelo usuário.') {
-                    alert(`Erro: ${error.message}`);
-                }
+                alert(`Erro: ${error.message}`);
             } finally {
                 if (submitButton) {
                     submitButton.disabled = false;
@@ -2555,73 +2550,110 @@
         //
         //////////////////////////////////////////////////////
 
-        // Função para renderizar a lista de tutores selecionados na UI
+        let allFetchedTutors = []; // Armazena todos os tutores buscados para referência
+
+        // Função para renderizar a lista de tutores que já foram adicionados
         function renderSelectedTutors() {
-            const listElement = document.getElementById('tutorSelectedList');
-            listElement.innerHTML = '';
+            const listContainer = document.getElementById('tutorSelectedList');
+            const noTutorsMessage = document.getElementById('noTutorsSelected');
+            listContainer.innerHTML = ''; // Limpa a lista antes de renderizar
+
             if (selectedTutors.length === 0) {
-                listElement.innerHTML = '<p>Nenhum tutor selecionado.</p>';
-                return;
+                noTutorsMessage.style.display = 'block';
+            } else {
+                noTutorsMessage.style.display = 'none';
+                selectedTutors.forEach(tutor => {
+                    const item = document.createElement('span');
+                    // Adiciona um botão de remoção com o ID do tutor
+                    item.innerHTML = `${tutor.nome} <strong>(${tutor.parentesco})</strong> <button type="button" onclick="handleRemoveTutor(${tutor.id})">&times;</button>`;
+                    listContainer.appendChild(item);
+                });
             }
-            selectedTutors.forEach(tutor => {
-                const tutorElement = document.createElement('span');
-                tutorElement.innerHTML = `${tutor.nome} <button onclick="removeTutorSelection(${tutor.id})">&times;</button>`;
-                listElement.appendChild(tutorElement);
-            });
         }
 
-        // Função chamada quando um tutor é clicado nos resultados da busca
-        function addTutorSelection(tutorId, tutorNome) {
-            // Evita adicionar tutores duplicados
-            if (!selectedTutors.some(t => t.id === tutorId)) {
-                selectedTutors.push({ id: tutorId, nome: tutorNome });
-                renderSelectedTutors();
+        // Função chamada pelo botão "Adicionar Tutor"
+        function handleAddTutor() {
+            const searchInput = document.getElementById('tutorSearchInput');
+            const parentescoSelect = document.getElementById('tutorParentescoSelect');
+            const tutorNome = searchInput.value;
+            const parentesco = parentescoSelect.value;
+
+            // Validação
+            if (!tutorNome || !parentesco) {
+                alert('Por favor, selecione um tutor da busca e defina o parentesco antes de adicionar.');
+                return;
             }
-            // Limpa a busca
-            document.getElementById('tutorSearchInput').value = '';
+
+            const tutorData = allFetchedTutors.find(t => t.nome === tutorNome);
+            if (!tutorData) {
+                alert('Tutor inválido. Por favor, selecione um nome da lista de sugestões.');
+                return;
+            }
+
+            // Verifica se já não foi adicionado
+            if (selectedTutors.some(t => t.id === tutorData.id)) {
+                alert('Este tutor já foi adicionado.');
+                return;
+            }
+
+            // Adiciona ao array global
+            selectedTutors.push({
+                id: tutorData.id,
+                nome: tutorData.nome,
+                parentesco: parentesco
+            });
+
+            // Atualiza a UI
+            renderSelectedTutors();
+
+            // Limpa os campos para a próxima adição
+            searchInput.value = '';
+            parentescoSelect.value = '';
             document.getElementById('tutorSearchResults').innerHTML = '';
         }
 
-        // Função chamada pelo botão 'x' para remover um tutor
-        function removeTutorSelection(tutorId) {
+        // Função para remover um tutor da lista de selecionados
+        function handleRemoveTutor(tutorId) {
             selectedTutors = selectedTutors.filter(t => t.id !== tutorId);
             renderSelectedTutors();
         }
 
-        // Função principal que busca os tutores na API
+        // Função que busca tutores na API conforme o usuário digita
         async function searchTutors(searchTerm) {
-            const resultsElement = document.getElementById('tutorSearchResults');
+            const resultsContainer = document.getElementById('tutorSearchResults');
             if (!searchTerm || searchTerm.length < 2) {
-                resultsElement.innerHTML = '';
+                resultsContainer.innerHTML = '';
                 return;
             }
 
             try {
-                // Usa o endpoint de paginação que já existe!
                 const response = await fetch(`${API_URL}/api/diretores/tutores?nome=${searchTerm}&page=0&size=10`, {
                     headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
                 });
-                if (!response.ok) throw new Error('Falha na busca');
+                if (!response.ok) throw new Error('Falha na busca de tutores');
 
                 const data = await response.json();
-                resultsElement.innerHTML = '';
-
-                // O endpoint paginado retorna um objeto com a propriedade 'content'
                 const tutores = data.content || [];
+                allFetchedTutors = tutores; // Atualiza nossa lista de referência
+
+                resultsContainer.innerHTML = '';
                 if (tutores.length > 0) {
                     tutores.forEach(tutor => {
-                        const resultItem = document.createElement('div');
-                        resultItem.textContent = tutor.nome;
-                        // Passa o ID e o Nome para a função de seleção
-                        resultItem.onclick = () => addTutorSelection(tutor.id, tutor.nome);
-                        resultsElement.appendChild(resultItem);
+                        const item = document.createElement('div');
+                        item.textContent = tutor.nome;
+                        // Ao clicar, preenche o input e limpa os resultados
+                        item.onclick = () => {
+                            document.getElementById('tutorSearchInput').value = tutor.nome;
+                            resultsContainer.innerHTML = '';
+                        };
+                        resultsContainer.appendChild(item);
                     });
                 } else {
-                    resultsElement.innerHTML = '<div>Nenhum tutor encontrado.</div>';
+                    resultsContainer.innerHTML = '<div>Nenhum tutor encontrado.</div>';
                 }
             } catch (error) {
                 console.error("Erro ao buscar tutores:", error);
-                resultsElement.innerHTML = '<div>Erro ao buscar.</div>';
+                resultsContainer.innerHTML = '<div>Erro ao buscar.</div>';
             }
         }
 
