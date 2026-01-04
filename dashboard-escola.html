@@ -1069,8 +1069,10 @@
                                 </tbody>
                             </table>
                         </div>
+                        <div id="token-pagination-controls" class="d-flex justify-content-center mt-3">
+                            <!-- Os botões de paginação serão inseridos aqui pelo JavaScript -->
+                        </div>
                     </div>
-                </div>
 
             </section>
 
@@ -1115,6 +1117,7 @@
         let currentPage = 0;
 
         let selectedTutors = [];
+        let currentTokenPage = 0;
 
         // Lógica para navegação entre as abas
         document.addEventListener('DOMContentLoaded', function () {
@@ -2627,43 +2630,38 @@
             allTokensLoading.style.display = 'block';
             allTokensError.style.display = 'none';
             allTokensTableContainer.style.display = 'none';
+            document.getElementById('token-pagination-controls').innerHTML = ''; // Limpa a paginação antiga
 
             try {
-                // CORREÇÃO: Removida a chamada à função 'garantirAutenticacao' que não existe.
-                // Usamos diretamente a variável 'AUTH_TOKEN' que já é pega do localStorage no início do script.
                 if (!AUTH_TOKEN) {
                     throw new Error("Token de autenticação não encontrado. Por favor, faça o login novamente.");
                 }
 
-                // NOTA: Este endpoint deve existir no seu backend para que a função opere corretamente.
-                const response = await fetch(`${API_URL}/api/escolas/tokens/all`, {
+                // A URL agora é dinâmica e envia a página desejada.
+                const response = await fetch(`${API_URL}/api/escolas/tokens/all?page=${currentTokenPage}&size=10`, {
                     headers: {
-                        // CORREÇÃO: Usando a variável 'AUTH_TOKEN' que já existe no escopo global do script.
                         'Authorization': `Bearer ${AUTH_TOKEN}`
                     }
                 });
 
                 if (!response.ok) {
-                    // Tenta extrair uma mensagem de erro mais detalhada do backend, se houver.
                     const errorData = await response.json().catch(() => ({ message: "Falha ao buscar os tokens da escola." }));
                     throw new Error(errorData.message || `Ocorreu um erro no servidor: ${response.statusText}`);
                 }
 
-                const data = await response.json();
+                const data = await response.json(); // 'data' agora é o objeto Page do Spring
 
-                // Tornamos a validação da resposta mais flexível:
-                // Funciona se o backend retornar um array de tokens diretamente...
-                if (Array.isArray(data)) {
-                    renderAllTokens(data);
-                    allTokensTableContainer.style.display = 'block';
-                }
-                // ... ou se retornar um objeto que contém um array de tokens (ex: { tokens: [...] }).
-                else if (data && Array.isArray(data.tokens)) {
-                    renderAllTokens(data.tokens);
+                // Interpretamos a resposta paginada do backend.
+                // A lista de tokens agora está dentro da propriedade 'content'.
+                if (data && Array.isArray(data.content)) {
+                    renderAllTokens(data.content); // Passamos apenas a lista de tokens para renderizar a tabela.
+
+                    // Chamamos a nova função para renderizar os botões de paginação.
+                    renderTokenPagination(data.totalPages, data.number);
+
                     allTokensTableContainer.style.display = 'block';
                 } else {
-                    // Caso a resposta não seja nenhum dos formatos esperados.
-                    throw new Error(data.erro || 'A resposta do servidor não continha um formato de tokens esperado (array).');
+                    throw new Error('A resposta do servidor não continha um formato de tokens paginado esperado.');
                 }
 
             } catch (error) {
@@ -2675,8 +2673,8 @@
         }
 
         /**
- * Renderiza a tabela de auditoria de tokens (VERSÃO SOMENTE-LEITURA).
- */
+         * Renderiza a tabela de auditoria de tokens (VERSÃO SOMENTE-LEITURA).
+         */
         function renderAllTokens(tokens) {
             const allTokensTbody = document.getElementById('all-tokens-tbody');
             allTokensTbody.innerHTML = '';
@@ -2960,6 +2958,47 @@
         // Isso evita que a lógica antiga seja chamada por engano.
         function deleteAluno(id, nome) {
             openDeleteConfirmModal(id, nome);
+        }
+
+        function renderTokenPagination(totalPages, currentPage) {
+            const paginationContainer = document.getElementById('token-pagination-controls');
+            paginationContainer.innerHTML = ''; // Limpa os controles antigos
+
+            if (totalPages <= 1) return; // Não mostra paginação se só tem 1 página
+
+            let paginationHtml = '<nav><ul class="pagination">';
+
+            // Botão "Anterior"
+            paginationHtml += `
+        <li class="page-item ${currentPage === 0 ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="changeTokenPage(${currentPage - 1})">Anterior</a>
+        </li>
+    `;
+
+            // Botões de página (simplificado)
+            for (let i = 0; i < totalPages; i++) {
+                paginationHtml += `
+            <li class="page-item ${i === currentPage ? 'active' : ''}">
+                <a class="page-link" href="#" onclick="changeTokenPage(${i})">${i + 1}</a>
+            </li>
+        `;
+            }
+
+            // Botão "Próximo"
+            paginationHtml += `
+        <li class="page-item ${currentPage === totalPages - 1 ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="changeTokenPage(${currentPage + 1})">Próximo</a>
+        </li>
+    `;
+
+            paginationHtml += '</ul></nav>';
+            paginationContainer.innerHTML = paginationHtml;
+        }
+
+        function changeTokenPage(page) {
+            event.preventDefault();
+            currentTokenPage = page;
+            loadAllTokens();
         }
 
     </script>
