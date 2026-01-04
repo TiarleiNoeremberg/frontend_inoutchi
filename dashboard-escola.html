@@ -1057,11 +1057,12 @@
                                 <thead>
                                     <tr>
                                         <th>Aluno</th>
-                                        <th>Tutor Responsável</th>
+                                        <th>Tutor (Gerador)</th>
                                         <th>Destinatário</th>
+                                        <th>Gerado em</th>
                                         <th>Expira em</th>
                                         <th>Status</th>
-                                        <th>Ação</th>
+                                        <th>Utilizado/Revogado em</th>
                                     </tr>
                                 </thead>
                                 <tbody id="all-tokens-tbody">
@@ -2663,18 +2664,21 @@
             }
         }
 
-        // --- 3. Função para Renderizar a Tabela de Tokens ---
+        /**
+ * Renderiza a tabela de auditoria de tokens (VERSÃO SOMENTE-LEITURA).
+ */
         function renderAllTokens(tokens) {
+            const allTokensTbody = document.getElementById('all-tokens-tbody');
             allTokensTbody.innerHTML = '';
 
-            // Filtra os tokens com base nos controles da UI
+            // A lógica de filtros continua a mesma e é muito útil para a auditoria
             const searchTerm = document.getElementById('token-search-input').value.toLowerCase();
             const statusFilter = document.getElementById('token-status-filter').value;
 
             const filteredTokens = tokens.filter(token => {
                 const isMatchSearch = !searchTerm ||
-                    token.aluno.nome.toLowerCase().includes(searchTerm) ||
-                    token.tutor.nome.toLowerCase().includes(searchTerm);
+                    (token.aluno && token.aluno.nome.toLowerCase().includes(searchTerm)) ||
+                    (token.tutor && token.tutor.nome.toLowerCase().includes(searchTerm));
 
                 if (!isMatchSearch) return false;
 
@@ -2689,11 +2693,11 @@
             });
 
             if (filteredTokens.length === 0) {
-                allTokensTbody.innerHTML = '<tr><td colspan="6" class="text-center py-4">Nenhum token encontrado para os filtros aplicados.</td></tr>';
+                // A tabela agora tem 7 colunas
+                allTokensTbody.innerHTML = '<tr><td colspan="7" class="text-center py-4">Nenhum token encontrado para os filtros aplicados.</td></tr>';
                 return;
             }
 
-            // Ordena por data de criação, dos mais recentes para os mais antigos
             filteredTokens.sort((a, b) => new Date(b.dataCriacao) - new Date(a.dataCriacao));
 
             filteredTokens.forEach(token => {
@@ -2710,47 +2714,27 @@
                     statusBadge = '<span class="token-status token-status-ativo">Ativo</span>';
                 }
 
-                const canRevoke = !token.utilizado && !isExpired && token.valido;
+                // Formata as datas para exibição, tratando valores nulos
+                const dataCriacaoFmt = new Date(token.dataCriacao).toLocaleString('pt-BR');
+                const dataExpiracaoFmt = new Date(token.dataExpiracao).toLocaleString('pt-BR');
+                // A data de utilização pode ser nula, então tratamos isso
+                const dataUtilizacaoFmt = token.dataUtilizacao
+                    ? new Date(token.dataUtilizacao).toLocaleString('pt-BR')
+                    : 'N/A';
 
+                // MUDANÇA PRINCIPAL: A nova estrutura da linha da tabela
                 const row = `
             <tr>
-                <td>${token.aluno.nome || 'N/A'}</td>
-                <td>${token.tutor.nome || 'N/A'}</td>
-                <td>${token.destinatario.nome || 'N/A'}</td>
-                <td>${new Date(token.dataExpiracao).toLocaleString('pt-BR')}</td>
+                <td>${token.aluno?.nome ?? 'N/A'}</td>
+                <td>${token.tutor?.nome ?? 'N/A'}</td>
+                <td>${token.destinatario?.nome ?? 'N/A'}</td>
+                <td>${dataCriacaoFmt}</td>
+                <td>${dataExpiracaoFmt}</td>
                 <td>${statusBadge}</td>
-                <td>
-                    ${canRevoke ? `<button class="btn btn-sm btn-danger" onclick="handleRevokeTokenByAdmin('${token.token}')" title="Revogar token"><i class="fas fa-ban"></i></button>` : '-'}
-                </td>
+                <td>${dataUtilizacaoFmt}</td>
             </tr>`;
                 allTokensTbody.innerHTML += row;
             });
-        }
-
-        // --- 4. Função para Revogar Token (pela Escola) ---
-        async function handleRevokeTokenByAdmin(tokenValue) {
-            if (!confirm('ATENÇÃO: Tem certeza que deseja revogar este token? Esta ação é irreversível e impedirá o uso do link de acesso.')) return;
-
-            try {
-                const accessToken = await garantirAutenticacao();
-                if (!accessToken) return;
-
-                // Endpoint para revogação pelo administrador
-                const response = await fetch(`${BACKEND_URL}/api/tokens/revogar/${tokenValue}`, {
-                    method: 'DELETE',
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
-                });
-
-                const result = await response.json();
-                if (response.ok && result.sucesso) {
-                    showAlert('Token revogado com sucesso!', 'success');
-                    loadAllTokens(); // Recarrega a lista para refletir a mudança
-                } else {
-                    throw new Error(result.erro || 'Não foi possível revogar o token.');
-                }
-            } catch (error) {
-                showAlert(`Erro ao revogar: ${error.message}`, 'danger');
-            }
         }
 
         //Inicio correções Modal Adicionar Novo Aluno 03/01/26
