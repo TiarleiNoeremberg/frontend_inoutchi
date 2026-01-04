@@ -2629,27 +2629,41 @@
             allTokensTableContainer.style.display = 'none';
 
             try {
-                const accessToken = await garantirAutenticacao(); // Reutiliza a função de autenticação
-                if (!accessToken) return;
+                // CORREÇÃO: Removida a chamada à função 'garantirAutenticacao' que não existe.
+                // Usamos diretamente a variável 'AUTH_TOKEN' que já é pega do localStorage no início do script.
+                if (!AUTH_TOKEN) {
+                    throw new Error("Token de autenticação não encontrado. Por favor, faça o login novamente.");
+                }
 
-                // NOTA: Este é um NOVO ENDPOINT que precisa ser criado no backend.
-                // Ele deve retornar todos os tokens associados à escola do diretor logado.
-                const response = await fetch(`${BACKEND_URL}/api/escolas/tokens/all`, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                // NOTA: Este endpoint deve existir no seu backend para que a função opere corretamente.
+                const response = await fetch(`${API_URL}/api/escolas/tokens/all`, {
+                    headers: {
+                        // CORREÇÃO: Usando a variável 'AUTH_TOKEN' que já existe no escopo global do script.
+                        'Authorization': `Bearer ${AUTH_TOKEN}`
+                    }
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ mensagem: "Falha ao buscar os tokens da escola." }));
-                    throw new Error(errorData.mensagem || 'Ocorreu um erro no servidor.');
+                    // Tenta extrair uma mensagem de erro mais detalhada do backend, se houver.
+                    const errorData = await response.json().catch(() => ({ message: "Falha ao buscar os tokens da escola." }));
+                    throw new Error(errorData.message || `Ocorreu um erro no servidor: ${response.statusText}`);
                 }
 
                 const data = await response.json();
 
-                if (data.sucesso && Array.isArray(data.tokens)) {
+                // Tornamos a validação da resposta mais flexível:
+                // Funciona se o backend retornar um array de tokens diretamente...
+                if (Array.isArray(data)) {
+                    renderAllTokens(data);
+                    allTokensTableContainer.style.display = 'block';
+                }
+                // ... ou se retornar um objeto que contém um array de tokens (ex: { tokens: [...] }).
+                else if (data && Array.isArray(data.tokens)) {
                     renderAllTokens(data.tokens);
                     allTokensTableContainer.style.display = 'block';
                 } else {
-                    throw new Error(data.erro || 'A resposta do servidor não continha uma lista de tokens.');
+                    // Caso a resposta não seja nenhum dos formatos esperados.
+                    throw new Error(data.erro || 'A resposta do servidor não continha um formato de tokens esperado (array).');
                 }
 
             } catch (error) {
