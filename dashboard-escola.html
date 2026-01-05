@@ -1163,6 +1163,7 @@
 
         let selectedTutors = [];
         let currentTokenPage = 0;
+        let currentEditingAluno = null;
 
         // Lógica para navegação entre as abas
         document.addEventListener('DOMContentLoaded', function () {
@@ -2228,55 +2229,39 @@
          * Se um aluno for passado como parâmetro, preenche o formulário para edição.
          */
         async function openAlunoModal(aluno = null) {
-            const modal = document.getElementById('alunoModal');
-            const modalTitle = document.getElementById('alunoModalTitle');
+            // Reseta o formulário e guarda o estado do aluno que está sendo editado
             document.getElementById('alunoForm').reset();
+            currentEditingAluno = aluno; // <-- PONTO CRUCIAL DA ESTRATÉGIA
 
-            modal.style.display = 'flex';
-            modalTitle.textContent = 'Carregando Dados...';
+            const modalTitle = document.getElementById('alunoModalTitle');
+            alunoModal.style.display = 'flex';
 
-            // 1. Limpa estado anterior e configura os novos listeners
-            selectedTutors = [];
-            renderSelectedTutors();
-
-            document.getElementById('tutorSearchInput').oninput = (e) => searchTutors(e.target.value);
-            document.getElementById('addTutorBtn').onclick = handleAddTutor;
-
-            // Limpa resultados de busca antigos
-            document.getElementById('tutorSearchResults').innerHTML = '';
-
+            const selectedTutorIds = aluno && aluno.tutores ? aluno.tutores.map(t => t.id) : [];
 
             try {
-                const promises = [
-                    populateSalasSelect(aluno ? aluno.salaId : null), // Corrigido para pegar salaId
-                    populateTransportesSelect(aluno && aluno.transporteId ? aluno.transporteId : null) // Corrigido para pegar transporteId
-                ];
-                await Promise.all(promises);
+                // Popula as listas de seleção (salas, transportes, tutores)
+                await Promise.all([
+                    populateSalasSelect(aluno ? aluno.salaId : null),
+                    populateTransportesSelect(aluno && aluno.transporteId ? aluno.transporteId : null),
+                    populateTutoresSelect(selectedTutorIds)
+                ]);
 
-                if (aluno && aluno.id) {
+                if (aluno && aluno.id) { // MODO DE EDIÇÃO
                     modalTitle.textContent = 'Editar Aluno';
                     document.getElementById('alunoId').value = aluno.id;
                     document.getElementById('alunoNome').value = aluno.nome;
-                    // A data pode vir em formatos diferentes, tratamos isso
-                    document.getElementById('alunoNascimento').value = aluno.dataAniversario ? aluno.dataAniversario.split('T')[0] : '';
-
-                    // Pré-popula os tutores se estiver editando
-                    if (aluno.tutores && aluno.tutores.length > 0) {
-                        // O DTO de Aluno precisa retornar o parentesco para a edição funcionar 100%
-                        selectedTutors = aluno.tutores.map(t => ({ id: t.id, nome: t.nome, parentesco: t.parentesco || 'INDEFINIDO' }));
-                        renderSelectedTutors();
-                    }
-
-                } else {
+                    document.getElementById('alunoNascimento').value = aluno.dataAniversario.split('T')[0];
+                } else { // MODO DE CRIAÇÃO
                     modalTitle.textContent = 'Adicionar Novo Aluno';
                     document.getElementById('alunoId').value = '';
                 }
-
             } catch (error) {
-                console.error("Erro ao preparar o modal do aluno:", error);
-                modalTitle.textContent = 'Erro ao Carregar';
+                console.error("Falha ao carregar dados para o modal de aluno:", error);
+                alert("Não foi possível carregar os dados necessários. Tente novamente.");
+                closeAlunoModal();
             }
         }
+
 
         /**
          * Fecha o modal de aluno.
@@ -2297,90 +2282,89 @@
         // Função para Salvar (Criar ou Editar) um aluno
         async function saveAluno(event) {
             event.preventDefault();
-            const submitButton = document.querySelector('#alunoForm button[type="submit"]');
 
-            // --- INÍCIO DA CORREÇÃO DE VALIDAÇÃO ---
-            const tutorSearchInput = document.getElementById('tutorSearchInput');
-            const form = document.getElementById('alunoForm');
+            const alunoId = document.getElementById('alunoId').value;
+            const isEditing = !!alunoId;
+            let payload; // A variável que vai guardar o payload correto
 
-            // Limpa validações customizadas anteriores para não interferir nas nativas
-            tutorSearchInput.setCustomValidity('');
+            // ======================================================
+            // INÍCIO DA LÓGICA DE "DOIS CAMINHOS"
+            // ======================================================
 
-            // 1. A NOSSA VALIDAÇÃO CUSTOMIZADA
-            if (selectedTutors.length === 0) {
-                // Define a mensagem de erro que aparecerá na "caixinha com seta"
-                tutorSearchInput.setCustomValidity('É obrigatório adicionar ao menos um tutor para o aluno.');
-
-                // 2. PEDE AO FORMULÁRIO PARA MOSTRAR OS ERROS
-                form.reportValidity();
-
-                // 3. Interrompe a execução da função
-                return;
-            }
-            // --- FIM DA CORREÇÃO DE VALIDAÇÃO ---
-
-            try {
-                submitButton.disabled = true;
-                submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
-
-                const alunoId = document.getElementById('alunoId').value;
-                const isEditing = !!alunoId;
-
-                const tutoresPayload = selectedTutors.map(t => ({
-                    id: t.id,
-                    parentesco: t.parentesco
+            if (isEditing && currentEditingAluno) {
+                // --- CAMINHO DE EDIÇÃO ---
+                // O backend espera uma lista de objetos TutorDTO.
+                // Usamos os dados que guardamos na variável 'currentEditingAluno'.
+                const tutoresPayload = currentEditingAluno.tutores.map(tutor => ({
+                    id: tutor.id,
+                    parentesco: tutor.parentesco
                 }));
 
-                const payload = {
-                    escolaId: parseInt(ESCOLA_ID),
+                payload = {
                     nome: document.getElementById('alunoNome').value,
                     dataAniversario: document.getElementById('alunoNascimento').value,
                     salaId: parseInt(document.getElementById('alunoSala').value),
-                    tutores: tutoresPayload
+                    escolaId: ESCOLA_ID,
+                    tutores: tutoresPayload // Payload complexo para EDIÇÃO
                 };
 
-                const transporteId = document.getElementById('alunoTransporte').value;
-                if (transporteId) {
-                    payload.transporteId = parseInt(transporteId);
+            } else {
+                // --- CAMINHO DE ADIÇÃO (LÓGICA ORIGINAL E FUNCIONAL) ---
+                // O backend espera uma lista de IDs.
+                const tutoresSelect = document.getElementById('alunoTutores');
+                const tutorIds = [...tutoresSelect.options].filter(o => o.selected).map(o => parseInt(o.value));
+
+                if (tutorIds.length === 0) {
+                    alert('É obrigatório vincular pelo menos um tutor ao aluno.');
+                    return;
                 }
 
-                const url = isEditing ? `${API_URL}/api/alunos/${alunoId}` : `${API_URL}/api/alunos`;
-                const method = isEditing ? 'PUT' : 'POST';
+                payload = {
+                    nome: document.getElementById('alunoNome').value,
+                    dataNascimento: document.getElementById('alunoNascimento').value,
+                    salaId: parseInt(document.getElementById('alunoSala').value),
+                    tutorIds: tutorIds // Payload simples para ADIÇÃO
+                };
+            }
 
+            // Adiciona o transporteId se ele for selecionado (comum a ambos os caminhos)
+            const transporteId = document.getElementById('alunoTransporte').value;
+            if (transporteId) {
+                payload.transporteId = parseInt(transporteId);
+            }
+
+            // ======================================================
+            // FIM DA LÓGICA DE "DOIS CAMINHOS"
+            // ======================================================
+
+            const url = isEditing ? `${API_URL}/api/alunos/${alunoId}` : `${API_URL}/api/alunos`;
+            const method = isEditing ? 'PUT' : 'POST';
+
+            try {
                 const response = await fetch(url, {
                     method: method,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${AUTH_TOKEN}`
-                    },
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AUTH_TOKEN}` },
                     body: JSON.stringify(payload)
                 });
 
                 if (!response.ok) {
                     const errorData = await response.json();
-                    throw new Error(errorData.message || 'Erro desconhecido ao salvar o aluno.');
+                    throw new Error(errorData.mensagem || 'Erro ao salvar o aluno.');
                 }
 
                 closeAlunoModal();
-                loadAlunos(currentPage);
+                loadAlunos();
+                showToast(`Aluno "${payload.nome}" salvo com sucesso!`);
 
             } catch (error) {
                 console.error('Erro ao salvar aluno:', error);
-                // O erro de validação não precisa mais de um alert, pois já foi mostrado na tela
-                if (error.message !== 'Validação falhou: nenhum tutor selecionado.') {
-                    alert(`Erro: ${error.message}`);
-                }
-            } finally {
-                if (submitButton) {
-                    submitButton.disabled = false;
-                    submitButton.innerHTML = 'Salvar';
-                }
+                alert(`Erro: ${error.message}`);
             }
         }
 
         /**
-     * Carrega as salas da escola logada e preenche o dropdown no modal.
-     */
+         * Carrega as salas da escola logada e preenche o dropdown no modal.
+         */
         async function loadSalasDropdown() {
             const salaSelect = document.getElementById('alunoSala');
             salaSelect.innerHTML = '<option value="">Carregando salas...</option>';
