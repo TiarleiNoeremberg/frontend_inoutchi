@@ -988,6 +988,7 @@
                         <form id="alunoForm">
                             <div class="modal-body">
                                 <input type="hidden" id="alunoId">
+                                <input type="hidden" id="alunoStatus">
 
                                 <!-- AQUI COMEÇA O NOSSO NOVO LAYOUT EM GRID -->
                                 <div class="form-grid">
@@ -2242,6 +2243,10 @@
          * Abre o modal para criar ou editar um aluno.
          * Se um aluno for passado como parâmetro, preenche o formulário para edição.
          */
+        /**
+ * Abre o modal para criar ou editar um aluno.
+ * Se um aluno for passado como parâmetro, preenche o formulário para edição.
+ */
         async function openAlunoModal(aluno = null) {
             const modal = document.getElementById('alunoModal');
             const modalTitle = document.getElementById('alunoModalTitle');
@@ -2250,41 +2255,45 @@
             modal.style.display = 'flex';
             modalTitle.textContent = 'Carregando Dados...';
 
-            // 1. Limpa estado anterior e configura os novos listeners
+            // Limpa estado anterior
             selectedTutors = [];
             renderSelectedTutors();
-
             document.getElementById('tutorSearchInput').oninput = (e) => searchTutors(e.target.value);
             document.getElementById('addTutorBtn').onclick = handleAddTutor;
-
-            // Limpa resultados de busca antigos
             document.getElementById('tutorSearchResults').innerHTML = '';
 
-
             try {
-                const promises = [
-                    populateSalasSelect(aluno ? aluno.salaId : null), // Corrigido para pegar salaId
-                    populateTransportesSelect(aluno && aluno.transporteId ? aluno.transporteId : null) // Corrigido para pegar transporteId
-                ];
-                await Promise.all(promises);
+                await Promise.all([
+                    populateSalasSelect(aluno ? aluno.salaId : null),
+                    populateTransportesSelect(aluno ? aluno.transporteId : null)
+                ]);
 
                 if (aluno && aluno.id) {
+                    // --- MODO DE EDIÇÃO ---
                     modalTitle.textContent = 'Editar Aluno';
                     document.getElementById('alunoId').value = aluno.id;
                     document.getElementById('alunoNome').value = aluno.nome;
-                    // A data pode vir em formatos diferentes, tratamos isso
                     document.getElementById('alunoNascimento').value = aluno.dataAniversario ? aluno.dataAniversario.split('T')[0] : '';
 
-                    // Pré-popula os tutores se estiver editando
+                    // ======================================================
+                    // #### CORREÇÃO CRÍTICA 1: Guardamos o status atual ####
+                    // ======================================================
+                    document.getElementById('alunoStatus').value = aluno.status;
+
                     if (aluno.tutores && aluno.tutores.length > 0) {
-                        // O DTO de Aluno precisa retornar o parentesco para a edição funcionar 100%
                         selectedTutors = aluno.tutores.map(t => ({ id: t.id, nome: t.nome, parentesco: t.parentesco || 'INDEFINIDO' }));
                         renderSelectedTutors();
                     }
 
                 } else {
+                    // --- MODO DE CRIAÇÃO ---
                     modalTitle.textContent = 'Adicionar Novo Aluno';
                     document.getElementById('alunoId').value = '';
+
+                    // ======================================================
+                    // Define um status padrão para novos alunos
+                    // ======================================================
+                    document.getElementById('alunoStatus').value = 'AUSENTE'; // Ou qualquer que seja seu status padrão
                 }
 
             } catch (error) {
@@ -2292,6 +2301,86 @@
                 modalTitle.textContent = 'Erro ao Carregar';
             }
         }
+
+
+        /**
+         * Salva um aluno (cria um novo ou atualiza um existente).
+         */
+        async function saveAluno(event) {
+            event.preventDefault();
+            const submitButton = document.querySelector('#alunoForm button[type="submit"]');
+
+            const tutorSearchInput = document.getElementById('tutorSearchInput');
+            const form = document.getElementById('alunoForm');
+            tutorSearchInput.setCustomValidity('');
+
+            if (selectedTutors.length === 0) {
+                tutorSearchInput.setCustomValidity('É obrigatório adicionar ao menos um tutor para o aluno.');
+                form.reportValidity();
+                return;
+            }
+
+            try {
+                submitButton.disabled = true;
+                submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+
+                const alunoId = document.getElementById('alunoId').value;
+                const isEditing = !!alunoId;
+
+                const tutoresPayload = selectedTutors.map(t => ({ id: t.id, parentesco: t.parentesco }));
+
+                // Monta o payload base
+                let payload = {
+                    nome: document.getElementById('alunoNome').value,
+                    dataAniversario: document.getElementById('alunoNascimento').value,
+                    salaId: parseInt(document.getElementById('alunoSala').value),
+                    tutores: tutoresPayload,
+                    // ====================================================================
+                    // #### CORREÇÃO CRÍTICA 2: Enviamos o status de volta para o backend ####
+                    // ====================================================================
+                    status: document.getElementById('alunoStatus').value
+                };
+
+                // Adiciona o escolaId apenas na criação
+                if (!isEditing) {
+                    payload.escolaId = parseInt(ESCOLA_ID);
+                }
+
+                const transporteId = document.getElementById('alunoTransporte').value;
+                if (transporteId) {
+                    payload.transporteId = parseInt(transporteId);
+                }
+
+                const url = isEditing ? `${API_URL}/api/alunos/${alunoId}` : `${API_URL}/api/alunos`;
+                const method = isEditing ? 'PUT' : 'POST';
+
+                const response = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AUTH_TOKEN}` },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || 'Erro desconhecido ao salvar o aluno.');
+                }
+
+                closeAlunoModal();
+                loadAlunos(currentPage);
+
+            } catch (error) {
+                console.error('Erro ao salvar aluno:', error);
+                if (error.message !== 'Validação falhou: nenhum tutor selecionado.') {
+                    alert(`Erro: ${error.message}`);
+                }
+            } finally {
+                if (submitButton) {
+                    submitButton.disabled = false;
+                    submitButton.innerHTML = 'Salvar';
+                }
+            }
+        }
+
 
         /**
          * Fecha o modal de aluno.
