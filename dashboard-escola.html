@@ -2336,86 +2336,62 @@
         // Função para Salvar (Criar ou Editar) um aluno
         async function saveAluno(event) {
             event.preventDefault();
-            const submitButton = document.querySelector('#alunoForm button[type="submit"]');
 
-            // --- INÍCIO DA CORREÇÃO DE VALIDAÇÃO ---
-            const tutorSearchInput = document.getElementById('tutorSearchInput');
-            const form = document.getElementById('alunoForm');
+            const alunoId = document.getElementById('alunoId').value;
+            const isEditing = !!alunoId;
 
-            // Limpa validações customizadas anteriores para não interferir nas nativas
-            tutorSearchInput.setCustomValidity('');
+            // --- INÍCIO DA CORREÇÃO ---
+            // Pega a referência para a lista de tutores selecionados
+            const selectedTutorsList = document.getElementById('tutorSelectedList');
+            // Encontra todos os elementos de tutor dentro da lista
+            const tutorElements = selectedTutorsList.querySelectorAll('.selected-item');
 
-            // 1. A NOSSA VALIDAÇÃO CUSTOMIZADA
-            if (selectedTutors.length === 0) {
-                // Define a mensagem de erro que aparecerá na "caixinha com seta"
-                tutorSearchInput.setCustomValidity('É obrigatório adicionar ao menos um tutor para o aluno.');
+            // Extrai APENAS o ID de cada tutor e cria uma lista de números
+            const tutorIds = Array.from(tutorElements).map(el => parseInt(el.dataset.id));
+            // --- FIM DA CORREÇÃO ---
 
-                // 2. PEDE AO FORMULÁRIO PARA MOSTRAR OS ERROS
-                form.reportValidity();
-
-                // 3. Interrompe a execução da função
+            if (tutorIds.length === 0) {
+                alert('É obrigatório vincular pelo menos um tutor ao aluno.');
                 return;
             }
-            // --- FIM DA CORREÇÃO DE VALIDAÇÃO ---
+
+            // Monta o payload no formato CORRETO que o backend espera
+            let payload = {
+                nome: document.getElementById('alunoNome').value,
+                dataNascimento: document.getElementById('alunoNascimento').value, // Corrigido para dataNascimento
+                salaId: parseInt(document.getElementById('alunoSala').value),
+                transporteId: document.getElementById('alunoTransporte').value ? parseInt(document.getElementById('alunoTransporte').value) : null,
+                tutorIds: tutorIds // Envia a lista de IDs
+            };
+
+            // Adiciona o escolaId, que é necessário para o backend
+            if (ESCOLA_ID) {
+                payload.escolaId = ESCOLA_ID;
+            }
+
+            const url = isEditing ? `${API_URL}/api/alunos/${alunoId}` : `${API_URL}/api/alunos`;
+            const method = isEditing ? 'PUT' : 'POST';
 
             try {
-                submitButton.disabled = true;
-                submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
-
-                const alunoId = document.getElementById('alunoId').value;
-                const isEditing = !!alunoId;
-
-                const tutoresPayload = selectedTutors.map(t => ({
-                    id: t.id,
-                    parentesco: t.parentesco
-                }));
-
-                const payload = {
-                    escolaId: parseInt(ESCOLA_ID),
-                    nome: document.getElementById('alunoNome').value,
-                    dataAniversario: document.getElementById('alunoNascimento').value,
-                    salaId: parseInt(document.getElementById('alunoSala').value),
-                    tutores: tutoresPayload
-                };
-
-                const transporteId = document.getElementById('alunoTransporte').value;
-                if (transporteId) {
-                    payload.transporteId = parseInt(transporteId);
-                }
-
-                const url = isEditing ? `${API_URL}/api/alunos/${alunoId}` : `${API_URL}/api/alunos`;
-                const method = isEditing ? 'PUT' : 'POST';
-
                 const response = await fetch(url, {
                     method: method,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${AUTH_TOKEN}`
-                    },
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AUTH_TOKEN}` },
                     body: JSON.stringify(payload)
                 });
-
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.message || 'Erro desconhecido ao salvar o aluno.');
+                    // Tenta extrair uma mensagem de erro mais detalhada do backend
+                    const errorData = await response.json().catch(() => ({ mensagem: 'Erro desconhecido ao salvar o aluno.' }));
+                    throw new Error(errorData.mensagem || `Erro ${response.status}`);
                 }
-
                 closeAlunoModal();
-                loadAlunos(currentPage);
-
+                loadAlunos();
+                showToast(`Aluno "${payload.nome}" salvo com sucesso!`);
             } catch (error) {
                 console.error('Erro ao salvar aluno:', error);
-                // O erro de validação não precisa mais de um alert, pois já foi mostrado na tela
-                if (error.message !== 'Validação falhou: nenhum tutor selecionado.') {
-                    alert(`Erro: ${error.message}`);
-                }
-            } finally {
-                if (submitButton) {
-                    submitButton.disabled = false;
-                    submitButton.innerHTML = 'Salvar';
-                }
+                alert(`Erro: ${error.message}`);
             }
         }
+
 
         /**
      * Carrega as salas da escola logada e preenche o dropdown no modal.
