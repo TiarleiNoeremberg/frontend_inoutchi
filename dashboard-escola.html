@@ -2243,64 +2243,81 @@
          * Abre o modal para criar ou editar um aluno.
          * Se um aluno for passado como parâmetro, preenche o formulário para edição.
          */
-        /**
- * Abre o modal para criar ou editar um aluno.
- * Se um aluno for passado como parâmetro, preenche o formulário para edição.
- */
-        async function openAlunoModal(aluno = null) {
+        async function openAlunoModal(alunoIncompleto = null) {
             const modal = document.getElementById('alunoModal');
             const modalTitle = document.getElementById('alunoModalTitle');
-            document.getElementById('alunoForm').reset();
+            const form = document.getElementById('alunoForm');
+            const submitButton = form.querySelector('button[type="submit"]');
 
+            form.reset();
             modal.style.display = 'flex';
             modalTitle.textContent = 'Carregando Dados...';
-
-            // Limpa estado anterior
-            selectedTutors = [];
-            renderSelectedTutors();
-            document.getElementById('tutorSearchInput').oninput = (e) => searchTutors(e.target.value);
-            document.getElementById('addTutorBtn').onclick = handleAddTutor;
-            document.getElementById('tutorSearchResults').innerHTML = '';
+            submitButton.disabled = true;
 
             try {
+                let alunoCompleto = null;
+
+                // =======================================================================
+                // #### INÍCIO DA CORREÇÃO DEFINITIVA (A CHAMADA DE API QUE FALTAVA) ####
+                // =======================================================================
+                if (alunoIncompleto && alunoIncompleto.id) {
+                    // Se estamos editando, BUSCAMOS o objeto COMPLETO do aluno na API.
+                    const response = await fetch(`${API_URL}/api/alunos/${alunoIncompleto.id}`, {
+                        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                    });
+                    if (!response.ok) {
+                        throw new Error('Não foi possível carregar os dados completos do aluno para edição.');
+                    }
+                    alunoCompleto = await response.json();
+                    modalTitle.textContent = 'Editar Aluno';
+                } else {
+                    // Se estamos criando, apenas mudamos o título.
+                    modalTitle.textContent = 'Adicionar Novo Aluno';
+                }
+                // =======================================================================
+                // #### FIM DA CORREÇÃO DEFINITIVA ####
+                // =======================================================================
+
+                // Agora, populamos os dropdowns. Eles não dependem do aluno completo.
                 await Promise.all([
-                    populateSalasSelect(aluno ? aluno.salaId : null),
-                    populateTransportesSelect(aluno ? aluno.transporteId : null)
+                    populateSalasSelect(alunoCompleto ? alunoCompleto.salaId : null),
+                    populateTransportesSelect(alunoCompleto ? alunoCompleto.transporteId : null)
                 ]);
 
-                if (aluno && aluno.id) {
-                    // --- MODO DE EDIÇÃO ---
-                    modalTitle.textContent = 'Editar Aluno';
-                    document.getElementById('alunoId').value = aluno.id;
-                    document.getElementById('alunoNome').value = aluno.nome;
-                    document.getElementById('alunoNascimento').value = aluno.dataAniversario ? aluno.dataAniversario.split('T')[0] : '';
+                // E preenchemos o formulário com os dados do objeto COMPLETO (se existir)
+                if (alunoCompleto) {
+                    document.getElementById('alunoId').value = alunoCompleto.id;
+                    document.getElementById('alunoNome').value = alunoCompleto.nome;
+                    document.getElementById('alunoNascimento').value = alunoCompleto.dataAniversario ? alunoCompleto.dataAniversario.split('T')[0] : '';
 
-                    // ======================================================
-                    // #### CORREÇÃO CRÍTICA 1: Guardamos o status atual ####
-                    // ======================================================
-                    document.getElementById('alunoStatus').value = aluno.status;
+                    // A FONTE CORRETA DO STATUS: o objeto que acabamos de buscar.
+                    document.getElementById('alunoStatus').value = alunoCompleto.status;
 
-                    if (aluno.tutores && aluno.tutores.length > 0) {
-                        selectedTutors = aluno.tutores.map(t => ({ id: t.id, nome: t.nome, parentesco: t.parentesco || 'INDEFINIDO' }));
-                        renderSelectedTutors();
+                    selectedTutors = [];
+                    if (alunoCompleto.tutores && alunoCompleto.tutores.length > 0) {
+                        selectedTutors = alunoCompleto.tutores.map(t => ({ id: t.id, nome: t.nome, parentesco: t.parentesco || 'INDEFINIDO' }));
                     }
-
+                    renderSelectedTutors();
                 } else {
-                    // --- MODO DE CRIAÇÃO ---
-                    modalTitle.textContent = 'Adicionar Novo Aluno';
+                    // Limpa campos para o modo de criação
                     document.getElementById('alunoId').value = '';
-
-                    // ======================================================
-                    // Define um status padrão para novos alunos
-                    // ======================================================
-                    document.getElementById('alunoStatus').value = 'AUSENTE'; // Ou qualquer que seja seu status padrão
+                    document.getElementById('alunoStatus').value = 'AUSENTE'; // Status padrão para novos alunos
+                    selectedTutors = [];
+                    renderSelectedTutors();
                 }
 
             } catch (error) {
                 console.error("Erro ao preparar o modal do aluno:", error);
-                modalTitle.textContent = 'Erro ao Carregar';
+                modalTitle.textContent = 'Erro ao Carregar Dados';
+                // Fecha o modal em caso de erro para não travar o usuário
+                setTimeout(() => closeAlunoModal(), 1500);
+            } finally {
+                // Garante que o botão de salvar seja reativado
+                submitButton.disabled = false;
             }
         }
+
+
 
 
         /**
