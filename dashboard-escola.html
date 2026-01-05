@@ -2340,33 +2340,42 @@
             const alunoId = document.getElementById('alunoId').value;
             const isEditing = !!alunoId;
 
-            // --- INÍCIO DA CORREÇÃO ---
-            // Pega a referência para a lista de tutores selecionados
+            // --- INÍCIO DA CORREÇÃO FINAL ---
+
+            // Pega a referência para a lista de tutores adicionados na UI
             const selectedTutorsList = document.getElementById('tutorSelectedList');
-            // Encontra todos os elementos de tutor dentro da lista
             const tutorElements = selectedTutorsList.querySelectorAll('.selected-item');
 
-            // Extrai APENAS o ID de cada tutor e cria uma lista de números
-            const tutorIds = Array.from(tutorElements).map(el => parseInt(el.dataset.id));
-            // --- FIM DA CORREÇÃO ---
+            // Constrói a lista de TutorDTOs exatamente como o backend espera
+            const tutoresPayload = Array.from(tutorElements).map(el => {
+                // Para cada tutor na UI, pegamos seu ID e seu Parentesco
+                const tutorId = parseInt(el.dataset.id);
+                const parentesco = el.dataset.parentesco;
 
-            if (tutorIds.length === 0) {
+                // Retornamos um objeto que espelha a estrutura do TutorDTO necessária para o backend
+                return { id: tutorId, parentesco: parentesco };
+            });
+
+            // --- FIM DA CORREÇÃO FINAL ---
+
+            if (tutoresPayload.length === 0) {
                 alert('É obrigatório vincular pelo menos um tutor ao aluno.');
                 return;
             }
 
-            // Monta o payload no formato CORRETO que o backend espera
+            // Monta o payload final que espelha perfeitamente o AlunoDTO.java
             let payload = {
                 nome: document.getElementById('alunoNome').value,
-                dataNascimento: document.getElementById('alunoNascimento').value, // Corrigido para dataNascimento
+                dataAniversario: document.getElementById('alunoNascimento').value, // Corrigido para dataAniversario
                 salaId: parseInt(document.getElementById('alunoSala').value),
-                transporteId: document.getElementById('alunoTransporte').value ? parseInt(document.getElementById('alunoTransporte').value) : null,
-                tutorIds: tutorIds // Envia a lista de IDs
+                escolaId: ESCOLA_ID, // Adicionando o escolaId
+                tutores: tutoresPayload // Adicionando a lista de objetos TutorDTO
             };
 
-            // Adiciona o escolaId, que é necessário para o backend
-            if (ESCOLA_ID) {
-                payload.escolaId = ESCOLA_ID;
+            // Opcional: Adiciona o transporteId se ele for selecionado
+            const transporteId = document.getElementById('alunoTransporte').value;
+            if (transporteId) {
+                payload.transporteId = parseInt(transporteId);
             }
 
             const url = isEditing ? `${API_URL}/api/alunos/${alunoId}` : `${API_URL}/api/alunos`;
@@ -2378,24 +2387,28 @@
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AUTH_TOKEN}` },
                     body: JSON.stringify(payload)
                 });
+
                 if (!response.ok) {
-                    // Tenta extrair uma mensagem de erro mais detalhada do backend
                     const errorData = await response.json().catch(() => ({ mensagem: 'Erro desconhecido ao salvar o aluno.' }));
                     throw new Error(errorData.mensagem || `Erro ${response.status}`);
                 }
+
                 closeAlunoModal();
-                loadAlunos();
+                // Assumindo que você tem uma função para recarregar os alunos
+                if (typeof loadAlunos === 'function') {
+                    loadAlunos();
+                }
                 showToast(`Aluno "${payload.nome}" salvo com sucesso!`);
+
             } catch (error) {
                 console.error('Erro ao salvar aluno:', error);
                 alert(`Erro: ${error.message}`);
             }
         }
 
-
         /**
-     * Carrega as salas da escola logada e preenche o dropdown no modal.
-     */
+         * Carrega as salas da escola logada e preenche o dropdown no modal.
+         */
         async function loadSalasDropdown() {
             const salaSelect = document.getElementById('alunoSala');
             salaSelect.innerHTML = '<option value="">Carregando salas...</option>';
