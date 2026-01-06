@@ -2240,9 +2240,9 @@
         const alunoModal = document.getElementById('alunoModal');
 
         /**
-         * Abre o modal para criar ou editar um aluno.
-         * Se um aluno for passado como parâmetro, preenche o formulário para edição.
-         */
+ * Abre o modal para criar ou editar um aluno.
+ * Esta versão garante que a busca de tutores funcione em AMBOS os modos.
+ */
         async function openAlunoModal(alunoIncompleto = null) {
             const modal = document.getElementById('alunoModal');
             const modalTitle = document.getElementById('alunoModalTitle');
@@ -2254,14 +2254,24 @@
             modalTitle.textContent = 'Carregando Dados...';
             submitButton.disabled = true;
 
+            // =======================================================================
+            // #### INÍCIO DA CORREÇÃO ####
+            // Limpa o estado anterior e RECONECTA OS EVENTOS a cada abertura do modal.
+            // =======================================================================
+            selectedTutors = [];
+            renderSelectedTutors();
+            document.getElementById('tutorSearchInput').oninput = (e) => searchTutors(e.target.value);
+            document.getElementById('addTutorBtn').onclick = handleAddTutor;
+            document.getElementById('tutorSearchResults').innerHTML = '';
+            // =======================================================================
+            // #### FIM DA CORREÇÃO ####
+            // =======================================================================
+
             try {
                 let alunoCompleto = null;
 
-                // =======================================================================
-                // #### INÍCIO DA CORREÇÃO DEFINITIVA (A CHAMADA DE API QUE FALTAVA) ####
-                // =======================================================================
                 if (alunoIncompleto && alunoIncompleto.id) {
-                    // Se estamos editando, BUSCAMOS o objeto COMPLETO do aluno na API.
+                    // --- MODO DE EDIÇÃO ---
                     const response = await fetch(`${API_URL}/api/alunos/${alunoIncompleto.id}`, {
                         headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
                     });
@@ -2271,51 +2281,42 @@
                     alunoCompleto = await response.json();
                     modalTitle.textContent = 'Editar Aluno';
                 } else {
-                    // Se estamos criando, apenas mudamos o título.
+                    // --- MODO DE CRIAÇÃO ---
                     modalTitle.textContent = 'Adicionar Novo Aluno';
                 }
-                // =======================================================================
-                // #### FIM DA CORREÇÃO DEFINITIVA ####
-                // =======================================================================
 
-                // Agora, populamos os dropdowns. Eles não dependem do aluno completo.
+                // Popula os dropdowns (salas e transportes)
                 await Promise.all([
                     populateSalasSelect(alunoCompleto ? alunoCompleto.salaId : null),
                     populateTransportesSelect(alunoCompleto ? alunoCompleto.transporteId : null)
                 ]);
 
-                // E preenchemos o formulário com os dados do objeto COMPLETO (se existir)
+                // Preenche o formulário com os dados do objeto COMPLETO (se existir)
                 if (alunoCompleto) {
                     document.getElementById('alunoId').value = alunoCompleto.id;
                     document.getElementById('alunoNome').value = alunoCompleto.nome;
                     document.getElementById('alunoNascimento').value = alunoCompleto.dataAniversario ? alunoCompleto.dataAniversario.split('T')[0] : '';
-
-                    // A FONTE CORRETA DO STATUS: o objeto que acabamos de buscar.
                     document.getElementById('alunoStatus').value = alunoCompleto.status;
 
-                    selectedTutors = [];
                     if (alunoCompleto.tutores && alunoCompleto.tutores.length > 0) {
                         selectedTutors = alunoCompleto.tutores.map(t => ({ id: t.id, nome: t.nome, parentesco: t.parentesco || 'INDEFINIDO' }));
+                        renderSelectedTutors();
                     }
-                    renderSelectedTutors();
                 } else {
-                    // Limpa campos para o modo de criação
+                    // Garante que campos ocultos estejam limpos para o modo de criação
                     document.getElementById('alunoId').value = '';
-                    document.getElementById('alunoStatus').value = 'AUSENTE'; // Status padrão para novos alunos
-                    selectedTutors = [];
-                    renderSelectedTutors();
+                    document.getElementById('alunoStatus').value = 'AUSENTE'; // Status padrão
                 }
 
             } catch (error) {
                 console.error("Erro ao preparar o modal do aluno:", error);
                 modalTitle.textContent = 'Erro ao Carregar Dados';
-                // Fecha o modal em caso de erro para não travar o usuário
                 setTimeout(() => closeAlunoModal(), 1500);
             } finally {
-                // Garante que o botão de salvar seja reativado
                 submitButton.disabled = false;
             }
         }
+
 
         /**
  * Salva um aluno (cria um novo ou atualiza um existente).
