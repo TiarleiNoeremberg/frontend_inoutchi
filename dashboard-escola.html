@@ -844,6 +844,8 @@
                     </tbody>
                 </table>
 
+                <div id="transportesPagination" class="pagination-container"></div>
+
                 <!-- Modal para Adicionar/Editar Transporte -->
                 <div id="transporteModal" class="modal">
                     <div class="modal-content">
@@ -1164,6 +1166,7 @@
 
         let selectedTutors = [];
         let currentTokenPage = 0;
+        let currentPageTransportes = 0;
 
         // Lógica para navegação entre as abas
         document.addEventListener('DOMContentLoaded', function () {
@@ -1631,19 +1634,21 @@
 
             transportes.forEach(transporte => {
                 const row = document.createElement('tr');
+                // PAYLOAD CORRETO: Usa 'fone' que vem do DTO, em vez de 'telefone'
+                // BOTÕES: Adicionado texto para clareza, mantendo os ícones.
                 row.innerHTML = `
-            <td>${transporte.nome}</td>
-            <td>${transporte.email}</td>
-            <td>${transporte.telefone || '-'}</td>
-            <td class="action-buttons">
-                <button class="btn btn-edit" onclick='openTransporteModal(${JSON.stringify(transporte)})'>
-                    <i class="fas fa-pencil-alt"></i> Editar
-                </button>
-                <button class="btn btn-delete" onclick="deleteTransporte(${transporte.id}, '${transporte.nome}')">
-                    <i class="fas fa-trash"></i> Excluir
-                </button>
-            </td>
-        `;
+                    <td>${transporte.nome}</td>
+                    <td>${transporte.email}</td>
+                    <td>${transporte.fone || '-'}</td>
+                    <td class="action-buttons">
+                        <button class="btn btn-edit" onclick='openTransporteModal(${JSON.stringify(transporte)})'>
+                            <i class="fas fa-pencil-alt"></i> Editar
+                        </button>
+                        <button class="btn btn-delete" onclick="deleteTransporte(${transporte.id}, '${transporte.nome}')">
+                            <i class="fas fa-trash"></i> Excluir
+                        </button>
+                    </td>
+                `;
                 tableBody.appendChild(row);
             });
         }
@@ -1656,21 +1661,27 @@
             form.reset();
 
             const modalTitle = document.getElementById('transporteModalTitle');
-            document.getElementById('transporteSenha').placeholder = "Deixe em branco para não alterar";
-            document.getElementById('transporteSenha').required = false;
+            const emailInput = document.getElementById('transporteEmail');
+            const senhaInput = document.getElementById('transporteSenha');
+            const foneInput = document.getElementById('transporteFone'); // Campo correto é 'fone'
 
             if (transporte && transporte.id) { // Modo de edição
                 modalTitle.textContent = 'Editar Transporte';
                 document.getElementById('transporteId').value = transporte.id;
                 document.getElementById('transporteNome').value = transporte.nome;
-                document.getElementById('transporteEmail').value = transporte.email;
-                document.getElementById('transporteTelefone').value = transporte.telefone;
-                document.getElementById('transporteDocumento').value = transporte.documento;
+                emailInput.value = transporte.email;
+                emailInput.readOnly = true; // Email não deve ser editado
+                foneInput.value = transporte.fone; // Usa 'fone'
+
+                senhaInput.placeholder = "Deixe em branco para não alterar";
+                senhaInput.required = false;
+
             } else { // Modo de criação
                 modalTitle.textContent = 'Adicionar Novo Transporte';
                 document.getElementById('transporteId').value = '';
-                document.getElementById('transporteSenha').placeholder = "Crie uma senha para o novo usuário";
-                document.getElementById('transporteSenha').required = true;
+                emailInput.readOnly = false;
+                senhaInput.placeholder = "Crie uma senha para o novo usuário";
+                senhaInput.required = true;
             }
             transporteModal.style.display = 'flex';
         }
@@ -1693,22 +1704,25 @@
             const transporteId = document.getElementById('transporteId').value;
             const nome = document.getElementById('transporteNome').value;
             const email = document.getElementById('transporteEmail').value;
-            const telefone = document.getElementById('transporteTelefone').value;
-            const documento = document.getElementById('transporteDocumento').value;
+            const fone = document.getElementById('transporteFone').value; // CAMPO CORRETO
             const senha = document.getElementById('transporteSenha').value;
             const isEditing = !!transporteId;
 
-            const url = isEditing ? `${API_URL}/api/transporte/${transporteId}` : `${API_URL}/api/transporte`;
+            // ENDPOINT CORRETO: Aponta para a API de GESTÃO
+            const url = isEditing ? `${API_URL}/api/management/transportadores/${transporteId}` : `${API_URL}/api/management/transportadores`;
             const method = isEditing ? 'PUT' : 'POST';
 
-            let payload = { nome, email, telefone, documento, escolaId: ESCOLA_ID };
-            if (senha) {
+            // PAYLOAD CORRETO: Monta o DTO com 'fone', sem 'documento'
+            let payload = { nome, email, fone, escolaId: parseInt(ESCOLA_ID) };
+            if (!isEditing) {
+                if (!senha) {
+                    alert('Por favor, defina uma senha para o novo transporte.');
+                    return;
+                }
                 payload.senha = senha;
-            }
-
-            if (!isEditing && !senha) {
-                alert('Por favor, defina uma senha para o novo transporte.');
-                return;
+            } else if (senha) {
+                // Em edição, só envia a senha se ela for preenchida
+                payload.senha = senha;
             }
 
             try {
@@ -1723,11 +1737,11 @@
 
                 if (!response.ok) {
                     const errorData = await response.json();
-                    throw new Error(errorData.mensagem || 'Erro ao salvar o transporte.');
+                    throw new Error(errorData.message || 'Erro ao salvar o transporte.');
                 }
 
                 closeTransporteModal();
-                loadTransportes();
+                loadTransportes(currentPageTransportes); // Recarrega na página atual
                 alert(`Transporte "${nome}" salvo com sucesso!`);
 
             } catch (error) {
@@ -1738,22 +1752,23 @@
 
         // Função para Deletar um transporte
         async function deleteTransporte(id, nome) {
-            if (!confirm(`Tem certeza que deseja excluir o transporte "${nome}"?`)) {
+            if (!confirm(`Tem certeza que deseja excluir o transporte "${nome}"? Esta ação também removerá o usuário de login associado.`)) {
                 return;
             }
 
             try {
-                const response = await fetch(`${API_URL}/api/transporte/${id}`, {
+                // ENDPOINT CORRETO: Aponta para a API de GESTÃO
+                const response = await fetch(`${API_URL}/api/management/transportadores/${id}`, {
                     method: 'DELETE',
                     headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
                 });
 
                 if (!response.ok) {
                     const errorData = await response.json();
-                    throw new Error(errorData.mensagem || 'Erro ao excluir o transporte.');
+                    throw new Error(errorData.message || 'Erro ao excluir o transporte.');
                 }
 
-                loadTransportes();
+                loadTransportes(0); // Recarrega do início após deletar
                 alert(`Transporte "${nome}" excluído com sucesso!`);
 
             } catch (error) {
@@ -1763,7 +1778,7 @@
         }
 
         // Gatilho para carregar os transportes quando a aba for clicada
-        document.querySelector('a[data-target="transportes"]').addEventListener('click', loadTransportes);
+        document.querySelector('a[data-target="transportes"]').addEventListener('click', () => loadTransportes(0));
 
         // --- LÓGICA PARA O CRUD DE TUTORES ---
         let currentTutorsPage = 0;
@@ -3084,6 +3099,63 @@
             }
             currentTokenPage = page;
             loadAllTokens();
+        }
+
+        //CRUD Transporte //////////////////////////////////////
+        //
+        //
+        ////////////////////////////////////////////////////////
+
+        // Função para carregar e exibir os transportes com paginação
+        async function loadTransportes(page = 0) {
+            currentPageTransportes = page;
+            const tableBody = document.getElementById('transportesTableBody');
+            tableBody.innerHTML = '<tr><td colspan="4" class="empty-state">Carregando transportes...</td></tr>';
+
+            try {
+                // ENDPOINT CORRETO: Aponta para a API de GESTÃO com paginação
+                const response = await fetch(`${API_URL}/api/management/transportadores?escolaId=${ESCOLA_ID}&page=${page}&size=10&sort=nome,asc`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+
+                if (!response.ok) throw new Error(`Erro na API: ${response.statusText}`);
+
+                const pageData = await response.json();
+                renderTransportes(pageData.content);
+                renderTransportesPagination(pageData);
+
+            } catch (error) {
+                console.error('Falha ao carregar transportes:', error);
+                tableBody.innerHTML = '<tr><td colspan="4" class="empty-state">Erro ao carregar os transportes.</td></tr>';
+                document.getElementById('transportesPagination').innerHTML = ''; // Limpa paginação em caso de erro
+            }
+        }
+
+        // Função para renderizar a paginação de transportes
+        function renderTransportesPagination(pageData) {
+            const paginationContainer = document.getElementById('transportesPagination');
+            paginationContainer.innerHTML = '';
+
+            if (pageData.totalPages <= 1) return;
+
+            // Usando o mesmo estilo de paginação das outras seções
+            paginationContainer.className = 'pagination-container';
+            paginationContainer.style.display = 'flex';
+
+            const pageNumber = pageData.number;
+            const totalPages = pageData.totalPages;
+            const isFirstPage = pageData.first;
+            const isLastPage = pageData.last;
+
+            paginationContainer.innerHTML = `
+                <div class="pagination-info">Página ${pageNumber + 1} de ${totalPages}</div>
+                <div class="pagination-buttons">
+                    <button class="btn pagination-btn" onclick="loadTransportes(0)" ${isFirstPage ? 'disabled' : ''} title="Primeira Página"><i class="fas fa-angle-double-left"></i></button>
+                    <button class="btn pagination-btn" onclick="loadTransportes(${pageNumber - 1})" ${isFirstPage ? 'disabled' : ''} title="Página Anterior"><i class="fas fa-angle-left"></i></button>
+                    <button class="btn pagination-btn" onclick="loadTransportes(${pageNumber + 1})" ${isLastPage ? 'disabled' : ''} title="Próxima Página"><i class="fas fa-angle-right"></i></button>
+                    <button class="btn pagination-btn" onclick="loadTransportes(${totalPages - 1})" ${isLastPage ? 'disabled' : ''} title="Última Página"><i class="fas fa-angle-double-right"></i></button>
+                </div>
+            `;
         }
 
     </script>
