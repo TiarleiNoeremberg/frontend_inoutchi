@@ -1658,41 +1658,63 @@
         // Funções para controlar o Modal de Transporte
         const transporteModal = document.getElementById('transporteModal');
 
-        function openTransporteModal(transporte = null) {
+        /**
+ * Abre o modal para criar ou editar um transporte.
+ * VERSÃO CORRIGIDA: Busca os dados completos do transportador antes de editar.
+ */
+        async function openTransporteModal(transporteIncompleto = null) {
+            const modal = document.getElementById('transporteModal');
             const form = document.getElementById('transporteForm');
-            form.reset();
-
             const modalTitle = document.getElementById('transporteModalTitle');
             const senhaInput = document.getElementById('transporteSenha');
+            const submitButton = form.querySelector('button[type="submit"]');
 
-            if (transporte && transporte.id) { // MODO DE EDIÇÃO
-                modalTitle.textContent = 'Editar Transporte';
-                document.getElementById('transporteId').value = transporte.id;
-                document.getElementById('transporteNome').value = transporte.nome;
-                document.getElementById('transporteEmail').value = transporte.email;
-                document.getElementById('transporteCpf').value = transporte.cpf;
-                document.getElementById('transporteFone').value = transporte.fone;
+            form.reset();
+            modal.style.display = 'flex';
+            modalTitle.textContent = 'Carregando...'; // Estado de carregamento
+            submitButton.disabled = true; // Desabilita o botão salvar enquanto carrega
 
-                // Torna a senha opcional na edição
-                senhaInput.placeholder = "Deixe em branco para não alterar";
-                senhaInput.required = false;
+            try {
+                if (transporteIncompleto && transporteIncompleto.id) { // MODO DE EDIÇÃO
+                    modalTitle.textContent = 'Editar Transporte';
 
-            } else { // MODO DE CRIAÇÃO
-                modalTitle.textContent = 'Adicionar Novo Transporte';
-                document.getElementById('transporteId').value = '';
-                // Limpa os campos para garantir que não haja dados de uma edição anterior
-                document.getElementById('transporteNome').value = '';
-                document.getElementById('transporteEmail').value = '';
-                document.getElementById('transporteCpf').value = '';
-                document.getElementById('transporteFone').value = '';
+                    // 1. BUSCA OS DADOS COMPLETOS DO TRANSPORTADOR PELA API
+                    const response = await fetch(`${API_URL}/api/management/transportadores/${transporteIncompleto.id}`, {
+                        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                    });
 
-                // Torna a senha obrigatória na criação
-                senhaInput.placeholder = "Crie uma senha para o novo usuário";
-                senhaInput.required = true;
+                    if (!response.ok) {
+                        throw new Error('Não foi possível carregar os dados completos do transportador.');
+                    }
+                    const transporteCompleto = await response.json();
+
+                    // 2. PREENCHE O FORMULÁRIO COM OS DADOS COMPLETOS (INCLUINDO O CPF)
+                    document.getElementById('transporteId').value = transporteCompleto.id;
+                    document.getElementById('transporteNome').value = transporteCompleto.nome;
+                    document.getElementById('transporteEmail').value = transporteCompleto.email;
+                    document.getElementById('transporteCpf').value = transporteCompleto.cpf; // Agora vai funcionar!
+                    document.getElementById('transporteFone').value = transporteCompleto.fone;
+
+                    // Lógica da senha para edição
+                    senhaInput.placeholder = "Deixe em branco para não alterar";
+                    senhaInput.required = false;
+
+                } else { // MODO DE CRIAÇÃO
+                    modalTitle.textContent = 'Adicionar Novo Transporte';
+                    document.getElementById('transporteId').value = ''; // Garante que o ID está limpo
+
+                    // Lógica da senha para criação
+                    senhaInput.placeholder = "Crie uma senha para o novo usuário";
+                    senhaInput.required = true;
+                }
+            } catch (error) {
+                console.error("Erro ao abrir o modal de transporte:", error);
+                modalTitle.textContent = 'Erro ao Carregar';
+                showToast(error.message, 'error'); // Usa sua função de notificação
+                setTimeout(() => modal.style.display = 'none', 2000); // Fecha o modal em caso de erro
+            } finally {
+                submitButton.disabled = false; // Reabilita o botão Salvar
             }
-
-            // Exibe o modal
-            document.getElementById('transporteModal').style.display = 'flex';
         }
 
         function closeTransporteModal() {
