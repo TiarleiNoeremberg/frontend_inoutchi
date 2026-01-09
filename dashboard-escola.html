@@ -733,7 +733,7 @@
 
                 <!-- Formulário para criar/editar a geofence -->
                 <div class="geofence-form-container">
-                    <form id="geofenceForm" onsubmit="saveGeofence(event)">
+                    <form id="geofenceForm">
                         <h3>Detalhes da Cerca Virtual</h3>
                         <input type="hidden" id="geofenceId">
                         <input type="hidden" id="geofenceLatitude">
@@ -1313,7 +1313,7 @@
                 window.location.href = 'index.html';
                 return;
             }
-            
+
             // 1. Sua guarda de autenticação (perfeita, mantida)
             if (!AUTH_TOKEN || !ESCOLA_ID) {
                 alert("Sessão inválida ou expirada. Por favor, faça o login novamente.");
@@ -2915,52 +2915,59 @@
         // Salva (cria ou atualiza) a geofence
         async function saveGeofence(event) {
             event.preventDefault();
-            const accessToken = localStorage.getItem('access_token');
+            const form = document.getElementById('geofenceForm');
+            const saveButton = form.querySelector('button[type="submit"]');
 
-            const geofenceId = document.getElementById('geofenceId').value;
-            const latitude = document.getElementById('geofenceLatitude').value;
-
-            if (!latitude) {
-                showAlert("Desenhe uma área no mapa antes de salvar.", "error");
-                return;
-            }
-
-            const body = {
-                escolaId: currentUser.escolaId,
-                nome: document.getElementById('geofenceNome').value,
-                tipo: document.getElementById('geofenceTipo').value,
-                latitude: parseFloat(latitude),
-                longitude: parseFloat(document.getElementById('geofenceLongitude').value),
-                raioMetros: parseFloat(document.getElementById('geofenceRaio').value),
-                ativo: true // Sempre ativo por padrão
-            };
-
-            // Se houver um ID, é uma atualização (PUT), senão é uma criação (POST)
-            const isUpdate = !!geofenceId;
-            const url = isUpdate ? `${BACKEND_URL}/api/geofences/${geofenceId}` : `${BACKEND_URL}/api/geofences`;
-            const method = isUpdate ? 'PUT' : 'POST';
+            if (saveButton.disabled) return; // Trava anti-clique duplo
+            saveButton.disabled = true;
+            saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
 
             try {
+                const geofenceId = document.getElementById('geofenceId').value;
+                const latitude = document.getElementById('geofenceLatitude').value;
+
+                if (!latitude) {
+                    throw new Error("Desenhe uma área no mapa antes de salvar.");
+                }
+
+                const body = {
+                    escolaId: currentUser.escolaId,
+                    nome: document.getElementById('geofenceNome').value,
+                    tipo: document.getElementById('geofenceTipo').value,
+                    latitude: parseFloat(latitude),
+                    longitude: parseFloat(document.getElementById('geofenceLongitude').value),
+                    raioMetros: parseFloat(document.getElementById('geofenceRaio').value),
+                    ativo: true
+                };
+
+                // Decide se é uma criação (POST) ou atualização (PUT)
+                const isUpdate = !!geofenceId;
+                const url = isUpdate ? `${API_URL}/api/geofences/${geofenceId}` : `${API_URL}/api/geofences`;
+                const method = isUpdate ? 'PUT' : 'POST';
+
                 const response = await fetch(url, {
                     method: method,
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${accessToken}`
+                        'Authorization': `Bearer ${AUTH_TOKEN}`
                     },
                     body: JSON.stringify(body)
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.mensagem || 'Falha ao salvar a área.');
+                    const errorData = await response.json().catch(() => ({ message: 'Falha ao salvar a área.' }));
+                    throw new Error(errorData.message || 'Erro desconhecido ao salvar.');
                 }
 
                 showAlert('Área salva com sucesso!', 'success');
-                resetGeofenceForm();
-                loadGeofences(); // Recarrega a lista e o mapa
+                resetGeofenceForm(); // Reutiliza sua função de limpeza
+                loadGeofences();     // Recarrega a lista e o mapa
 
             } catch (error) {
                 showAlert(error.message, 'error');
+            } finally {
+                saveButton.disabled = false;
+                saveButton.innerHTML = 'Salvar Área';
             }
         }
 
