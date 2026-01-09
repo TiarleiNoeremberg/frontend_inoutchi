@@ -721,50 +721,73 @@
 
             <!-- Seção Geolocalização -->
             <section id="geolocalizacao-content" class="content-section">
+
+                <!-- TÍTULO CORRIGIDO (APENAS UM) -->
                 <div class="section-header">
                     <h1>Gestão de Geolocalização (Geofence)</h1>
                 </div>
-                <!-- Onde o mapa será renderizado -->
+
+                <!-- O MAPA -->
                 <div id="map"></div>
 
-                <!-- Formulário para criar/editar a geofence -->
+                <!-- O FORMULÁRIO DE EDIÇÃO/CRIAÇÃO -->
                 <div class="geofence-form-container">
+
+                    <!-- 
+                        GARANTIA 1: O <form> envolve TUDO: o título, os inputs e o botão.
+                        GARANTIA 2: O onsubmit chama DIRETAMENTE a função que queremos.
+                    -->
                     <form id="geofenceForm" onsubmit="saveGeofence(event)">
-                        <h3>Detalhes da Cerca Virtual</h3>
+                        <h3>Detalhes da Área</h3>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="geofenceNome">Nome da Área</label>
+                                <input type="text" id="geofenceNome" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="geofenceTipo">Tipo de Ação</label>
+                                <select id="geofenceTipo">
+                                    <option value="ENTRADA">Entrada</option>
+                                    <option value="SAIDA">Saída</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Inputs ocultos que serão preenchidos pelo mapa -->
                         <input type="hidden" id="geofenceId">
                         <input type="hidden" id="geofenceLatitude">
                         <input type="hidden" id="geofenceLongitude">
                         <input type="hidden" id="geofenceRaio">
 
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="geofenceNome">Nome da Área</label>
-                                <input type="text" id="geofenceNome" placeholder="Ex: Portão Principal" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="geofenceTipo">Tipo de Operação</label>
-                                <select id="geofenceTipo" required>
-                                    <option value="">Selecione...</option>
-                                    <option value="ENTRADA">ENTRADA</option>
-                                    <option value="SAIDA">SAÍDA</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <p style="color: #6B7280; margin-top: 15px;">
-                                <i class="fas fa-info-circle"></i> Use a ferramenta de círculo <i
-                                    class="leaflet-draw-draw-circle"></i> no canto do mapa para desenhar uma nova área.
-                                Os dados serão preenchidos automaticamente.
-                            </p>
-                        </div>
-                        <div style="text-align: right; margin-top: 20px;">
+                        <div class="form-actions">
+                            <!-- 
+                                GARANTIA 3: O botão é type="submit", a chave que liga a ignição do formulário.
+                            -->
                             <button type="submit" class="btn btn-primary">Salvar Área</button>
+                            <button type="button" class="btn btn-secondary"
+                                onclick="resetGeofenceForm()">Cancelar</button>
                         </div>
                     </form>
                 </div>
 
-                <!-- Futura lista de geofences salvas -->
-                <div id="geofenceList" style="margin-top: 30px;"></div>
+                <!-- A TABELA ONDE AS ÁREAS SALVAS APARECEM -->
+                <div class="table-container">
+                    <h3>Áreas Salvas</h3>
+                    <table class="custom-table">
+                        <thead>
+                            <tr>
+                                <th>Nome</th>
+                                <th>Tipo</th>
+                                <th>Status</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="geofenceTableBody">
+                            <!-- Linhas serão inseridas aqui pelo JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
             </section>
 
             <!-- Seção Diretores -->
@@ -2907,62 +2930,37 @@
             showAlert('Editando área. Modifique os dados ou o desenho e salve.', 'info');
         }
 
-        // Salva (cria ou atualiza) a geofence
         async function saveGeofence(event) {
-            event.preventDefault();
-            console.log('--- INICIANDO saveGeofence ---'); // Ponto de partida
+            event.preventDefault(); // Impede o recarregamento da página
 
             const form = document.getElementById('geofenceForm');
             const saveButton = form.querySelector('button[type="submit"]');
 
+            if (saveButton.disabled) return;
+            saveButton.disabled = true;
+            saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+
             try {
-                if (saveButton.disabled) {
-                    console.log('Botão já desabilitado. Saindo.');
-                    return;
-                }
-                saveButton.disabled = true;
-                saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Depurando...';
-                console.log('Passo 1: Botão desabilitado.');
-
-                console.log('Passo 2: Coletando dados do formulário...');
                 const geofenceId = document.getElementById('geofenceId').value;
-                const nome = document.getElementById('geofenceNome').value;
-                const tipo = document.getElementById('geofenceTipo').value;
                 const latitude = document.getElementById('geofenceLatitude').value;
-                const longitude = document.getElementById('geofenceLongitude').value;
-                const raio = document.getElementById('geofenceRaio').value;
-
-                console.log(`Dados coletados: id=${geofenceId}, nome=${nome}, tipo=${tipo}, lat=${latitude}, lon=${longitude}, raio=${raio}`);
 
                 if (!latitude) {
-                    // Este é um erro esperado se nada for desenhado.
-                    throw new Error("Nenhuma área foi desenhada no mapa. Por favor, desenhe um círculo antes de salvar.");
+                    throw new Error("Desenhe uma área no mapa antes de salvar.");
                 }
 
-                console.log('Passo 3: Verificando currentUser...');
-                if (!currentUser || !currentUser.escolaId) {
-                    // Este é um erro crítico de inicialização.
-                    console.log('Objeto currentUser:', currentUser); // Mostra o que temos.
-                    throw new Error("Dados do usuário ou ID da escola não encontrados. A página não foi inicializada corretamente.");
-                }
-                console.log(`currentUser verificado. escolaId: ${currentUser.escolaId}`);
-
-                console.log('Passo 4: Montando o payload (body)...');
                 const body = {
                     escolaId: currentUser.escolaId,
-                    nome: nome,
-                    tipo: tipo,
+                    nome: document.getElementById('geofenceNome').value,
+                    tipo: document.getElementById('geofenceTipo').value,
                     latitude: parseFloat(latitude),
-                    longitude: parseFloat(longitude),
-                    raioMetros: parseFloat(raio),
+                    longitude: parseFloat(document.getElementById('geofenceLongitude').value),
+                    raioMetros: parseFloat(document.getElementById('geofenceRaio').value),
                     ativo: true
                 };
-                console.log('Payload montado:', body);
 
                 const isUpdate = !!geofenceId;
                 const url = isUpdate ? `${API_URL}/api/geofences/${geofenceId}` : `${API_URL}/api/geofences`;
                 const method = isUpdate ? 'PUT' : 'POST';
-                console.log(`Passo 5: Preparando para chamar a API. URL: ${url}, Método: ${method}`);
 
                 const response = await fetch(url, {
                     method: method,
@@ -2972,33 +2970,26 @@
                     },
                     body: JSON.stringify(body)
                 });
-                console.log('Passo 6: Resposta da API recebida. Status:', response.status);
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ message: 'A API retornou um erro, mas o corpo não é um JSON válido.' }));
-                    throw new Error(errorData.message || `Erro HTTP ${response.status}`);
+                    const errorData = await response.json().catch(() => ({ message: 'Falha ao salvar a área.' }));
+                    throw new Error(errorData.message || 'Erro desconhecido ao salvar.');
                 }
 
-                console.log('--- SUCESSO ---');
                 showAlert('Área salva com sucesso!', 'success');
                 resetGeofenceForm();
                 loadGeofences();
 
             } catch (error) {
-                // =================================================================
-                // ESTA É A CAIXA-PRETA. ELA VAI NOS DAR A RESPOSTA.
-                // =================================================================
-                console.error('--- ERRO CAPTURADO ---');
-                console.error('O objeto de erro completo é:', error);
-                alert('ERRO CAPTURADO NA CAIXA-PRETA:\n\n' + error.message); // Exibe o erro em um alert que para tudo.
-                // =================================================================
-
+                // Agora, qualquer erro REAL será capturado e exibido.
+                console.error("Erro em saveGeofence:", error);
+                showAlert(error.message, 'error');
             } finally {
-                console.log('--- FINALIZANDO saveGeofence ---');
                 saveButton.disabled = false;
                 saveButton.innerHTML = 'Salvar Área';
             }
         }
+
 
         // Deleta uma geofence
         async function deleteGeofence(id, nome) {
@@ -3028,20 +3019,7 @@
             }
         }
 
-        // Placeholder para a função de salvar
-        function saveGeofence(event) {
-            event.preventDefault();
-            const nome = document.getElementById('geofenceNome').value;
-            const lat = document.getElementById('geofenceLatitude').value;
 
-            if (!lat) {
-                alert("Por favor, desenhe uma área no mapa primeiro usando a ferramenta de círculo.");
-                return;
-            }
-
-            alert(`Simulação de salvamento:\nNome: ${nome}\nDados: (serão enviados para a API)`);
-            // Lógica de fetch para a API virá aqui
-        }
 
         // Gatilho para inicializar o mapa quando a aba for clicada
         document.querySelector('a[data-target="geolocalizacao"]').addEventListener('click', initMap);
