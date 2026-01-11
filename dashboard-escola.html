@@ -763,28 +763,35 @@
         #map {
             height: 400px;
             width: 100%;
-            border-radius: 8px;
-            position: relative;
-            /* Necessário para o posicionamento do display */
+            border-radius: 8px 8px 0 0;
+            /* Apenas cantos superiores */
         }
 
         .map-info-display {
-            position: absolute;
-            bottom: 10px;
-            left: 10px;
-            z-index: 1000;
-            /* Garante que fique sobre o mapa */
-            background-color: rgba(255, 255, 255, 0.8);
-            padding: 5px 10px;
-            border-radius: 5px;
-            box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
-            font-family: 'Segoe UI', sans-serif;
+            background-color: #f8f9fa;
+            padding: 8px 15px;
+            border: 1px solid #e9ecef;
+            border-radius: 0 0 8px 8px;
+            /* Arredonda cantos inferiores */
+            margin-top: -8px;
+            /* "Gruda" no mapa */
+            text-align: center;
             font-size: 0.9rem;
+            color: #495057;
         }
 
         /* ====================================================================== */
         /* #### FIM DO BLOCO DE ESTILIZAÇÃO #### */
         /* ====================================================================== */
+
+        /* Estilo para o texto (ENTRADA) e (SAIDA) na lista */
+        .geofence-type-strong.type-entrada {
+            color: green;
+        }
+
+        .geofence-type-strong.type-saida {
+            color: red;
+        }
     </style>
 
 </head>
@@ -924,19 +931,10 @@
                 <!-- A TABELA ONDE AS ÁREAS SALVAS APARECEM -->
                 <div class="table-container">
                     <h3>Áreas Salvas</h3>
-                    <table class="custom-table">
-                        <thead>
-                            <tr>
-                                <th>Nome</th>
-                                <th>Tipo</th>
-                                <th>Status</th>
-                                <th>Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody id="geofenceTableBody">
-                            <!-- Linhas serão inseridas aqui pelo JavaScript -->
-                        </tbody>
-                    </table>
+                    <div id="geofenceList">
+                        <!-- A lista de áreas será inserida aqui pelo JavaScript -->
+                    </div>
+
                 </div>
             </section>
 
@@ -3021,50 +3019,69 @@
 
         // Carrega as geofences da API e as exibe no mapa e na lista
         async function loadGeofences() {
-            if (!currentUser || !currentUser.escolaId) {
-                console.error("ID da escola não encontrado para carregar geofences.");
-                return;
-            }
+            if (!currentUser || !currentUser.escolaId) return;
 
-            const tableBody = document.getElementById('geofenceTableBody');
-            tableBody.innerHTML = '<tr><td colspan="4">Carregando áreas...</td></tr>'; // Feedback de carregamento
+            const listContainer = document.getElementById('geofenceList');
+            listContainer.innerHTML = '<p>Carregando áreas...</p>';
 
             try {
                 const response = await fetch(`${API_URL}/api/geofences/escola/${currentUser.escolaId}`, {
                     headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
                 });
 
-                if (!response.ok) {
-                    // Se não for 404 (nenhuma encontrada), lança um erro.
-                    if (response.status !== 404) throw new Error('Falha ao carregar as áreas.');
+                if (response.status === 404) {
+                    listContainer.innerHTML = '<p>Nenhuma área de geolocalização foi criada ainda.</p>';
+                    return;
                 }
+                if (!response.ok) throw new Error('Falha ao carregar as áreas.');
 
-                const geofences = response.status === 404 ? [] : await response.json();
+                const geofences = await response.json();
+                listContainer.innerHTML = ''; // Limpa a lista
 
-                tableBody.innerHTML = ''; // Limpa a tabela para preencher com os dados
-
-                if (geofences.length === 0 || geofences.erro === 'NENHUMA_GEOFENCE') {
-                    tableBody.innerHTML = '<tr><td colspan="4">Nenhuma área de geolocalização foi criada ainda.</td></tr>';
+                if (geofences.length === 0) {
+                    listContainer.innerHTML = '<p>Nenhuma área de geolocalização foi criada ainda.</p>';
                     return;
                 }
 
+                // Desenha as geocercas salvas no mapa
+                savedGeofencesLayer.clearLayers();
                 geofences.forEach(geofence => {
-                    const row = document.createElement('tr');
-                    row.innerHTML = `
-                <td>${geofence.nome}</td>
-                <td><span class="badge badge-${geofence.tipo.toLowerCase()}">${geofence.tipo}</span></td>
-                <td><span class="status-badge status-${geofence.ativo ? 'active' : 'inactive'}">${geofence.ativo ? 'Ativa' : 'Inativa'}</span></td>
-                <td>
-                    <button class="btn-icon" onclick='populateGeofenceForm(${JSON.stringify(geofence)})'><i class="fas fa-edit"></i></button>
-                    <button class="btn-icon btn-delete" onclick='deleteGeofence(${geofence.id}, "${geofence.nome}")'><i class="fas fa-trash"></i></button>
-                </td>
+                    const color = geofence.tipo === 'ENTRADA' ? 'green' : 'red';
+                    L.circle([geofence.latitude, geofence.longitude], {
+                        radius: geofence.raioMetros,
+                        color: color,
+                        fillColor: color,
+                        fillOpacity: 0.2
+                    }).bindPopup(`<b>${geofence.nome}</b><br>${geofence.tipo}`).addTo(savedGeofencesLayer);
+                });
+
+                // Cria os itens na lista HTML
+                geofences.forEach(geofence => {
+                    const item = document.createElement('div');
+                    item.className = 'list-item'; // USA A MESMA CLASSE DAS OUTRAS ABAS
+
+                    const tipoClass = geofence.tipo === 'ENTRADA' ? 'entrada' : 'saida';
+
+                    item.innerHTML = `
+                <span>
+                    <i class="fas fa-map-marker-alt" style="color: ${geofence.tipo === 'ENTRADA' ? 'green' : 'red'};"></i>
+                    ${geofence.nome} 
+                    <strong class="geofence-type-strong type-${tipoClass}">(${geofence.tipo})</strong>
+                </span>
+                <div>
+                    <button class="btn-icon" onclick='populateGeofenceForm(${JSON.stringify(geofence)})' title="Editar Área">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn-icon btn-delete" onclick='deleteGeofence(${geofence.id}, "${geofence.nome}")' title="Excluir Área">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
             `;
-                    tableBody.appendChild(row);
+                    listContainer.appendChild(item);
                 });
 
             } catch (error) {
-                console.error("Erro ao carregar geofences:", error);
-                tableBody.innerHTML = `<tr><td colspan="4" style="color: red;">${error.message}</td></tr>`;
+                listContainer.innerHTML = `<p style="color: red;">${error.message}</p>`;
             }
         }
 
