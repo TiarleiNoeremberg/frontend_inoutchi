@@ -2844,6 +2844,15 @@
                 coordsDisplay.innerHTML = `<span>Coordenadas do Ponto: <b>${lat}, ${lng}</b></span>`;
             });
 
+            map.on('mousemove', function (e) {
+                // Apenas atualiza se o usuário não estiver no meio de um desenho
+                if (!map.drawing) {
+                    const lat = e.latlng.lat.toFixed(6);
+                    const lng = e.latlng.lng.toFixed(6);
+                    coordsDisplay.innerHTML = `<span>Coordenadas do Mouse: <b>${lat}, ${lng}</b></span>`;
+                }
+            });
+
             // Carrega as geofences existentes da API
             loadGeofences();
 
@@ -2871,54 +2880,45 @@
                 return;
             }
 
-            const accessToken = localStorage.getItem('access_token');
+            const tableBody = document.getElementById('geofenceTableBody');
+            tableBody.innerHTML = '<tr><td colspan="4">Carregando áreas...</td></tr>'; // Feedback de carregamento
+
             try {
-                const response = await fetch(`${BACKEND_URL}/api/geofences/escola/${currentUser.escolaId}`, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                const response = await fetch(`${API_URL}/api/geofences/escola/${currentUser.escolaId}`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
                 });
 
                 if (!response.ok) {
-                    // Se a resposta for um erro, mas não for 404 (nenhuma encontrada), exibe o erro
-                    if (response.status !== 404) throw new Error('Falha ao carregar as áreas de geolocalização.');
+                    // Se não for 404 (nenhuma encontrada), lança um erro.
+                    if (response.status !== 404) throw new Error('Falha ao carregar as áreas.');
                 }
 
                 const geofences = response.status === 404 ? [] : await response.json();
 
-                // Limpa a camada do mapa e a lista HTML antes de adicionar os itens atualizados
-                savedGeofencesLayer.clearLayers();
-                const listElement = document.getElementById('geofenceList');
-                listElement.innerHTML = '<h3>Áreas Salvas</h3>';
+                tableBody.innerHTML = ''; // Limpa a tabela para preencher com os dados
 
                 if (geofences.length === 0 || geofences.erro === 'NENHUMA_GEOFENCE') {
-                    listElement.innerHTML += '<p>Nenhuma área de geolocalização foi criada ainda.</p>';
+                    tableBody.innerHTML = '<tr><td colspan="4">Nenhuma área de geolocalização foi criada ainda.</td></tr>';
                     return;
                 }
 
                 geofences.forEach(geofence => {
-                    // Adiciona o círculo no mapa
-                    const color = geofence.tipo === 'ENTRADA' ? 'green' : 'orange';
-                    L.circle([geofence.latitude, geofence.longitude], {
-                        radius: geofence.raioMetros,
-                        color: color,
-                        fillColor: color,
-                        fillOpacity: 0.3
-                    }).addTo(savedGeofencesLayer);
-
-                    // Adiciona o item na lista
-                    const item = document.createElement('div');
-                    item.className = 'list-item';
-                    item.innerHTML = `
-                <span><i class="fas fa-map-marker-alt" style="color:${color};"></i> ${geofence.nome} <strong>(${geofence.tipo})</strong></span>
-                <div>
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                <td>${geofence.nome}</td>
+                <td><span class="badge badge-${geofence.tipo.toLowerCase()}">${geofence.tipo}</span></td>
+                <td><span class="status-badge status-${geofence.ativo ? 'active' : 'inactive'}">${geofence.ativo ? 'Ativa' : 'Inativa'}</span></td>
+                <td>
                     <button class="btn-icon" onclick='populateGeofenceForm(${JSON.stringify(geofence)})'><i class="fas fa-edit"></i></button>
                     <button class="btn-icon btn-delete" onclick='deleteGeofence(${geofence.id}, "${geofence.nome}")'><i class="fas fa-trash"></i></button>
-                </div>
+                </td>
             `;
-                    listElement.appendChild(item);
+                    tableBody.appendChild(row);
                 });
 
             } catch (error) {
-                showAlert(error.message, 'error');
+                console.error("Erro ao carregar geofences:", error);
+                tableBody.innerHTML = `<tr><td colspan="4" style="color: red;">${error.message}</td></tr>`;
             }
         }
 
