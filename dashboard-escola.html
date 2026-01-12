@@ -3005,76 +3005,55 @@
         // --- LÓGICA PARA A GEOLOCALIZAÇÃO ---
 
         // Função para inicializar o mapa
+        // =================================================================
+        // #### A VERSÃO FINAL E CORRETA DA FUNÇÃO initMap ####
+        // =================================================================
         function initMap() {
+            // Se o mapa já foi inicializado, não faz nada.
             if (map) return;
 
+            // 1. Inicializa o mapa e define a visão inicial.
             map = L.map('map').setView([-15.7801, -47.9292], 4);
 
+            // 2. Adiciona a camada de azulejos (as imagens do mapa).
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             }).addTo(map);
 
-            navigator.geolocation.getCurrentPosition(
-                (position) => map.setView([position.coords.latitude, position.coords.longitude], 15),
-                () => console.warn("Não foi possível obter a localização. Usando visão geral.")
-            );
-
-            // Inicializa as camadas
+            // 3. Prepara as camadas onde os desenhos ficarão.
             drawnItems = new L.FeatureGroup();
             savedGeofencesLayer = new L.FeatureGroup();
             map.addLayer(drawnItems);
             map.addLayer(savedGeofencesLayer);
 
-            const drawControl = new L.Control.Draw({
-                edit: { featureGroup: drawnItems, remove: false, edit: false },
-                draw: { polygon: false, polyline: false, rectangle: false, marker: false, circle: true }
-            });
-            map.addControl(drawControl);
-
-            map.on(L.Draw.Event.CREATED, function (event) {
-                const layer = event.layer;
-                const latlng = layer.getLatLng();
-                const radius = layer.getRadius();
-
-                document.getElementById('geofenceLatitude').value = latlng.lat.toFixed(6);
-                document.getElementById('geofenceLongitude').value = latlng.lng.toFixed(6);
-                document.getElementById('geofenceRaio').value = radius.toFixed(2);
-
-                showAlert('Área desenhada! Preencha os detalhes e salve.', 'info');
-
-                drawnItems.clearLayers();
-                drawnItems.addLayer(layer);
-            });
-
-            const coordsDisplay = document.getElementById('map-coordinates-display');
-            map.on('click', function (e) {
-                const lat = e.latlng.lat.toFixed(6);
-                const lng = e.latlng.lng.toFixed(6);
-                coordsDisplay.innerHTML = `<span>Coordenadas do Ponto: <b>${lat}, ${lng}</b></span>`;
-            });
-
-            map.on('mousemove', function (e) {
-                // Apenas atualiza se o usuário não estiver no meio de um desenho
-                if (!map.drawing) {
-                    const lat = e.latlng.lat.toFixed(6);
-                    const lng = e.latlng.lng.toFixed(6);
-                    coordsDisplay.innerHTML = `<span>Coordenadas do Mouse: <b>${lat}, ${lng}</b></span>`;
+            // 4. Adiciona os controles de desenho.
+            var drawControl = new L.Control.Draw({
+                edit: {
+                    featureGroup: drawnItems,
+                    remove: true
+                },
+                draw: {
+                    polygon: false,
+                    polyline: false,
+                    rectangle: false,
+                    marker: false,
+                    circle: true // Apenas o desenho de círculo é permitido
                 }
             });
+            map.addLayer(drawControl);
 
-            // Carrega as geofences existentes da API
-            //loadGeofences();
+            // 5. Adiciona os listeners para os eventos do mapa (desenho, clique, etc.).
+            map.on(L.Draw.Event.CREATED, handleDrawCreated);
+            map.on('click', handleMapClick);
+            map.on('mousemove', handleMouseMove);
 
-            setTimeout(() => {
-                loadGeofences();
-            }, 100);
-
-            setTimeout(() => {
-                if (map) {
-                    map.invalidateSize();
-                }
-            }, 100);
+            // 6. A SOLUÇÃO DEFINITIVA:
+            // Nós "escutamos" o evento 'load' do mapa. Este evento só dispara
+            // quando o mapa está 100% pronto. SÓ ENTÃO, nós chamamos a função
+            // para carregar e desenhar as geocercas.
+            map.on('load', loadGeofences);
         }
+
 
         // Limpa o formulário e o desenho temporário
         function resetGeofenceForm() {
