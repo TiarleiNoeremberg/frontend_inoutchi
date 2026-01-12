@@ -1412,6 +1412,35 @@
 
                     </div>
                 </div>
+
+                <!-- Modal para Editar o Raio da Geofence -->
+                <div class="modal fade" id="editRaioModal" tabindex="-1" aria-labelledby="editRaioModalLabel"
+                    aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="editRaioModalLabel">Editar Raio da Geocerca</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                    aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <p>Ajuste o novo valor para o raio da área em metros.</p>
+                                <input type="hidden" id="editRaioGeofenceId">
+                                <div class="form-group">
+                                    <label for="editRaioInput">Novo Raio (em metros)</label>
+                                    <input type="number" class="form-control" id="editRaioInput" step="0.1" min="1">
+                                </div>
+                                <div id="editRaioError" class="alert alert-danger mt-2" style="display: none;"></div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary"
+                                    data-bs-dismiss="modal">Cancelar</button>
+                                <button type="button" class="btn btn-primary" id="saveRaioBtn">Salvar Raio</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </section>
             <section id="token-management-view-content" class="content-section">
                 <h2 class="mb-4">Gestão e Auditoria de Tokens de Acesso</h2>
@@ -3145,7 +3174,7 @@
                     const editButton = document.createElement('button');
                     editButton.className = 'btn btn-edit';
                     editButton.innerHTML = '<i class="fas fa-edit"></i> Editar';
-                    editButton.onclick = () => populateGeofenceForm(geofence);
+                    editButton.onclick = () => openEditRaioModal(geofence.id, geofence.raioMetros);
                     const deleteButton = document.createElement('button');
                     deleteButton.className = 'btn btn-delete';
                     deleteButton.innerHTML = '<i class="fas fa-trash"></i> Excluir';
@@ -3334,7 +3363,7 @@
                 showAlert(error.message, 'error');
             }
         }
-        
+
         // Gatilho para inicializar o mapa quando a aba for clicada
         document.querySelector('a[data-target="geolocalizacao"]').addEventListener('click', initMap);
 
@@ -3832,6 +3861,59 @@
             });
         }
 
+        // Abre o modal de edição de raio, populando os campos.
+        function openEditRaioModal(geofenceId, currentRadius) {
+            document.getElementById('editRaioGeofenceId').value = geofenceId;
+            document.getElementById('editRaioInput').value = currentRadius;
+            document.getElementById('editRaioError').style.display = 'none'; // Esconde erros antigos
+
+            var editRaioModal = new bootstrap.Modal(document.getElementById('editRaioModal'));
+            editRaioModal.show();
+        }
+
+        // Adiciona o listener para o botão de salvar do novo modal.
+        document.getElementById('saveRaioBtn').addEventListener('click', async function () {
+            const id = document.getElementById('editRaioGeofenceId').value;
+            const novoRaio = parseFloat(document.getElementById('editRaioInput').value);
+            const errorDiv = document.getElementById('editRaioError');
+
+            if (!novoRaio || novoRaio <= 0) {
+                errorDiv.textContent = 'Por favor, insira um raio válido maior que zero.';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            const url = `${API_URL}/api/geofences/${id}/raio`;
+            this.disabled = true; // Desabilita o botão para evitar cliques duplos
+
+            try {
+                const response = await fetch(url, {
+                    method: 'PATCH', // PATCH é o método correto para atualizações parciais.
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${AUTH_TOKEN}`
+                    },
+                    body: JSON.stringify({ raioMetros: novoRaio })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.mensagem || 'Falha ao atualizar o raio.');
+                }
+
+                showAlert('Raio atualizado com sucesso!', 'success');
+                loadAndRenderGeofenceList(); // Recarrega a lista
+
+                var editRaioModal = bootstrap.Modal.getInstance(document.getElementById('editRaioModal'));
+                editRaioModal.hide();
+
+            } catch (error) {
+                errorDiv.textContent = error.message;
+                errorDiv.style.display = 'block';
+            } finally {
+                this.disabled = false; // Reabilita o botão
+            }
+        });
 
     </script>
 
