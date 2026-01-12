@@ -3067,11 +3067,15 @@
                 // PRIMEIRO: Forçamos o mapa a se redimensionar corretamente.
                 map.invalidateSize();
 
-                // SEGUNDO: SÓ DEPOIS que o mapa está estável, nós carregamos
-                // a função que desenha os círculos.
-                loadGeofences();
+                loadAndRenderGeofenceList();
+            }, 100);
 
-            }, 150); // Um tempo de espera seguro.
+
+            // SEGUNDO: SÓ DEPOIS que o mapa está estável, nós carregamos
+            // a função que desenha os círculos.
+            //loadGeofences();
+
+        //}, 150); // Um tempo de espera seguro.
         }
 
         // Limpa o formulário e o desenho temporário
@@ -3082,6 +3086,55 @@
             document.getElementById('geofenceLongitude').value = '';
             document.getElementById('geofenceRaio').value = '';
             drawnItems.clearLayers();
+        }
+
+        async function loadAndRenderGeofenceList() {
+            if (!currentUser || !currentUser.escolaId) return;
+
+            const listContainer = document.getElementById('geofenceList');
+            listContainer.innerHTML = '<p>Carregando áreas...</p>';
+
+            try {
+                const response = await fetch(`${API_URL}/api/geofences/escola/${currentUser.escolaId}`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+
+                if (response.status === 404) {
+                    listContainer.innerHTML = '<p>Nenhuma área de geolocalização foi criada ainda.</p>';
+                    return;
+                }
+                if (!response.ok) throw new Error('Falha ao carregar as áreas.');
+
+                const geofences = await response.json();
+                listContainer.innerHTML = '';
+
+                if (geofences.length === 0) {
+                    listContainer.innerHTML = '<p>Nenhuma área de geolocalização foi criada ainda.</p>';
+                    return;
+                }
+
+                // Cria os itens na lista HTML
+                geofences.forEach(geofence => {
+                    const item = document.createElement('div');
+                    item.className = 'list-item';
+                    const tipoClass = geofence.tipo === 'ENTRADA' ? 'entrada' : 'saida';
+                    item.innerHTML = `
+                <span>
+                    <i class="fas fa-map-marker-alt" style="color: ${geofence.tipo === 'ENTRADA' ? 'green' : 'red'};"></i>
+                    ${geofence.nome}
+                    <strong class="geofence-type-strong type-${tipoClass}">(${geofence.tipo})</strong>
+                </span>
+                <div>
+                    <button class="btn-icon" onclick='populateGeofenceForm(${JSON.stringify(geofence)})' title="Editar Área"><i class="fas fa-edit"></i></button>
+                    <button class="btn-icon btn-delete" onclick='deleteGeofence(${geofence.id}, "${geofence.nome}")' title="Excluir Área"><i class="fas fa-trash"></i></button>
+                </div>
+            `;
+                    listContainer.appendChild(item);
+                });
+
+            } catch (error) {
+                listContainer.innerHTML = `<p style="color: red;">${error.message}</p>`;
+            }
         }
 
         // Carrega as geofences da API e as exibe no mapa e na lista
