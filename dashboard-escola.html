@@ -3114,42 +3114,74 @@
         }
 
         async function loadAndRenderGeofenceList() {
+            // Ponto de verificação para garantir que a função está sendo chamada.
+            console.log("LOG: Iniciando loadAndRenderGeofenceList...");
+
             if (!currentUser || !currentUser.escolaId) return;
+
             const listContainer = document.getElementById('geofenceList');
+            // Limpa o conteúdo anterior
             listContainer.innerHTML = '<p>Carregando áreas...</p>';
+
+            // Remove eventuais listeners antigos para evitar duplicidade.
+            // Esta é uma etapa de segurança crucial.
+            const newContainer = listContainer.cloneNode(true);
+            listContainer.parentNode.replaceChild(newContainer, listContainer);
+            newContainer.innerHTML = '<p>Carregando áreas...</p>';
+
+
             try {
                 const response = await fetch(`${API_URL}/api/geofences/escola/${currentUser.escolaId}`, { headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` } });
-                if (response.status === 404) { listContainer.innerHTML = '<p>Nenhuma área de geolocalização foi criada ainda.</p>'; return; }
+                if (response.status === 404) { newContainer.innerHTML = '<p>Nenhuma área de geolocalização foi criada ainda.</p>'; return; }
                 if (!response.ok) throw new Error('Falha ao carregar as áreas.');
                 const geofences = await response.json();
-                listContainer.innerHTML = '';
-                if (geofences.length === 0) { listContainer.innerHTML = '<p>Nenhuma área de geolocalização foi criada ainda.</p>'; return; }
+                newContainer.innerHTML = '';
+                if (geofences.length === 0) { newContainer.innerHTML = '<p>Nenhuma área de geolocalização foi criada ainda.</p>'; return; }
 
                 geofences.forEach(geofence => {
                     const item = document.createElement('div');
                     item.className = 'list-item';
-                    const infoSpan = document.createElement('span');
-                    const tipoClass = geofence.tipo === 'ENTRADA' ? 'entrada' : 'saida';
-                    infoSpan.innerHTML = `<i class="fas fa-map-marker-alt" style="color: ${geofence.tipo === 'ENTRADA' ? 'green' : 'red'};"></i> ${geofence.nome} <strong class="geofence-type-strong type-${tipoClass}">(${geofence.tipo})</strong>`;
-                    const actionButtonsDiv = document.createElement('div');
-                    actionButtonsDiv.className = 'action-buttons';
-                    const editButton = document.createElement('button');
-                    editButton.className = 'btn btn-edit';
-                    editButton.innerHTML = '<i class="fas fa-edit"></i> Editar';
-                    // A linha crucial que chama a função correta
-                    editButton.addEventListener('click', () => openEditRaioModal(geofence.id, geofence.raioMetros));
-                    const deleteButton = document.createElement('button');
-                    deleteButton.className = 'btn btn-delete';
-                    deleteButton.innerHTML = '<i class="fas fa-trash"></i> Excluir';
-                    deleteButton.addEventListener('click', () => deleteGeofence(geofence.id, geofence.nome));
-                    actionButtonsDiv.appendChild(editButton);
-                    actionButtonsDiv.appendChild(deleteButton);
-                    item.appendChild(infoSpan);
-                    item.appendChild(actionButtonsDiv);
-                    listContainer.appendChild(item);
+                    item.innerHTML = `
+                <span>
+                    <i class="fas fa-map-marker-alt" style="color: ${geofence.tipo === 'ENTRADA' ? 'green' : 'red'};"></i>
+                    ${geofence.nome}
+                    <strong class="geofence-type-strong type-${geofence.tipo === 'ENTRADA' ? 'entrada' : 'saida'}">(${geofence.tipo})</strong>
+                </span>
+                <div class="action-buttons">
+                    <button class="btn btn-edit" data-id="${geofence.id}" data-raio="${geofence.raioMetros}">
+                        <i class="fas fa-edit"></i> Editar
+                    </button>
+                    <button class="btn btn-delete" data-id="${geofence.id}" data-nome="${geofence.nome}">
+                        <i class="fas fa-trash"></i> Excluir
+                    </button>
+                </div>
+            `;
+                    newContainer.appendChild(item);
                 });
+
+                // AQUI ESTÁ A DELEGAÇÃO DE EVENTOS
+                newContainer.addEventListener('click', function (event) {
+                    const button = event.target.closest('button'); // Encontra o botão que foi clicado
+                    if (!button) return; // Se o clique não foi em um botão, ignora.
+
+                    const id = button.dataset.id; // Pega o ID do atributo data-id
+
+                    if (button.classList.contains('btn-edit')) {
+                        console.log(`LOG: Botão Editar clicado para o ID: ${id}`);
+                        const raio = button.dataset.raio; // Pega o raio do atributo data-raio
+                        openEditRaioModal(id, raio);
+                    }
+
+                    if (button.classList.contains('btn-delete')) {
+                        console.log(`LOG: Botão Excluir clicado para o ID: ${id}`);
+                        const nome = button.dataset.nome; // Pega o nome do atributo data-nome
+                        deleteGeofence(id, nome);
+                    }
+                });
+
             } catch (error) {
-                listContainer.innerHTML = `<p style="color: red;">${error.message}</p>`;
+                newContainer.innerHTML = `<p style="color: red;">${error.message}</p>`;
+                console.error("Erro em loadAndRenderGeofenceList: ", error);
             }
         }
 
