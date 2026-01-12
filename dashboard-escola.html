@@ -858,9 +858,7 @@
             color: #dc3545;
         }
 
-        .modal.is-visible {
-            display: flex !important;
-        }
+
     </style>
 
 </head>
@@ -1414,30 +1412,6 @@
                         </form>
 
 
-                    </div>
-                </div>
-
-                <!-- Modal para Editar o Raio da Geofence (Versão Customizada) -->
-                <div id="editRaioModal" class="modal">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h2 id="editRaioModalLabel">Editar Raio da Geocerca</h2>
-                            <span class="close-button" onclick="closeEditRaioModal()">&times;</span>
-                        </div>
-                        <div class="modal-body">
-                            <p>Ajuste o novo valor para o raio da área em metros.</p>
-                            <input type="hidden" id="editRaioGeofenceId">
-                            <div class="form-group">
-                                <label for="editRaioInput">Novo Raio (em metros)</label>
-                                <input type="number" id="editRaioInput" step="0.1" min="1">
-                            </div>
-                            <div id="editRaioError" class="alert alert-danger mt-2" style="display: none;"></div>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary"
-                                onclick="closeEditRaioModal()">Cancelar</button>
-                            <button type="button" class="btn btn-primary" id="saveRaioBtn">Salvar Raio</button>
-                        </div>
                     </div>
                 </div>
 
@@ -3117,14 +3091,13 @@
             drawnItems.clearLayers();
         }
 
-        // 1. A FUNÇÃO QUE RENDERIZA A LISTA (Usando Delegação de Eventos)
         async function loadAndRenderGeofenceList() {
             if (!currentUser || !currentUser.escolaId) return;
             const listContainer = document.getElementById('geofenceList');
             listContainer.innerHTML = '<p>Carregando áreas...</p>';
 
             // Limpa listeners antigos para evitar chamadas múltiplas.
-            const newContainer = listContainer.cloneNode(false); // Clona sem os filhos
+            const newContainer = listContainer.cloneNode(false);
             listContainer.parentNode.replaceChild(newContainer, listContainer);
             newContainer.innerHTML = '<p>Carregando áreas...</p>';
 
@@ -3139,7 +3112,7 @@
                 geofences.forEach(geofence => {
                     const item = document.createElement('div');
                     item.className = 'list-item';
-                    // Os botões agora apenas guardam os dados em atributos 'data-*'
+                    // HTML do item, agora contendo apenas o botão Excluir.
                     item.innerHTML = `
                 <span>
                     <i class="fas fa-map-marker-alt" style="color: ${geofence.tipo === 'ENTRADA' ? 'green' : 'red'};"></i>
@@ -3147,9 +3120,6 @@
                     <strong class="geofence-type-strong type-${geofence.tipo === 'ENTRADA' ? 'entrada' : 'saida'}">(${geofence.tipo})</strong>
                 </span>
                 <div class="action-buttons">
-                    <button class="btn btn-edit" data-id="${geofence.id}" data-raio="${geofence.raioMetros}">
-                        <i class="fas fa-edit"></i> Editar
-                    </button>
                     <button class="btn btn-delete" data-id="${geofence.id}" data-nome="${geofence.nome}">
                         <i class="fas fa-trash"></i> Excluir
                     </button>
@@ -3158,24 +3128,14 @@
                     newContainer.appendChild(item);
                 });
 
-                // 2. O "VIGIA" ÚNICO QUE GERENCIA TODOS OS CLIQUES
+                // O listener de eventos agora só se preocupa com o botão de exclusão.
                 newContainer.addEventListener('click', function (event) {
-                    const button = event.target.closest('button');
-                    if (!button) return;
+                    const deleteButton = event.target.closest('button.btn-delete');
+                    if (!deleteButton) return;
 
-                    const id = button.dataset.id;
-
-                    if (button.classList.contains('btn-edit')) {
-                        const raio = button.dataset.raio;
-                        // Chama a função para abrir o modal
-                        openEditRaioModal(id, raio);
-                    }
-
-                    if (button.classList.contains('btn-delete')) {
-                        const nome = button.dataset.nome;
-                        // Chama a função para excluir
-                        deleteGeofence(id, nome);
-                    }
+                    const id = deleteButton.dataset.id;
+                    const nome = deleteButton.dataset.nome;
+                    deleteGeofence(id, nome);
                 });
 
             } catch (error) {
@@ -3853,57 +3813,6 @@
                 setTimeout(() => alertDiv.remove(), 300);
             });
         }
-
-        // Abre o modal de edição de raio (versão customizada)
-        function openEditRaioModal(geofenceId, currentRadius) {
-            document.getElementById('editRaioGeofenceId').value = geofenceId;
-            document.getElementById('editRaioInput').value = currentRadius;
-            document.getElementById('editRaioError').style.display = 'none';
-
-            // Adiciona a classe que força a exibição
-            document.getElementById('editRaioModal').classList.add('is-visible');
-        }
-
-        // Fecha o modal de edição de raio (versão customizada)
-        function closeEditRaioModal() {
-            // Ação principal: Remove a classe que força a exibição
-            document.getElementById('editRaioModal').classList.remove('is-visible');
-        }
-
-
-
-        // Adiciona o listener para o botão de salvar do novo modal.
-        document.getElementById('saveRaioBtn').addEventListener('click', async function () {
-            const id = document.getElementById('editRaioGeofenceId').value;
-            const novoRaio = parseFloat(document.getElementById('editRaioInput').value);
-            const errorDiv = document.getElementById('editRaioError');
-            if (!novoRaio || novoRaio <= 0) {
-                errorDiv.textContent = 'Por favor, insira um raio válido maior que zero.';
-                errorDiv.style.display = 'block';
-                return;
-            }
-            const url = `${API_URL}/api/geofences/${id}/raio`;
-            this.disabled = true;
-            try {
-                const response = await fetch(url, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AUTH_TOKEN}` },
-                    body: JSON.stringify({ raioMetros: novoRaio })
-                });
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.mensagem || 'Falha ao atualizar o raio.');
-                }
-                showAlert('Raio atualizado com sucesso!', 'success');
-                loadAndRenderGeofenceList();
-                closeEditRaioModal();
-            } catch (error) {
-                errorDiv.textContent = error.message;
-                errorDiv.style.display = 'block';
-            } finally {
-                this.disabled = false;
-            }
-        });
 
         function verificarDuplicidadeDeID() {
             const elementos = document.querySelectorAll('#editRaioModal');
