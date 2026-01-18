@@ -3122,56 +3122,60 @@
 
         async function loadAndRenderGeofenceList() {
             if (!currentUser || !currentUser.escolaId) return;
-            const listContainer = document.getElementById('geofenceList');
-            listContainer.innerHTML = '<p>Carregando áreas...</p>';
 
-            // Limpa listeners antigos para evitar chamadas múltiplas.
+            const listContainer = document.getElementById('geofenceList');
+            // A sua lógica de clonar o container é inteligente, vamos mantê-la.
             const newContainer = listContainer.cloneNode(false);
             listContainer.parentNode.replaceChild(newContainer, listContainer);
             newContainer.innerHTML = '<p>Carregando áreas...</p>';
 
             try {
                 const response = await fetch(`${API_URL}/api/geofences/escola/${currentUser.escolaId}`, { headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` } });
-                if (response.status === 404) { newContainer.innerHTML = '<p>Nenhuma área de geolocalização foi criada ainda.</p>'; return; }
+                if (response.status === 404) {
+                    newContainer.innerHTML = '<p>Nenhuma área de geolocalização foi criada ainda.</p>';
+                    return;
+                }
                 if (!response.ok) throw new Error('Falha ao carregar as áreas.');
-                const geofences = await response.json();
+
+                const responseData = await response.json(); // Usamos uma nova variável
                 newContainer.innerHTML = '';
-                if (geofences.length === 0) { newContainer.innerHTML = '<p>Nenhuma área de geolocalização foi criada ainda.</p>'; return; }
 
-                geofences.forEach(geofence => {
-                    const item = document.createElement('div');
-                    item.className = 'list-item';
-                    // HTML do item, agora contendo apenas o botão Excluir.
-                    item.innerHTML = `
-                <span>
-                    <i class="fas fa-map-marker-alt" style="color: ${geofence.tipo === 'ENTRADA' ? 'green' : 'red'};"></i>
-                    ${geofence.nome}
-                    <strong class="geofence-type-strong type-${geofence.tipo === 'ENTRADA' ? 'entrada' : 'saida'}">(${geofence.tipo})</strong>
-                </span>
-                <div class="action-buttons">
-                    <button class="btn btn-delete" data-id="${geofence.id}" data-nome="${geofence.nome}">
-                        <i class="fas fa-trash"></i> Excluir
-                    </button>
-                </div>
-            `;
-                    newContainer.appendChild(item);
-                });
+                // =========================================================================
+                // ==== A CORREÇÃO DE BLINDAGEM ====
+                // =========================================================================
+                if (Array.isArray(responseData) && responseData.length > 0) {
+                    responseData.forEach(geofence => {
+                        const item = document.createElement('div');
+                        item.className = 'list-item';
+                        item.innerHTML = `
+                    <span>
+                        <i class="fas fa-map-marker-alt" style="color: ${geofence.tipo === 'ENTRADA' ? 'green' : 'red'};"></i>
+                        ${geofence.nome}
+                        <strong class="geofence-type-strong type-${geofence.tipo === 'ENTRADA' ? 'entrada' : 'saida'}">(${geofence.tipo})</strong>
+                    </span>
+                    <div class="action-buttons">
+                        <button class="btn btn-delete" data-id="${geofence.id}" data-nome="${geofence.nome}">
+                            <i class="fas fa-trash"></i> Excluir
+                        </button>
+                    </div>
+                `;
+                        newContainer.appendChild(item);
+                    });
 
-                // O listener de eventos agora só se preocupa com o botão de exclusão.
-                newContainer.addEventListener('click', function (event) {
-                    const deleteButton = event.target.closest('button.btn-delete');
-                    if (!deleteButton) return;
-
-                    const id = deleteButton.dataset.id;
-                    const nome = deleteButton.dataset.nome;
-                    deleteGeofence(id, nome);
-                });
+                    newContainer.addEventListener('click', function (event) {
+                        const deleteButton = event.target.closest('button.btn-delete');
+                        if (!deleteButton) return;
+                        deleteGeofence(deleteButton.dataset.id, deleteButton.dataset.nome);
+                    });
+                } else {
+                    // Se não for um array ou estiver vazio, apenas exibe a mensagem.
+                    newContainer.innerHTML = '<p>Nenhuma área de geolocalização foi criada ainda.</p>';
+                }
 
             } catch (error) {
                 newContainer.innerHTML = `<p style="color: red;">${error.message}</p>`;
             }
         }
-
 
         // Carrega as geofences da API e as exibe no mapa e na lista
         async function loadGeofences() {
@@ -3185,27 +3189,22 @@
                     headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
                 });
 
-                // Tratamento de 404 (opcional, mas bom manter)
                 if (response.status === 404) {
                     listContainer.innerHTML = '<p>Nenhuma área de geolocalização foi criada ainda.</p>';
-                    savedGeofencesLayer.clearLayers(); // Limpa o mapa também
+                    if (savedGeofencesLayer) savedGeofencesLayer.clearLayers();
                     return;
                 }
                 if (!response.ok) throw new Error('Falha ao carregar as áreas.');
 
                 const responseData = await response.json();
-                listContainer.innerHTML = ''; // Limpa a mensagem "Carregando..."
-                savedGeofencesLayer.clearLayers(); // Limpa o mapa para redesenhar
+                listContainer.innerHTML = '';
+                if (savedGeofencesLayer) savedGeofencesLayer.clearLayers();
 
                 // =========================================================================
-                // ==== A CORREÇÃO DEFINITIVA (A mesma que fizemos antes) ====
-                // Verificamos se 'responseData' é de fato um Array (uma lista) e se tem itens.
-                // Se não for, exibimos a mensagem amigável e encerramos.
+                // ==== A CORREÇÃO DE BLINDAGEM (APLICADA AQUI TAMBÉM) ====
                 // =========================================================================
                 if (Array.isArray(responseData) && responseData.length > 0) {
-                    // Se for um array válido, executamos os dois loops forEach.
-
-                    // 1. Desenha as geocercas salvas no mapa
+                    // Loop para o mapa
                     responseData.forEach(geofence => {
                         const color = geofence.tipo === 'ENTRADA' ? 'green' : 'red';
                         L.circle([geofence.latitude, geofence.longitude], {
@@ -3216,7 +3215,7 @@
                         }).bindPopup(`<b>${geofence.nome}</b><br>${geofence.tipo}`).addTo(savedGeofencesLayer);
                     });
 
-                    // 2. Cria os itens na lista HTML
+                    // Loop para a lista
                     responseData.forEach(geofence => {
                         const item = document.createElement('div');
                         item.className = 'list-item';
@@ -3234,9 +3233,7 @@
                 `;
                         listContainer.appendChild(item);
                     });
-
                 } else {
-                    // Se não for um array ou se estiver vazio, exibe a mensagem correta.
                     listContainer.innerHTML = '<p>Nenhuma área de geolocalização foi criada ainda.</p>';
                 }
 
