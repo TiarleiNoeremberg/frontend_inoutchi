@@ -1701,22 +1701,27 @@
             const tableBody = document.getElementById('salasTableBody');
             tableBody.innerHTML = '';
 
-            salas.forEach(sala => {
-                const row = document.createElement('tr');
-                row.innerHTML = `
-            <td>${sala.nome}</td>
-            <td class="action-buttons">
-                <button class="btn btn-edit" onclick="openSalaModal(${sala.id}, '${sala.nome}')">
-                    <i class="fas fa-pencil-alt"></i> Editar
-                </button>
-                <button class="btn btn-delete" onclick="deleteSala(${sala.id}, '${sala.nome}')">
-                    <i class="fas fa-trash"></i> Excluir
-                </button>
-            </td>
-        `;
-                tableBody.appendChild(row);
-            });
+            // ==== BLINDAGEM CONTRA RESPOSTA NÃO-ARRAY ====
+            if (Array.isArray(salas) && salas.length > 0) {
+                salas.forEach(sala => {
+                    const row = document.createElement('tr');
+                    // Seu código para criar a linha da tabela vai aqui
+                    row.innerHTML = `
+                <td>${sala.nome}</td>
+                <td class="action-buttons">
+                    <button class="btn btn-edit" onclick="openSalaModal(${sala.id}, '${sala.nome}')">Editar</button>
+                    <button class="btn btn-delete" onclick="deleteSala(${sala.id}, '${sala.nome}')">Excluir</button>
+                </td>
+            `;
+                    tableBody.appendChild(row);
+                });
+            } else {
+                // Se não for um array ou se estiver vazio, exibe a mensagem amigável
+                // Ajuste o colspan para o número de colunas da sua tabela de salas
+                tableBody.innerHTML = '<tr><td colspan="2" class="empty-state">Nenhuma sala encontrada.</td></tr>';
+            }
         }
+
 
         // Funções para controlar o Modal
         const salaModal = document.getElementById('salaModal');
@@ -1846,32 +1851,31 @@
 
         // Função para renderizar os dados na tabela de diretores
         function renderDiretores(diretores) {
-            const tableBody = document.getElementById('diretoresTableBody');
-            tableBody.innerHTML = '';
+            const tbody = document.getElementById('diretoresTableBody');
+            tbody.innerHTML = '';
 
-            if (!diretores || diretores.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="3" class="empty-state">Nenhum diretor cadastrado.</td></tr>';
-                return;
+            // ==== BLINDAGEM CONTRA RESPOSTA NÃO-ARRAY ====
+            if (Array.isArray(diretores) && diretores.length > 0) {
+                diretores.forEach(diretor => {
+                    const tr = document.createElement('tr');
+                    // Seu código para criar a linha da tabela vai aqui
+                    tr.innerHTML = `
+                <td>${diretor.nome}</td>
+                <td>${diretor.email}</td>
+                <td class="action-buttons">
+                    <button class="btn btn-edit" onclick="openDiretorModal(${diretor.id})">Editar</button>
+                    <button class="btn btn-delete" data-id="${diretor.id}" data-nome="${diretor.nome}">Excluir</button>
+                </td>
+            `;
+                    tbody.appendChild(tr);
+                });
+            } else {
+                // Se não for um array ou se estiver vazio, exibe a mensagem amigável
+                // Ajuste o colspan para o número de colunas da sua tabela de diretores
+                tbody.innerHTML = '<tr><td colspan="3" class="empty-state">Nenhum diretor encontrado.</td></tr>';
             }
-
-            diretores.forEach(diretor => {
-                const row = document.createElement('tr');
-                // A função openDiretorModal agora passa o objeto inteiro para facilitar
-                row.innerHTML = `
-            <td>${diretor.nome}</td>
-            <td>${diretor.email}</td>
-            <td class="action-buttons">
-                <button class="btn btn-edit" onclick='openDiretorModal(${JSON.stringify(diretor)})'>
-                    <i class="fas fa-pencil-alt"></i> Editar
-                </button>
-                <button class="btn btn-delete" onclick="deleteDiretor(${diretor.id}, '${diretor.nome}')">
-                    <i class="fas fa-trash"></i> Excluir
-                </button>
-            </td>
-        `;
-                tableBody.appendChild(row);
-            });
         }
+
 
         // Funções para controlar o Modal de Diretor
         const diretorModal = document.getElementById('diretorModal');
@@ -3181,56 +3185,65 @@
                     headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
                 });
 
+                // Tratamento de 404 (opcional, mas bom manter)
                 if (response.status === 404) {
                     listContainer.innerHTML = '<p>Nenhuma área de geolocalização foi criada ainda.</p>';
+                    savedGeofencesLayer.clearLayers(); // Limpa o mapa também
                     return;
                 }
                 if (!response.ok) throw new Error('Falha ao carregar as áreas.');
 
-                const geofences = await response.json();
-                listContainer.innerHTML = '';
+                const responseData = await response.json();
+                listContainer.innerHTML = ''; // Limpa a mensagem "Carregando..."
+                savedGeofencesLayer.clearLayers(); // Limpa o mapa para redesenhar
 
-                if (geofences.length === 0) {
+                // =========================================================================
+                // ==== A CORREÇÃO DEFINITIVA (A mesma que fizemos antes) ====
+                // Verificamos se 'responseData' é de fato um Array (uma lista) e se tem itens.
+                // Se não for, exibimos a mensagem amigável e encerramos.
+                // =========================================================================
+                if (Array.isArray(responseData) && responseData.length > 0) {
+                    // Se for um array válido, executamos os dois loops forEach.
+
+                    // 1. Desenha as geocercas salvas no mapa
+                    responseData.forEach(geofence => {
+                        const color = geofence.tipo === 'ENTRADA' ? 'green' : 'red';
+                        L.circle([geofence.latitude, geofence.longitude], {
+                            radius: geofence.raioMetros,
+                            color: color,
+                            fillColor: color,
+                            fillOpacity: 0.2
+                        }).bindPopup(`<b>${geofence.nome}</b><br>${geofence.tipo}`).addTo(savedGeofencesLayer);
+                    });
+
+                    // 2. Cria os itens na lista HTML
+                    responseData.forEach(geofence => {
+                        const item = document.createElement('div');
+                        item.className = 'list-item';
+                        const tipoClass = geofence.tipo === 'ENTRADA' ? 'entrada' : 'saida';
+                        item.innerHTML = `
+                    <span>
+                        <i class="fas fa-map-marker-alt" style="color: ${geofence.tipo === 'ENTRADA' ? 'green' : 'red'};"></i>
+                        ${geofence.nome} 
+                        <strong class="geofence-type-strong type-${tipoClass}">(${geofence.tipo})</strong>
+                    </span>
+                    <div>
+                        <button class="btn-icon" onclick='populateGeofenceForm(${JSON.stringify(geofence)})' title="Editar Área"><i class="fas fa-edit"></i></button>
+                        <button class="btn-icon btn-delete" onclick='deleteGeofence(${geofence.id}, "${geofence.nome}")' title="Excluir Área"><i class="fas fa-trash"></i></button>
+                    </div>
+                `;
+                        listContainer.appendChild(item);
+                    });
+
+                } else {
+                    // Se não for um array ou se estiver vazio, exibe a mensagem correta.
                     listContainer.innerHTML = '<p>Nenhuma área de geolocalização foi criada ainda.</p>';
-                    return;
                 }
-
-                // Limpa e redesenha as geocercas salvas no mapa
-                savedGeofencesLayer.clearLayers();
-                geofences.forEach(geofence => {
-                    const color = geofence.tipo === 'ENTRADA' ? 'green' : 'red';
-                    L.circle([geofence.latitude, geofence.longitude], {
-                        radius: geofence.raioMetros,
-                        color: color,
-                        fillColor: color,
-                        fillOpacity: 0.2
-                    }).bindPopup(`<b>${geofence.nome}</b><br>${geofence.tipo}`).addTo(savedGeofencesLayer);
-                });
-
-                // Cria os itens na lista HTML
-                geofences.forEach(geofence => {
-                    const item = document.createElement('div');
-                    item.className = 'list-item';
-                    const tipoClass = geofence.tipo === 'ENTRADA' ? 'entrada' : 'saida';
-                    item.innerHTML = `
-                <span>
-                    <i class="fas fa-map-marker-alt" style="color: ${geofence.tipo === 'ENTRADA' ? 'green' : 'red'};"></i>
-                    ${geofence.nome} 
-                    <strong class="geofence-type-strong type-${tipoClass}">(${geofence.tipo})</strong>
-                </span>
-                <div>
-                    <button class="btn-icon" onclick='populateGeofenceForm(${JSON.stringify(geofence)})' title="Editar Área"><i class="fas fa-edit"></i></button>
-                    <button class="btn-icon btn-delete" onclick='deleteGeofence(${geofence.id}, "${geofence.nome}")' title="Excluir Área"><i class="fas fa-trash"></i></button>
-                </div>
-            `;
-                    listContainer.appendChild(item);
-                });
 
             } catch (error) {
                 listContainer.innerHTML = `<p style="color: red;">${error.message}</p>`;
             }
         }
-
 
         // Preenche o formulário com os dados de uma geofence para edição
         function populateGeofenceForm(geofence) {
