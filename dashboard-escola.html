@@ -873,6 +873,23 @@
             background: none !important;
             /* Remove qualquer fundo branco sobreposto */
         }
+
+        .input-with-button {
+            display: flex;
+            align-items: center;
+        }
+
+        .input-with-button input {
+            flex-grow: 1;
+            border-top-right-radius: 0;
+            border-bottom-right-radius: 0;
+        }
+
+        .input-with-button button {
+            border-top-left-radius: 0;
+            border-bottom-left-radius: 0;
+            border-left: 0;
+        }
     </style>
 
 </head>
@@ -1289,7 +1306,7 @@
                             <h2 id="salaModalTitle">Adicionar Nova Sala</h2>
                             <span class="close-button" onclick="closeSalaModal()">&times;</span>
                         </div>
-                        <form id="salaForm">
+                        <form id="salaForm" onsubmit="saveSala(event)">
                             <div class="modal-body">
                                 <input type="hidden" id="salaId">
                                 <div class="form-group">
@@ -1523,6 +1540,61 @@
         <!-- Notificação Toast (para mensagens de sucesso/erro) -->
         <div id="toastNotification" class="toast">
             <p id="toastMessage">Operação realizada com sucesso!</p>
+        </div>
+
+        <!-- ======================================================================= -->
+        <!-- ==== NOVO MODAL PARA EXIBIR CREDENCIAIS DA SALA CRIADA ==== -->
+        <!-- ======================================================================= -->
+        <div id="credenciaisSalaModal" class="modal">
+            <div class="modal-content" style="max-width: 550px;">
+                <div class="modal-header">
+                    <h2 id="credenciaisModalTitle">✅ Sala Criada com Sucesso!</h2>
+                    <span class="close-button" onclick="closeCredenciaisModal()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <p style="text-align: center; margin-bottom: 20px;">
+                        Configure o dispositivo da sala com as seguintes credenciais de acesso:
+                    </p>
+
+                    <!-- Campo de Email -->
+                    <div class="form-group">
+                        <label for="credencialEmail">Login (Email)</label>
+                        <div class="input-with-button">
+                            <input type="text" id="credencialEmail" readonly
+                                style="background-color: #f3f4f6; cursor: text;">
+                            <button class="btn btn-secondary" onclick="copyToClipboard('credencialEmail')"
+                                title="Copiar Email">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Campo de Senha -->
+                    <div class="form-group">
+                        <label for="credencialSenha">Senha</label>
+                        <div class="input-with-button">
+                            <input type="text" id="credencialSenha" readonly
+                                style="background-color: #f3f4f6; cursor: text;">
+                            <button class="btn btn-secondary" onclick="copyToClipboard('credencialSenha')"
+                                title="Copiar Senha">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-warning"
+                        style="margin-top: 20px; display: flex; align-items: center; gap: 10px;">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <div>
+                            <strong>Atenção:</strong> Por segurança, esta senha não será exibida novamente. Anote-a ou
+                            configure o dispositivo agora.
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" onclick="closeCredenciaisModal()">Fechar</button>
+                </div>
+            </div>
         </div>
 
     </div>
@@ -1769,40 +1841,86 @@
             }
         }
 
-        // Função para Salvar (Criar ou Editar) uma sala
+        /**
+ * Salva uma nova sala. Agora chama o endpoint que cria as credenciais
+ * e exibe o modal com o login e senha gerados.
+ */
         async function saveSala(event) {
             event.preventDefault();
 
-            const salaId = document.getElementById('salaId').value;
             const nome = document.getElementById('salaNome').value;
+            const salaId = document.getElementById('salaId').value;
             const isEditing = !!salaId;
 
-            // Assumindo endpoints REST padrão para POST e PUT
-            const url = isEditing ? `${API_URL}/api/salas/${salaId}` : `${API_URL}/api/salas`;
-            const method = isEditing ? 'PUT' : 'POST';
+            if (isEditing) {
+                // Lógica de edição pode ser implementada aqui no futuro.
+                alert('A edição de salas ainda não foi implementada.');
+                return;
+            }
 
+            // LÓGICA DE CRIAÇÃO (NOVA)
             try {
-                const response = await fetch(url, {
-                    method: method,
+                const response = await fetch(`${API_URL}/api/escolas/${ESCOLA_ID}/salas`, {
+                    method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${AUTH_TOKEN}`
                     },
-                    body: JSON.stringify({ nome: nome, escolaId: parseInt(ESCOLA_ID) }) // Enviando o nome e o ID da escola
+                    body: JSON.stringify({ nome: nome })
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.mensagem || 'Erro ao salvar a sala.');
+                    const errorData = await response.json().catch(() => ({ message: 'Erro desconhecido ao criar a sala.' }));
+                    throw new Error(errorData.message || `Erro ${response.status}`);
                 }
 
+                const salaComCredenciais = await response.json();
+
                 closeSalaModal();
-                loadSalas(); // Recarrega a lista
-                alert(`Sala "${nome}" salva com sucesso!`);
+                loadSalas(); // Recarrega a lista de salas na tabela.
+
+                // Exibe o novo modal com as credenciais geradas.
+                showCredenciaisModal(salaComCredenciais.nome, salaComCredenciais.email, salaComCredenciais.senha);
 
             } catch (error) {
                 console.error('Erro ao salvar sala:', error);
                 alert(`Erro: ${error.message}`);
+            }
+        }
+
+        /**
+         * Exibe o modal com as credenciais da sala recém-criada.
+         */
+        function showCredenciaisModal(nomeSala, email, senha) {
+            document.getElementById('credenciaisModalTitle').innerHTML = `✅ Sala "<strong>${nomeSala}</strong>" Criada!`;
+            document.getElementById('credencialEmail').value = email;
+            document.getElementById('credencialSenha').value = senha;
+            document.getElementById('credenciaisSalaModal').style.display = 'flex';
+        }
+
+        /**
+         * Fecha o modal de credenciais.
+         */
+        function closeCredenciaisModal() {
+            document.getElementById('credenciaisSalaModal').style.display = 'none';
+        }
+
+        /**
+         * Função utilitária para copiar texto para a área de transferência.
+         */
+        function copyToClipboard(elementId) {
+            const input = document.getElementById(elementId);
+            input.select();
+            input.setSelectionRange(0, 99999); // Para compatibilidade com dispositivos móveis
+
+            try {
+                document.execCommand('copy');
+                // Você pode usar a sua função de toast aqui para um feedback melhor.
+                // Ex: showToast(`'${input.value}' copiado!`);
+                alert(`Copiado para a área de transferência!`);
+            } catch (err) {
+                console.error('Falha ao copiar:', err);
+                alert('Não foi possível copiar. Por favor, copie manualmente.');
             }
         }
 
@@ -3918,10 +4036,10 @@
         }
 
         /**
- * Formata um valor de CPF (###.###.###-##).
- * @param {string} cpf - O valor do CPF a ser formatado.
- * @returns {string} O CPF formatado.
- */
+         * Formata um valor de CPF (###.###.###-##).
+         * @param {string} cpf - O valor do CPF a ser formatado.
+         * @returns {string} O CPF formatado.
+         */
         function formatarCPF(cpf) {
             // Remove tudo que não é dígito
             const numeros = cpf.replace(/\D/g, '');
@@ -3973,6 +4091,8 @@
                 event.target.value = valorFormatado;
             });
         }
+
+
 
     </script>
 
