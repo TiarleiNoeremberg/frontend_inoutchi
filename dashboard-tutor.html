@@ -663,6 +663,51 @@
         </div>
     </div>
 
+    <div id="profileModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Meu Perfil</h2>
+                <span class="close-button" onclick="closeProfileModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <!-- Seção de Dados Pessoais (Apenas Leitura) -->
+                <h4>Meus Dados</h4>
+                <div class="form-group">
+                    <label>Nome:</label>
+                    <p id="profileNome">Carregando...</p>
+                </div>
+                <div class="form-group">
+                    <label>Email:</label>
+                    <p id="profileEmail">Carregando...</p>
+                </div>
+
+                <hr style="margin: 20px 0;">
+
+                <!-- Seção de Alteração de Senha -->
+                <h4>Alterar Senha</h4>
+                <form id="changePasswordForm">
+                    <div class="form-group">
+                        <label for="oldPassword">Senha Atual</label>
+                        <input type="password" id="oldPassword" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="newPassword">Nova Senha</label>
+                        <input type="password" id="newPassword" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="confirmPassword">Confirmar Nova Senha</label>
+                        <input type="password" id="confirmPassword" required>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" onclick="closeProfileModal()">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Salvar Nova Senha</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
 
@@ -1438,7 +1483,82 @@
             }
         }
 
+        // Funções para controlar o modal
+        const profileModal = document.getElementById('profileModal');
 
+        async function openProfileModal() {
+            // Limpa o formulário de senha
+            document.getElementById('changePasswordForm').reset();
+
+            // Busca os dados do usuário para exibir
+            try {
+                const accessToken = await garantirAutenticacao(); // Reutiliza sua função de autenticação
+                const response = await fetch(`${BACKEND_URL}/api/users/me`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+                if (!response.ok) throw new Error('Falha ao buscar dados do perfil.');
+
+                const userData = await response.json();
+                document.getElementById('profileNome').textContent = userData.nome || 'Não informado';
+                document.getElementById('profileEmail').textContent = userData.email || 'Não informado';
+
+            } catch (error) {
+                console.error("Erro ao carregar perfil:", error);
+                document.getElementById('profileNome').textContent = 'Erro ao carregar';
+                document.getElementById('profileEmail').textContent = 'Erro ao carregar';
+            }
+
+            profileModal.style.display = 'flex';
+        }
+
+        function closeProfileModal() {
+            profileModal.style.display = 'none';
+        }
+
+        // Lógica para salvar a nova senha
+        document.getElementById('changePasswordForm').addEventListener('submit', async function (event) {
+            event.preventDefault();
+
+            const oldPassword = document.getElementById('oldPassword').value;
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+
+            if (newPassword !== confirmPassword) {
+                showAlert('A nova senha e a confirmação não correspondem.', 'danger');
+                return;
+            }
+
+            const saveButton = this.querySelector('button[type="submit"]');
+            saveButton.disabled = true;
+            saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+
+            try {
+                const accessToken = await garantirAutenticacao();
+                const response = await fetch(`${BACKEND_URL}/api/users/me/password`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${accessToken}`
+                    },
+                    body: JSON.stringify({ oldPassword, newPassword, confirmPassword })
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.mensagem || 'Erro desconhecido ao alterar a senha.');
+                }
+
+                showAlert('Senha alterada com sucesso!', 'success');
+                closeProfileModal();
+
+            } catch (error) {
+                showAlert(error.message, 'danger');
+            } finally {
+                saveButton.disabled = false;
+                saveButton.innerHTML = 'Salvar Nova Senha';
+            }
+        });
 
     </script>
 
