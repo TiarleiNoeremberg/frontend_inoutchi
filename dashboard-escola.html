@@ -1754,57 +1754,50 @@
             tableBody.innerHTML = '<tr><td colspan="2" class="empty-state">Carregando salas...</td></tr>';
 
             try {
-                // Endpoint baseado na análise do DiretorController
-                const response = await fetch(`${API_URL}/api/diretores/${ESCOLA_ID}/salas`, {
+                // CORREÇÃO FINAL E DEFINITIVA: A URL aponta para /api/salas/escolas/...
+                const response = await fetch(`${API_URL}/api/salas/escolas/${ESCOLA_ID}/salas`, {
                     headers: {
                         'Authorization': `Bearer ${AUTH_TOKEN}`
                     }
                 });
 
                 if (!response.ok) {
-                    throw new Error(`Erro na API: ${response.statusText}`);
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.message || `Erro na API: ${response.statusText}`);
                 }
 
                 const data = await response.json();
 
-                // O backend retorna um objeto com 'sucesso' e 'mensagem' para lista vazia
-                if (data.sucesso && data.codigo === "NENHUMA_SALA") {
+                if (Array.isArray(data)) {
+                    renderSalas(data);
+                } else if (data.sucesso && data.codigo === "NENHUMA_SALA") {
                     tableBody.innerHTML = `<tr><td colspan="2" class="empty-state">${data.mensagem}</td></tr>`;
-                    return;
+                } else {
+                    throw new Error("Formato de dados inesperado.");
                 }
-
-                renderSalas(data);
 
             } catch (error) {
                 console.error('Falha ao carregar salas:', error);
-                tableBody.innerHTML = '<tr><td colspan="2" class="empty-state">Erro ao carregar as salas. Tente novamente.</td></tr>';
+                tableBody.innerHTML = `<tr><td colspan="2" class="empty-state">Erro ao carregar as salas. Tente novamente.</td></tr>`;
             }
         }
 
         // Função para renderizar os dados na tabela
         function renderSalas(salas) {
             const tableBody = document.getElementById('salasTableBody');
-            tableBody.innerHTML = '';
-
-            // ==== BLINDAGEM CONTRA RESPOSTA NÃO-ARRAY ====
-            if (Array.isArray(salas) && salas.length > 0) {
-                salas.forEach(sala => {
-                    const row = document.createElement('tr');
-                    // Seu código para criar a linha da tabela vai aqui
-                    row.innerHTML = `
-                <td>${sala.nome}</td>
-                <td class="action-buttons">
-                    <button class="btn btn-edit" onclick="openSalaModal(${sala.id}, '${sala.nome}')">Editar</button>
-                    <button class="btn btn-delete" onclick="deleteSala(${sala.id}, '${sala.nome}')">Excluir</button>
-                </td>
-            `;
-                    tableBody.appendChild(row);
-                });
-            } else {
-                // Se não for um array ou se estiver vazio, exibe a mensagem amigável
-                // Ajuste o colspan para o número de colunas da sua tabela de salas
-                tableBody.innerHTML = '<tr><td colspan="2" class="empty-state">Nenhuma sala encontrada.</td></tr>';
+            if (salas.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="2" class="empty-state">Nenhuma sala encontrada para esta escola.</td></tr>';
+                return;
             }
+            tableBody.innerHTML = salas.map(sala => `
+                <tr>
+                    <td>${sala.nome}</td>
+                    <td>
+                        <button class="btn-icon" onclick="editSala(${sala.id}, '${sala.nome}')" title="Editar"><i class="fas fa-edit"></i></button>
+                        <button class="btn-icon btn-delete" onclick="deleteSala(${sala.id})" title="Excluir"><i class="fas fa-trash"></i></button>
+                    </td>
+                </tr>
+            `).join('');
         }
 
 
