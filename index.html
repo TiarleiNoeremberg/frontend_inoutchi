@@ -1136,39 +1136,45 @@
     // =========================================================================
     if (form) {
       form.addEventListener('submit', function (event) {
-        // Impede o redirecionamento padrão, para que a mágica aconteça na mesma página
-        event.preventDefault();
+        event.preventDefault(); // Impede o envio padrão
 
         const formData = new FormData(form);
+        // O 'action' agora aponta para 'send_email.php'
         const action = form.getAttribute('action');
+        const submitButton = form.querySelector('button[type="submit"]');
+        const originalButtonText = submitButton.innerHTML;
 
-        // Envia os dados silenciosamente para o FormSubmit nos bastidores
+        submitButton.disabled = true;
+        submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando...';
+
         fetch(action, {
           method: 'POST',
-          body: formData,
-          headers: {
-            'Accept': 'application/json' // Instrução crucial para o FormSubmit responder corretamente
-          }
+          body: formData
+          // Não precisamos do header 'Accept: application/json' com nosso script PHP
         })
-          .then(response => {
-            if (response.ok) {
-              // SUCESSO: Mostra o card verde e limpa o formulário
-              formStatusMessage.innerHTML = '<strong>Mensagem Enviada com Sucesso!</strong><br>Obrigado por seu interesse. Entraremos em contato em breve.';
+          .then(response => response.json()) // Esperamos uma resposta JSON do nosso PHP
+          .then(data => {
+            if (data.success) {
+              // SUCESSO: Mostra a mensagem de sucesso e limpa o formulário
+              formStatusMessage.innerHTML = '<strong>Mensagem Enviada com Sucesso!</strong><br>Obrigado pelo seu interesse. Entraremos em contato em breve.';
               formStatusMessage.className = 'mb-6 p-4 rounded-lg bg-green-100 border border-green-300 text-green-800 text-center';
-              form.reset(); // Limpa todos os campos
+              form.reset();
             } else {
-              // ERRO NO SERVIDOR: Mostra um card vermelho
-              formStatusMessage.innerHTML = '<strong>Erro!</strong> Ocorreu um problema ao enviar sua mensagem. Por favor, tente novamente mais tarde.';
-              formStatusMessage.className = 'mb-6 p-4 rounded-lg bg-red-100 border border-red-300 text-red-800 text-center';
+              // ERRO (vindo do PHP): Mostra a mensagem de erro específica
+              throw new Error(data.error || 'Ocorreu um problema no servidor.');
             }
           })
           .catch(error => {
-            // ERRO DE CONEXÃO: Mostra um card vermelho
-            formStatusMessage.innerHTML = '<strong>Erro de Conexão!</strong> Verifique sua internet e tente novamente.';
+            // ERRO DE CONEXÃO OU OUTRO: Mostra um card vermelho
+            formStatusMessage.innerHTML = `<strong>Erro!</strong> ${error.message}. Por favor, tente novamente.`;
             formStatusMessage.className = 'mb-6 p-4 rounded-lg bg-red-100 border border-red-300 text-red-800 text-center';
           })
           .finally(() => {
-            // Mostra a mensagem (seja de sucesso ou erro) e a esconde após 6 segundos
+            // Restaura o botão
+            submitButton.disabled = false;
+            submitButton.innerHTML = originalButtonText;
+
+            // Mostra a mensagem e a esconde após 6 segundos
             formStatusMessage.classList.remove('hidden');
             setTimeout(() => {
               formStatusMessage.classList.add('hidden');
