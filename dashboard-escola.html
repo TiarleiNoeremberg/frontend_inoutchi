@@ -1835,26 +1835,36 @@
         }
 
         /**
- * Salva uma nova sala. Agora chama o endpoint que cria as credenciais
- * e exibe o modal com o login e senha gerados.
- */
+         * Salva uma nova sala. Agora chama o endpoint que cria as credenciais
+         * e exibe o modal com o login e senha gerados.
+         */
         async function saveSala(event) {
+            // 1. Impede o comportamento padrão do formulário, que pode causar envios duplicados
             event.preventDefault();
 
-            const nome = document.getElementById('salaNome').value;
             const salaId = document.getElementById('salaId').value;
-            const isEditing = !!salaId;
+            const nome = document.getElementById('salaNome').value;
+            const form = document.getElementById('salaForm');
 
-            if (isEditing) {
-                // Lógica de edição pode ser implementada aqui no futuro.
-                alert('A edição de salas ainda não foi implementada.');
+            // 2. Localiza o botão de salvar (adicione o id="saveSalaButton" ao seu botão no HTML)
+            const button = document.getElementById('saveSalaButton');
+            const originalButtonText = button.innerHTML;
+
+            if (!form.checkValidity()) {
+                form.reportValidity();
                 return;
             }
 
-            // LÓGICA DE CRIAÇÃO (NOVA)
+            // 3. Desativa o botão e mostra um feedback visual IMEDIATAMENTE
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+
+            const url = `${API_URL}/api/salas/escolas/${ESCOLA_ID}/salas`;
+            const method = 'POST'; // Para este fluxo, estamos sempre criando
+
             try {
-                const response = await fetch(`${API_URL}/api/salas/escolas/${ESCOLA_ID}/salas`, {
-                    method: 'POST',
+                const response = await fetch(url, {
+                    method: method,
                     headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${AUTH_TOKEN}`
@@ -1862,22 +1872,25 @@
                     body: JSON.stringify({ nome: nome })
                 });
 
+                const responseData = await response.json();
+
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ message: 'Erro desconhecido ao criar a sala.' }));
-                    throw new Error(errorData.message || `Erro ${response.status}`);
+                    // Se a resposta não for OK, lança um erro com a mensagem do backend
+                    throw new Error(responseData.message || `Erro ${response.status}`);
                 }
 
-                const salaComCredenciais = await response.json();
-
-                closeSalaModal();
-                loadSalas(); // Recarrega a lista de salas na tabela.
-
-                // Exibe o novo modal com as credenciais geradas.
-                showCredenciaisModal(salaComCredenciais.nome, salaComCredenciais.email, salaComCredenciais.senha);
+                // Se a resposta for OK, o processo foi um sucesso
+                closeModal('salaModal');
+                showCredentialsModal(responseData); // Mostra o modal de credenciais
+                await loadSalas(); // Atualiza a lista de salas na tela
 
             } catch (error) {
                 console.error('Erro ao salvar sala:', error);
-                alert(`Erro: ${error.message}`);
+                alert(`Erro ao salvar sala: ${error.message}`); // Exibe o erro para o usuário
+            } finally {
+                // 4. SEMPRE reativa o botão e restaura o texto original no final
+                button.disabled = false;
+                button.innerHTML = originalButtonText;
             }
         }
 
