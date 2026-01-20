@@ -1131,61 +1131,68 @@
     let inactivityTimer;
     const scrollDuration = 1000;
 
-    // =========================================================================
-    // ==== INÍCIO: A NOVA LÓGICA CORRETA DO FORMULÁRIO (AJAX) ====
-    // =========================================================================
     if (form) {
-      form.addEventListener('submit', function (event) {
-        event.preventDefault(); // Impede o envio padrão
+      form.addEventListener('submit', async function (event) {
+        event.preventDefault(); // Impede o recarregamento da página
 
-        const formData = new FormData(form);
-        // O 'action' agora aponta para 'send_email.php'
-        const action = form.getAttribute('action');
+        // O alvo correto: seu backend Java no Render
+        const backendUrl = 'https://inoutchi-backend.onrender.com/api/contact';
+
         const submitButton = form.querySelector('button[type="submit"]');
         const originalButtonText = submitButton.innerHTML;
 
         submitButton.disabled = true;
         submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando...';
 
-        fetch(action, {
-          method: 'POST',
-          body: formData
-          // Não precisamos do header 'Accept: application/json' com nosso script PHP
-        })
-          .then(response => response.json()) // Esperamos uma resposta JSON do nosso PHP
-          .then(data => {
-            if (data.success) {
-              // SUCESSO: Mostra a mensagem de sucesso e limpa o formulário
+        if (formStatusMessage) formStatusMessage.classList.add('hidden');
+
+        const formData = new FormData(form);
+        const payload = {
+          nome: formData.get('nome'),
+          email: formData.get('email'),
+          escola: formData.get('escola'),
+          telefone: formData.get('telefone'),
+          mensagem: formData.get('mensagem')
+        };
+
+        try {
+          const response = await fetch(backendUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          const result = await response.json();
+
+          if (!response.ok) {
+            throw new Error(result.erro || `Falha no servidor (Status: ${response.status})`);
+          }
+
+          if (result.sucesso) {
+            if (formStatusMessage) {
               formStatusMessage.innerHTML = '<strong>Mensagem Enviada com Sucesso!</strong><br>Obrigado pelo seu interesse. Entraremos em contato em breve.';
               formStatusMessage.className = 'mb-6 p-4 rounded-lg bg-green-100 border border-green-300 text-green-800 text-center';
-              form.reset();
-            } else {
-              // ERRO (vindo do PHP): Mostra a mensagem de erro específica
-              throw new Error(data.error || 'Ocorreu um problema no servidor.');
             }
-          })
-          .catch(error => {
-            // ERRO DE CONEXÃO OU OUTRO: Mostra um card vermelho
+            form.reset();
+          } else {
+            throw new Error(result.mensagem || 'O servidor retornou um erro.');
+          }
+
+        } catch (error) {
+          if (formStatusMessage) {
             formStatusMessage.innerHTML = `<strong>Erro!</strong> ${error.message}. Por favor, tente novamente.`;
             formStatusMessage.className = 'mb-6 p-4 rounded-lg bg-red-100 border border-red-300 text-red-800 text-center';
-          })
-          .finally(() => {
-            // Restaura o botão
-            submitButton.disabled = false;
-            submitButton.innerHTML = originalButtonText;
-
-            // Mostra a mensagem e a esconde após 6 segundos
+          }
+        } finally {
+          submitButton.disabled = false;
+          submitButton.innerHTML = originalButtonText;
+          if (formStatusMessage) {
             formStatusMessage.classList.remove('hidden');
-            setTimeout(() => {
-              formStatusMessage.classList.add('hidden');
-            }, 6000);
-          });
+            setTimeout(() => { formStatusMessage.classList.add('hidden'); }, 7000);
+          }
+        }
       });
     }
-    // =========================================================================
-    // ==== FIM: A NOVA LÓGICA CORRETA DO FORMULÁRIO (AJAX) ====
-    // =========================================================================
-
 
     // --- Funções Completas e Restauradas (Seu código existente) ---
 
