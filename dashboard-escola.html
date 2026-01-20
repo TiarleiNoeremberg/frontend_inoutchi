@@ -1517,22 +1517,21 @@
 
         </main>
 
-        <!-- Modal de Confirmação de Exclusão -->
+        <!-- Modal de Confirmação de Exclusão (Genérico) -->
         <div id="deleteConfirmModal" class="modal">
             <div class="modal-content" style="max-width: 450px;">
                 <div class="modal-header">
-                    <h2 id="deleteModalTitle">Confirmar Exclusão</h2>
+                    <h2>Confirmar Exclusão</h2>
                     <span class="close-button" onclick="closeDeleteConfirmModal()">&times;</span>
                 </div>
                 <div class="modal-body">
                     <p id="deleteConfirmMessage">Você tem certeza que deseja realizar esta ação?</p>
                 </div>
-                <div class="modal-footer">
+                <div class="modal-footer" style="justify-content: flex-end;">
                     <button type="button" class="btn btn-secondary"
                         onclick="closeDeleteConfirmModal()">Cancelar</button>
-                    <!-- Este botão terá sua ação definida pelo JavaScript -->
-                    <button type="button" id="confirmDeleteBtn" class="btn btn-delete"
-                        style="background-color: #DC2626; color: white;">Sim, Excluir</button>
+                    <!-- Este botão não tem texto, ele será definido pelo JavaScript -->
+                    <button type="button" id="confirmDeleteBtn" class="btn btn-danger">Confirmar</button>
                 </div>
             </div>
         </div>
@@ -1785,19 +1784,28 @@
         // Função para renderizar os dados na tabela
         function renderSalas(salas) {
             const tableBody = document.getElementById('salasTableBody');
-            if (salas.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="2" class="empty-state">Nenhuma sala encontrada para esta escola.</td></tr>';
+            tableBody.innerHTML = '';
+
+            if (!salas || salas.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="2" class="empty-state">Nenhuma sala cadastrada.</td></tr>';
                 return;
             }
-            tableBody.innerHTML = salas.map(sala => `
-                <tr>
+
+            salas.forEach(sala => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
                     <td>${sala.nome}</td>
-                    <td>
-                        <button class="btn-icon" onclick="editSala(${sala.id}, '${sala.nome}')" title="Editar"><i class="fas fa-edit"></i></button>
-                        <button class="btn-icon btn-delete" onclick="deleteSala(${sala.id})" title="Excluir"><i class="fas fa-trash"></i></button>
+                    <td class="action-buttons">
+                        <button class="btn btn-edit" onclick="openSalaModal(${sala.id}, '${sala.nome}')">
+                            <i class="fas fa-pencil-alt"></i> Editar
+                        </button>
+                        <button class="btn btn-delete" onclick="openDeleteConfirmModal(${sala.id}, '${sala.nome}')">
+                            <i class="fas fa-trash"></i> Excluir
+                        </button>
                     </td>
-                </tr>
-            `).join('');
+                `;
+                tableBody.appendChild(row);
+            });
         }
 
 
@@ -1839,10 +1847,8 @@
          * e exibe o modal com o login e senha gerados.
          */
         async function saveSala(event) {
-            event.preventDefault(); // Previne o comportamento padrão do formulário
+            event.preventDefault();
 
-            // 1. Trava de Segurança: Pega o botão e verifica se ele já está desabilitado.
-            //    Se estiver, a função para aqui, prevenindo qualquer submissão adicional.
             const button = document.getElementById('saveSalaButton');
             if (button.disabled) {
                 return;
@@ -1854,48 +1860,58 @@
                 return;
             }
 
-            // Guarda o texto original do botão para restaurá-lo no final.
             const originalButtonText = button.innerHTML;
-
-            // 2. Desabilita o botão IMEDIATAMENTE e mostra um feedback de carregamento.
-            //    Esta é a etapa crucial que previne a submissão dupla.
             button.disabled = true;
             button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
 
-            // 3. Bloco try...finally: Garante que o botão seja reabilitado, não importa o resultado.
-            try {
-                const nome = document.getElementById('salaNome').value;
-                const url = `${API_URL}/api/salas/escolas/${ESCOLA_ID}/salas`;
+            // --- Lógica de Edição vs. Criação ---
+            const salaId = document.getElementById('salaId').value;
+            const isEditing = !!salaId; // Converte para booleano: true se salaId existir
 
+            const nome = document.getElementById('salaNome').value;
+
+            // Define o método e a URL dinamicamente
+            const method = isEditing ? 'PUT' : 'POST';
+            const url = isEditing
+                ? `${API_URL}/api/salas/${salaId}`
+                : `${API_URL}/api/salas/escolas/${ESCOLA_ID}/salas`;
+
+            const bodyPayload = isEditing
+                ? JSON.stringify({ nome: nome })
+                : JSON.stringify({ nome: nome }); // Adapte se o payload for diferente
+
+            try {
                 const response = await fetch(url, {
-                    method: 'POST',
+                    method: method,
                     headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${AUTH_TOKEN}`
                     },
-                    body: JSON.stringify({ nome: nome })
+                    body: bodyPayload
                 });
 
-                const responseData = await response.json();
-
-                if (!response.ok) {
-                    // Se a resposta não for OK, lança um erro para ser pego pelo 'catch'.
-                    throw new Error(responseData.message || `Erro ${response.status}`);
+                // Para PUT, a resposta pode ser 204 No Content (sem corpo) ou 200 OK com o objeto.
+                // Para POST, esperamos 201 Created com o objeto.
+                if (response.status === 204) { // Sucesso na edição sem retorno de corpo
+                    // Não precisa fazer nada com responseData
+                } else if (response.ok) {
+                    const responseData = await response.json();
+                    if (method === 'POST') {
+                        showCredentialsModal(responseData); // Mostra credenciais apenas na criação
+                    }
+                } else {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || `Erro ${response.status}`);
                 }
 
-                // Fluxo de Sucesso: Se tudo deu certo...
                 closeSalaModal();
-                showCredentialsModal(responseData);
+                showToast(`Sala "${nome}" salva com sucesso!`, 'success');
                 await loadSalas();
 
             } catch (error) {
-                // Se qualquer erro ocorrer durante o 'try', ele será capturado aqui.
                 console.error('Erro ao salvar sala:', error);
-                alert(`Erro ao salvar sala: ${error.message}`);
-
+                showToast(`Erro ao salvar sala: ${error.message}`, 'error');
             } finally {
-                // O bloco 'finally' é executado SEMPRE, após o 'try' ou o 'catch'.
-                // Isso garante que a interface nunca fique "travada".
                 button.disabled = false;
                 button.innerHTML = originalButtonText;
             }
@@ -3845,18 +3861,15 @@
          * @param {string} nome - O nome do aluno.
          */
         function openDeleteConfirmModal(id, nome) {
-            const modal = document.getElementById('deleteConfirmModal');
             const messageElement = document.getElementById('deleteConfirmMessage');
             const confirmBtn = document.getElementById('confirmDeleteBtn');
 
-            // Personaliza a mensagem de confirmação
-            messageElement.textContent = `Você tem certeza que deseja excluir o aluno "${nome}"? Esta ação não pode ser desfeita.`;
-
-            // Define a ação do botão de confirmação para chamar a função de exclusão real
-            confirmBtn.onclick = () => executeDelete(id, nome);
+            // Personaliza a mensagem e a ação do botão de confirmação
+            messageElement.textContent = `Você tem certeza que deseja excluir a sala "${nome}"? Esta ação não pode ser desfeita.`;
+            confirmBtn.onclick = () => executeDeleteSala(id, nome); // Define a função que será chamada ao confirmar
 
             // Exibe o modal
-            modal.style.display = 'flex';
+            document.getElementById('deleteConfirmModal').style.display = 'flex';
         }
 
         /**
@@ -3864,6 +3877,30 @@
          */
         function closeDeleteConfirmModal() {
             document.getElementById('deleteConfirmModal').style.display = 'none';
+        }
+
+        async function executeDeleteSala(id, nome) {
+            closeDeleteConfirmModal(); // Primeiro, fecha o modal
+
+            try {
+                const response = await fetch(`${API_URL}/api/salas/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || 'Erro ao excluir a sala.');
+                }
+
+                // Use a sua função de toast para dar um feedback elegante
+                showToast(`Sala "${nome}" excluída com sucesso!`, 'success');
+                loadSalas(); // Recarrega a lista para refletir a remoção
+
+            } catch (error) {
+                console.error('Erro ao excluir sala:', error);
+                showToast(error.message, 'error');
+            }
         }
 
         /**
