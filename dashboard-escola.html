@@ -3895,26 +3895,37 @@
                     return; // Encerra a função com sucesso.
                 }
 
-                // --- Se a resposta NÃO for OK, entramos no tratamento de erro inteligente ---
+                // --- Tratamento de Erro à Prova de Falhas ---
 
-                // 1. Tenta ler o corpo do erro para obter a mensagem detalhada do backend.
-                const errorData = await response.json();
+                // 1. Lê o corpo do erro como TEXTO puro. Isso NUNCA falhará.
+                const errorText = await response.text();
 
-                // 2. Verifica se é o nosso erro específico de "alunos vinculados".
-                if (response.status === 500 && errorData.message && errorData.message.includes('alunos vinculados')) {
-                    // 3. Mostra uma mensagem CLARA e ACIONÁVEL para o usuário.
+                // 2. Procura pela nossa mensagem chave no texto puro.
+                if (response.status === 500 && errorText.includes('alunos vinculados')) {
+                    // 3. Se encontrar, mostra a mensagem de erro específica e amigável.
                     showToast('Não é possível excluir: Há alunos nesta sala. Por favor, transfira ou remova os alunos primeiro.', 'error');
                 } else {
-                    // 4. Para qualquer outro tipo de erro, mostra a mensagem de erro do backend.
-                    throw new Error(errorData.message || `Erro ${response.status}`);
+                    // 4. Para qualquer outro erro, tenta extrair uma mensagem do texto (se for JSON) ou usa o próprio texto.
+                    let detailedMessage;
+                    try {
+                        // Tenta analisar o texto como JSON para obter uma mensagem mais limpa.
+                        const errorJson = JSON.parse(errorText);
+                        detailedMessage = errorJson.message;
+                    } catch (e) {
+                        // Se não for JSON, usa o texto puro como a mensagem de erro.
+                        detailedMessage = errorText;
+                    }
+                    // Lança o erro para ser pego pelo bloco 'catch' final.
+                    throw new Error(detailedMessage || `Erro ${response.status}`);
                 }
 
             } catch (error) {
-                // Este 'catch' agora pega erros de rede ou os erros que jogamos acima.
+                // Este 'catch' agora lida com erros de rede ou os erros que jogamos acima.
                 console.error('Erro ao excluir sala:', error);
-                // Garante que o toast seja exibido mesmo em caso de falha na rede
+
+                // Exibe o toast, garantindo que não mostremos a mensagem de "alunos vinculados" duas vezes.
                 if (!error.message.includes('alunos vinculados')) {
-                    showToast(error.message || 'Erro de conexão ao tentar excluir a sala.', 'error');
+                    showToast(`Erro ao excluir: ${error.message}`, 'error');
                 }
             }
         }
