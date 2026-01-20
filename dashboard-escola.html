@@ -1839,60 +1839,63 @@
          * e exibe o modal com o login e senha gerados.
          */
         async function saveSala(event) {
-            event.preventDefault();
-            const button = document.getElementById('saveSalaButton');
-            const form = document.getElementById('salaForm');
+            event.preventDefault(); // Previne o comportamento padrão do formulário
 
-            if (!button || !form) {
-                alert("Erro de Desenvolvedor: Formulário ou botão não encontrado.");
+            // 1. Trava de Segurança: Pega o botão e verifica se ele já está desabilitado.
+            //    Se estiver, a função para aqui, prevenindo qualquer submissão adicional.
+            const button = document.getElementById('saveSalaButton');
+            if (button.disabled) {
                 return;
             }
+
+            const form = document.getElementById('salaForm');
             if (!form.checkValidity()) {
                 form.reportValidity();
                 return;
             }
 
+            // Guarda o texto original do botão para restaurá-lo no final.
             const originalButtonText = button.innerHTML;
-            const nome = document.getElementById('salaNome').value;
 
+            // 2. Desabilita o botão IMEDIATAMENTE e mostra um feedback de carregamento.
+            //    Esta é a etapa crucial que previne a submissão dupla.
             button.disabled = true;
             button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
 
-            const url = `${API_URL}/api/salas/escolas/${ESCOLA_ID}/salas`;
-
+            // 3. Bloco try...finally: Garante que o botão seja reabilitado, não importa o resultado.
             try {
+                const nome = document.getElementById('salaNome').value;
+                const url = `${API_URL}/api/salas/escolas/${ESCOLA_ID}/salas`;
+
                 const response = await fetch(url, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AUTH_TOKEN}` },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${AUTH_TOKEN}`
+                    },
                     body: JSON.stringify({ nome: nome })
                 });
 
                 const responseData = await response.json();
 
                 if (!response.ok) {
-                    // Lança o erro para ser pego pelo catch
-                    throw new Error(`Erro ${response.status}`);
+                    // Se a resposta não for OK, lança um erro para ser pego pelo 'catch'.
+                    throw new Error(responseData.message || `Erro ${response.status}`);
                 }
 
-                // Fluxo de sucesso (do primeiro clique)
+                // Fluxo de Sucesso: Se tudo deu certo...
                 closeSalaModal();
                 showCredentialsModal(responseData);
                 await loadSalas();
 
             } catch (error) {
-                // ======================= A CAMADA FINAL DE POLIMENTO =======================
-                // Se o erro for 409, significa que a primeira requisição já foi um sucesso.
-                // Nós simplesmente ignoramos o erro e registramos no console para depuração.
-                if (error.message.includes('409')) {
-                    console.warn("Uma submissão duplicada foi detectada e ignorada (Erro 409). Isso é esperado e inofensivo.");
-                } else {
-                    // Para qualquer outro erro, nós mostramos o alerta.
-                    console.error('Erro ao salvar sala:', error);
-                    alert(`Erro ao salvar sala: ${error.message}`);
-                }
-                // =========================================================================
+                // Se qualquer erro ocorrer durante o 'try', ele será capturado aqui.
+                console.error('Erro ao salvar sala:', error);
+                alert(`Erro ao salvar sala: ${error.message}`);
+
             } finally {
-                // Garante que o botão seja reativado, não importa o que aconteça.
+                // O bloco 'finally' é executado SEMPRE, após o 'try' ou o 'catch'.
+                // Isso garante que a interface nunca fique "travada".
                 button.disabled = false;
                 button.innerHTML = originalButtonText;
             }
