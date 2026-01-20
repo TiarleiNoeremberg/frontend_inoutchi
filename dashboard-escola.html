@@ -3897,7 +3897,7 @@
         }
 
         async function executeDeleteSala(id, nome) {
-            closeDeleteConfirmModal(); // Fecha o modal de confirmação inicial
+            closeDeleteConfirmModal();
 
             try {
                 const response = await fetch(`${API_URL}/api/salas/${id}`, {
@@ -3905,32 +3905,43 @@
                     headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
                 });
 
-                // Fluxo de Sucesso: Se a exclusão funcionou, mostra o toast e recarrega.
+                // --- FLUXO DE SUCESSO REAL (2xx) ---
                 if (response.ok) {
                     showToast(`Sala "${nome}" excluída com sucesso!`, 'success');
                     loadSalas();
                     return;
                 }
 
-                // --- A partir daqui, a resposta NÃO foi 'ok'. ---
+                // --- FLUXO DE ERRO CONHECIDO (409) ---
+                // Se a resposta for um erro de regra de negócio, tratamos como um fluxo esperado.
+                if (response.status === 409) {
+                    const errorData = await response.json();
+                    const errorMessage = errorData.mensagem || '';
 
-                const errorData = await response.json();
-                const errorMessage = errorData.mensagem || JSON.stringify(errorData);
-
-                // 1. É um erro de negócio conhecido? (Ex: sala com alunos)
-                if (response.status === 409 && errorMessage.includes('alunos vinculados')) {
-                    // 2. Se for, mostre o modal de alerta e PARE. Não trate como um erro técnico.
-                    openAlertModal('Não é possível excluir esta sala, pois existem alunos vinculados a ela. Por favor, transfira ou remova os alunos primeiro.');
-                    return; // Encerra a função aqui. Nenhum erro será lançado no console.
+                    if (errorMessage.includes('alunos vinculados')) {
+                        // Apenas mostre o modal para o usuário. Não faça mais nada.
+                        openAlertModal('Não é possível excluir esta sala, pois existem alunos vinculados a ela. Por favor, transfira ou remova os alunos primeiro.');
+                        // Encerra a função silenciosamente. Nenhum erro é lançado.
+                        return;
+                    }
                 }
 
-                // 3. Se for um erro desconhecido, mostre um toast e lance o erro no console para depuração.
-                showToast(`Erro ao excluir: ${errorMessage}`, 'error');
-                throw new Error(errorMessage);
+                // --- FLUXO DE ERRO INESPERADO (500, 404, etc.) ---
+                // Se chegamos aqui, é um erro que não previmos.
+                // Vamos extrair a mensagem e registrá-la como um AVISO, não um erro vermelho.
+                const errorData = await response.json().catch(() => response.text());
+                const errorMessage = errorData.mensagem || errorData;
 
-            } catch (error) {
-                // Este bloco agora só será ativado por erros de rede ou erros inesperados.
-                console.error('Ocorreu um erro inesperado ao excluir a sala:', error);
+                showToast(`Ocorreu um erro inesperado: ${errorMessage}`, 'error');
+                console.warn('Ocorreu um erro inesperado ao tentar excluir a sala:', {
+                    status: response.status,
+                    body: errorData
+                });
+
+            } catch (networkError) {
+                // Este bloco agora só será ativado por erros de rede (ex: sem internet).
+                showToast('Erro de conexão. Verifique sua internet e tente novamente.', 'error');
+                console.error('Falha de rede ao tentar excluir sala:', networkError);
             }
         }
 
