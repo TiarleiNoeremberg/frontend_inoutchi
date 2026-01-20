@@ -3880,7 +3880,7 @@
         }
 
         async function executeDeleteSala(id, nome) {
-            closeDeleteConfirmModal(); // Primeiro, fecha o modal
+            closeDeleteConfirmModal(); // Fecha o modal de confirmação
 
             try {
                 const response = await fetch(`${API_URL}/api/salas/${id}`, {
@@ -3888,18 +3888,34 @@
                     headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
                 });
 
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.message || 'Erro ao excluir a sala.');
+                // Se a resposta for um sucesso (ex: 200 OK ou 204 No Content), o fluxo termina aqui.
+                if (response.ok) {
+                    showToast(`Sala "${nome}" excluída com sucesso!`, 'success');
+                    loadSalas(); // Recarrega a lista para refletir a remoção
+                    return; // Encerra a função com sucesso.
                 }
 
-                // Use a sua função de toast para dar um feedback elegante
-                showToast(`Sala "${nome}" excluída com sucesso!`, 'success');
-                loadSalas(); // Recarrega a lista para refletir a remoção
+                // --- Se a resposta NÃO for OK, entramos no tratamento de erro inteligente ---
+
+                // 1. Tenta ler o corpo do erro para obter a mensagem detalhada do backend.
+                const errorData = await response.json();
+
+                // 2. Verifica se é o nosso erro específico de "alunos vinculados".
+                if (response.status === 500 && errorData.message && errorData.message.includes('alunos vinculados')) {
+                    // 3. Mostra uma mensagem CLARA e ACIONÁVEL para o usuário.
+                    showToast('Não é possível excluir: Há alunos nesta sala. Por favor, transfira ou remova os alunos primeiro.', 'error');
+                } else {
+                    // 4. Para qualquer outro tipo de erro, mostra a mensagem de erro do backend.
+                    throw new Error(errorData.message || `Erro ${response.status}`);
+                }
 
             } catch (error) {
+                // Este 'catch' agora pega erros de rede ou os erros que jogamos acima.
                 console.error('Erro ao excluir sala:', error);
-                showToast(error.message, 'error');
+                // Garante que o toast seja exibido mesmo em caso de falha na rede
+                if (!error.message.includes('alunos vinculados')) {
+                    showToast(error.message || 'Erro de conexão ao tentar excluir a sala.', 'error');
+                }
             }
         }
 
