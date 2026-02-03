@@ -278,22 +278,36 @@
     }
 
     .typing-cursor::after {
-      content: "|";
-      margin-left: 4px;
-      animation: blink 1s infinite;
+      content: "▋";
+      margin-left: 2px;
+      animation: blink 1.2s ease-in-out infinite;
+      font-weight: 300;
+      color: #4a6fa5;
+    }
+
+    .typing {
+      opacity: 0;
+      animation: fadeInAfterType 0.3s ease forwards;
+      animation-delay: calc(var(--type-duration, 1s) + 0.5s);
+    }
+
+    @keyframes fadeInAfterType {
+      to {
+        opacity: 1;
+      }
     }
 
     @keyframes blink {
 
       0%,
-      50%,
+      45%,
+      55%,
       100% {
         opacity: 1;
       }
 
-      25%,
-      75% {
-        opacity: 0;
+      50% {
+        opacity: 0.3;
       }
     }
   </style>
@@ -1001,7 +1015,7 @@
         <!-- COLUNA DIREITA — IMAGEM (SEGUNDO NO MOBILE) -->
         <div class="order-2 md:order-2 flex justify-center md:justify-end reveal group"> <!-- Imagem sempre segundo -->
           <img src="assets/images/ciclo/13.png" alt="Sistema Inoutchi" loading="lazy"
-            class="max-w-full h-auto max-h-100 rounded-xl" >
+            class="max-w-full h-auto max-h-100 rounded-xl">
         </div>
       </div>
     </div>
@@ -1022,11 +1036,15 @@
     <div class="max-w-7xl mx-auto relative z-10">
       <div class="text-center mb-16 reveal">
         <h2 class="text-4xl sm:text-5xl font-bold text-[#4a6fa5] mb-4 typing">
-          Nosso Conteúdo para Modernizar o Fluxo
+          Nosso Conteúdo para Modernizar o Fluxo<br>
+          <span class="bg-gradient-to-r from-blue-600 to-cyan-500 text-transparent bg-clip-text">
+            de Entradas e Saídas
+          </span>
+
         </h2>
         <p style="font-family: 'Inter', sans-serif;" class="text-2xl text-[#4a6fa5] mb-6 leading-relaxed font-sans">
           Transformar a rotina escolar exige mais que tecnologia: exige uma estratégia. Apresentamos os
-           fundamentos que tornam nosso sistema a solução mais inteligente e segura para a sua escola.
+          fundamentos que tornam nosso sistema a solução mais inteligente e segura para a sua escola.
         </p>
       </div>
 
@@ -2205,43 +2223,157 @@
     setupRevealAnimation();
     setupScrollStorytelling();
 
-    function typeNode(node, speed) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const text = node.textContent;
-      node.textContent = "";
-      let i = 0;
+    function typeEffect(element, speed = 60) {
+      // Salva o HTML original
+      const originalHTML = element.innerHTML;
 
-      function typeChar() {
-        if (i < text.length) {
-          node.textContent += text.charAt(i);
-          i++;
-          setTimeout(typeChar, speed);
+      // Cria uma estrutura para preservar a hierarquia
+      const virtualDiv = document.createElement('div');
+      virtualDiv.innerHTML = originalHTML;
+
+      // Coleta todos os nós na ordem correta
+      const nodes = collectNodesInOrder(virtualDiv);
+
+      // Limpa o elemento
+      element.innerHTML = '';
+
+      let nodeIndex = 0;
+      let charIndex = 0;
+      let currentNode = null;
+
+      function typeNextChar() {
+        if (nodeIndex < nodes.length) {
+          const nodeInfo = nodes[nodeIndex];
+
+          if (!currentNode && nodeInfo.type === 'element') {
+            // Cria o elemento formatado (span com gradiente)
+            currentNode = document.createElement(nodeInfo.tag);
+            currentNode.className = nodeInfo.className;
+            currentNode.style.cssText = nodeInfo.style;
+            element.appendChild(currentNode);
+          }
+
+          if (charIndex < nodeInfo.content.length) {
+            const char = nodeInfo.content.charAt(charIndex);
+
+            if (nodeInfo.type === 'element') {
+              // Para elementos formatados, adiciona ao span
+              currentNode.textContent += char;
+            } else {
+              // Para texto normal, cria um text node
+              const textNode = document.createTextNode(char);
+              element.appendChild(textNode);
+            }
+
+            charIndex++;
+
+            // Delay variável
+            let delay = speed;
+            if (char.match(/[.,;:!?]/)) delay = speed * 3;
+            else if (char === ' ') delay = speed * 0.7;
+
+            setTimeout(typeNextChar, delay);
+          } else {
+            // Próximo nó
+            nodeIndex++;
+            charIndex = 0;
+            currentNode = null;
+            setTimeout(typeNextChar, speed * 1.5);
+          }
         }
       }
 
-      typeChar();
-    } else {
-      node.childNodes.forEach(child => typeNode(child, speed));
+      // Inicia
+      setTimeout(typeNextChar, 300);
     }
-  }
 
-  function typeEffect(element, speed = 80) {
-    typeNode(element, speed);
-  }
+    // Função auxiliar para extrair partes formatadas do texto
+    function extractTextParts(element) {
+      const parts = [];
 
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-      if (entry.isIntersecting && !entry.target.classList.contains("typed")) {
-        entry.target.classList.add("typed");
-        typeEffect(entry.target);
+      function traverse(node, parentStyle = {}) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          if (node.textContent.trim()) {
+            parts.push({
+              text: node.textContent,
+              tagName: 'span',
+              className: parentStyle.className || '',
+              style: parentStyle.style || '',
+              element: false
+            });
+          }
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          const style = {
+            tagName: node.tagName.toLowerCase(),
+            className: node.className || '',
+            style: node.style.cssText || ''
+          };
+
+          // Processa filhos
+          for (const child of node.childNodes) {
+            traverse(child, style);
+          }
+        }
       }
+
+      for (const child of element.childNodes) {
+        traverse(child);
+      }
+
+      return parts;
+    }
+
+    // Observer para os elementos com classe .typing
+    const typingObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting && !entry.target.classList.contains("typed")) {
+          entry.target.classList.add("typed");
+          typeEffect(entry.target);
+        }
+      });
+    }, { threshold: 0.4 });
+
+    // Inicializa o observer para todos os elementos .typing
+    document.querySelectorAll(".typing").forEach(el => {
+      typingObserver.observe(el);
     });
-  }, { threshold: 0.4 });
 
-  document.querySelectorAll(".typing").forEach(el => {
-    observer.observe(el);
-  });
+    function collectNodesInOrder(element) {
+      const nodes = [];
 
+      function traverse(el) {
+        const childNodes = Array.from(el.childNodes);
+
+        childNodes.forEach(child => {
+          if (child.nodeType === Node.TEXT_NODE) {
+            const text = child.textContent.trim();
+            if (text) {
+              nodes.push({
+                type: 'text',
+                content: child.textContent,
+                tag: null,
+                className: '',
+                style: ''
+              });
+            }
+          } else if (child.nodeType === Node.ELEMENT_NODE) {
+            // Para elementos como span com gradiente
+            nodes.push({
+              type: 'element',
+              content: child.textContent,
+              tag: child.tagName.toLowerCase(),
+              className: child.className || '',
+              style: child.style.cssText || ''
+            });
+
+            // Não percorre filhos dos spans (já pegamos o texto)
+          }
+        });
+      }
+
+      traverse(element);
+      return nodes;
+    }
 
 
   });
