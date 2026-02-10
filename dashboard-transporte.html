@@ -619,41 +619,39 @@
             }
 
             /**
-             * Renderiza a lista de alunos na tabela com proteções nos botões de ação.
+             * Renderiza a lista de alunos na tabela, restaurando o fluxo de checkboxes.
              */
             function renderStudents() {
-                // Ordena os alunos por nome (lógica original mantida)
                 studentsData.sort((a, b) => a.nome.toLowerCase().localeCompare(b.nome.toLowerCase()));
                 studentListBody.innerHTML = '';
 
                 if (studentsData.length === 0) {
-                    studentListBody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 20px; color: #666;">Nenhum aluno associado a você.</td></tr>`;
+                    studentListBody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 20px;">Nenhum aluno associado a você.</td></tr>`;
+                    disableAllActions(); // Desabilita tudo se não houver alunos
                     return;
                 }
 
                 studentsData.forEach(student => {
-                    // --- INÍCIO DA LÓGICA DE PROTEÇÃO ---
-
-                    // 1. Variáveis para facilitar a leitura do status do aluno
-                    const isPresente = student.status === 'PRESENTE';
-                    const isAusente = student.status === 'AUSENTE';
-                    const isAguardando = student.status === 'AGUARDANDO_CONFIRMACAO';
-
-                    // 2. Define quando o botão de ENTRADA deve estar desabilitado
-                    const entradaDisabled = isPresente || isAguardando;
-                    const entradaTitle = entradaDisabled ? 'Ação não permitida: o aluno já está na escola ou aguardando confirmação de saída.' : 'Registrar entrada do aluno';
-
-                    // 3. Define quando o botão de SAÍDA deve estar desabilitado
-                    const saidaDisabled = !isPresente; // A forma mais simples: só pode sair se estiver presente.
-                    const saidaTitle = saidaDisabled ? 'Ação não permitida: o aluno não está presente na escola.' : 'Solicitar saída do aluno';
-
-                    // --- FIM DA LÓGICA DE PROTEÇÃO ---
-
                     const statusInfo = getStatusInfo(student.status);
+
+                    // Lógica de proteção para o checkbox
+                    const isAguardando = student.status === 'AGUARDANDO_CONFIRMACAO';
+                    const checkboxDisabled = isAguardando;
+                    const checkboxTitle = isAguardando ? 'Ação pendente. Aguardando confirmação da escola.' : 'Selecionar aluno';
 
                     const row = document.createElement('tr');
                     row.dataset.alunoId = student.id;
+                    // Guardamos o status no próprio elemento da linha para facilitar a consulta
+                    row.dataset.status = student.status;
+
+                    // HTML DA LINHA CORRIGIDO
                     row.innerHTML = `
+                        <td>
+                            <input type="checkbox" class="custom-checkbox student-checkbox" 
+                                   value="${student.id}" 
+                                   ${checkboxDisabled ? 'disabled' : ''} 
+                                   title="${checkboxTitle}">
+                        </td>
                         <td>
                             <div class="student-info">
                                 <i class="fas fa-user-circle student-icon"></i>
@@ -666,26 +664,19 @@
                                 ${statusInfo.text}
                             </span>
                         </td>
-                        <td>${student.escolaNome || 'Não informada'}</td>
                         <td class="actions-cell">
-                            <button class="btn btn-sm action-btn btn-success" 
-                                data-action="entrada" 
-                                data-aluno-id="${student.id}"
-                                ${entradaDisabled ? 'disabled' : ''} 
-                                title="${entradaTitle}">
-                                <i class="fas fa-sign-in-alt"></i> Entrada
-                            </button>
-                            <button class="btn btn-sm action-btn btn-warning" 
-                                data-action="saida" 
-                                data-aluno-id="${student.id}"
-                                ${saidaDisabled ? 'disabled' : ''} 
-                                title="${saidaTitle}">
-                                <i class="fas fa-sign-out-alt"></i> Saída
-                            </button>
+                            ${isAguardando ? `
+                                <button class="btn btn-sm btn-success" data-action="confirmar-saida" data-aluno-id="${student.id}" title="Confirmar embarque do aluno">
+                                    <i class="fas fa-check"></i> Confirmar Embarque
+                                </button>
+                            ` : ''}
                         </td>
                     `;
                     studentListBody.appendChild(row);
                 });
+
+                // Atualiza o estado dos botões principais após renderizar
+                updateActionButtonsState();
             }
 
 
@@ -693,11 +684,34 @@
                 return Array.from(document.querySelectorAll('.student-checkbox:checked')).map(cb => cb.value);
             }
 
+            /**
+             * Atualiza o estado dos botões de ação em lote (Entrada/Saída)
+             * com base nos alunos selecionados.
+             */
             function updateActionButtonsState() {
-                const selectedStudents = getSelectedStudentIds();
-                const anySelected = selectedStudents.length > 0;
-                if (btnRegistrarEntrada) btnRegistrarEntrada.disabled = !anySelected;
-                if (btnSolicitarSaida) btnSolicitarSaida.disabled = !anySelected;
+                const selectedCheckboxes = Array.from(document.querySelectorAll('.student-checkbox:checked'));
+                const anySelected = selectedCheckboxes.length > 0;
+
+                if (!anySelected) {
+                    btnRegistrarEntrada.disabled = true;
+                    btnSolicitarSaida.disabled = true;
+                    return;
+                }
+
+                // Verifica o status de TODOS os alunos selecionados
+                const selectedStatuses = selectedCheckboxes.map(cb => {
+                    return cb.closest('tr').dataset.status;
+                });
+
+                // Lógica para o botão de ENTRADA:
+                // Deve estar habilitado SOMENTE SE todos os selecionados estiverem 'AUSENTE'.
+                const canRegisterEntry = selectedStatuses.every(status => status === 'AUSENTE');
+                btnRegistrarEntrada.disabled = !canRegisterEntry;
+
+                // Lógica para o botão de SAÍDA:
+                // Deve estar habilitado SOMENTE SE todos os selecionados estiverem 'PRESENTE'.
+                const canRequestExit = selectedStatuses.every(status => status === 'PRESENTE');
+                btnSolicitarSaida.disabled = !canRequestExit;
             }
 
             function disableAllActions() {
