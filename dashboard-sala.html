@@ -526,6 +526,16 @@
             background-color: #f0f4f8;
             /* Um fundo azul bem claro para destacar */
         }
+
+        /* ANIMAÇÃO DE RECOLHIMENTO SUAVE */
+        .aluno-card.recolhendo {
+            transform: scale(1) !important;
+            /* Volta ao tamanho original */
+            transition: transform 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) !important;
+            /* Mesma suavidade da entrada */
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+            /* Sombra menor */
+        }
     </style>
 </head>
 
@@ -1244,19 +1254,39 @@
             }
 
             // 🎯 FINALIZAR EXPANSÃO E VOLTAR AO ESTADO PENDENTE
-            finalizarExpansao(alunoCard, alunoId) {
-                // Remover classe de expansão e resetar transform
+            finalizarExpansao(alunoCard, alunoId, classeCor) {
+                if (!alunoCard) return;
+
+                console.log(`🎬 Iniciando animação de recolhimento para aluno ${alunoId}`);
+
+                // 1. Substitui a classe 'expandindo' pela 'recolhendo' para iniciar a transição de volta.
                 alunoCard.classList.remove('expandindo');
+                alunoCard.classList.add('recolhendo');
+
+                // 2. Limpa a transformação inline para que o CSS da classe 'recolhendo' assuma o controle.
                 alunoCard.style.transform = '';
 
-                // Restaurar tamanho do nome
-                const nomeElement = alunoCard.querySelector('.aluno-nome');
-                if (nomeElement) {
-                    nomeElement.style.fontSize = '';
-                    nomeElement.style.fontWeight = '';
-                }
+                // 3. Espera a animação de recolhimento (800ms) terminar antes de fazer a limpeza final.
+                setTimeout(() => {
+                    // Remove as classes de animação e estado.
+                    alunoCard.classList.remove('recolhendo', 'pendente', classeCor);
 
-                console.log(`✅ Expansão finalizada, estado PENDENTE mantido para aluno ${alunoId}`);
+                    // Restaura o texto original do card.
+                    const horarioElement = alunoCard.querySelector('.aluno-horario');
+                    if (horarioElement) {
+                        horarioElement.textContent = 'Presente';
+                        horarioElement.style.fontWeight = ''; // Limpa o negrito
+                    }
+
+                    // Restaura o tamanho do nome que você tinha na sua função original.
+                    const nomeElement = alunoCard.querySelector('.aluno-nome');
+                    if (nomeElement) {
+                        nomeElement.style.fontSize = '';
+                        nomeElement.style.fontWeight = '';
+                    }
+
+                    console.log(`✅ Expansão finalizada e estado do card restaurado para aluno ${alunoId}`);
+                }, 800); // IMPORTANTE: Este tempo deve ser igual à duração da transição no seu CSS.
             }
 
             // 🎯 AJUSTAR POSIÇÃO PARA EVITAR CORTES NAS BORDAS
@@ -1413,37 +1443,20 @@
 
                 if (!alunoCard) {
                     console.warn(`❌ Aluno card não encontrado para ID: ${alunoId}, pulando para o próximo.`);
-                    return; // Retorna direto para não travar a fila
+                    return;
                 }
 
-                // --- Lógica de Animação e Destaque (como antes) ---
+                // --- Sua lógica de preparação (INTOCADA) ---
                 alunoCard.classList.remove('tutor', 'diretor', 'token', 'sistema', 'transporte', 'destaque', 'confirmado', 'expandindo');
                 let classeCor = '';
                 switch (tipoSolicitante) {
-                    case 'TUTOR':
-                        classeCor = 'tutor';
-                        break;
-                    case 'PARENTE':
-                    case 'AMIGO':
-                    case 'IRMAO':
-                        classeCor = 'token';
-                        break;
-                    case 'DIRETOR':
-                        classeCor = 'diretor';
-                        break;
-                    case 'SISTEMA':
-                        classeCor = 'sistema';
-                        break;
-                    case 'TRANSPORTE':
-                        classeCor = 'transporte';
-                        break;
-                    default:
-                        // Mantém um fallback seguro, embora não deva ser usado nos casos conhecidos
-                        classeCor = tipoSolicitante.toLowerCase();
-                        break;
+                    case 'TUTOR': classeCor = 'tutor'; break;
+                    case 'PARENTE': case 'AMIGO': case 'IRMAO': classeCor = 'token'; break;
+                    case 'DIRETOR': classeCor = 'diretor'; break;
+                    case 'SISTEMA': classeCor = 'sistema'; break;
+                    case 'TRANSPORTE': classeCor = 'transporte'; break;
+                    default: classeCor = tipoSolicitante.toLowerCase(); break;
                 }
-
-                //const classeTipo = tipoSolicitante.toLowerCase();
                 alunoCard.classList.add(classeCor, 'pendente');
 
                 const horarioElement = alunoCard.querySelector('.aluno-horario');
@@ -1451,6 +1464,8 @@
                     horarioElement.textContent = 'Aguardando Confirmação';
                     horarioElement.style.fontWeight = '600';
                 }
+
+                // --- Sua lógica de animação de entrada (INTOCADA) ---
                 const centroCardX = alunoCard.offsetLeft + alunoCard.offsetWidth / 2;
                 const centroCardY = alunoCard.offsetTop + alunoCard.offsetHeight / 2;
                 const centroTelaX = window.innerWidth / 2;
@@ -1461,26 +1476,24 @@
                 const transformacao = `translate(${translateX}px, ${translateY}px) scale(${escala})`;
                 alunoCard.style.transform = transformacao;
                 alunoCard.classList.add('expandindo');
-                // --- Fim da Lógica de Animação ---
 
-                // 1. Inicia a promessa do áudio
+                // --- Lógica de Sincronização CORRIGIDA ---
                 const audioPromise = this.tocarAlertaExpansao(chamada);
 
-                // 2. Cria uma promessa para a duração da animação
-                const animationPromise = new Promise(resolve => setTimeout(resolve, 3000));
+                // 1. A promessa de animação com tempo fixo foi REMOVIDA.
 
                 try {
-                    // 3. ESPERA A CONCLUSÃO DE AMBAS as promessas (a que demorar mais)
-                    console.log(`⏳ Aguardando sincronização de áudio e animação para ${alunoNome}...`);
-                    await Promise.all([audioPromise, animationPromise]);
-                    console.log(`👍 Sincronização completa para ${alunoNome}.`);
+                    // 2. Agora esperamos APENAS a conclusão do áudio, garantindo a sincronia.
+                    console.log(`⏳ Aguardando finalização do áudio para ${alunoNome}...`);
+                    await audioPromise;
+                    console.log(`👍 Áudio para ${alunoNome} finalizado.`);
 
                 } catch (error) {
-                    console.error(`💥 Erro durante a execução sincronizada para ${alunoNome}:`, error);
+                    console.error(`💥 Erro durante a execução do áudio para ${alunoNome}:`, error);
                 } finally {
-                    // 4. Executa a finalização APÓS tudo ter terminado
-                    this.finalizarExpansao(alunoCard, alunoId);
-                    console.log(`🏁 Processo REALMENTE finalizado para: ${alunoNome}`);
+                    // 3. A finalização é chamada somente após o fim do áudio.
+                    this.finalizarExpansao(alunoCard, alunoId, classeCor); // Passamos a classe de cor
+                    console.log(`🏁 Processo de destaque finalizado para: ${alunoNome}`);
                 }
             }
 
