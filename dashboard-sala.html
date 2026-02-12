@@ -678,6 +678,9 @@
                 this.syncInterval = setInterval(() => this.sincronizarSalaSilenciosamente(), REFRESH_INTERVAL);
                 console.log(`✅ Sincronizador Silencioso iniciado. Verificando a cada ${REFRESH_INTERVAL / 1000} segundos.`);
 
+                this.batchEntradaAlunos = new Set(); // Um "cesto" para coletar os alunos do lote
+                this.batchEntradaTimer = null;     // O nosso cronômetro
+
                 this.inicializar();
 
 
@@ -811,6 +814,22 @@
                 } catch (error) {
                     console.error('🔄 [SYNC] Erro durante o processo de sincronização silenciosa:', error);
                 }
+            }
+
+            // ========================================================
+            //  NOVA FUNÇÃO PARA PROCESSAR O LOTE DE ENTRADAS
+            // ========================================================
+            processarBatchDeEntradas() {
+                console.log(`[BATCH] Processando lote de ${this.batchEntradaAlunos.size} novas entradas.`);
+
+                // Itera sobre o ID de cada aluno que foi coletado no "cesto"
+                this.batchEntradaAlunos.forEach(alunoId => {
+                    // E aplica a nossa já existente função de tremor
+                    this.aplicarDestaqueTremor(alunoId);
+                });
+
+                // Limpa o cesto para estar pronto para o próximo lote
+                this.batchEntradaAlunos.clear();
             }
 
             async testarWebSocketDisponivel() {
@@ -1080,33 +1099,36 @@
                         const aluno = mensagemProcessada.aluno;
 
                         if (aluno) {
-                            // --- INÍCIO DAS NOVAS CHAMADAS OBRIGATÓRIAS ---
-
-                            // 1. Toca um som simples de notificação
+                            // 1. AÇÕES IMEDIATAS: Estas acontecem para CADA aluno do lote, como antes.
                             this.tocarSomNotificacao();
-
-                            // --- FIM DAS NOVAS CHAMADAS OBRIGATÓRIAS ---
-
-                            // Ponto Crítico de Sincronização:
-                            // Primeiro, chamamos a função que renderiza o aluno na tela.
-                            // O card PRECISA existir no HTML antes de tentarmos destacá-lo.
                             this.atualizarAlunoPresente(
                                 aluno.id,
                                 aluno.nome,
                                 mensagemProcessada.timestamp
                             );
-
-                            // Agora que o card já foi renderizado, chamamos a nossa nova função de destaque.
-                            this.aplicarDestaqueTremor(aluno.id);
-
-                            // A notificação visual continua como antes.
                             this.mostrarNotificacao(
                                 'Entrada Registrada',
                                 `<b>${aluno.nome}</b> entrou na sala.`,
                                 'success'
                             );
 
-                            console.log(`Aluno ${aluno.nome} adicionado com SOM e DESTAQUE via WebSocket`);
+                            // 2. LÓGICA DE COLETA E AGENDAMENTO (A MUDANÇA)
+
+                            // Cancela qualquer cronômetro anterior. Se outro aluno chegar, o tempo reinicia.
+                            clearTimeout(this.batchEntradaTimer);
+
+                            // Adiciona o ID do aluno atual ao nosso "cesto".
+                            this.batchEntradaAlunos.add(aluno.id);
+
+                            // Agenda a aplicação dos tremores para daqui a 250ms.
+                            // Se outro aluno chegar nesse meio tempo, o cronômetro será resetado
+                            // e o sistema esperará mais 250ms.
+                            this.batchEntradaTimer = setTimeout(() => {
+                                // Quando o tempo se esgotar (nenhum aluno novo chegou), processa todos os coletados.
+                                this.processarBatchDeEntradas();
+                            }, 250); // Um bom tempo de espera para um lote.
+
+                            console.log(`Aluno ${aluno.nome} adicionado à fila de destaque via WebSocket.`);
 
                         } else {
                             console.error("❌ Erro no payload da mensagem 'ENTRADA_ALUNO': objeto 'aluno' não encontrado.", mensagemProcessada);
