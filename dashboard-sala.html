@@ -679,7 +679,7 @@
                 console.log(`✅ Sincronizador Silencioso iniciado. Verificando a cada ${REFRESH_INTERVAL / 1000} segundos.`);
 
                 this.inicializar();
-      
+
 
             }
 
@@ -764,7 +764,6 @@
             // ========================================================
             async sincronizarSalaSilenciosamente() {
                 // 1. O GUARDIÃO: Se uma animação de destaque está em andamento, não faça NADA.
-                // Isso é crucial para não interromper a experiência do usuário.
                 if (this.isProcessandoFila) {
                     console.log('🔄 [SYNC] Sincronização adiada: uma animação de destaque está em andamento.');
                     return;
@@ -773,12 +772,20 @@
                 try {
                     console.log('🔄 [SYNC] Iniciando verificação de sincronia com o backend...');
 
-                    // 2. BUSCA A LISTA "VERDADEIRA" DE ALUNOS PRESENTES NO BACKEND
-                    const response = await fetch(`${this.BACKEND_URL}/api/salas/${this.salaId}/alunos/presentes`);
+                    // 2. BUSCA A LISTA "VERDADEIRA" COM AUTENTICAÇÃO
+                    const response = await fetch(`${this.BACKEND_URL}/api/salas/${this.salaId}/alunos/presentes`, {
+                        // <<< ESTA É A MUDANÇA PRINCIPAL
+                        headers: {
+                            'Authorization': `Bearer ${this.token}`
+                        }
+                    });
+
                     if (!response.ok) {
-                        console.warn('🔄 [SYNC] Falha ao buscar dados do backend para sincronização.');
+                        // Agora este log incluirá o status do erro (ex: 401)
+                        console.warn(`🔄 [SYNC] Falha ao buscar dados do backend (Status: ${response.status}).`);
                         return;
                     }
+
                     const data = await response.json();
                     const backendAlunos = data.alunos || [];
 
@@ -787,7 +794,6 @@
                     const backendAlunosIds = new Set(backendAlunos.map(a => a.id));
 
                     // 4. AÇÃO 1: Encontra alunos que ESTÃO no backend mas NÃO ESTÃO na tela.
-                    // (Isso significa que uma mensagem de ENTRADA foi perdida)
                     for (const aluno of backendAlunos) {
                         if (!localAlunosIds.has(aluno.id)) {
                             console.log(`🔄 [SYNC] Aluno a ser ADICIONADO: ${aluno.nome}. Uma entrada foi perdida.`);
@@ -796,11 +802,9 @@
                     }
 
                     // 5. AÇÃO 2: Encontra alunos que ESTÃO na tela mas NÃO ESTÃO no backend.
-                    // (Isso significa que uma mensagem de SAÍDA foi perdida)
-                    for (const aluno of [...this.alunos]) { // Usamos uma cópia para evitar problemas ao modificar a lista
+                    for (const aluno of [...this.alunos]) {
                         if (!backendAlunosIds.has(aluno.id)) {
                             console.log(`🔄 [SYNC] Aluno a ser REMOVIDO: ${aluno.nome}. Uma saída foi perdida.`);
-                            // Reutilizamos a função que já faz a remoção cirúrgica do card.
                             this.processarSaidaConfirmada({ alunoId: aluno.id, alunoNome: aluno.nome });
                         }
                     }
