@@ -882,53 +882,64 @@
             }
 
             iniciarWebSocketStomp() {
-                return new Promise((resolve, reject) => {
-                    try {
-                        console.log('🔌 Conectando ao WebSocket STOMP...');
-                        this.atualizarStatusWebSocket('connecting', 'Conectando...');
+                console.log('🔌 Tentando iniciar conexão WebSocket STOMP...');
+                this.atualizarStatusWebSocket('connecting', 'Conectando...');
 
-                        const socket = new SockJS(this.WS_URL);
+                // Configuração do cliente STOMP com reconexão automática.
+                const stompConfig = {
+                    // Não usamos mais o webSocketFactory com SockJS, a lib gerencia melhor.
+                    // brokerURL é o padrão para WSS. Adapte se seu backend usa WS normal.
+                    brokerURL: this.WS_URL.replace('http', 'ws') + '/websocket',
+                    connectHeaders: {
+                        Authorization: `Bearer ${this.token}`,
+                    },
+                    debug: (str) => { /* Habilite para logs detalhados: console.log(str) */ },
 
-                        this.stompClient = new StompJs.Client({
-                            webSocketFactory: () => socket,
-                            reconnectDelay: 5000,
-                            // ... outras configurações ...
-                            connectHeaders: {
-                                'Authorization': `Bearer ${this.token}`,
-                                // ... outros headers ...
-                            },
-                        });
+                    // A MÁGICA DA IMORTALIDADE:
+                    reconnectDelay: 5000, // Tenta reconectar a cada 5 segundos após uma queda.
+                    heartbeatIncoming: 4000,
+                    heartbeatOutgoing: 4000,
 
-                        this.stompClient.onConnect = (frame) => {
-                            console.log('✅ WebSocket STOMP conectado com sucesso!', frame);
-                            this.atualizarStatusWebSocket('connected', 'WebSocket Online');
-                            this.ativarSala();
-                            this.inscreverNosTopicos();
-                            this.mostrarNotificacao('Conectado', 'Conexão em tempo real estabelecida', 'success');
-                            resolve(); // <-- IMPORTANTE: Resolve a Promise no sucesso!
-                        };
+                    onConnect: (frame) => {
+                        this.atualizarStatusWebSocket('connected', 'Online');
+                        this.mostrarNotificacao('Conectado', 'Conexão em tempo real estabelecida', 'success');
+                        console.log('✅ WebSocket STOMP CONECTADO e VIVO!', frame);
 
-                        this.stompClient.onStompError = (frame) => {
-                            console.error('❌ Erro STOMP:', frame);
-                            this.atualizarStatusWebSocket('error', 'Erro STOMP');
-                            reject(new Error('Erro STOMP: ' + (frame.headers?.message || ''))); // <-- IMPORTANTE: Rejeita a Promise no erro.
-                        };
+                        this.ativarSala();
+                        this.inscreverNosTopicos(); // Esta é sua função que já faz o subscribe.
 
-                        this.stompClient.onWebSocketError = (error) => {
-                            console.error('❌ Erro WebSocket:', error);
-                            this.atualizarStatusWebSocket('error', 'Erro Conexão');
-                            reject(error); // <-- IMPORTANTE: Rejeita a Promise no erro.
-                        };
+                        // VACINA EXTRA: Ao conectar (ou reconectar), força uma sincronização da tela.
+                        // Isso "cura" o estado visual caso algo tenha sido perdido durante a desconexão.
+                        console.log('[RECONNECT] Forçando sincronização completa da sala após conexão.');
+                        this.carregarDadosSala();
+                    },
 
-                        console.log('🔑 Enviando token para conexão STOMP...');
-                        this.stompClient.activate();
-
-                    } catch (error) {
-                        console.error('❌ Erro ao iniciar conexão WebSocket:', error);
+                    onStompError: (frame) => {
+                        console.error('❌ Erro no protocolo STOMP. O cliente tentará reconectar.', frame);
                         this.atualizarStatusWebSocket('error', 'Erro de Conexão');
-                        reject(error); // <-- IMPORTANTE: Rejeita a Promise no erro.
+                    },
+
+                    onWebSocketClose: (event) => {
+                        console.warn('⚠️ Conexão WebSocket fechada. O cliente tentará reconectar...', event);
+                        this.atualizarStatusWebSocket('disconnected', 'Reconectando...');
+                    },
+
+                    // Adicionando um manipulador para o erro de SockJS/WebSocket inicial
+                    onWebSocketError: (error) => {
+                        console.error('❌ Erro na camada WebSocket. O cliente tentará reconectar.', error);
+                        this.atualizarStatusWebSocket('error', 'Falha na Conexão');
                     }
-                });
+                };
+
+                // Previne múltiplas instâncias
+                if (this.stompClient && this.stomClient.active) {
+                    console.warn("Tentativa de recriar um cliente STOMP já ativo. Ignorando.");
+                    return;
+                }
+
+                // Cria uma nova instância do cliente e a ativa.
+                this.stompClient = new StompJs.Client(stompConfig);
+                this.stompClient.activate();
             }
 
             async renovarTokenEConectar() {
@@ -1672,24 +1683,37 @@
              * Pega o próximo aluno, executa o destaque e, ao final, chama a si mesma.
              */
             async processarProximoDaFila() {
-                // 1. Se a fila estiver vazia, para o processo.
+                // 1. Se a fila estiver vazia, encerra e garante que a flag seja resetada.
                 if (this.filaDeChamadas.length === 0) {
-                    console.log('✅ Fila de chamadas finalizada.');
+                    console.log('[FILA] Fila de chamadas finalizada.');
                     this.isProcessandoFila = false;
                     return;
                 }
 
-                // 2. Marca que estamos ocupados e pega o primeiro aluno da fila.
+                // 2. Marca como ocupado e pega o próximo item.
                 this.isProcessandoFila = true;
-                const chamada = this.filaDeChamadas.shift(); // .shift() pega e remove o primeiro item
+                const chamada = this.filaDeChamadas.shift();
 
                 console.log(`▶️ Processando da fila: ${chamada.alunoNome}`);
 
-                // 3. Executa o processo completo de destaque e ESPERA (await) sua finalização.
-                await this.executarDestaqueCompleto(chamada);
+                try {
+                    // 3. Tenta executar o processo de destaque.
+                    await this.executarDestaqueCompleto(chamada);
 
-                // 4. Após o término, chama a função novamente para o próximo da fila.
-                this.processarProximoDaFila();
+                } catch (error) {
+                    // 4. Se um erro grave e inesperado ocorrer, registra-o.
+                    console.error(`💥 ERRO CATASTRÓFICO ao processar destaque para ${chamada.alunoNome}.`, error);
+
+                } finally {
+                    // 5. O BLOCO FINALLY É A NOSSA GARANTIA.
+                    // Ele executa SEMPRE, não importa se o 'try' teve sucesso ou falhou.
+
+                    // Adiciona uma pequena pausa para dar um respiro visual entre as chamadas.
+                    await new Promise(resolve => setTimeout(resolve, 500));
+
+                    // Chama a si mesma para processar o próximo item, garantindo a continuidade.
+                    this.processarProximoDaFila();
+                }
             }
 
             /**
@@ -1753,7 +1777,7 @@
                     this.finalizarExpansao(alunoCard, alunoId);
                     console.log(`🏁 Processo de destaque finalizado para: ${alunoNome}.`);
                 }
-                
+
             }
 
             // 🎯 MÉTODO PARA TOCAR ALERTA PENDENTE (se não existir)
