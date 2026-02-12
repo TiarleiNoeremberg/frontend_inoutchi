@@ -636,6 +636,8 @@
         </div>
     </div>
 
+
+
     <!-- Incluir SockJS e STOMP -->
     <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
@@ -673,6 +675,11 @@
                 this.isProcessandoFila = false; // Um controle para saber se a fila está ativa
 
                 this.inicializar();
+
+                const REFRESH_INTERVAL = 15000; // 15 segundos
+                this.syncInterval = setInterval(() => this.sincronizarSalaSilenciosamente(), REFRESH_INTERVAL);
+                console.log(`✅ Sincronizador Silencioso iniciado. Verificando a cada ${REFRESH_INTERVAL / 1000} segundos.`);
+
             }
 
             async inicializar() {
@@ -725,6 +732,80 @@
                 } catch (error) {
                     console.error('❌ Erro fatal durante a inicialização:', error);
                     this.mostrarErro('Erro ao carregar dashboard: ' + error.message);
+                }
+            }
+
+            // ========================================================
+            //  FUNÇÃO AUXILIAR PARA ADIÇÃO NÃO-DESTRUTIVA
+            // ========================================================
+            adicionarAlunoSilenciosamente(aluno) {
+                // 1. Adiciona o aluno ao nosso array de dados local para manter a consistência.
+                this.alunos.push(aluno);
+
+                // 2. Cria o card do aluno, exatamente como na função renderizarAlunos.
+                const grid = document.getElementById('alunosGrid');
+                if (grid) {
+                    const card = document.createElement('div');
+                    card.className = 'aluno-card';
+                    card.setAttribute('data-aluno-id', aluno.id);
+                    card.innerHTML = `
+                        <div class="aluno-nome">${aluno.nome}</div>
+                        <div class="aluno-horario">Presente</div>
+                    `;
+                    // Adiciona o novo card ao final do grid.
+                    grid.appendChild(card);
+                    console.log(`[SYNC] Card para ${aluno.nome} adicionado silenciosamente à tela.`);
+                }
+            }
+
+            // ========================================================
+            //  O CÉREBRO DO AUTO-REFRESH INTELIGENTE
+            // ========================================================
+            async sincronizarSalaSilenciosamente() {
+                // 1. O GUARDIÃO: Se uma animação de destaque está em andamento, não faça NADA.
+                // Isso é crucial para não interromper a experiência do usuário.
+                if (this.isProcessandoFila) {
+                    console.log('🔄 [SYNC] Sincronização adiada: uma animação de destaque está em andamento.');
+                    return;
+                }
+
+                try {
+                    console.log('🔄 [SYNC] Iniciando verificação de sincronia com o backend...');
+
+                    // 2. BUSCA A LISTA "VERDADEIRA" DE ALUNOS PRESENTES NO BACKEND
+                    const response = await fetch(`${this.BACKEND_URL}/api/salas/${this.salaId}/alunos/presentes`);
+                    if (!response.ok) {
+                        console.warn('🔄 [SYNC] Falha ao buscar dados do backend para sincronização.');
+                        return;
+                    }
+                    const data = await response.json();
+                    const backendAlunos = data.alunos || [];
+
+                    // 3. COMPARA O BACKEND COM O ESTADO LOCAL (O que está na tela)
+                    const localAlunosIds = new Set(this.alunos.map(a => a.id));
+                    const backendAlunosIds = new Set(backendAlunos.map(a => a.id));
+
+                    // 4. AÇÃO 1: Encontra alunos que ESTÃO no backend mas NÃO ESTÃO na tela.
+                    // (Isso significa que uma mensagem de ENTRADA foi perdida)
+                    for (const aluno of backendAlunos) {
+                        if (!localAlunosIds.has(aluno.id)) {
+                            console.log(`🔄 [SYNC] Aluno a ser ADICIONADO: ${aluno.nome}. Uma entrada foi perdida.`);
+                            this.adicionarAlunoSilenciosamente(aluno);
+                        }
+                    }
+
+                    // 5. AÇÃO 2: Encontra alunos que ESTÃO na tela mas NÃO ESTÃO no backend.
+                    // (Isso significa que uma mensagem de SAÍDA foi perdida)
+                    for (const aluno of [...this.alunos]) { // Usamos uma cópia para evitar problemas ao modificar a lista
+                        if (!backendAlunosIds.has(aluno.id)) {
+                            console.log(`🔄 [SYNC] Aluno a ser REMOVIDO: ${aluno.nome}. Uma saída foi perdida.`);
+                            // Reutilizamos a função que já faz a remoção cirúrgica do card.
+                            this.processarSaidaConfirmada({ alunoId: aluno.id, alunoNome: aluno.nome });
+                        }
+                    }
+
+                } catch (error) {
+                    console.error('🔄 [SYNC] Erro durante o processo de sincronização silenciosa:', error);
                 }
             }
 
@@ -2344,6 +2425,8 @@
                     console.warn('🔇 Áudio não suportado');
                 }
             }
+
+
 
             atualizarHorarioCard(alunoCard, horario) {
                 const horarioElement = alunoCard.querySelector('.aluno-horario');
