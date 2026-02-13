@@ -471,9 +471,71 @@
             // --- FIM DA SEÇÃO CORRIGIDA ---
 
 
-            // Evento de submit do formulário de login (Seu código original, mantido como está)
+            // Evento de submit do formulário de login
             loginForm.addEventListener('submit', async function (e) {
-                /* ... todo o seu código de login original ... */
+                e.preventDefault();
+                const email = document.getElementById('email').value.trim().toLowerCase();
+                const password = passwordInput.value;
+
+                if (!email || !password) {
+                    showAlert('Por favor, preencha todos os campos.', 'error');
+                    return;
+                }
+
+                loading.style.display = 'block';
+                loginBtn.disabled = true;
+
+                try {
+                    const response = await fetch(`${BACKEND_URL}/oauth2/token`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'Authorization': 'Basic ' + btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)
+                        },
+                        body: new URLSearchParams({
+                            'grant_type': 'password',
+                            'username': email,
+                            'password': password,
+                            'scope': 'read write'
+                        })
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        localStorage.setItem('access_token', data.access_token);
+                        localStorage.setItem('token_expiry', (new Date().getTime() + (data.expires_in * 1000)).toString());
+                        localStorage.setItem('refresh_token', data.refresh_token || 'no-refresh-token');
+
+                        const userData = await getUserData(data.access_token);
+
+                        // ... (lógica de redirecionamento existente)
+                        const userRole = userData.roles || [];
+                        if (userRole.includes('ROLE_ESCOLA')) {
+                            if (userData.escolaId) localStorage.setItem('escolaId', userData.escolaId);
+                            else throw new Error("Login falhou: ID da escola não encontrado para este usuário.");
+                        }
+
+                        showAlert('Login realizado com sucesso! Redirecionando...', 'success');
+                        if (userRole.includes('ROLE_TUTOR')) setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
+                        else if (userRole.includes('ROLE_DIRETOR')) setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
+                        else if (userRole.includes('ROLE_ESCOLA')) setTimeout(() => { window.location.href = 'dashboard-escola.html'; }, 1500);
+                        else if (userRole.includes('ROLE_SALA')) setTimeout(() => { window.location.href = 'dashboard-sala.html'; }, 1500);
+                        else if (userRole.includes('ROLE_TRANSPORTE')) setTimeout(() => { window.location.href = 'dashboard-transporte.html'; }, 1500);
+                        else setTimeout(() => { window.location.href = 'index.html'; }, 1500);
+
+                    } else {
+                        const errorText = await response.text();
+                        console.error("Resposta de erro do servidor:", errorText);
+                        showAlert('Usuário não cadastrado ou senha incorreta.', 'error');
+                    }
+                } catch (error) {
+                    console.error('Erro de conexão ou script:', error);
+                    showAlert('Erro: ' + error.message, 'error');
+                    localStorage.clear();
+                } finally {
+                    loading.style.display = 'none';
+                    loginBtn.disabled = false;
+                }
             });
         });
     </script>
