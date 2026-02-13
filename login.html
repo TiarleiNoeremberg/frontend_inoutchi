@@ -357,7 +357,7 @@
             const closeModalBtn = document.getElementById('closeModalBtn');
             const cancelRecoveryBtn = document.getElementById('cancelRecoveryBtn');
             const recoveryForm = document.getElementById('recoveryForm');
-            const recoveryEmailInput = document.getElementById('recoveryEmail'); // <- Garanta que o ID no seu HTML é 'recoveryEmail'
+            const recoveryEmailInput = document.getElementById('recoveryEmail');
             const sendRecoveryBtn = document.getElementById('sendRecoveryBtn');
             const recoveryLoading = document.getElementById('recoveryLoading');
             const recoveryAlertBox = document.getElementById('recoveryAlertBox');
@@ -367,22 +367,47 @@
             const CLIENT_SECRET = 'myclientsecret';
 
             // =================================================================
-            // 2. DEFINIÇÃO DAS FUNÇÕES AUXILIARES
+            // 2. DEFINIÇÃO DAS FUNÇÕES AUXILIARES (COMPLETAS)
             // =================================================================
 
-            async function getUserData(accessToken) { /* ... seu código getUserData ... */ }
+            async function getUserData(accessToken) {
+                const response = await fetch(`${BACKEND_URL}/api/users/me`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                if (!response.ok) {
+                    console.error('Falha ao obter dados do usuário. Status:', response.status);
+                    throw new Error('Não foi possível carregar os dados do usuário após o login.');
+                }
+                return await response.json();
+            }
 
-            function showAlert(message, type, element = alertBox) { /* ... seu código showAlert ... */ }
+            function showAlert(message, type, element = alertBox) {
+                element.textContent = message;
+                element.className = `alert alert-${type}`;
+                element.style.display = 'block';
+                setTimeout(() => { element.style.display = 'none'; }, 6000);
+            }
 
-            function openRecoveryModal() { /* ... seu código openRecoveryModal ... */ }
+            function openRecoveryModal() {
+                recoveryModal.classList.add('active');
+                recoveryAlertBox.style.display = 'none';
+                recoveryEmailInput.value = '';
+                sendRecoveryBtn.disabled = false;
+                sendRecoveryBtn.textContent = 'Enviar Link';
+                recoveryLoading.style.display = 'none';
+            }
 
-            function closeRecoveryModal() { /* ... seu código closeRecoveryModal ... */ }
+            function closeRecoveryModal() {
+                recoveryModal.classList.remove('active');
+            }
 
             // =================================================================
-            // 3. LÓGICA PRINCIPAL E EVENT LISTENERS
+            // 3. LÓGICA PRINCIPAL E EVENT LISTENERS (COMPLETOS)
             // =================================================================
 
-            // --- CORREÇÃO: LÓGICA DO OLHO RESTAURADA ---
             if (togglePassword) {
                 togglePassword.addEventListener('click', () => {
                     const isPasswordVisible = passwordInput.type === 'text';
@@ -392,43 +417,36 @@
                 });
             }
 
-            // --- Listeners para o modal de recuperação ---
             if (forgotPasswordLink) { forgotPasswordLink.addEventListener('click', (e) => { e.preventDefault(); openRecoveryModal(); }); }
             if (closeModalBtn) { closeModalBtn.addEventListener('click', closeRecoveryModal); }
             if (cancelRecoveryBtn) { cancelRecoveryBtn.addEventListener('click', closeRecoveryModal); }
             if (recoveryModal) { recoveryModal.addEventListener('click', (e) => { if (e.target === recoveryModal) closeRecoveryModal(); }); }
 
-            // --- Verificação de token para login automático ---
-            const token = localStorage.getItem('access_token');
-            if (token && localStorage.getItem('token_expiry')) { /* ... seu código de login automático ... */ }
-
-            // --- Listener para o formulário de recuperação de senha ---
+            // Listener do formulário de recuperação
             if (recoveryForm) {
                 recoveryForm.addEventListener('submit', async function (e) {
                     e.preventDefault();
                     const email = recoveryEmailInput.value.trim().toLowerCase();
-
                     if (!email) {
                         showAlert('Por favor, informe seu e-mail.', 'error', recoveryAlertBox);
                         return;
                     }
-
                     sendRecoveryBtn.disabled = true;
                     sendRecoveryBtn.textContent = 'Enviando...';
                     recoveryLoading.style.display = 'block';
                     recoveryAlertBox.style.display = 'none';
-
                     try {
                         const response = await fetch(`${BACKEND_URL}/api/users/password-reset-request`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ email: email })
                         });
-                        if (!response.ok) { throw new Error('Ocorreu um erro no servidor.'); }
-
+                        if (!response.ok) {
+                            const errorData = await response.json().catch(() => ({}));
+                            throw new Error(errorData.mensagem || 'Ocorreu um erro no servidor.');
+                        }
                         closeRecoveryModal();
                         showAlert('Se este e-mail estiver cadastrado, um link de recuperação foi enviado.', 'success', alertBox);
-
                     } catch (error) {
                         showAlert(error.message, 'error', recoveryAlertBox);
                     } finally {
@@ -439,27 +457,21 @@
                 });
             }
 
-            // --- CORREÇÃO: LISTENER DO LOGIN RESTAURADO ---
+            // Listener do formulário de login
             if (loginForm) {
                 loginForm.addEventListener('submit', async function (e) {
-                    e.preventDefault(); // Impede o recarregamento da página
-
+                    e.preventDefault();
                     const email = document.getElementById('email').value.trim().toLowerCase();
                     const password = passwordInput.value;
-
                     if (!email || !password) {
                         showAlert('Por favor, preencha todos os campos.', 'error');
                         return;
                     }
-
                     loading.style.display = 'block';
                     loginBtn.disabled = true;
-
                     try {
                         const response = await fetch(`${BACKEND_URL}/oauth2/token`, {
-                            // AQUI ESTÁ A CORREÇÃO CRÍTICA: O método precisa ser 'POST'.
                             method: 'POST',
-
                             headers: {
                                 'Content-Type': 'application/x-www-form-urlencoded',
                                 'Authorization': 'Basic ' + btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)
@@ -471,7 +483,6 @@
                                 'scope': 'read write'
                             })
                         });
-
                         if (response.ok) {
                             const data = await response.json();
                             localStorage.setItem('access_token', data.access_token);
@@ -482,25 +493,21 @@
                             const userRole = userData.roles || [];
 
                             if (userRole.includes('ROLE_ESCOLA')) {
-                                if (userData.escolaId) {
-                                    localStorage.setItem('escolaId', userData.escolaId);
-                                } else {
+                                if (!userData.escolaId) {
                                     throw new Error("Login falhou: ID da escola não encontrado para este usuário.");
                                 }
+                                localStorage.setItem('escolaId', userData.escolaId);
                             }
 
                             showAlert('Login realizado com sucesso! Redirecionando...', 'success');
 
-                            // Lógica de redirecionamento...
                             if (userRole.includes('ROLE_TUTOR')) setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
                             else if (userRole.includes('ROLE_DIRETOR')) setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
                             else if (userRole.includes('ROLE_ESCOLA')) setTimeout(() => { window.location.href = 'dashboard-escola.html'; }, 1500);
                             else if (userRole.includes('ROLE_SALA')) setTimeout(() => { window.location.href = 'dashboard-sala.html'; }, 1500);
                             else if (userRole.includes('ROLE_TRANSPORTE')) setTimeout(() => { window.location.href = 'dashboard-transporte.html'; }, 1500);
                             else setTimeout(() => { window.location.href = 'index.html'; }, 1500);
-
                         } else {
-                            // Se a resposta for um erro (ex: 400 Bad Request para credenciais inválidas)
                             const errorText = await response.text();
                             console.error("Resposta de erro do servidor:", errorText);
                             showAlert('Usuário não cadastrado ou senha incorreta.', 'error');
@@ -517,6 +524,7 @@
             }
         });
     </script>
+
 
 </body>
 
