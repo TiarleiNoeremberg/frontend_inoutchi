@@ -443,6 +443,7 @@
             if (loginForm) {
                 loginForm.addEventListener('submit', async function (e) {
                     e.preventDefault(); // Impede o recarregamento da página
+
                     const email = document.getElementById('email').value.trim().toLowerCase();
                     const password = passwordInput.value;
 
@@ -455,15 +456,59 @@
                     loginBtn.disabled = true;
 
                     try {
-                        // ... todo o resto da sua lógica de fetch do login ...
-                        const response = await fetch(`${BACKEND_URL}/oauth2/token`, { /* ... */ });
+                        const response = await fetch(`${BACKEND_URL}/oauth2/token`, {
+                            // AQUI ESTÁ A CORREÇÃO CRÍTICA: O método precisa ser 'POST'.
+                            method: 'POST',
+
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                'Authorization': 'Basic ' + btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)
+                            },
+                            body: new URLSearchParams({
+                                'grant_type': 'password',
+                                'username': email,
+                                'password': password,
+                                'scope': 'read write'
+                            })
+                        });
+
                         if (response.ok) {
-                            // ... lógica de sucesso do login ...
+                            const data = await response.json();
+                            localStorage.setItem('access_token', data.access_token);
+                            localStorage.setItem('token_expiry', (new Date().getTime() + (data.expires_in * 1000)).toString());
+                            localStorage.setItem('refresh_token', data.refresh_token || 'no-refresh-token');
+
+                            const userData = await getUserData(data.access_token);
+                            const userRole = userData.roles || [];
+
+                            if (userRole.includes('ROLE_ESCOLA')) {
+                                if (userData.escolaId) {
+                                    localStorage.setItem('escolaId', userData.escolaId);
+                                } else {
+                                    throw new Error("Login falhou: ID da escola não encontrado para este usuário.");
+                                }
+                            }
+
+                            showAlert('Login realizado com sucesso! Redirecionando...', 'success');
+
+                            // Lógica de redirecionamento...
+                            if (userRole.includes('ROLE_TUTOR')) setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
+                            else if (userRole.includes('ROLE_DIRETOR')) setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
+                            else if (userRole.includes('ROLE_ESCOLA')) setTimeout(() => { window.location.href = 'dashboard-escola.html'; }, 1500);
+                            else if (userRole.includes('ROLE_SALA')) setTimeout(() => { window.location.href = 'dashboard-sala.html'; }, 1500);
+                            else if (userRole.includes('ROLE_TRANSPORTE')) setTimeout(() => { window.location.href = 'dashboard-transporte.html'; }, 1500);
+                            else setTimeout(() => { window.location.href = 'index.html'; }, 1500);
+
                         } else {
-                            // ... lógica de erro do login ...
+                            // Se a resposta for um erro (ex: 400 Bad Request para credenciais inválidas)
+                            const errorText = await response.text();
+                            console.error("Resposta de erro do servidor:", errorText);
+                            showAlert('Usuário não cadastrado ou senha incorreta.', 'error');
                         }
                     } catch (error) {
-                        // ... lógica de erro de conexão ...
+                        console.error('Erro de conexão ou script:', error);
+                        showAlert('Erro: ' + error.message, 'error');
+                        localStorage.clear();
                     } finally {
                         loading.style.display = 'none';
                         loginBtn.disabled = false;
