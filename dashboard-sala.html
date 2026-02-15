@@ -1137,11 +1137,15 @@
                         break;
 
                     case 'ENTRADA_ALUNO':
-                        const aluno = mensagemProcessada.aluno;
+                        const aluno = {
+                            id: mensagemProcessada.alunoId,
+                            nome: mensagemProcessada.alunoNome
+                        };
+                        // =========================================================
 
-                        if (aluno) {
+                        // Daqui para baixo, NADA MUDA. Sua lógica original é 100% preservada.
+                        if (aluno && aluno.id && aluno.nome) { // Verificação mais robusta
                             // 1. AÇÕES IMEDIATAS: Tocar som e adicionar o card à tela.
-                            // A NOTIFICAÇÃO INDIVIDUAL FOI REMOVIDA DAQUI PARA EVITAR DUPLICIDADE.
                             this.tocarSomNotificacao();
                             this.atualizarAlunoPresente(
                                 aluno.id,
@@ -1152,18 +1156,18 @@
                             // 2. LÓGICA DE COLETA E AGENDAMENTO (CORRIGIDA)
                             clearTimeout(this.batchEntradaTimer);
 
-                            // <<< CORREÇÃO CRÍTICA: Usar .set() para Map, guardando ID e NOME >>>
                             this.batchEntradaAlunos.set(aluno.id, aluno.nome);
 
                             // Agenda a aplicação dos tremores E da notificação consolidada.
                             this.batchEntradaTimer = setTimeout(() => {
                                 this.processarBatchDeEntradas();
-                            }, 350); // Um bom tempo para coletar um lote
+                            }, 350);
 
                             console.log(`[BATCH] Aluno ${aluno.nome} adicionado ao lote de entrada.`);
 
                         } else {
-                            console.error("❌ Erro no payload da mensagem 'ENTRADA_ALUNO': objeto 'aluno' não encontrado.", mensagemProcessada);
+                            // Este log de erro agora será muito mais preciso.
+                            console.error("❌ Erro no payload da mensagem 'ENTRADA_ALUNO': 'alunoId' ou 'alunoNome' não encontrados ou nulos.", mensagemProcessada);
                         }
                         break;
 
@@ -2218,6 +2222,29 @@
              */
             async carregarDadosSala() {
                 try {
+
+                    // Faz uma chamada dedicada para pegar os detalhes da sala, incluindo o nome.
+                    // Assumimos que o endpoint /api/salas/{id} existe no seu backend.
+                    try {
+                        const salaDetailsResponse = await fetch(`${this.BACKEND_URL}/api/salas/${this.salaId}`, {
+                            headers: { 'Authorization': `Bearer ${this.token}` }
+                        });
+
+                        if (salaDetailsResponse.ok) {
+                            const salaData = await salaDetailsResponse.json();
+                            // Agora preenchemos this.salaInfo com os dados completos e corretos.
+                            this.salaInfo = salaData;
+                            console.log(`✅ Nome da sala carregado: "${this.salaInfo.nome}"`);
+                        } else {
+                            // Se falhar, usamos um nome de fallback para não quebrar a tela.
+                            console.warn(`[NOME SALA] Não foi possível buscar o nome da sala (Status: ${salaDetailsResponse.status}). Usando ID como fallback.`);
+                            this.salaInfo = { id: this.salaId, nome: `Sala ${this.salaId}` };
+                        }
+                    } catch (e) {
+                        console.error('[NOME SALA] Erro de rede ao buscar nome da sala. Usando ID como fallback.', e);
+                        this.salaInfo = { id: this.salaId, nome: `Sala ${this.salaId}` };
+                    }
+
                     // 1. Busca os dados brutos da API.
                     const data = await this.fetchDadosSala();
                     console.log('✅ Dados brutos da sala recebidos:', data);
@@ -2244,6 +2271,46 @@
                         'error'
                     );
                     // Não limpa this.alunos nem chama atualizarInterface() para manter os dados existentes.
+                }
+            }
+
+            // ========================================================
+            //  NOVA FUNÇÃO DEDICADA PARA BUSCAR DADOS DA SALA
+            // ========================================================
+            async carregarInfoSala() {
+                if (!this.salaId) {
+                    console.error('[CARREGAR INFO] ID da Sala não definido. Abortando busca de detalhes.');
+                    throw new Error("ID da Sala não encontrado para buscar seus detalhes.");
+                }
+
+                console.log(`[CARREGAR INFO] Buscando detalhes para a sala ID: ${this.salaId}`);
+                try {
+                    // Assumindo um endpoint padrão de REST para buscar um recurso por ID
+                    const url = `${this.BACKEND_URL}/api/salas/${this.salaId}`;
+
+                    const response = await fetch(url, {
+                        headers: {
+                            'Authorization': `Bearer ${this.token}`
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Falha ao buscar detalhes da sala. Status: ${response.status}`);
+                    }
+
+                    const salaData = await response.json();
+
+                    // Preenchemos o nosso objeto de estado com a resposta completa
+                    this.salaInfo = salaData;
+
+                    console.log('[CARREGAR INFO] Detalhes da sala carregados com sucesso:', this.salaInfo);
+
+                } catch (error) {
+                    console.error('[CARREGAR INFO] Erro catastrófico ao buscar detalhes da sala:', error);
+                    // Como fallback, definimos um nome genérico para não quebrar a UI
+                    this.salaInfo = { id: this.salaId, nome: `Sala ${this.salaId}` };
+                    // Lançamos o erro para que o bloco `catch` principal possa decidir o que fazer
+                    throw error;
                 }
             }
 
