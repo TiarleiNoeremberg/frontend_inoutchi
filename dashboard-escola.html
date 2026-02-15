@@ -1668,6 +1668,92 @@
             function closeTutorModal() { document.getElementById('tutorModal').style.display = 'none'; }
             function closeSuccessModal() { document.getElementById('successModal').style.display = 'none'; }
 
+            async function saveTutor(event) {
+                // Previne o comportamento padrão do formulário (que é recarregar a página)
+                event.preventDefault();
+
+                // =========================================================================
+                // #### A SOLUÇÃO DEFINITIVA PARA DUPLICIDADE ####
+                // 1. Pega o formulário que disparou o evento.
+                // 2. Encontra o botão de submit DENTRO deste formulário.
+                // 3. Desabilita o botão IMEDIATAMENTE.
+                // Isso cria uma "trava" que impede que a segunda requisição (ambiental) seja processada.
+                // =========================================================================
+                const form = event.target;
+                const saveButton = form.querySelector('button[type="submit"]');
+
+                if (saveButton.disabled) {
+                    // Se o botão já estiver desabilitado, ignora esta chamada completamente.
+                    return;
+                }
+                saveButton.disabled = true;
+                saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+
+                const tutorId = document.getElementById('tutorId').value;
+                const isEditing = !!tutorId;
+
+                try {
+                    const nome = document.getElementById('tutorNome').value.trim();
+                    const email = document.getElementById('tutorEmail').value.trim();
+                    const cpf = document.getElementById('tutorCpf').value.trim();
+                    let senha = document.getElementById('tutorSenha').value;
+
+                    if (!nome || !email || !cpf) {
+                        throw new Error('Nome, Email e CPF são obrigatórios.');
+                    }
+                    if (!isEditing && !senha.trim()) {
+                        senha = '123456';
+                    }
+
+                    const payload = { nome, email, cpf, senha, fone: document.getElementById('tutorFone').value.trim() };
+
+                    if (isEditing && !payload.senha) {
+                        delete payload.senha;
+                    }
+
+                    let url;
+                    const method = isEditing ? 'PUT' : 'POST';
+
+                    if (isEditing) {
+                        // A rota de edição ainda é a genérica (precisaria de segurança no backend)
+                        url = `${API_URL}/api/tutores/${tutorId}`;
+                    } else {
+                        // A rota de criação agora é a segura, específica da escola
+                        url = `${API_URL}/api/escolas/${ESCOLA_ID}/tutores`;
+                    }
+
+                    const response = await fetch(url, {
+                        method: method,
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AUTH_TOKEN}` },
+                        body: JSON.stringify(payload)
+                    });
+
+
+                    // A lógica foi simplificada para tratar QUALQUER resposta não-ok como um erro,
+                    // incluindo o status 409 (Conflict) que agora indica CPF/Email duplicado.
+                    if (!response.ok) {
+                        // Tenta ler o corpo da resposta para obter a mensagem de erro específica do backend.
+                        const errorData = await response.json().catch(() => ({}));
+                        // Usa a mensagem específica ('mensagem' do backend) ou a mensagem antiga ('message')
+                        // ou uma mensagem genérica final como fallback.
+                        throw new Error(errorData.mensagem || errorData.message || 'Erro ao processar a solicitação.');
+                    }
+
+                    closeTutorModal();
+                    loadAllTutors();
+                    alert(`Tutor "${nome}" salvo com sucesso!`);
+
+                } catch (error) {
+                    console.error('Erro ao salvar tutor:', error);
+                    // Este alert agora exibirá a mensagem amigável do backend.
+                    alert(`Erro: ${error.message}`);
+                } finally {
+                    // Garante que o botão seja reativado, não importa o que aconteça.
+                    saveButton.disabled = false;
+                    saveButton.innerHTML = 'Salvar';
+                }
+            }
+
             // --- Bloco de Autenticação, Lógica de Formulários, Navegação (Tudo Mantido) ---
             try {
                 const response = await fetch(`${API_URL}/api/users/me`, { headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` } });
@@ -2684,91 +2770,7 @@
 
 
         // 4. FUNÇÃO PARA SALVAR (CREATE E UPDATE)
-        async function saveTutor(event) {
-            // Previne o comportamento padrão do formulário (que é recarregar a página)
-            event.preventDefault();
 
-            // =========================================================================
-            // #### A SOLUÇÃO DEFINITIVA PARA DUPLICIDADE ####
-            // 1. Pega o formulário que disparou o evento.
-            // 2. Encontra o botão de submit DENTRO deste formulário.
-            // 3. Desabilita o botão IMEDIATAMENTE.
-            // Isso cria uma "trava" que impede que a segunda requisição (ambiental) seja processada.
-            // =========================================================================
-            const form = event.target;
-            const saveButton = form.querySelector('button[type="submit"]');
-
-            if (saveButton.disabled) {
-                // Se o botão já estiver desabilitado, ignora esta chamada completamente.
-                return;
-            }
-            saveButton.disabled = true;
-            saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
-
-            const tutorId = document.getElementById('tutorId').value;
-            const isEditing = !!tutorId;
-
-            try {
-                const nome = document.getElementById('tutorNome').value.trim();
-                const email = document.getElementById('tutorEmail').value.trim();
-                const cpf = document.getElementById('tutorCpf').value.trim();
-                let senha = document.getElementById('tutorSenha').value;
-
-                if (!nome || !email || !cpf) {
-                    throw new Error('Nome, Email e CPF são obrigatórios.');
-                }
-                if (!isEditing && !senha.trim()) {
-                    senha = '123456';
-                }
-
-                const payload = { nome, email, cpf, senha, fone: document.getElementById('tutorFone').value.trim() };
-
-                if (isEditing && !payload.senha) {
-                    delete payload.senha;
-                }
-
-                let url;
-                const method = isEditing ? 'PUT' : 'POST';
-
-                if (isEditing) {
-                    // A rota de edição ainda é a genérica (precisaria de segurança no backend)
-                    url = `${API_URL}/api/tutores/${tutorId}`;
-                } else {
-                    // A rota de criação agora é a segura, específica da escola
-                    url = `${API_URL}/api/escolas/${ESCOLA_ID}/tutores`;
-                }
-
-                const response = await fetch(url, {
-                    method: method,
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AUTH_TOKEN}` },
-                    body: JSON.stringify(payload)
-                });
-
-                
-                // A lógica foi simplificada para tratar QUALQUER resposta não-ok como um erro,
-                // incluindo o status 409 (Conflict) que agora indica CPF/Email duplicado.
-                if (!response.ok) {
-                    // Tenta ler o corpo da resposta para obter a mensagem de erro específica do backend.
-                    const errorData = await response.json().catch(() => ({}));
-                    // Usa a mensagem específica ('mensagem' do backend) ou a mensagem antiga ('message')
-                    // ou uma mensagem genérica final como fallback.
-                    throw new Error(errorData.mensagem || errorData.message || 'Erro ao processar a solicitação.');
-                }
-                
-                closeTutorModal();
-                loadAllTutors();
-                alert(`Tutor "${nome}" salvo com sucesso!`);
-
-            } catch (error) {
-                console.error('Erro ao salvar tutor:', error);
-                // Este alert agora exibirá a mensagem amigável do backend.
-                alert(`Erro: ${error.message}`);
-            } finally {
-                // Garante que o botão seja reativado, não importa o que aconteça.
-                saveButton.disabled = false;
-                saveButton.innerHTML = 'Salvar';
-            }
-        }
 
 
         // 5. FUNÇÃO PARA DELETAR UM TUTOR (DELETE)
