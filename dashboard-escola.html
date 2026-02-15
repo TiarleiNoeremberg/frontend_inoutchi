@@ -2658,23 +2658,14 @@
             }
         });
 
-        // 4. FUNÇÃO PARA SALVAR (CREATE E UPDATE)
+        // 4. FUNÇÃO PARA SALVAR (CREATE E UPDATE) - VERSÃO CORRIGIDA
         async function saveTutor(event) {
-            // Previne o comportamento padrão do formulário (que é recarregar a página)
             event.preventDefault();
 
-            // =========================================================================
-            // #### A SOLUÇÃO DEFINITIVA PARA DUPLICIDADE ####
-            // 1. Pega o formulário que disparou o evento.
-            // 2. Encontra o botão de submit DENTRO deste formulário.
-            // 3. Desabilita o botão IMEDIATAMENTE.
-            // Isso cria uma "trava" que impede que a segunda requisição (ambiental) seja processada.
-            // =========================================================================
             const form = event.target;
             const saveButton = form.querySelector('button[type="submit"]');
 
             if (saveButton.disabled) {
-                // Se o botão já estiver desabilitado, ignora esta chamada completamente.
                 return;
             }
             saveButton.disabled = true;
@@ -2682,9 +2673,9 @@
 
             const tutorId = document.getElementById('tutorId').value;
             const isEditing = !!tutorId;
+            const nome = document.getElementById('tutorNome').value.trim(); // Pega o nome para o alerta
 
             try {
-                const nome = document.getElementById('tutorNome').value.trim();
                 const email = document.getElementById('tutorEmail').value.trim();
                 const cpf = document.getElementById('tutorCpf').value.trim();
                 const senha = document.getElementById('tutorSenha').value;
@@ -2702,16 +2693,8 @@
                     delete payload.senha;
                 }
 
-                let url;
+                const url = isEditing ? `${API_URL}/api/tutores/${tutorId}` : `${API_URL}/api/escolas/${ESCOLA_ID}/tutores`;
                 const method = isEditing ? 'PUT' : 'POST';
-
-                if (isEditing) {
-                    // A rota de edição ainda é a genérica (precisaria de segurança no backend)
-                    url = `${API_URL}/api/tutores/${tutorId}`;
-                } else {
-                    // A rota de criação agora é a segura, específica da escola
-                    url = `${API_URL}/api/escolas/${ESCOLA_ID}/tutores`;
-                }
 
                 const response = await fetch(url, {
                     method: method,
@@ -2719,32 +2702,41 @@
                     body: JSON.stringify(payload)
                 });
 
-                // ======================= INÍCIO DA MUDANÇA =======================
-                // A lógica foi simplificada para tratar QUALQUER resposta não-ok como um erro,
-                // incluindo o status 409 (Conflict) que agora indica CPF/Email duplicado.
+                // ======================= LÓGICA CORRIGIDA E COMBINADA =======================
                 if (!response.ok) {
-                    // Tenta ler o corpo da resposta para obter a mensagem de erro específica do backend.
                     const errorData = await response.json().catch(() => ({}));
-                    // Usa a mensagem específica ('mensagem' do backend) ou a mensagem antiga ('message')
-                    // ou uma mensagem genérica final como fallback.
-                    throw new Error(errorData.mensagem || errorData.message || 'Erro ao processar a solicitação.');
-                }
-                // ======================= FIM DA MUDANÇA =======================
+                    const errorMessage = errorData.mensagem || errorData.message || 'Erro ao processar a solicitação.';
 
+                    // CASO ESPECIAL: Se for um conflito (CPF/Email duplicado)
+                    if (response.status === 409) {
+                        // Mostra a mensagem amigável de erro
+                        alert(`Aviso: ${errorMessage}`);
+                        // MAS continua para o fluxo de "sucesso", como na sua versão original
+                    } else {
+                        // Para todos os outros erros (400, 403, 500, etc.), joga a exceção
+                        throw new Error(errorMessage);
+                    }
+                }
+                // ======================= FIM DA CORREÇÃO =======================
+
+                // Esta parte agora é executada em caso de sucesso (2xx) OU em caso de conflito (409)
                 closeTutorModal();
                 loadAllTutors();
-                alert(`Tutor "${nome}" salvo com sucesso!`);
+                // Altera a mensagem de sucesso se não for um erro 409
+                if (response.status !== 409) {
+                    alert(`Tutor "${nome}" salvo com sucesso!`);
+                }
 
             } catch (error) {
+                // O bloco catch agora só lida com erros inesperados, não mais com o 409
                 console.error('Erro ao salvar tutor:', error);
-                // Este alert agora exibirá a mensagem amigável do backend.
                 alert(`Erro: ${error.message}`);
             } finally {
-                // Garante que o botão seja reativado, não importa o que aconteça.
                 saveButton.disabled = false;
                 saveButton.innerHTML = 'Salvar';
             }
         }
+
 
 
         // 5. FUNÇÃO PARA DELETAR UM TUTOR (DELETE)
