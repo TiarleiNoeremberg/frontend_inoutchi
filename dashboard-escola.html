@@ -1204,8 +1204,7 @@
                                 </div>
                             </div>
                             <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary"
-                                    onclick="closeTutorModal()">Cancelar</button>
+                                <button type="button" id="cancelTutorBtn" class="btn btn-secondary">Cancelar</button>
                                 <button type="submit" class="btn btn-primary">Salvar Tutor</button>
                             </div>
                         </form>
@@ -1663,7 +1662,6 @@
         document.addEventListener('DOMContentLoaded', async function () {
 
             // --- Definição de Funções de Controle de Modal ---
-            // Colocadas aqui para estarem disponíveis em todo o escopo
             function closeSalaModal() { document.getElementById('salaModal').style.display = 'none'; }
             function closeDiretorModal() { document.getElementById('diretorModal').style.display = 'none'; }
             function closeTransporteModal() { document.getElementById('transporteModal').style.display = 'none'; }
@@ -1671,52 +1669,35 @@
             function closeTutorModal() { document.getElementById('tutorModal').style.display = 'none'; }
             function closeSuccessModal() { document.getElementById('successModal').style.display = 'none'; }
 
-            // --- Bloco de Autenticação Inicial ---
+            // --- Bloco de Autenticação, Lógica de Formulários, Navegação (Tudo Mantido) ---
             try {
-                const response = await fetch(`${API_URL}/api/users/me`, {
-                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
-                });
-                if (!response.ok) throw new Error('Falha ao autenticar e carregar dados do usuário.');
+                const response = await fetch(`${API_URL}/api/users/me`, { headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` } });
+                if (!response.ok) throw new Error('Falha ao carregar dados do usuário.');
                 currentUser = await response.json();
             } catch (error) {
                 console.error("Erro crítico de inicialização:", error);
-                alert("Sessão inválida ou expirada. Por favor, faça o login novamente.");
+                alert("Sessão inválida ou expirada. Faça login novamente.");
                 window.location.href = 'login.html';
                 return;
             }
             if (!AUTH_TOKEN || !ESCOLA_ID) {
-                alert("Sessão inválida ou expirada. Por favor, faça o login novamente.");
+                alert("Sessão inválida ou expirada. Faça login novamente.");
                 window.location.href = 'login.html';
                 return;
             }
-
-            // --- Lógica de Formulários ---
-            const formHandlers = {
-                'salaForm': saveSala,
-                'diretorForm': saveDiretor,
-                'transporteForm': saveTransporte,
-                'tutorForm': saveTutor,
-                'alunoForm': saveAluno
-            };
+            const formHandlers = { 'salaForm': saveSala, 'diretorForm': saveDiretor, 'transporteForm': saveTransporte, 'tutorForm': saveTutor, 'alunoForm': saveAluno };
             for (const formId in formHandlers) {
                 const formElement = document.getElementById(formId);
-                if (formElement) {
-                    formElement.addEventListener('submit', formHandlers[formId]);
-                }
+                if (formElement) formElement.addEventListener('submit', formHandlers[formId]);
             }
-
-            // --- Gatilhos de Navegação e Botões "Adicionar" ---
             document.querySelector('a[data-target="salas"]').addEventListener('click', loadSalas);
             document.querySelector('a[data-target="diretores"]').addEventListener('click', loadDiretores);
             document.querySelector('a[data-target="transportes"]').addEventListener('click', () => loadTransportes(0));
             document.querySelector('a[data-target="tutores"]').addEventListener('click', () => loadAllTutors());
             document.querySelector('a[data-target="alunos"]').addEventListener('click', () => loadAlunos(0));
             document.querySelector('a[data-target="geolocalizacao"]').addEventListener('click', initMap);
-
             document.getElementById('btnAdicionarAluno')?.addEventListener('click', () => openAlunoModal());
             document.getElementById('btnAdicionarTutor')?.addEventListener('click', () => openTutorModal());
-
-            // --- Delegação de Eventos para Tabelas ---
             document.getElementById('alunosTableBody')?.addEventListener('click', function (event) {
                 const deleteButton = event.target.closest('.btn-delete');
                 if (!deleteButton) return;
@@ -1727,12 +1708,9 @@
                 if (!deleteButton) return;
                 deleteTutor(deleteButton.dataset.id, deleteButton.dataset.nome);
             });
-
-            // --- Listeners para Máscaras e Formatação de Campos ---
             const tutorNomeInput = document.getElementById('tutorNome');
             const tutorCpfInput = document.getElementById('tutorCpf');
             const tutorFoneInput = document.getElementById('tutorFone');
-
             if (tutorNomeInput) {
                 tutorNomeInput.addEventListener('blur', (e) => e.target.value = formatarNomeProprio(e.target.value));
                 tutorNomeInput.addEventListener('paste', (e) => setTimeout(() => e.target.value = formatarNomeProprio(e.target.value), 0));
@@ -1743,8 +1721,6 @@
             if (tutorFoneInput) {
                 tutorFoneInput.addEventListener('input', (e) => e.target.value = aplicarMascaraTelefone(e.target.value));
             }
-
-            // --- Lógica de Navegação por Abas ---
             const navLinks = document.querySelectorAll('.nav-link');
             const contentSections = document.querySelectorAll('.content-section');
             navLinks.forEach(link => {
@@ -1757,38 +1733,47 @@
                     const targetSection = document.getElementById(targetId + '-content');
                     if (targetSection) {
                         targetSection.classList.add('active');
-                        if (targetId === 'token-management-view') {
-                            loadAllTokens();
-                        }
+                        if (targetId === 'token-management-view') loadAllTokens();
                     }
                 });
             });
 
-            // =========================================================================
-            // ==== LÓGICA CENTRALIZADA E CORRETA PARA FECHAMENTO DE MODAIS ====
-            // =========================================================================
+            // =================================================================================
+            // ==== MASTER EVENT LISTENER (DELEGAÇÃO DE EVENTOS PARA FECHAR MODAIS) ====
+            // =================================================================================
+            // Este único listener gerencia TODOS os cliques da página para fechar modais.
+            document.addEventListener('click', function (event) {
 
-            // --- Gatilhos para os botões "Cancelar" e "Fechar" (usando IDs) ---
-            document.getElementById('cancelTutorBtn')?.addEventListener('click', closeTutorModal);
-            document.getElementById('closeTutorModalBtn')?.addEventListener('click', closeTutorModal);
-            document.getElementById('closeSuccessModalBtn')?.addEventListener('click', closeSuccessModal);
+                // --- PARTE 1: Lógica para fechar via BOTÕES (usando IDs) ---
+                // Ele verifica o ID do elemento que foi clicado.
+                const clickedId = event.target.id;
 
-            // Adicione aqui outros listeners para os botões de fechar dos seus outros modais
-            document.querySelector('#salaModal .close-button')?.addEventListener('click', closeSalaModal);
-            // document.getElementById('cancelSalaBtn')?.addEventListener('click', closeSalaModal); // Se tiver
-            document.querySelector('#alunoModal .close-button')?.addEventListener('click', closeAlunoModal);
-            // document.getElementById('cancelAlunoBtn')?.addEventListener('click', closeAlunoModal); // Se tiver
+                if (clickedId === 'cancelTutorBtn' || clickedId === 'closeTutorModalBtn') {
+                    closeTutorModal();
+                    return; // Encerra a função aqui para não checar a parte 2 desnecessariamente
+                }
+                if (clickedId === 'closeSuccessModalBtn') {
+                    closeSuccessModal();
+                    return;
+                }
+                // Use a classe para os botões 'x' que são iguais em todos os modais
+                if (event.target.classList.contains('close-button')) {
+                    // Encontra o modal pai do botão 'x' que foi clicado
+                    const modal = event.target.closest('.modal');
+                    if (modal) {
+                        // Fecha o modal específico
+                        modal.style.display = 'none';
+                    }
+                    return;
+                }
 
-
-            // --- ÚNICO Event Listener para cliques FORA dos modais ---
-            window.addEventListener('click', function (event) {
-                if (event.target == document.getElementById('salaModal')) closeSalaModal();
-                else if (event.target == document.getElementById('diretorModal')) closeDiretorModal();
-                else if (event.target == document.getElementById('transporteModal')) closeTransporteModal();
-                else if (event.target == document.getElementById('alunoModal')) closeAlunoModal();
-                else if (event.target == document.getElementById('tutorModal')) closeTutorModal();
-                else if (event.target == document.getElementById('successModal')) closeSuccessModal();
+                // --- PARTE 2: Lógica para fechar via CLIQUE EXTERNO (no fundo do modal) ---
+                // Esta parte só é executada se nenhum botão de fechar foi clicado.
+                if (event.target.classList.contains('modal')) {
+                    event.target.style.display = 'none';
+                }
             });
+
         });
 
         /**
