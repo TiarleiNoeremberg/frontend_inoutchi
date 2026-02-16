@@ -608,6 +608,12 @@
 </head>
 
 <body>
+    <!-- NOVO OVERLAY DE INICIALIZAÇÃO -->
+    <div id="startOverlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 2000; display: flex; justify-content: center; align-items: center; backdrop-filter: blur(5px);">
+        <button id="startButton" style="padding: 20px 40px; font-size: 2rem; font-weight: bold; color: white; background: #22c55e; border: none; border-radius: 12px; cursor: pointer; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+            ▶ INICIAR DASHBOARD
+        </button>
+    </div>
     <header class="header">
         <div class="sala-info">
             <!-- Removemos o h1 antigo e usamos o h1 para o período -->
@@ -675,8 +681,7 @@
             }
 
             async inicializar() {
-                this.initAudioContextManager();
-                console.log('=== INICIALIZANDO DASHBOARD SALA COM WEBSOCKET STOMP ===');
+                console.log('=== INICIALIZANDO DASHBOARD SALA ===');
                 if (!this.token || !this.tokenExpiry || new Date().getTime() > parseInt(this.tokenExpiry)) {
                     this.mostrarErro('Sessão expirada. Faça login novamente.');
                     setTimeout(() => this.redirecionarParaLogin(), 2000);
@@ -684,23 +689,23 @@
                 }
 
                 try {
+                    // Carrega dados que não dependem do WebSocket
                     await this.carregarUsuario();
                     if (!this.currentUser.roles.includes('ROLE_SALA')) {
-                        this.mostrarErro('Acesso negado. Esta área é exclusiva para salas.');
-                        setTimeout(() => this.redirecionarParaLogin(), 3000);
+                        // ... (código de erro de role) ...
                         return;
                     }
-
                     this.determinarSalaId();
                     if (!this.salaId) throw new Error('Não foi possível determinar o ID da sala.');
-
-                    await this.carregarDadosSala();
-                    await this.iniciarWebSocketStomp();
+                    
+                    await this.carregarDadosSala(); // Carrega a lista inicial de alunos
 
                     this.atualizarHora();
                     setInterval(() => this.atualizarHora(), 1000);
+                    
+                    // A inicialização do WebSocket agora é controlada pelo botão
+                    document.getElementById('startButton').addEventListener('click', () => this.startApplication());
 
-                    console.log('🎉 Dashboard inicializado e conectado!');
                 } catch (error) {
                     console.error('❌ Erro fatal durante a inicialização:', error);
                     this.mostrarErro('Erro ao carregar dashboard: ' + error.message);
@@ -935,45 +940,40 @@
                 oscillator.stop(this.audioContext.currentTime + 0.7);
             }
 
-            // GERENCIADOR CENTRAL DE ÁUDIO (VERSÃO ROBUSTA)
-            // Responsável por destravar o áudio no navegador em desktops e mobile.
-            initAudioContextManager() {
-                this.audioContext = null;
+            async startApplication() {
+                const overlay = document.getElementById('startOverlay');
+                const startButton = document.getElementById('startButton');
 
-                // Função única para desbloquear o áudio
-                const unlockAudio = async () => {
-                    // Se o contexto já existe e está 'rodando', não faz nada.
-                    if (this.audioContext && this.audioContext.state === 'running') {
-                        return;
-                    }
-
+                // 1. Tenta inicializar o Áudio
+                if (!this.audioContext) {
                     try {
-                        // Se o contexto não existe, cria um novo.
-                        if (!this.audioContext) {
-                            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                            console.log('✅ AudioContext CRIADO com sucesso após gesto do usuário.');
-                        }
-                        // Se já existe mas está 'suspenso', tenta resumir.
-                        else if (this.audioContext.state === 'suspended') {
+                        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                        // Tenta resumir caso esteja suspenso
+                        if (this.audioContext.state === 'suspended') {
                             await this.audioContext.resume();
-                            console.log('✅ AudioContext RESUMIDO com sucesso.');
                         }
-
-                        // Pré-carrega os sons essenciais assim que o áudio é liberado.
-                        await this.carregarSons();
-
+                        console.log('✅ AudioContext INICIADO e PRONTO.');
+                        await this.carregarSons(); // Carrega sons essenciais
                     } catch (e) {
-                        console.error('❌ Este navegador não suporta a Web Audio API.', e);
-                    } finally {
-                        // Remove os listeners após o sucesso para não rodar de novo.
-                        document.removeEventListener('click', unlockAudio);
-                        document.removeEventListener('touchend', unlockAudio);
+                        console.error('❌ Não foi possível iniciar o sistema de áudio.', e);
+                        alert('Seu navegador bloqueou o áudio. Algumas funcionalidades podem não funcionar.');
                     }
-                };
+                }
+                
+                // 2. Esconde o overlay
+                startButton.textContent = "CONECTANDO...";
+                overlay.style.opacity = '0';
+                setTimeout(() => {
+                    overlay.style.display = 'none';
+                }, 500);
 
-                // Adiciona listeners para clique (desktop) e toque (mobile).
-                document.addEventListener('click', unlockAudio);
-                document.addEventListener('touchend', unlockAudio);
+                // 3. SÓ AGORA, inicia a conexão em tempo real
+                try {
+                    await this.iniciarWebSocketStomp();
+                    console.log('🎉 Dashboard inicializado e conectado!');
+                } catch (error) {
+                    this.mostrarErro('Falha ao conectar ao servidor em tempo real.');
+                }
             }
 
             async carregarSons() {
