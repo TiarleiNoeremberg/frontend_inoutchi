@@ -373,6 +373,28 @@
             overflow-y: auto;
             max-height: 60vh;
         }
+
+        .location-status {
+            padding: 10px 15px;
+            border-radius: 6px;
+            border: 1px solid transparent;
+            margin-bottom: 10px;
+            text-align: center;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .location-status.location-error {
+            color: var(--danger-color);
+            background-color: rgba(220, 53, 69, 0.1);
+            border-color: rgba(220, 53, 69, 0.2);
+        }
+
+        .location-status.location-success {
+            color: var(--success-color);
+            background-color: rgba(40, 167, 69, 0.1);
+            border-color: rgba(40, 167, 69, 0.2);
+        }
     </style>
 </head>
 
@@ -1301,10 +1323,15 @@
             const btn = document.getElementById('confirmActionBtn');
             btn.blur();
             const { studentId, actionType, latitude, longitude } = btn.dataset;
-            console.log('Dados de solicitação:', { studentId, actionType, latitude, longitude });
 
-            if (!studentId || !latitude || !longitude)
-                return showAlert('Dados de localização ausentes.', 'danger');
+            if (!studentId || !latitude || !longitude) {
+                // Este erro já ocorre no modal, então podemos usar a mesma lógica.
+                const statusEl = document.getElementById('locationStatus');
+                statusEl.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Dados de localização ausentes. Tente novamente.';
+                statusEl.className = 'location-status location-error';
+                statusEl.style.display = 'block';
+                return;
+            }
 
             isActionProcessing = true;
             setModalLoading(true, actionType === 'entrada' ? 'Registrando...' : 'Solicitando...');
@@ -1325,8 +1352,6 @@
                     endpoint = '/api/presencas/saida/solicitar';
                     const student = students.find(s => s.id == studentId);
                     body.escolaId = student?.escolaId;
-
-                    console.log('Corpo da solicitação de saída:', body);
                 }
 
                 const response = await fetchWithAuth(endpoint, {
@@ -1337,24 +1362,50 @@
                 const responseData = await response.json();
                 console.log('Resposta da solicitação:', responseData);
 
+                // --- SUCESSO ---
                 showAlert(`Ação de ${actionType} registrada com sucesso!`, 'success');
                 actionLocationModalInstance.hide();
                 await refreshStudentsData();
 
-                // Verifica se o histórico do aluno modificado está aberto e o atualiza
                 if (historySection.style.display === 'block' && historyViewingStudentId == studentId) {
-                    console.log('Atualizando o histórico aberto para o aluno ID:', studentId);
-                    // Precisamos do nome do aluno, que pode ser pego do botão que abriu o modal
                     const student = students.find(s => s.id == studentId);
                     await viewStudentHistory(studentId, student.nome);
                 }
 
             } catch (error) {
-                console.error('Erro completo:', error);
-                showAlert(error.message, 'danger');
+                // ==========================================================
+                // ==== INÍCIO DA CORREÇÃO DE EXIBIÇÃO DE ERRO ====
+                // ==========================================================
+                console.error('Erro ao confirmar ação. Exibindo no modal:', error.message);
+
+                // ANTES: Exibia o alerta globalmente.
+                // showAlert(error.message, 'danger'); 
+
+                // AGORA: Exibe o erro diretamente DENTRO do modal.
+                const statusEl = document.getElementById('locationStatus');
+                const coordinatesEl = document.getElementById('coordinatesDisplay');
+
+                // Prepara e exibe a mensagem de erro no elemento de status.
+                statusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${error.message}`;
+                statusEl.className = 'location-status location-error';
+                statusEl.style.display = 'block';
+
+                // Esconde a exibição de coordenadas, pois o erro é o foco.
+                coordinatesEl.style.display = 'none';
+
+                // Permite ao usuário tentar obter a localização novamente.
+                document.getElementById('getLocationBtn').disabled = false;
+                // Mantém o botão de confirmação desabilitado até nova localização.
+                document.getElementById('confirmActionBtn').disabled = true;
+
+                // O bloco 'finally' abaixo cuidará de remover o overlay de loading.
+                // ==========================================================
+                // ==== FIM DA CORREÇÃO ====
+                // ==========================================================
+
             } finally {
                 isActionProcessing = false;
-                setModalLoading(false);
+                setModalLoading(false); // Esconde o spinner e revela a mensagem de erro.
             }
         }
 
