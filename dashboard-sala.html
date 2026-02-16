@@ -849,7 +849,7 @@
 
             processarSaidaConfirmada(mensagem) {
                 const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
-                
+
 
                 // 1. ANIMAÇÃO: Aplica a classe para a animação de saída.
                 if (alunoCard) {
@@ -935,23 +935,45 @@
                 oscillator.stop(this.audioContext.currentTime + 0.7);
             }
 
-            // GERENCIADOR CENTRAL DE ÁUDIO
-            // Responsável por destravar o áudio no navegador
+            // GERENCIADOR CENTRAL DE ÁUDIO (VERSÃO ROBUSTA)
+            // Responsável por destravar o áudio no navegador em desktops e mobile.
             initAudioContextManager() {
                 this.audioContext = null;
+
+                // Função única para desbloquear o áudio
                 const unlockAudio = async () => {
-                    if (!this.audioContext) {
-                        try {
-                            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                            console.log('✅ Contexto de Áudio INICIADO com sucesso após gesto do usuário.');
-                            await this.carregarSons(); // Pré-carrega os sons após destravar
-                        } catch (e) {
-                            console.error('❌ Este navegador não suporta a Web Audio API.', e);
-                        }
+                    // Se o contexto já existe e está 'rodando', não faz nada.
+                    if (this.audioContext && this.audioContext.state === 'running') {
+                        return;
                     }
-                    document.removeEventListener('click', unlockAudio);
+
+                    try {
+                        // Se o contexto não existe, cria um novo.
+                        if (!this.audioContext) {
+                            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                            console.log('✅ AudioContext CRIADO com sucesso após gesto do usuário.');
+                        }
+                        // Se já existe mas está 'suspenso', tenta resumir.
+                        else if (this.audioContext.state === 'suspended') {
+                            await this.audioContext.resume();
+                            console.log('✅ AudioContext RESUMIDO com sucesso.');
+                        }
+
+                        // Pré-carrega os sons essenciais assim que o áudio é liberado.
+                        await this.carregarSons();
+
+                    } catch (e) {
+                        console.error('❌ Este navegador não suporta a Web Audio API.', e);
+                    } finally {
+                        // Remove os listeners após o sucesso para não rodar de novo.
+                        document.removeEventListener('click', unlockAudio);
+                        document.removeEventListener('touchend', unlockAudio);
+                    }
                 };
+
+                // Adiciona listeners para clique (desktop) e toque (mobile).
                 document.addEventListener('click', unlockAudio);
+                document.addEventListener('touchend', unlockAudio);
             }
 
             async carregarSons() {
@@ -1327,20 +1349,29 @@
             }
 
             tocarAlertaOriginal() {
+                // Se o nosso contexto principal não foi iniciado, não há o que fazer.
+                if (!this.audioContext) {
+                    console.warn("Fallback de áudio falhou: AudioContext principal não existe.");
+                    return;
+                }
                 try {
-                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    const oscillator = audioContext.createOscillator();
-                    const gainNode = audioContext.createGain();
-                    oscillator.connect(gainNode); gainNode.connect(audioContext.destination);
-                    oscillator.frequency.setValueAtTime(400, audioContext.currentTime);
-                    oscillator.start(); oscillator.stop(audioContext.currentTime + 0.3);
-                } catch (e) { console.warn("Fallback de áudio falhou", e) }
+                    // Usa o this.audioContext principal, em vez de criar um novo.
+                    const oscillator = this.audioContext.createOscillator();
+                    const gainNode = this.audioContext.createGain();
+                    oscillator.connect(gainNode);
+                    gainNode.connect(this.audioContext.destination);
+                    oscillator.frequency.setValueAtTime(400, this.audioContext.currentTime);
+                    oscillator.start();
+                    oscillator.stop(this.audioContext.currentTime + 0.3);
+                } catch (e) {
+                    console.warn("Fallback de áudio falhou", e);
+                }
             }
 
-            
+
 
             processarNovaChamada(mensagem) {
-                
+
                 this.mostrarNotificacao('Presente na Escola', `${mensagem.alunoNome}`, 'info');
                 const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
                 if (alunoCard) this.aplicarDestaqueChamada(alunoCard, mensagem.tipoSolicitante);
