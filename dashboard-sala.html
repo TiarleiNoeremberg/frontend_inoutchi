@@ -1090,27 +1090,33 @@
                 }
             }
 
+            /**
+             * Adiciona um aluno na lista via WebSocket e RECALCULA TODOS os nomes de exibição
+             * para garantir que a lógica de homônimos seja aplicada corretamente.
+             * ESTA É A VERSÃO ÚNICA E CORRETA.
+             */
             atualizarAlunoPresente(alunoId, alunoNome, horario) {
-                // Verificar se o aluno já está na lista
                 const alunoExistente = this.alunos.find(a => a.id === alunoId);
 
                 if (!alunoExistente) {
-                    // Adicionar aluno à lista local
+                    // Adiciona o novo aluno à lista, APENAS com os dados essenciais.
                     this.alunos.push({
                         id: alunoId,
-                        nome: alunoNome,
+                        nome: alunoNome, // O nome COMPLETO é crucial aqui
                         status: 'PRESENTE'
                     });
 
-                    // Manter a lista ordenada alfabeticamente
-                    this.alunos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+                    console.log(`✅ Aluno ${alunoNome} adicionado à lista via WebSocket.`);
 
-                    console.log(`✅ Aluno ${alunoNome} adicionado instantaneamente via WebSocket`);
+                    // CHAMA A LÓGICA CENTRAL DE NOMES para reavaliar todos, incluindo o novo.
+                    this.atualizarNomesDeExibicao();
+
                 } else {
-                    console.log(`✅ Aluno ${alunoNome} já está na lista, atualizando...`);
+                    console.log(`✅ Aluno ${alunoNome} já está na lista, nada a fazer.`);
                 }
 
-                // Renderizar alunos (atualiza a interface)
+                // Reordena a lista para manter a ordem alfabética e renderiza.
+                this.alunos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
                 this.renderizarAlunos();
             }
 
@@ -1210,29 +1216,6 @@
                 }, 3000); // 3 segundos de tremor
             }
 
-            /**
-             * Adiciona ou atualiza um aluno na lista via WebSocket quando uma entrada é registrada.
-             */
-            atualizarAlunoPresente(alunoId, alunoNome, horario) {
-                // Verifica se o aluno já não está na lista para evitar duplicatas
-                const alunoExistente = this.alunos.find(a => a.id === alunoId);
-
-                if (!alunoExistente) {
-                    // Adiciona o novo aluno ao array de alunos
-                    this.alunos.push({
-                        id: alunoId,
-                        nome: alunoNome,
-                        status: 'PRESENTE' // Define o status inicial
-                    });
-                    // Reordena a lista de alunos alfabeticamente
-                    this.alunos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-                    console.log(`✅ Aluno ${alunoNome} adicionado instantaneamente via WebSocket`);
-                } else {
-                    console.log(`✅ Aluno ${alunoNome} já está na lista, atualizando...`);
-                }
-                // Renderiza novamente a lista de alunos na tela com o novo integrante
-                this.renderizarAlunos();
-            }
 
             /**
              * Exibe uma notificação flutuante (toast) na tela.
@@ -2410,7 +2393,7 @@
             }
 
             /**
-             * Nova função: Processa a lista de alunos para adicionar o status correto, ordenar
+             * Processa a lista de alunos para adicionar o status correto, ordenar
              * E TAMBÉM determinar o nome de exibição correto para cada um.
              * @param {object} data - Os dados brutos vindos da API.
              * @returns {Promise<Array>} A lista de alunos pronta para ser exibida, com a propriedade 'nomeDeExibicao'.
@@ -2418,53 +2401,19 @@
             async processarDadosAlunos(data) {
                 if (!data.alunos || !Array.isArray(data.alunos) || data.alunos.length === 0) {
                     console.log('✅ Nenhum aluno presente na sala.');
-                    return []; // Retorna um array vazio se não houver alunos.
+                    return [];
                 }
 
-                // --- INÍCIO DA NOVA INTELIGÊNCIA ---
+                // Atribui os alunos brutos à lista.
+                this.alunos = data.alunos;
 
-                // 1. Contar a frequência de cada PRIMEIRO nome.
-                const contagemPrimeirosNomes = new Map();
-                for (const aluno of data.alunos) {
-                    const primeiroNome = aluno.nome.trim().split(' ')[0].toLowerCase();
-                    contagemPrimeirosNomes.set(primeiroNome, (contagemPrimeirosNomes.get(primeiroNome) || 0) + 1);
-                }
-                console.log('[Nome Inteligente] Contagem de primeiros nomes:', contagemPrimeirosNomes);
+                // CHAMA A LÓGICA CENTRAL DE NOMES.
+                this.atualizarNomesDeExibicao();
 
-                // Função interna para capitalizar corretamente (ex: "joaquim" -> "Joaquim")
-                const capitalizar = (palavra) => palavra ? palavra.charAt(0).toUpperCase() + palavra.slice(1).toLowerCase() : '';
+                // Continua o processo para verificar status de saída, mas agora operando sobre 'this.alunos'.
+                const alunosComStatusFinal = await this.verificarStatusDeSaida(this.alunos);
 
-                // 2. Criar a nova lista de alunos, adicionando a propriedade 'nomeDeExibicao' em cada um.
-                const alunosComNomeDeExibicao = data.alunos.map(aluno => {
-                    const partesNome = aluno.nome.trim().split(' ').filter(p => p);
-                    const primeiroNomeOriginal = partesNome[0];
-                    const primeiroNomeLower = primeiroNomeOriginal.toLowerCase();
-
-                    let nomeParaExibir;
-
-                    // Se a contagem para este primeiro nome for > 1, há homônimos.
-                    if (contagemPrimeirosNomes.get(primeiroNomeLower) > 1) {
-                        const ultimoNome = partesNome.length > 1 ? partesNome[partesNome.length - 1] : '';
-                        nomeParaExibir = `${capitalizar(primeiroNomeOriginal)} ${capitalizar(ultimoNome)}`.trim();
-                        console.log(`[Nome Inteligente] "${aluno.nome}" será exibido como "${nomeParaExibir}" (HOMÔNIMO)`);
-                    } else {
-                        nomeParaExibir = capitalizar(primeiroNomeOriginal);
-                        console.log(`[Nome Inteligente] "${aluno.nome}" será exibido como "${nomeParaExibir}" (ÚNICO)`);
-                    }
-
-                    // Retorna o objeto do aluno enriquecido com a nova propriedade.
-                    return {
-                        ...aluno, // Mantém todas as propriedades originais (id, nome, etc.)
-                        nomeDeExibicao: nomeParaExibir // Adiciona o nome que será usado na tela
-                    };
-                });
-
-                // --- FIM DA NOVA INTELIGÊNCIA ---
-
-                // 3. Verifica o status real de saída para cada aluno (lógica que já tínhamos).
-                const alunosComStatusFinal = await this.verificarStatusDeSaida(alunosComNomeDeExibicao);
-
-                // 4. Ordena a lista final por nome completo original (para consistência).
+                // Ordena a lista final e a retorna.
                 return alunosComStatusFinal.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
             }
 
@@ -2847,6 +2796,47 @@
                     this.redirecionarParaLogin();
                 }
             }
+        }
+
+        /**
+             * FUNÇÃO DE INTELIGÊNCIA CENTRAL:
+             * Itera sobre a lista ATUAL de 'this.alunos' e adiciona ou atualiza
+             * a propriedade 'nomeDeExibicao' para cada aluno.
+             * Esta função é a ÚNICA fonte da verdade para a exibição de nomes.
+             */
+        atualizarNomesDeExibicao() {
+            if (!this.alunos || this.alunos.length === 0) {
+                return; // Não faz nada se a lista estiver vazia
+            }
+
+            // 1. Contar a frequência de cada PRIMEIRO nome na lista atual.
+            const contagemPrimeirosNomes = new Map();
+            for (const aluno of this.alunos) {
+                const primeiroNome = aluno.nome.trim().split(' ')[0].toLowerCase();
+                contagemPrimeirosNomes.set(primeiroNome, (contagemPrimeirosNomes.get(primeiroNome) || 0) + 1);
+            }
+
+            const capitalizar = (palavra) => palavra ? palavra.charAt(0).toUpperCase() + palavra.slice(1).toLowerCase() : '';
+
+            // 2. Itera NOVAMENTE, agora para atribuir o nome de exibição a cada aluno.
+            for (const aluno of this.alunos) {
+                const partesNome = aluno.nome.trim().split(' ').filter(p => p);
+                const primeiroNomeOriginal = partesNome[0];
+                const primeiroNomeLower = primeiroNomeOriginal.toLowerCase();
+
+                let nomeParaExibir;
+
+                if (contagemPrimeirosNomes.get(primeiroNomeLower) > 1) {
+                    const ultimoNome = partesNome.length > 1 ? partesNome[partesNome.length - 1] : '';
+                    nomeParaExibir = `${capitalizar(primeiroNomeOriginal)} ${capitalizar(ultimoNome)}`.trim();
+                } else {
+                    nomeParaExibir = capitalizar(primeiroNomeOriginal);
+                }
+
+                // Atribui a propriedade diretamente ao objeto do aluno no array.
+                aluno.nomeDeExibicao = nomeParaExibir;
+            }
+            console.log('[Nome Inteligente] Nomes de exibição foram recalculados para todos os alunos presentes.');
         }
 
         document.addEventListener('DOMContentLoaded', () => {
