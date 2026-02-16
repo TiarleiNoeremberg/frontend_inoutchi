@@ -1763,11 +1763,11 @@
                     return;
                 }
 
-                // Sua lógica de preparação do card (não muda)
+                // Lógica da animação do card (permanece igual)
                 console.log(`[UI] Iniciando destaque completo para ${alunoNome} (Solicitante: ${tipoSolicitante}).`);
                 alunoCard.classList.remove('tutor', 'diretor', 'token', 'sistema', 'transporte', 'pendente', 'destaque', 'confirmado', 'expandindo');
                 let classeCor = '';
-                switch (tipoSolicitante) {
+                switch (tipoSolicitante) { /* ... seu switch case ... */
                     case 'TUTOR': classeCor = 'tutor'; break;
                     case 'DIRETOR': classeCor = 'diretor'; break;
                     case 'SISTEMA': classeCor = 'sistema'; break;
@@ -1776,51 +1776,60 @@
                 }
                 alunoCard.classList.add(classeCor, 'pendente');
                 const horarioElement = alunoCard.querySelector('.aluno-horario');
-                if (horarioElement) {
-                    horarioElement.textContent = 'Aguardando Confirmação';
-                }
+                if (horarioElement) { horarioElement.textContent = 'Aguardando Confirmação'; }
                 const transformacao = this.calcularExpansaoCentralizada(alunoCard);
                 alunoCard.style.transform = transformacao;
                 alunoCard.classList.add('expandindo');
 
                 // ==========================================================
-                // ==== INÍCIO DA ORQUESTRAÇÃO DE ÁUDIO CORRIGIDA ====
+                // ==== INÍCIO DA NOVA ORQUESTRAÇÃO DE ÁUDIO SINCRONIZADA ====
                 // ==========================================================
                 try {
-                    // 1. TOCA e ESPERA o bip de alerta inicial terminar.
+                    // 1. COMEÇA a preparar a voz em segundo plano. Não esperamos aqui.
+                    const promessaDaVoz = this.prepararVozCartesia(chamada);
+
+                    // 2. TOCA o bip de alerta. O `await` garante que ele termine.
                     await this.tocarBipDeAlerta();
 
-                    // 2. SÓ ENTÃO, inicia a mensagem falada principal.
-                    const audioPromise = this.tocarAlertaDinamicoCartesia(chamada)
-                        .catch(() => {
-                            console.warn("[Fallback] API da Cartesia falhou. Tocando som de alerta genérico.");
-                            this.tocarAlertaOriginal();
-                        });
+                    // 3. O BIP ACABOU. AGORA sim, esperamos a voz (que já deve estar quase pronta).
+                    console.log("[SEQUÊNCIA] Bip finalizado. Aguardando a voz ficar pronta...");
+                    const bufferDaVoz = await promessaDaVoz;
 
-                    // 3. Garante uma duração MÍNIMA para a animação visual.
-                    const animationPromise = new Promise(resolve => setTimeout(resolve, 5000));
-
-                    // 4. Aguarda a tarefa MAIS LONGA (a fala ou os 5s).
-                    console.log(`[DESTAQUE] Aguardando a conclusão da fala e do tempo mínimo de 5s para ${alunoNome}...`);
-                    await Promise.all([audioPromise, animationPromise]);
-                    console.log(`[DESTAQUE] Sincronização completa para ${alunoNome}.`);
+                    // 4. Voz pronta, toca imediatamente.
+                    await this.tocarBufferDeAudio(bufferDaVoz);
+                    console.log("[SEQUÊNCIA] Voz finalizada. Sequência de áudio completa.");
 
                 } catch (error) {
-                    // Se o bip inicial falhar, o erro é capturado aqui.
-                    console.error(`💥 Erro na sequência de áudio para ${alunoNome}, mas o processo visual continuará.`, error);
-                    // Mesmo com erro de áudio, garantimos a duração mínima do destaque visual.
-                    await new Promise(resolve => setTimeout(resolve, 5000));
-                }
-                // ==========================================================
-                // ==== FIM DA ORQUESTRAÇÃO DE ÁUDIO CORRIGIDA ====
-                // ==========================================================
-                finally {
-                    // Sua lógica de finalização da animação (não muda)
+                    console.error(`💥 Erro na sequência de áudio para ${alunoNome}. Tocando fallback.`, error);
+                    this.tocarAlertaOriginal(); // Toca um som de fallback sintetizado
+                } finally {
+                    // Espera um tempo mínimo para a animação visual e depois a finaliza
+                    await new Promise(resolve => setTimeout(resolve, 3000));
                     this.finalizarExpansao(alunoCard, alunoId);
                     console.log(`🏁 Processo de destaque finalizado para: ${alunoNome}.`);
                 }
+                // ==========================================================
+                // ==== FIM DA NOVA ORQUESTRAÇÃO ====
+                // ==========================================================
             }
 
+            tocarBufferDeAudio(audioBuffer) {
+                try {
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const source = audioContext.createBufferSource();
+                    source.buffer = audioBuffer;
+                    source.connect(audioContext.destination);
+
+                    // Retorna uma promessa que resolve quando o som TERMINA
+                    return new Promise(resolve => {
+                        source.onended = resolve;
+                        source.start(0);
+                    });
+                } catch (error) {
+                    console.error("[AudioPlayer] Erro ao tocar buffer de áudio:", error);
+                    return Promise.reject(error);
+                }
+            }
 
             tocarBipDeAlerta() {
                 return new Promise((resolve, reject) => {
@@ -2561,33 +2570,19 @@
                 });
             }
 
-            // =========================================================================================
-            // ==== FUNÇÃO DE ÁUDIO DINÂMICO (VERSÃO COM LÓGICA DE PARENTESCO ESPECÍFICO) ====
-            // =========================================================================================
-            async tocarAlertaDinamicoCartesia(chamada) {
+            async prepararVozCartesia(chamada) {
                 const CARTESIA_API_KEY = "sk_car_L661CH8Js5DZxLg9A72jyT";
 
                 return new Promise(async (resolve, reject) => {
                     try {
-                        const vozesDisponiveis = [
-                            "b0f46533-d4bb-493f-a26f-a99e1f2e86e3", // Heitor
-                            "700d1ee3-a641-4018-ba6e-899dcadc9e2b", // Luana
-                            "1cf751f6-8749-43ab-98bd-230dd633abdb", // Ana Paula
-                            "2f4d204f-a5dc-4196-81bc-155986b76ab6"  // Mirella
-                        ];
-                        const indiceAleatorio = Math.floor(Math.random() * vozesDisponiveis.length);
-                        const vozSorteadaId = vozesDisponiveis[indiceAleatorio];
-
-                        // --- CORREÇÃO DO NOME ---
-                        // Usamos a nova função para pegar apenas o primeiro e o último nome para o áudio.
+                        // ... (toda a lógica de sortear voz e montar o texto permanece EXATAMENTE IGUAL) ...
+                        const vozesDisponiveis = ["b0f46533-d4bb-493f-a26f-a99e1f2e86e3", "700d1ee3-a641-4018-ba6e-899dcadc9e2b", "1cf751f6-8749-43ab-98bd-230dd633abdb", "2f4d204f-a5dc-4196-81bc-155986b76ab6"];
+                        const vozSorteadaId = vozesDisponiveis[Math.floor(Math.random() * vozesDisponiveis.length)];
                         const nomeParaAudio = this.obterPrimeiroEUltimoNome(chamada.alunoNome);
-
                         let textoParaVoz = `Atenção, ${nomeParaAudio}! `;
                         let solicitanteAnuncio = '';
                         const { tipoSolicitante, parentesco } = chamada;
-
                         const chaveDeBusca = (tipoSolicitante === 'TUTOR' && parentesco) ? parentesco.toUpperCase() : tipoSolicitante.toUpperCase();
-
                         switch (chaveDeBusca) {
                             case 'PAI': solicitanteAnuncio = 'Seu pai'; break;
                             case 'MAE': solicitanteAnuncio = 'Sua mãe'; break;
@@ -2600,39 +2595,26 @@
                             default: solicitanteAnuncio = 'Seu responsável, um tutor autorizado,';
                         }
                         textoParaVoz += solicitanteAnuncio + " está aguardando na saída.";
-
-                        console.log(`[Cartesia TTS] Texto a ser gerado: "${textoParaVoz}"`);
-
-                        const payload = {
-                            model_id: "sonic-3",
-                            transcript: textoParaVoz,
-                            voice: { id: vozSorteadaId, mode: "id" },
-                            generation_config: { speed: 0.9, emotion: "scared" },
-                            output_format: { container: "wav", encoding: "pcm_f32le", sample_rate: 44100 },
-                            language: "pt"
-                        };
-
-                        const response = await fetch('https://api.cartesia.ai/tts/bytes', {
-                            method: 'POST',
-                            headers: { 'Cartesia-Version': '2025-04-16', 'X-API-Key': CARTESIA_API_KEY, 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
-                        });
-
+                        const payload = { model_id: "sonic-3", transcript: textoParaVoz, voice: { id: vozSorteadaId, mode: "id" }, generation_config: { speed: 0.9, emotion: "scared" }, output_format: { container: "wav", encoding: "pcm_f32le", sample_rate: 44100 }, language: "pt" };
+                        const response = await fetch('https://api.cartesia.ai/tts/bytes', { method: 'POST', headers: { 'Cartesia-Version': '2025-04-16', 'X-API-Key': CARTESIA_API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                         if (!response.ok) { throw new Error(`Falha na API da Cartesia: ${response.status} ${response.statusText}`); }
 
+                        // ===============================================
+                        // ==== MUDANÇA PRINCIPAL ACONTECE AQUI ====
+                        // ===============================================
+                        // Decodifica o áudio, mas NÃO o toca.
                         const audioBytes = await response.arrayBuffer();
                         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
                         const audioBuffer = await audioContext.decodeAudioData(audioBytes);
 
-                        const source = audioContext.createBufferSource();
-                        source.buffer = audioBuffer;
-                        source.connect(audioContext.destination);
-                        source.onended = () => { console.log("[Cartesia TTS] Reprodução de áudio finalizada."); resolve(); };
-                        source.start(0);
+                        // Em vez de tocar, resolve a promessa entregando o áudio pronto.
+                        console.log("[Cartesia TTS] Buffer de áudio preparado e pronto para ser entregue.");
+                        resolve(audioBuffer);
+                        // ===============================================
 
                     } catch (error) {
-                        console.error("[Cartesia TTS] Erro ao gerar ou tocar áudio:", error);
-                        reject(error); // Apenas rejeita. O som de fallback será tocado no outro método.
+                        console.error("[Cartesia TTS] Erro ao preparar áudio:", error);
+                        reject(error);
                     }
                 });
             }
