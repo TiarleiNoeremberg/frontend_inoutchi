@@ -1787,24 +1787,44 @@
                 alunoCard.style.transform = transformacao;
                 alunoCard.classList.add('expandindo');
 
-                // Passo 4: LÓGICA DE SINCRONIZAÇÃO DE ÁUDIO E TEMPO MÍNIMO
-                const audioPromise = this.tocarAlertaDinamicoCartesia(chamada);
+                // ==========================================================
+                // ==== INÍCIO DO BLOCO CORRIGIDO ====
+                // ==========================================================
+                // Passo 4: ORQUESTRAÇÃO DOS SONS E SINCRONIZAÇÃO DA ANIMAÇÃO
 
-                // Criamos uma segunda promessa que garante uma duração mínima de 3 segundos para o destaque visual.
-                const animationPromise = new Promise(resolve => setTimeout(resolve, 3000));
+                // 1. Toca o "bip" de alerta inicial (rápido e não bloqueante).
+                // Este é o som que você havia perdido.
+                this.tocarAlertaExpansao(chamada);
+
+                // 2. Prepara a promessa para a mensagem falada principal (Cartesia), com fallback.
+                const audioPromise = this.tocarAlertaDinamicoCartesia(chamada)
+                    .catch(() => {
+                        // Se a API da Cartesia falhar, toca o som de alerta longo original
+                        // como garantia para não haver silêncio.
+                        console.warn("[Fallback] API da Cartesia falhou. Tocando som de alerta genérico.");
+                        this.tocarAlertaOriginal();
+                    });
+
+                // 3. Garante uma duração MÍNIMA para a animação, dando tempo para a fala.
+                // Aumentamos de 3s para 5s para garantir que a fala completa tenha tempo de terminar.
+                const animationPromise = new Promise(resolve => setTimeout(resolve, 5000));
 
                 try {
-                    // Promise.all vai esperar pela tarefa MAIS LONGA:
-                    // - Se o áudio durar 5s, ele esperará os 5s.
-                    // - Se o áudio durar 0.5s, ele esperará os 3s do cronômetro.
-                    // Isso garante que o destaque visual nunca dure menos de 3 segundos.
-                    console.log(`[DESTAQUE] Aguardando a conclusão do áudio E do tempo mínimo de 3s para ${alunoNome}...`);
+                    // Promise.all continua esperando pela tarefa MAIS LONGA (a fala ou os 5s).
+                    console.log(`[DESTAQUE] Aguardando a conclusão da fala E do tempo mínimo de 5s para ${alunoNome}...`);
                     await Promise.all([audioPromise, animationPromise]);
                     console.log(`[DESTAQUE] Sincronização completa para ${alunoNome}.`);
 
                 } catch (error) {
-                    console.error(`💥 Erro durante a execução sincronizada para ${alunoNome}:`, error);
-                } finally {
+                    // O erro do áudio já foi tratado no .catch() acima, então aqui só precisamos
+                    // registrar caso algo mais dê errado, mas a aplicação continuará.
+                    console.error(`💥 Erro inesperado durante a sincronização para ${alunoNome}:`, error);
+                }
+                // ==========================================================
+                // ==== FIM DO BLOCO CORRIGIDO ====
+                // ==========================================================
+
+                finally {
                     // Passo 5: Sua lógica de finalização, 100% preservada.
                     this.finalizarExpansao(alunoCard, alunoId);
                     console.log(`🏁 Processo de destaque finalizado para: ${alunoNome}.`);
@@ -2528,102 +2548,57 @@
 
                 return new Promise(async (resolve, reject) => {
                     try {
-                        // =======================================================================
-                        // ==== INÍCIO DA LÓGICA DE SORTEIO DE VOZ ====
-                        // =======================================================================
-                        // 1. Criamos uma lista com os IDs das suas vozes escolhidas.
                         const vozesDisponiveis = [
                             "b0f46533-d4bb-493f-a26f-a99e1f2e86e3", // Heitor
                             "700d1ee3-a641-4018-ba6e-899dcadc9e2b", // Luana
                             "1cf751f6-8749-43ab-98bd-230dd633abdb", // Ana Paula
                             "2f4d204f-a5dc-4196-81bc-155986b76ab6"  // Mirella
                         ];
-
-                        // 2. Sorteamos um ID de voz aleatório da lista.
                         const indiceAleatorio = Math.floor(Math.random() * vozesDisponiveis.length);
                         const vozSorteadaId = vozesDisponiveis[indiceAleatorio];
 
-                        console.log(`[Cartesia TTS] Voz sorteada para esta chamada: ${vozSorteadaId}`);
+                        // --- CORREÇÃO DO NOME ---
+                        // Usamos a nova função para pegar apenas o primeiro e o último nome para o áudio.
+                        const nomeParaAudio = this.obterPrimeiroEUltimoNome(chamada.alunoNome);
 
-                        // =======================================================================
-                        // ==== INÍCIO DA LÓGICA DE GERAÇÃO DE TEXTO REFINADA (BASEADA NA SUA) ====
-                        // =======================================================================
-                        const { alunoNome, tipoSolicitante, parentesco } = chamada;
-                        let textoParaVoz = `Atenção, ${alunoNome}! `;
+                        let textoParaVoz = `Atenção, ${nomeParaAudio}! `;
                         let solicitanteAnuncio = '';
+                        const { tipoSolicitante, parentesco } = chamada;
 
-                        // Lógica unificada para determinar o anúncio, preservando suas frases.
                         const chaveDeBusca = (tipoSolicitante === 'TUTOR' && parentesco) ? parentesco.toUpperCase() : tipoSolicitante.toUpperCase();
 
                         switch (chaveDeBusca) {
-                            case 'PAI':
-                                solicitanteAnuncio = 'Seu pai';
-                                break;
-                            case 'MAE':
-                                solicitanteAnuncio = 'Sua mãe';
-                                break;
-                            case 'IRMAO':
-                                solicitanteAnuncio = 'Seu irmão ou irmã';
-                                break;
-                            case 'PARENTE':
-                                solicitanteAnuncio = 'Um parente seu'; // Sua frase customizada
-                                break;
-                            case 'AMIGO':
-                                solicitanteAnuncio = 'Um amigo de sua família'; // Sua frase customizada
-                                break;
-                            case 'TRANSPORTE':
-                                solicitanteAnuncio = 'A van escolar';
-                                break;
-                            case 'DIRETOR':
-                                solicitanteAnuncio = 'A direção da escola';
-                                break;
-                            case 'SISTEMA':
-                                solicitanteAnuncio = 'O sistema';
-                                break;
-                            default:
-                                // Fallback genérico para casos não mapeados.
-                                solicitanteAnuncio = 'Seu responsável, um tutor autorizado,';
+                            case 'PAI': solicitanteAnuncio = 'Seu pai'; break;
+                            case 'MAE': solicitanteAnuncio = 'Sua mãe'; break;
+                            case 'IRMAO': solicitanteAnuncio = 'Seu irmão ou irmã'; break;
+                            case 'PARENTE': solicitanteAnuncio = 'Um parente seu'; break;
+                            case 'AMIGO': solicitanteAnuncio = 'Um amigo de sua família'; break;
+                            case 'TRANSPORTE': solicitanteAnuncio = 'A van escolar'; break;
+                            case 'DIRETOR': solicitanteAnuncio = 'A direção da escola'; break;
+                            case 'SISTEMA': solicitanteAnuncio = 'O sistema'; break;
+                            default: solicitanteAnuncio = 'Seu responsável, um tutor autorizado,';
                         }
-
-                        // Monta a frase final.
                         textoParaVoz += solicitanteAnuncio + " está aguardando na saída.";
 
                         console.log(`[Cartesia TTS] Texto a ser gerado: "${textoParaVoz}"`);
 
-                        // ================================================================================
-                        // ==== INÍCIO DO PAYLOAD COM VOZ SORTEADA E CUSTOMIZAÇÃO DE PRONÚNCIA ====
-                        // ================================================================================
                         const payload = {
                             model_id: "sonic-3",
                             transcript: textoParaVoz,
-                            voice: {
-                                mode: "id",
-                                id: vozSorteadaId // Usa a voz que foi sorteada.
-                            },
-                            // Configurações de pronúncia conforme solicitado.
-                            generation_config: {
-                                speed: 0.9,
-                                emotion: "scared"
-                            },
+                            voice: { id: vozSorteadaId, mode: "id" },
+                            generation_config: { speed: 0.9, emotion: "scared" },
                             output_format: { container: "wav", encoding: "pcm_f32le", sample_rate: 44100 },
                             language: "pt"
                         };
 
                         const response = await fetch('https://api.cartesia.ai/tts/bytes', {
                             method: 'POST',
-                            headers: {
-                                'Cartesia-Version': '2025-04-16',
-                                'X-API-Key': CARTESIA_API_KEY,
-                                'Content-Type': 'application/json'
-                            },
+                            headers: { 'Cartesia-Version': '2025-04-16', 'X-API-Key': CARTESIA_API_KEY, 'Content-Type': 'application/json' },
                             body: JSON.stringify(payload)
                         });
 
-                        if (!response.ok) {
-                            throw new Error(`Falha na API da Cartesia: ${response.status} ${response.statusText}`);
-                        }
+                        if (!response.ok) { throw new Error(`Falha na API da Cartesia: ${response.status} ${response.statusText}`); }
 
-                        // O resto da função continua exatamente como a sua.
                         const audioBytes = await response.arrayBuffer();
                         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
                         const audioBuffer = await audioContext.decodeAudioData(audioBytes);
@@ -2631,20 +2606,28 @@
                         const source = audioContext.createBufferSource();
                         source.buffer = audioBuffer;
                         source.connect(audioContext.destination);
-
-                        source.onended = () => {
-                            console.log("[Cartesia TTS] Reprodução de áudio finalizada.");
-                            resolve();
-                        };
-
+                        source.onended = () => { console.log("[Cartesia TTS] Reprodução de áudio finalizada."); resolve(); };
                         source.start(0);
 
                     } catch (error) {
                         console.error("[Cartesia TTS] Erro ao gerar ou tocar áudio:", error);
-                        this.tocarAlertaOriginal();
-                        reject(error);
+                        reject(error); // Apenas rejeita. O som de fallback será tocado no outro método.
                     }
                 });
+            }
+
+            // =======================================================================
+            // ==== FUNÇÃO AUXILIAR PARA PEGAR O PRIMEIRO E O ÚLTIMO NOME ====
+            // =======================================================================
+            obterPrimeiroEUltimoNome(nomeCompleto) {
+                if (!nomeCompleto || !nomeCompleto.trim()) {
+                    return "Aluno"; // Retorna um padrão se o nome estiver vazio
+                }
+                const partesNome = nomeCompleto.trim().split(' ').filter(p => p); // Remove espaços extras
+                if (partesNome.length <= 1) {
+                    return nomeCompleto; // Se só tiver um nome, retorna ele mesmo
+                }
+                return `${partesNome[0]} ${partesNome[partesNome.length - 1]}`;
             }
 
 
