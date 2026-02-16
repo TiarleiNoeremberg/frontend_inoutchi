@@ -1763,10 +1763,9 @@
                     return;
                 }
 
-                // Passos 1, 2 e 3: Sua lógica de preparação e animação, 100% preservada.
+                // Sua lógica de preparação do card (não muda)
                 console.log(`[UI] Iniciando destaque completo para ${alunoNome} (Solicitante: ${tipoSolicitante}).`);
                 alunoCard.classList.remove('tutor', 'diretor', 'token', 'sistema', 'transporte', 'pendente', 'destaque', 'confirmado', 'expandindo');
-
                 let classeCor = '';
                 switch (tipoSolicitante) {
                     case 'TUTOR': classeCor = 'tutor'; break;
@@ -1775,77 +1774,84 @@
                     case 'TRANSPORTE': classeCor = 'transporte'; break;
                     default: classeCor = 'token'; break;
                 }
-                console.log(`[UI] Aplicando classe de cor: '${classeCor}' (Baseado no solicitante: '${tipoSolicitante}')`);
                 alunoCard.classList.add(classeCor, 'pendente');
-
                 const horarioElement = alunoCard.querySelector('.aluno-horario');
                 if (horarioElement) {
                     horarioElement.textContent = 'Aguardando Confirmação';
                 }
-
                 const transformacao = this.calcularExpansaoCentralizada(alunoCard);
                 alunoCard.style.transform = transformacao;
                 alunoCard.classList.add('expandindo');
 
                 // ==========================================================
-                // ==== INÍCIO DO BLOCO CORRIGIDO ====
+                // ==== INÍCIO DA ORQUESTRAÇÃO DE ÁUDIO CORRIGIDA ====
                 // ==========================================================
-                // Passo 4: ORQUESTRAÇÃO DOS SONS E SINCRONIZAÇÃO DA ANIMAÇÃO
-
-                // 1. Toca o "bip" de alerta inicial (rápido e não bloqueante).
-                // Este é o som que você havia perdido.
-                this.tocarBipDeAlerta();
-
-                // 2. Prepara a promessa para a mensagem falada principal (Cartesia), com fallback.
-                const audioPromise = this.tocarAlertaDinamicoCartesia(chamada)
-                    .catch(() => {
-                        // Se a API da Cartesia falhar, toca o som de alerta longo original
-                        // como garantia para não haver silêncio.
-                        console.warn("[Fallback] API da Cartesia falhou. Tocando som de alerta genérico.");
-                        this.tocarAlertaOriginal();
-                    });
-
-                // 3. Garante uma duração MÍNIMA para a animação, dando tempo para a fala.
-                // Aumentamos de 3s para 5s para garantir que a fala completa tenha tempo de terminar.
-                const animationPromise = new Promise(resolve => setTimeout(resolve, 5000));
-
                 try {
-                    // Promise.all continua esperando pela tarefa MAIS LONGA (a fala ou os 5s).
-                    console.log(`[DESTAQUE] Aguardando a conclusão da fala E do tempo mínimo de 5s para ${alunoNome}...`);
+                    // 1. TOCA e ESPERA o bip de alerta inicial terminar.
+                    await this.tocarBipDeAlerta();
+
+                    // 2. SÓ ENTÃO, inicia a mensagem falada principal.
+                    const audioPromise = this.tocarAlertaDinamicoCartesia(chamada)
+                        .catch(() => {
+                            console.warn("[Fallback] API da Cartesia falhou. Tocando som de alerta genérico.");
+                            this.tocarAlertaOriginal();
+                        });
+
+                    // 3. Garante uma duração MÍNIMA para a animação visual.
+                    const animationPromise = new Promise(resolve => setTimeout(resolve, 5000));
+
+                    // 4. Aguarda a tarefa MAIS LONGA (a fala ou os 5s).
+                    console.log(`[DESTAQUE] Aguardando a conclusão da fala e do tempo mínimo de 5s para ${alunoNome}...`);
                     await Promise.all([audioPromise, animationPromise]);
                     console.log(`[DESTAQUE] Sincronização completa para ${alunoNome}.`);
 
                 } catch (error) {
-                    // O erro do áudio já foi tratado no .catch() acima, então aqui só precisamos
-                    // registrar caso algo mais dê errado, mas a aplicação continuará.
-                    console.error(`💥 Erro inesperado durante a sincronização para ${alunoNome}:`, error);
+                    // Se o bip inicial falhar, o erro é capturado aqui.
+                    console.error(`💥 Erro na sequência de áudio para ${alunoNome}, mas o processo visual continuará.`, error);
+                    // Mesmo com erro de áudio, garantimos a duração mínima do destaque visual.
+                    await new Promise(resolve => setTimeout(resolve, 5000));
                 }
                 // ==========================================================
-                // ==== FIM DO BLOCO CORRIGIDO ====
+                // ==== FIM DA ORQUESTRAÇÃO DE ÁUDIO CORRIGIDA ====
                 // ==========================================================
-
                 finally {
-                    // Passo 5: Sua lógica de finalização, 100% preservada.
+                    // Sua lógica de finalização da animação (não muda)
                     this.finalizarExpansao(alunoCard, alunoId);
                     console.log(`🏁 Processo de destaque finalizado para: ${alunoNome}.`);
                 }
-
             }
+
 
             tocarBipDeAlerta() {
-                try {
-                    // Caminho direto para o arquivo de alerta que era usado antes.
-                    const urlAudio = 'https://tiarleinoeremberg.github.io/frontend_inoutchi/assets/mp3/Alertas/Alerta.mp3';
-                    const audio = new Audio(urlAudio);
-                    audio.volume = 0.6; // Deixamos um pouco mais baixo para não competir com a voz principal.
-                    audio.play().catch(error => {
-                        console.warn("Falha ao tocar o bip de alerta inicial:", error);
-                    });
-                    console.log("[ÁUDIO] Bip de alerta inicial disparado.");
-                } catch (error) {
-                    console.error("Erro ao tentar tocar o bip de alerta:", error);
-                }
+                return new Promise((resolve, reject) => {
+                    try {
+                        const urlAudio = 'https://tiarleinoeremberg.github.io/frontend_inoutchi/assets/mp3/Alertas/Alerta.mp3';
+                        const audio = new Audio(urlAudio);
+                        audio.volume = 0.7; // Aumentei um pouco o volume para destaque
+
+                        // Quando o som terminar de tocar, ele avisa que terminou (resolve)
+                        audio.onended = () => {
+                            console.log("[ÁUDIO] Bip de alerta inicial finalizado.");
+                            resolve();
+                        };
+
+                        // Se der erro, ele avisa que falhou (reject)
+                        audio.onerror = (error) => {
+                            console.warn("Falha ao tocar o bip de alerta inicial:", error);
+                            reject(error);
+                        };
+
+                        // Toca o som
+                        audio.play().catch(reject);
+                        console.log("[ÁUDIO] Bip de alerta inicial disparado.");
+
+                    } catch (error) {
+                        console.error("Erro ao tentar construir o bip de alerta:", error);
+                        reject(error);
+                    }
+                });
             }
+
 
             // 🎯 MÉTODO PARA TOCAR ALERTA PENDENTE (se não existir)
             tocarAlertaPendente() {
