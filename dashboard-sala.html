@@ -1748,12 +1748,6 @@
                 }
             }
 
-            /**
-             * Executa a animação e o som para um aluno e retorna uma Promise 
-             * que resolve quando todo o processo termina (após os 3 segundos).
-             * @param {object} chamada - O objeto da chamada contendo alunoId, alunoNome, etc.
-             */
-            // 🎯 ATUALIZAR: Função de destaque agora sincroniza áudio e animação
             async executarDestaqueCompleto(chamada) {
                 const { alunoId, alunoNome, tipoSolicitante } = chamada;
                 const alunoCard = document.querySelector(`[data-aluno-id="${alunoId}"]`);
@@ -1767,7 +1761,7 @@
                 console.log(`[UI] Iniciando destaque completo para ${alunoNome} (Solicitante: ${tipoSolicitante}).`);
                 alunoCard.classList.remove('tutor', 'diretor', 'token', 'sistema', 'transporte', 'pendente', 'destaque', 'confirmado', 'expandindo');
                 let classeCor = '';
-                switch (tipoSolicitante) { /* ... seu switch case ... */
+                switch (tipoSolicitante) {
                     case 'TUTOR': classeCor = 'tutor'; break;
                     case 'DIRETOR': classeCor = 'diretor'; break;
                     case 'SISTEMA': classeCor = 'sistema'; break;
@@ -1781,37 +1775,44 @@
                 alunoCard.style.transform = transformacao;
                 alunoCard.classList.add('expandindo');
 
-                // ==========================================================
-                // ==== INÍCIO DA NOVA ORQUESTRAÇÃO DE ÁUDIO SINCRONIZADA ====
-                // ==========================================================
                 try {
-                    // 1. COMEÇA a preparar a voz em segundo plano. Não esperamos aqui.
-                    const promessaDaVoz = this.prepararVozCartesia(chamada);
+                    // 1. Promessa que representa a sequência completa de áudio.
+                    //    Envolvemos em uma função auto-executável para organizar.
+                    const promessaSequenciaAudio = (async () => {
+                        try {
+                            const promessaDaVoz = this.prepararVozCartesia(chamada);
+                            await this.tocarBipDeAlerta();
+                            console.log("[SEQUÊNCIA] Bip finalizado. Aguardando a voz ficar pronta...");
+                            const bufferDaVoz = await promessaDaVoz;
+                            await this.tocarBufferDeAudio(bufferDaVoz);
+                            console.log("[SEQUÊNCIA] Voz finalizada. Sequência de áudio completa.");
+                        } catch (audioError) {
+                            console.error(`💥 Erro na sequência de áudio para ${alunoNome}. Tocando fallback.`, audioError);
+                            this.tocarAlertaOriginal(); // Toca um som de fallback
+                        }
+                    })();
 
-                    // 2. TOCA o bip de alerta. O `await` garante que ele termine.
-                    await this.tocarBipDeAlerta();
+                    // 2. Promessa que representa o tempo MÍNIMO que o card deve ficar expandido.
+                    const promessaTempoMinimo = new Promise(resolve => setTimeout(resolve, 3000));
 
-                    // 3. O BIP ACABOU. AGORA sim, esperamos a voz (que já deve estar quase pronta).
-                    console.log("[SEQUÊNCIA] Bip finalizado. Aguardando a voz ficar pronta...");
-                    const bufferDaVoz = await promessaDaVoz;
-
-                    // 4. Voz pronta, toca imediatamente.
-                    await this.tocarBufferDeAudio(bufferDaVoz);
-                    console.log("[SEQUÊNCIA] Voz finalizada. Sequência de áudio completa.");
+                    // 3. O PONTO-CHAVE: Espera pelas DUAS promessas.
+                    //    A execução só continua quando a MAIS LENTA das duas terminar.
+                    console.log("[SINCRONIA] Aguardando o fim do áudio E o tempo mínimo de 3s.");
+                    await Promise.all([promessaSequenciaAudio, promessaTempoMinimo]);
+                    console.log("[SINCRONIA] Condições atendidas. Recolhendo o card agora.");
 
                 } catch (error) {
-                    console.error(`💥 Erro na sequência de áudio para ${alunoNome}. Tocando fallback.`, error);
-                    this.tocarAlertaOriginal(); // Toca um som de fallback sintetizado
+                    // Este catch agora é para erros imprevistos na lógica do Promise.all
+                    console.error("Erro inesperado na lógica de sincronização:", error);
                 } finally {
-                    // Espera um tempo mínimo para a animação visual e depois a finaliza
-                    await new Promise(resolve => setTimeout(resolve, 3000));
+                    // 4. ESTE BLOCO AGORA EXECUTA NO MOMENTO EXATO DESEJADO.
+                    //    Seja após os 3s (se a voz for curta) ou imediatamente após a voz (se ela for longa).
                     this.finalizarExpansao(alunoCard, alunoId);
                     console.log(`🏁 Processo de destaque finalizado para: ${alunoNome}.`);
                 }
-                // ==========================================================
-                // ==== FIM DA NOVA ORQUESTRAÇÃO ====
-                // ==========================================================
+                
             }
+
 
             tocarBufferDeAudio(audioBuffer) {
                 try {
