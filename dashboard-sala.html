@@ -662,6 +662,7 @@
 
                 // Animation & Notification Queues/Batches
                 this.filaDeChamadas = [];
+                this.alertaSoundBuffer = null;
                 this.isProcessandoFila = false;
                 this.batchEntradaAlunos = new Map();
                 this.batchEntradaTimer = null;
@@ -787,7 +788,6 @@
                 console.log("📡 Mensagem WebSocket:", mensagem);
                 switch (mensagem.tipo) {
                     case 'ENTRADA_ALUNO':
-                        this.tocarSomAlertaEntrada(); // <--- ADICIONE ESTA CHAMADA
                         this.atualizarAlunoPresente(mensagem.aluno.id, mensagem.aluno.nome);
                         this.mostrarNotificacao('Entrada Registrada', `${mensagem.aluno.nome} entrou.`, 'info');
                         break;
@@ -820,7 +820,6 @@
                 console.log(`[ENTRADA] Aluno ${aluno.nome} adicionado ao estado e tela renderizada.`);
 
                 // 4. LÓGICA DE ANIMAÇÃO E NOTIFICAÇÃO (Sua lógica original, preservada)
-                this.tocarSomNotificacao();
                 clearTimeout(this.batchEntradaTimer);
                 this.batchEntradaAlunos.set(aluno.id, aluno.nome);
                 this.batchEntradaTimer = setTimeout(() => this.processarBatchDeEntradas(), 350);
@@ -850,7 +849,7 @@
 
             processarSaidaConfirmada(mensagem) {
                 const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
-                this.tocarSomAlerta();
+                this.tocarSomAlertaSaida()
 
                 // 1. ANIMAÇÃO: Aplica a classe para a animação de saída.
                 if (alunoCard) {
@@ -885,24 +884,34 @@
             // segura, mas a execução detalhada permanece sua.
             //========================================================
 
-            // Toca um som simples de "bip" para notificar entrada
-            tocarSomAlertaEntrada() {
+            /**
+             * NOVO SOM DE ENTRADA
+             * Toca um som de "tremor" ou "pulso", mais grave e texturizado,
+             * para combinar com a animação visual do card tremendo.
+             */
+            tocarSomTremorEntrada() {
                 if (!this.audioContext) {
-                    console.warn('Áudio context não iniciado, som de entrada pulado.');
+                    console.warn('Áudio context não iniciado, som de tremor pulado.');
                     return;
                 }
+                const now = this.audioContext.currentTime;
                 const oscillator = this.audioContext.createOscillator();
                 const gainNode = this.audioContext.createGain();
                 oscillator.connect(gainNode);
                 gainNode.connect(this.audioContext.destination);
 
+                // Um som mais grave e com uma "vibração"
                 oscillator.type = 'sine';
-                oscillator.frequency.setValueAtTime(800, this.audioContext.currentTime);
-                gainNode.gain.setValueAtTime(0.3, this.audioContext.currentTime);
-                gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + 0.5);
+                oscillator.frequency.setValueAtTime(120, now); // Frequência base grave
+                oscillator.frequency.linearRampToValueAtTime(180, now + 0.1); // Sobe um pouco
+                oscillator.frequency.linearRampToValueAtTime(120, now + 0.2); // Desce
 
-                oscillator.start(this.audioContext.currentTime);
-                oscillator.stop(this.audioContext.currentTime + 0.5);
+                // Controla o volume para um impacto curto
+                gainNode.gain.setValueAtTime(0.4, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+
+                oscillator.start(now);
+                oscillator.stop(now + 0.5);
             }
 
             // Toca um som mais grave para notificar saída
@@ -930,20 +939,31 @@
             // Responsável por destravar o áudio no navegador
             initAudioContextManager() {
                 this.audioContext = null;
-                // A 'chave' para destravar o áudio
-                const unlockAudio = () => {
+                const unlockAudio = async () => {
                     if (!this.audioContext) {
                         try {
                             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
                             console.log('✅ Contexto de Áudio INICIADO com sucesso após gesto do usuário.');
+                            await this.carregarSons(); // Pré-carrega os sons após destravar
                         } catch (e) {
                             console.error('❌ Este navegador não suporta a Web Audio API.', e);
                         }
                     }
-                    // Remove o listener depois do primeiro clique para não rodar de novo
                     document.removeEventListener('click', unlockAudio);
                 };
                 document.addEventListener('click', unlockAudio);
+            }
+
+            async carregarSons() {
+                if (!this.audioContext) return;
+                try {
+                    const response = await fetch('https://tiarleinoeremberg.github.io/frontend_inoutchi/assets/mp3/Alertas/Alerta.mp3');
+                    const arrayBuffer = await response.arrayBuffer();
+                    this.alertaSoundBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
+                    console.log("✅ Som de alerta pré-carregado com sucesso.");
+                } catch (error) {
+                    console.error("❌ Erro ao pré-carregar som de alerta:", error);
+                }
             }
 
             async sincronizarSalaSilenciosamente() {
@@ -993,12 +1013,18 @@
                 }
             }
 
+            // SUBSTITUA SUA FUNÇÃO processarBatchDeEntradas PELA VERSÃO ABAIXO
             processarBatchDeEntradas() {
                 const totalAlunosNoLote = this.batchEntradaAlunos.size;
                 if (totalAlunosNoLote === 0) return;
 
                 console.log(`[BATCH] Processando lote de ${totalAlunosNoLote} novas entradas.`);
+
+                // Para cada aluno no lote...
                 for (const alunoId of this.batchEntradaAlunos.keys()) {
+
+                    this.tocarSomTremorEntrada(); // <<< ADICIONE A CHAMADA DO SOM AQUI
+
                     this.aplicarDestaqueTremor(alunoId);
                 }
 
@@ -1013,6 +1039,7 @@
                 this.mostrarNotificacao(tituloNotificacao, mensagemNotificacao, 'success');
                 this.batchEntradaAlunos.clear();
             }
+
 
             iniciarWebSocketStomp() {
                 this.atualizarStatusWebSocket('connecting', 'Conectando...');
@@ -1223,11 +1250,9 @@
                 try {
                     const vozesDisponiveis = ["b0f46533-d4bb-493f-a26f-a99e1f2e86e3", "700d1ee3-a641-4018-ba6e-899dcadc9e2b", "1cf751f6-8749-43ab-98bd-230dd633abdb", "2f4d204f-a5dc-4196-81bc-155986b76ab6"];
                     const vozSorteadaId = vozesDisponiveis[Math.floor(Math.random() * vozesDisponiveis.length)];
-
                     const todosOsNomes = this.alunos.map(aluno => aluno.nome);
                     const nomeParaAudio = this.obterNomeParaAudio(chamada.alunoNome, todosOsNomes);
                     let textoParaVoz = `Atenção, ${nomeParaAudio}! `;
-
                     let solicitanteAnuncio = '';
                     const { tipoSolicitante, parentesco } = chamada;
                     const chaveDeBusca = (tipoSolicitante === 'TUTOR' && parentesco) ? parentesco.toUpperCase() : tipoSolicitante.toUpperCase();
@@ -1245,13 +1270,12 @@
                     const payload = { model_id: "sonic-3", transcript: textoParaVoz, voice: { id: vozSorteadaId, mode: "id" }, output_format: { container: "wav", encoding: "pcm_f32le", sample_rate: 44100 } };
                     const response = await fetch('https://api.cartesia.ai/tts/bytes', { method: 'POST', headers: { 'Cartesia-Version': '2025-04-16', 'X-API-Key': CARTESIA_API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                     if (!response.ok) throw new Error(`Falha na API Cartesia: ${response.status}`);
-
                     const audioBytes = await response.arrayBuffer();
-                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    return audioContext.decodeAudioData(audioBytes);
+                    if (!this.audioContext) throw new Error("AudioContext não foi inicializado pelo usuário.");
+                    return this.audioContext.decodeAudioData(audioBytes);
                 } catch (error) {
                     console.error("[Cartesia TTS] Erro:", error);
-                    throw error; // Re-throw para ser pego pelo chamador
+                    throw error;
                 }
             }
 
@@ -1271,11 +1295,14 @@
 
             tocarBufferDeAudio(audioBuffer) {
                 return new Promise((resolve, reject) => {
+                    if (!this.audioContext) {
+                        reject(new Error("AudioContext não foi inicializado pelo usuário."));
+                        return;
+                    }
                     try {
-                        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                        const source = audioContext.createBufferSource();
+                        const source = this.audioContext.createBufferSource();
                         source.buffer = audioBuffer;
-                        source.connect(audioContext.destination);
+                        source.connect(this.audioContext.destination);
                         source.onended = resolve;
                         source.start(0);
                     } catch (error) { reject(error); }
@@ -1284,12 +1311,17 @@
 
             tocarBipDeAlerta() {
                 return new Promise((resolve, reject) => {
+                    if (!this.audioContext || !this.alertaSoundBuffer) {
+                        console.warn("Contexto de áudio ou buffer de som não estão prontos. Pulando bip.");
+                        resolve(); // Resolve para não travar a sequência
+                        return;
+                    }
                     try {
-                        const audio = new Audio('https://tiarleinoeremberg.github.io/frontend_inoutchi/assets/mp3/Alertas/Alerta.mp3');
-                        audio.volume = 0.7;
-                        audio.onended = resolve;
-                        audio.onerror = reject;
-                        audio.play().catch(reject);
+                        const source = this.audioContext.createBufferSource();
+                        source.buffer = this.alertaSoundBuffer;
+                        source.connect(this.audioContext.destination);
+                        source.onended = resolve;
+                        source.start(0);
                     } catch (error) { reject(error); }
                 });
             }
@@ -1305,34 +1337,10 @@
                 } catch (e) { console.warn("Fallback de áudio falhou", e) }
             }
 
-            tocarSomNotificacao() {
-                try {
-                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    const oscillator = audioContext.createOscillator();
-                    const gainNode = audioContext.createGain();
-                    oscillator.connect(gainNode); gainNode.connect(audioContext.destination);
-                    oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
-                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-                    oscillator.start(); oscillator.stop(audioContext.currentTime + 0.3);
-                } catch (e) { console.warn("Áudio não suportado", e) }
-            }
-
-            tocarSomAlerta() {
-                try {
-                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    const oscillator = audioContext.createOscillator();
-                    const gainNode = audioContext.createGain();
-                    oscillator.connect(gainNode); gainNode.connect(audioContext.destination);
-                    oscillator.frequency.setValueAtTime(300, audioContext.currentTime);
-                    gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
-                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-                    oscillator.start(); oscillator.stop(audioContext.currentTime + 0.5);
-                } catch (e) { console.warn("Áudio não suportado", e) }
-            }
+            
 
             processarNovaChamada(mensagem) {
-                this.tocarSomNotificacao();
+                
                 this.mostrarNotificacao('Presente na Escola', `${mensagem.alunoNome}`, 'info');
                 const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
                 if (alunoCard) this.aplicarDestaqueChamada(alunoCard, mensagem.tipoSolicitante);
