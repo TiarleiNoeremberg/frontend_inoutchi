@@ -609,8 +609,10 @@
 
 <body>
     <!-- NOVO OVERLAY DE INICIALIZAÇÃO -->
-    <div id="startOverlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 2000; display: flex; justify-content: center; align-items: center; backdrop-filter: blur(5px);">
-        <button id="startButton" style="padding: 20px 40px; font-size: 2rem; font-weight: bold; color: white; background: #22c55e; border: none; border-radius: 12px; cursor: pointer; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+    <div id="startOverlay"
+        style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 2000; display: flex; justify-content: center; align-items: center; backdrop-filter: blur(5px);">
+        <button id="startButton"
+            style="padding: 20px 40px; font-size: 2rem; font-weight: bold; color: white; background: #22c55e; border: none; border-radius: 12px; cursor: pointer; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">
             ▶ INICIAR DASHBOARD
         </button>
     </div>
@@ -682,7 +684,7 @@
 
             async inicializar() {
                 console.log('=== INICIALIZANDO DASHBOARD SALA ===');
-                
+
                 // 1. Validar token primeiro
                 if (!this.token || !this.tokenExpiry || new Date().getTime() > parseInt(this.tokenExpiry)) {
                     this.mostrarErro('Sessão expirada. Faça login novamente.');
@@ -695,18 +697,18 @@
                     await this.carregarUsuario();
                     this.determinarSalaId();
                     if (!this.salaId) throw new Error('Não foi possível determinar o ID da sala.');
-                    
+
                     // Carrega a lista inicial de alunos e mostra na tela
-                    await this.carregarDadosSala(); 
+                    await this.carregarDadosSala();
 
                     // Inicia o relógio
                     this.atualizarHora();
                     setInterval(() => this.atualizarHora(), 1000);
-                    
+
                     // 3. APENAS PREPARA O BOTÃO "INICIAR"
                     // A inicialização do áudio e do WebSocket agora é controlada 100% pelo clique.
                     const startButton = document.getElementById('startButton');
-                    if(startButton) {
+                    if (startButton) {
                         startButton.addEventListener('click', () => this.startApplication());
                     } else {
                         console.error("CRÍTICO: Botão de inicialização não encontrado no HTML.");
@@ -895,34 +897,49 @@
             //========================================================
 
             /**
-             * SOM DE VIBRAÇÃO SINCRONIZADA (VERSÃO MELHORADA)
-             * Toca um "zumbido" grave e alto que dura exatamente 3 segundos,
-             * sincronizado com a animação de tremor do card, e com um fade out suave.
+             * SOM DE TREMOR SUAVE (VERSÃO FINAL)
+             * Toca um som grave e puro (onda 'sine') com um efeito de vibrato
+             * para simular um tremor orgânico, não um zumbido eletrônico.
+             * Sincronizado para durar 3 segundos com a animação.
              */
-            tocarSomVibracaoEntrada() {
+            tocarSomTremorSuave() {
                 if (!this.audioContext) {
-                    console.warn('Áudio context não iniciado, som de vibração pulado.');
+                    console.warn('Áudio context não iniciado, som de tremor pulado.');
                     return;
                 }
                 const now = this.audioContext.currentTime;
-                const oscillator = this.audioContext.createOscillator();
-                const gainNode = this.audioContext.createGain();
-                oscillator.connect(gainNode);
-                gainNode.connect(this.audioContext.destination);
 
-                // 1. Som: um "zumbido" grave e texturizado (sawtooth é mais 'áspero' que sine)
-                oscillator.type = 'sawtooth';
-                oscillator.frequency.setValueAtTime(80, now); // Frequência de um zumbido grave (ex: 80Hz)
+                // --- Componentes do Som ---
+                const osciladorPrincipal = this.audioContext.createOscillator(); // A nota que ouvimos
+                const ganhoPrincipal = this.audioContext.createGain();           // O volume geral
+                const lfo = this.audioContext.createOscillator();                 // O "motor" do vibrato (oscilador de baixa frequência)
+                const ganhoLfo = this.audioContext.createGain();                  // A "força" do vibrato
 
-                // 2. Volume: começa mais alto (0.7 = 70% do máximo)
-                gainNode.gain.setValueAtTime(0.7, now);
+                // --- Conexões do Circuito de Áudio ---
+                lfo.connect(ganhoLfo); // O motor do vibrato controla a sua força
+                ganhoLfo.connect(osciladorPrincipal.frequency); // A força do vibrato controla a frequência da nota principal
+                osciladorPrincipal.connect(ganhoPrincipal); // A nota principal vai para o controle de volume
+                ganhoPrincipal.connect(this.audioContext.destination); // O volume final vai para os alto-falantes
 
-                // 3. Duração: o som decai suavemente ao longo dos 3 segundos da animação
-                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 3.0);
+                // --- Configurações ---
+                // 1. A Nota Principal (grave e suave)
+                osciladorPrincipal.type = 'sine';
+                osciladorPrincipal.frequency.setValueAtTime(70, now); // Uma nota bem grave (70Hz)
 
-                // Inicia o som e agenda sua parada para exatamente 3 segundos depois
-                oscillator.start(now);
-                oscillator.stop(now + 3.0);
+                // 2. O Efeito de Vibrato (a "tremida")
+                lfo.type = 'sine'; // Uma oscilação suave
+                lfo.frequency.setValueAtTime(8, now); // Faz a nota tremer 8 vezes por segundo
+                ganhoLfo.gain.setValueAtTime(10, now); // A força do tremor: a nota vai variar 10Hz para cima e para baixo
+
+                // 3. O Volume e Duração
+                ganhoPrincipal.gain.setValueAtTime(0.6, now); // Começa com um bom volume (60%)
+                ganhoPrincipal.gain.exponentialRampToValueAtTime(0.01, now + 3.0); // Diminui suavemente em 3 segundos
+
+                // --- Iniciar e Parar ---
+                lfo.start(now);
+                osciladorPrincipal.start(now);
+                lfo.stop(now + 3.0);
+                osciladorPrincipal.stop(now + 3.0);
             }
 
             // Toca um som mais grave para notificar saída
@@ -965,7 +982,7 @@
                         alert('Seu navegador bloqueou o áudio. Algumas funcionalidades podem não funcionar.');
                     }
                 }
-                
+
                 // 2. Esconde o overlay
                 startButton.textContent = "CONECTANDO...";
                 overlay.style.opacity = '0';
@@ -1051,7 +1068,7 @@
                 // Para cada aluno no lote...
                 for (const alunoId of this.batchEntradaAlunos.keys()) {
 
-                    this.tocarSomVibracaoEntrada()
+                    this.tocarSomTremorSuave();
 
                     this.aplicarDestaqueTremor(alunoId);
                 }
