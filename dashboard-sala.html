@@ -1810,7 +1810,7 @@
                     this.finalizarExpansao(alunoCard, alunoId);
                     console.log(`🏁 Processo de destaque finalizado para: ${alunoNome}.`);
                 }
-                
+
             }
 
 
@@ -2579,8 +2579,16 @@
                         // ... (toda a lógica de sortear voz e montar o texto permanece EXATAMENTE IGUAL) ...
                         const vozesDisponiveis = ["b0f46533-d4bb-493f-a26f-a99e1f2e86e3", "700d1ee3-a641-4018-ba6e-899dcadc9e2b", "1cf751f6-8749-43ab-98bd-230dd633abdb", "2f4d204f-a5dc-4196-81bc-155986b76ab6"];
                         const vozSorteadaId = vozesDisponiveis[Math.floor(Math.random() * vozesDisponiveis.length)];
-                        const nomeParaAudio = this.obterPrimeiroEUltimoNome(chamada.alunoNome);
+
+                        // 1. Pega a lista completa de nomes dos alunos atualmente na sala.
+                        const todosOsNomes = this.alunos.map(aluno => aluno.nome);
+
+                        // 2. Chama a nova função inteligente, passando o nome do aluno e a lista completa.
+                        const nomeParaAudio = this.obterNomeParaAudio(chamada.alunoNome, todosOsNomes);
+
+                        // 3. Usa o resultado para montar o texto da voz.
                         let textoParaVoz = `Atenção, ${nomeParaAudio}! `;
+
                         let solicitanteAnuncio = '';
                         const { tipoSolicitante, parentesco } = chamada;
                         const chaveDeBusca = (tipoSolicitante === 'TUTOR' && parentesco) ? parentesco.toUpperCase() : tipoSolicitante.toUpperCase();
@@ -2620,29 +2628,46 @@
                 });
             }
 
-            // =======================================================================
-            // ==== FUNÇÃO AUXILIAR PARA PEGAR O PRIMEIRO E O ÚLTIMO NOME ====
-            // =======================================================================
-            obterPrimeiroEUltimoNome(nomeCompleto) {
-                if (!nomeCompleto || !nomeCompleto.trim()) {
-                    return "Aluno";
+            /**
+             * FUNÇÃO DE NOME INTELIGENTE
+             * - Se o primeiro nome do aluno for único na lista, retorna só o primeiro nome.
+             * - Se houver outros alunos com o mesmo primeiro nome, retorna "Primeiro Nome + Último Sobrenome".
+             * @param {string} nomeCompleto - O nome completo do aluno a ser processado.
+             * @param {string[]} todosOsNomes - Um array com os nomes completos de TODOS os alunos na sala.
+             */
+            obterNomeParaAudio(nomeCompleto, todosOsNomes) {
+                if (!nomeCompleto || !nomeCompleto.trim()) return "Aluno";
+
+                // Pega o primeiro nome do nosso aluno alvo, em minúsculas para comparação
+                const primeiroNomeAlvo = nomeCompleto.trim().split(' ')[0].toLowerCase();
+
+                // Conta quantas vezes esse primeiro nome aparece na lista completa
+                let contador = 0;
+                for (const nomeDaLista of todosOsNomes) {
+                    const primeiroNomeDaLista = nomeDaLista.trim().split(' ')[0].toLowerCase();
+                    if (primeiroNomeDaLista === primeiroNomeAlvo) {
+                        contador++;
+                    }
                 }
+
+                // Pega as partes do nome original para formatação
                 const partesNome = nomeCompleto.trim().split(' ').filter(p => p);
-                if (partesNome.length <= 1) {
-                    // Se só tem um nome, capitaliza a primeira letra e o resto minúsculas.
-                    return partesNome[0].charAt(0).toUpperCase() + partesNome[0].slice(1).toLowerCase();
+
+                // FUNÇÃO INTERNA PARA CAPITALIZAR CORRETAMENTE
+                const capitalizar = (palavra) => palavra.charAt(0).toUpperCase() + palavra.slice(1).toLowerCase();
+
+                // SE O CONTADOR FOR MAIOR QUE 1, HÁ NOMES REPETIDOS.
+                if (contador > 1) {
+                    console.log(`[Nome Inteligente] Primeiro nome "${capitalizar(primeiroNomeAlvo)}" é REPETIDO. Usando nome completo.`);
+                    const primeiroNome = capitalizar(partesNome[0]);
+                    const ultimoNome = partesNome.length > 1 ? capitalizar(partesNome[partesNome.length - 1]) : '';
+                    return `${primeiroNome} ${ultimoNome}`.trim();
                 }
-
-                // Pega a primeira e a última parte do nome.
-                let primeiroNome = partesNome[0];
-                let ultimoNome = partesNome[partesNome.length - 1];
-
-                // CORREÇÃO: Garante que cada parte tenha a primeira letra maiúscula e o resto minúscula.
-                primeiroNome = primeiroNome.charAt(0).toUpperCase() + primeiroNome.slice(1).toLowerCase();
-                ultimoNome = ultimoNome.charAt(0).toUpperCase() + ultimoNome.slice(1).toLowerCase();
-
-                // Retorna o nome formatado corretamente. Ex: "Carlos Spinelli"
-                return `${primeiroNome} ${ultimoNome}`;
+                // SENÃO, O NOME É ÚNICO.
+                else {
+                    console.log(`[Nome Inteligente] Primeiro nome "${capitalizar(primeiroNomeAlvo)}" é ÚNICO. Usando só o primeiro nome.`);
+                    return capitalizar(partesNome[0]);
+                }
             }
 
 
