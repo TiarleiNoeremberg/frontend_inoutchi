@@ -1090,34 +1090,12 @@
                 }
             }
 
-            /**
-             * Adiciona um aluno na lista via WebSocket e RECALCULA TODOS os nomes de exibição
-             * para garantir que a lógica de homônimos seja aplicada corretamente.
-             * ESTA É A VERSÃO ÚNICA E CORRETA.
-             */
             atualizarAlunoPresente(alunoId, alunoNome, horario) {
-                const alunoExistente = this.alunos.find(a => a.id === alunoId);
-
-                if (!alunoExistente) {
-                    // Adiciona o novo aluno à lista, APENAS com os dados essenciais.
-                    this.alunos.push({
-                        id: alunoId,
-                        nome: alunoNome, // O nome COMPLETO é crucial aqui
-                        status: 'PRESENTE'
-                    });
-
-                    console.log(`✅ Aluno ${alunoNome} adicionado à lista via WebSocket.`);
-
-                    // CHAMA A LÓGICA CENTRAL DE NOMES para reavaliar todos, incluindo o novo.
-                    this.atualizarNomesDeExibicao();
-
-                } else {
-                    console.log(`✅ Aluno ${alunoNome} já está na lista, nada a fazer.`);
+                if (!this.alunos.find(a => a.id === alunoId)) {
+                    this.alunos.push({ id: alunoId, nome: alunoNome, status: 'PRESENTE' });
+                    this.alunos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+                    this.recalcularErenderizarAlunos(); // Chama a função central
                 }
-
-                // Reordena a lista para manter a ordem alfabética e renderiza.
-                this.alunos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-                this.renderizarAlunos();
             }
 
             processarMensagemWebSocket(mensagem) {
@@ -1607,38 +1585,9 @@
             */
 
 
-            processarSaidaConfirmada(mensagem) {
-                // 1. ATUALIZA A FONTE DA VERDADE (O ARRAY DE DADOS) - ISSO AINDA É ESSENCIAL!
-                // Mantemos o array de dados consistente para futuras operações.
-                this.alunos = this.alunos.filter(aluno => aluno.id !== mensagem.alunoId);
-
-                // 2. OPERAÇÃO CIRÚRGICA NO DOM (A NOVA LÓGICA)
-                // Em vez de redesenhar tudo, encontramos e removemos apenas o card específico.
-                const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
-
-                if (alunoCard) {
-                    console.log(`[DOM] Iniciando remoção suave do card para ${mensagem.alunoNome}.`);
-
-                    // Adiciona a classe que ativa a nossa animação de fade-out e encolhimento.
-                    alunoCard.classList.add('removendo');
-
-                    // Adicionamos um "ouvinte" que espera a animação de transição terminar.
-                    // Quando ela termina, ele remove o elemento do DOM de forma segura.
-                    alunoCard.addEventListener('transitionend', () => {
-                        alunoCard.remove();
-                        console.log(`[DOM] Card do aluno ${mensagem.alunoNome} removido da tela após animação.`);
-                    }, { once: true }); // A opção { once: true } garante que o ouvinte se auto-remova.
-
-                } else {
-                    // Fallback de segurança: se, por algum motivo, o card não for encontrado na tela,
-                    // forçamos a re-renderização para garantir que a UI não fique dessincronizada.
-                    console.warn(`[DOM] Card para ${mensagem.alunoNome} não encontrado. Forçando re-renderização completa.`);
-                    this.renderizarAlunos();
-                }
-
-                // 3. TOCA O SOM DE ALERTA E MOSTRA A NOTIFICAÇÃO (COMO ANTES)
-                this.tocarSomAlertaSaida();
-                this.mostrarNotificacao('Saída Confirmada', `${mensagem.alunoNome} saiu.`, 'success');
+            processarSaidaConfirmada(alunoId, alunoNome) {
+                this.alunos = this.alunos.filter(aluno => aluno.id !== alunoId);
+                this.recalcularErenderizarAlunos(); // Chama a função central
             }
 
 
@@ -1672,24 +1621,12 @@
             }
             */
 
-            // 🎯 ATUALIZAR: processarSaidaPendente e processarSaidaConfirmada
-            processarSaidaPendente(mensagem) {
-                const aluno = this.alunos.find(a => a.id === mensagem.alunoId);
-                if (!aluno) {
-                    console.warn(`[LÓGICA] Aluno ${mensagem.alunoNome} não encontrado nos dados locais para iniciar a saída.`);
-                    return;
-                }
-
-                // 1. ATUALIZA O MODELO DE DADOS INTERNO
-                aluno.status = 'AGUARDANDO_CONFIRMACAO';
-                aluno.tipoSolicitante = mensagem.tipoSolicitante;
-                console.log(`[DADOS] Status do aluno ${aluno.nome} atualizado para PENDENTE.`);
-
-                // 2. APENAS ADICIONA À FILA DE ANIMAÇÃO.
-                // A responsabilidade de mudar o visual do card foi movida para 'executarDestaqueCompleto'.
-                this.filaDeChamadas.push(mensagem);
-                if (!this.isProcessandoFila) {
-                    this.processarProximoDaFila();
+            processarSaidaPendente(alunoId, tipoSolicitante) {
+                const aluno = this.alunos.find(a => a.id === alunoId);
+                if (aluno) {
+                    aluno.status = 'AGUARDANDO_CONFIRMACAO';
+                    aluno.tipoSolicitante = tipoSolicitante; // Armazena quem pediu a saída
+                    this.recalcularErenderizarAlunos(); // Chama a função central
                 }
             }
 
@@ -2273,9 +2210,9 @@
              */
             async carregarDadosSala() {
                 try {
-
-                    // Faz uma chamada dedicada para pegar os detalhes da sala, incluindo o nome.
-                    // Assumimos que o endpoint /api/salas/{id} existe no seu backend.
+                    // =================================================================
+                    // ETAPA 1: BUSCAR NOME DA SALA (Sua lógica robusta - MANTIDA)
+                    // Esta parte do seu código é excelente e deve ser mantida.
                     try {
                         const salaDetailsResponse = await fetch(`${this.BACKEND_URL}/api/salas/${this.salaId}`, {
                             headers: { 'Authorization': `Bearer ${this.token}` }
@@ -2283,11 +2220,9 @@
 
                         if (salaDetailsResponse.ok) {
                             const salaData = await salaDetailsResponse.json();
-                            // Agora preenchemos this.salaInfo com os dados completos e corretos.
                             this.salaInfo = salaData;
                             console.log(`✅ Nome da sala carregado: "${this.salaInfo.nome}"`);
                         } else {
-                            // Se falhar, usamos um nome de fallback para não quebrar a tela.
                             console.warn(`[NOME SALA] Não foi possível buscar o nome da sala (Status: ${salaDetailsResponse.status}). Usando ID como fallback.`);
                             this.salaInfo = { id: this.salaId, nome: `Sala ${this.salaId}` };
                         }
@@ -2295,33 +2230,42 @@
                         console.error('[NOME SALA] Erro de rede ao buscar nome da sala. Usando ID como fallback.', e);
                         this.salaInfo = { id: this.salaId, nome: `Sala ${this.salaId}` };
                     }
+                    // =================================================================
 
-                    // 1. Busca os dados brutos da API.
+                    // =================================================================
+                    // ETAPA 2: ATUALIZAR O CABEÇALHO DA PÁGINA
+                    // Chamamos isso aqui para que o nome da sala apareça o mais rápido possível.
+                    this.atualizarHeader();
+                    // =================================================================
+
+                    // =================================================================
+                    // ETAPA 3: BUSCAR E PROCESSAR OS ALUNOS
                     const data = await this.fetchDadosSala();
-                    console.log('✅ Dados brutos da sala recebidos:', data);
+                    console.log('✅ Dados brutos dos alunos recebidos:', data);
 
-                    // 2. Processa os dados (enriquece com status e ordena).
+                    // Sua função processarDadosAlunos agora só enriquece os dados, não renderiza.
+                    // Esta parte está correta.
                     const alunosProcessados = await this.processarDadosAlunos(data);
 
-                    // 3. Atualiza o estado da aplicação.
-                    this.salaInfo = { id: data.salaId, nome: data.salaNome };
+                    // Atualizamos o estado central de alunos.
                     this.alunos = alunosProcessados;
+                    // =================================================================
 
-                    this.atualizarHeader();
-
-                    // 4. Renderiza a interface do usuário com os dados atualizados.
-                    this.atualizarInterface();
+                    // =================================================================
+                    // ETAPA 4: RENDERIZAR A TELA (AQUI ESTÁ A MUDANÇA)
+                    // Removemos a chamada para 'atualizarInterface()'.
+                    // Em vez disso, chamamos diretamente a nossa nova e poderosa função 'renderizarAlunos'.
+                    this.renderizarAlunos();
+                    // =================================================================
 
                 } catch (error) {
+                    // Sua lógica de tratamento de erro é ótima e foi mantida.
                     console.error('❌ Erro no carregamento periódico da sala:', error);
-                    // Em vez de limpar a tela, mostra uma notificação não obstrutiva.
-                    // Os dados antigos são mantidos na tela.
                     this.mostrarNotificacao(
                         'Falha na Conexão',
                         'Não foi possível atualizar a lista de alunos. Tentando novamente.',
                         'error'
                     );
-                    // Não limpa this.alunos nem chama atualizarInterface() para manter os dados existentes.
                 }
             }
 
@@ -2392,29 +2336,12 @@
                 return response.json();
             }
 
-            /**
-             * Processa a lista de alunos para adicionar o status correto, ordenar
-             * E TAMBÉM determinar o nome de exibição correto para cada um.
-             * @param {object} data - Os dados brutos vindos da API.
-             * @returns {Promise<Array>} A lista de alunos pronta para ser exibida, com a propriedade 'nomeDeExibicao'.
-             */
             async processarDadosAlunos(data) {
                 if (!data.alunos || !Array.isArray(data.alunos) || data.alunos.length === 0) {
-                    console.log('✅ Nenhum aluno presente na sala.');
                     return [];
                 }
-
-                // Atribui os alunos brutos à lista.
-                this.alunos = data.alunos;
-
-                // CHAMA A LÓGICA CENTRAL DE NOMES.
-                this.atualizarNomesDeExibicao();
-
-                // Continua o processo para verificar status de saída, mas agora operando sobre 'this.alunos'.
-                const alunosComStatusFinal = await this.verificarStatusDeSaida(this.alunos);
-
-                // Ordena a lista final e a retorna.
-                return alunosComStatusFinal.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+                const alunosComStatus = await this.verificarStatusDeSaida(data.alunos);
+                return alunosComStatus.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
             }
 
             /**
@@ -2490,6 +2417,61 @@
                 return alunosAtualizados;
             }
 
+            /**
+        * FUNÇÃO CENTRAL E DEFINITIVA
+        * 1. Calcula os nomes de exibição corretos para a lista ATUAL de this.alunos.
+        * 2. Renderiza (ou redesenha) TODOS os cards na tela com os nomes corretos.
+        * ESTA É A ÚNICA FUNÇÃO QUE DEVE MODIFICAR O HTML DA GRID.
+        */
+        recalcularErenderizarAlunos() {
+            const grid = document.getElementById('alunosGrid');
+            grid.innerHTML = '';
+
+            if (!this.alunos || this.alunos.length === 0) {
+                grid.innerHTML = '<div class="empty-state">Nenhum aluno presente na sala</div>';
+                return; // Sai se não houver alunos
+            }
+
+            // --- INÍCIO DO CÁLCULO DE NOMES (SEMPRE REFEITO) ---
+            const contagemPrimeirosNomes = new Map();
+            this.alunos.forEach(aluno => {
+                const primeiroNome = aluno.nome.trim().split(' ')[0].toLowerCase();
+                contagemPrimeirosNomes.set(primeiroNome, (contagemPrimeirosNomes.get(primeiroNome) || 0) + 1);
+            });
+
+            const capitalizar = (palavra) => palavra ? palavra.charAt(0).toUpperCase() + palavra.slice(1).toLowerCase() : '';
+            // --- FIM DO CÁLCULO DE NOMES ---
+
+            // --- INÍCIO DA RENDERIZAÇÃO ---
+            this.alunos.forEach(aluno => {
+                const partesNome = aluno.nome.trim().split(' ').filter(p => p);
+                const primeiroNomeOriginal = partesNome[0];
+                let nomeParaExibir;
+
+                if (contagemPrimeirosNomes.get(primeiroNomeOriginal.toLowerCase()) > 1) {
+                    const ultimoNome = partesNome.length > 1 ? partesNome[partesNome.length - 1] : '';
+                    nomeParaExibir = `${capitalizar(primeiroNomeOriginal)} ${capitalizar(ultimoNome)}`.trim();
+                } else {
+                    nomeParaExibir = capitalizar(primeiroNomeOriginal);
+                }
+
+                // Criação e exibição do card
+                const card = document.createElement('div');
+                card.className = 'aluno-card';
+                card.setAttribute('data-aluno-id', aluno.id);
+                const isPendente = aluno.status === 'AGUARDANDO_CONFIRMACAO';
+                const horarioTexto = isPendente ? 'Aguardando Confirmação' : 'Presente';
+                if (isPendente) {
+                    card.classList.add('pendente', aluno.tipoSolicitante?.toLowerCase() || 'diretor');
+                }
+                card.innerHTML = `
+                        <div class="aluno-nome">${nomeParaExibir}</div>
+                        <div class="aluno-horario">${horarioTexto}</div>
+                    `;
+                grid.appendChild(card);
+            });
+        }
+
             processarDadosSala(data) {
                 this.salaInfo = {
                     id: data.salaId,
@@ -2526,36 +2508,6 @@
                 document.getElementById('periodoSala').textContent = textoCompleto;
             }
 
-            renderizarAlunos() {
-                const grid = document.getElementById('alunosGrid');
-                grid.innerHTML = '';
-
-                if (this.alunos.length === 0) {
-                    grid.innerHTML = '<div class="empty-state">Nenhum aluno presente na sala</div>';
-                    return;
-                }
-
-                this.alunos.forEach(aluno => {
-                    const card = document.createElement('div');
-                    card.className = 'aluno-card';
-                    card.setAttribute('data-aluno-id', aluno.id);
-
-                    const isPendente = aluno.status === 'AGUARDANDO_CONFIRMACAO';
-                    const horarioTexto = isPendente ? 'Aguardando Confirmação' : 'Presente';
-
-                    if (isPendente) {
-                        card.classList.add('pendente', aluno.tipoSolicitante?.toLowerCase() || 'diretor');
-                    }
-
-                    // --- MUDANÇA PRINCIPAL AQUI ---
-                    // Não usamos mais 'abreviarNome', usamos a propriedade pré-calculada 'nomeDeExibicao'.
-                    card.innerHTML = `
-                        <div class="aluno-nome">${aluno.nomeDeExibicao}</div>
-                        <div class="aluno-horario">${horarioTexto}</div>
-                    `;
-                    grid.appendChild(card);
-                });
-            }
             async prepararVozCartesia(chamada) {
                 const CARTESIA_API_KEY = "sk_car_L661CH8Js5DZxLg9A72jyT";
 
@@ -2798,46 +2750,7 @@
             }
         }
 
-        /**
-             * FUNÇÃO DE INTELIGÊNCIA CENTRAL:
-             * Itera sobre a lista ATUAL de 'this.alunos' e adiciona ou atualiza
-             * a propriedade 'nomeDeExibicao' para cada aluno.
-             * Esta função é a ÚNICA fonte da verdade para a exibição de nomes.
-             */
-        atualizarNomesDeExibicao() {
-            if (!this.alunos || this.alunos.length === 0) {
-                return; // Não faz nada se a lista estiver vazia
-            }
-
-            // 1. Contar a frequência de cada PRIMEIRO nome na lista atual.
-            const contagemPrimeirosNomes = new Map();
-            for (const aluno of this.alunos) {
-                const primeiroNome = aluno.nome.trim().split(' ')[0].toLowerCase();
-                contagemPrimeirosNomes.set(primeiroNome, (contagemPrimeirosNomes.get(primeiroNome) || 0) + 1);
-            }
-
-            const capitalizar = (palavra) => palavra ? palavra.charAt(0).toUpperCase() + palavra.slice(1).toLowerCase() : '';
-
-            // 2. Itera NOVAMENTE, agora para atribuir o nome de exibição a cada aluno.
-            for (const aluno of this.alunos) {
-                const partesNome = aluno.nome.trim().split(' ').filter(p => p);
-                const primeiroNomeOriginal = partesNome[0];
-                const primeiroNomeLower = primeiroNomeOriginal.toLowerCase();
-
-                let nomeParaExibir;
-
-                if (contagemPrimeirosNomes.get(primeiroNomeLower) > 1) {
-                    const ultimoNome = partesNome.length > 1 ? partesNome[partesNome.length - 1] : '';
-                    nomeParaExibir = `${capitalizar(primeiroNomeOriginal)} ${capitalizar(ultimoNome)}`.trim();
-                } else {
-                    nomeParaExibir = capitalizar(primeiroNomeOriginal);
-                }
-
-                // Atribui a propriedade diretamente ao objeto do aluno no array.
-                aluno.nomeDeExibicao = nomeParaExibir;
-            }
-            console.log('[Nome Inteligente] Nomes de exibição foram recalculados para todos os alunos presentes.');
-        }
+        
 
         document.addEventListener('DOMContentLoaded', () => {
             window.salaDashboard = new SalaDashboard();
