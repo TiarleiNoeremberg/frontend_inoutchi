@@ -2410,9 +2410,10 @@
             }
 
             /**
-             * Nova função: Processa a lista de alunos para adicionar o status correto e ordenar.
+             * Nova função: Processa a lista de alunos para adicionar o status correto, ordenar
+             * E TAMBÉM determinar o nome de exibição correto para cada um.
              * @param {object} data - Os dados brutos vindos da API.
-             * @returns {Promise<Array>} A lista de alunos pronta para ser exibida.
+             * @returns {Promise<Array>} A lista de alunos pronta para ser exibida, com a propriedade 'nomeDeExibicao'.
              */
             async processarDadosAlunos(data) {
                 if (!data.alunos || !Array.isArray(data.alunos) || data.alunos.length === 0) {
@@ -2420,10 +2421,50 @@
                     return []; // Retorna um array vazio se não houver alunos.
                 }
 
-                // Etapa de enriquecimento: busca o status real de cada aluno.
-                const alunosComStatusFinal = await this.verificarStatusDeSaida(data.alunos);
+                // --- INÍCIO DA NOVA INTELIGÊNCIA ---
 
-                // Ordena a lista final de alunos por nome.
+                // 1. Contar a frequência de cada PRIMEIRO nome.
+                const contagemPrimeirosNomes = new Map();
+                for (const aluno of data.alunos) {
+                    const primeiroNome = aluno.nome.trim().split(' ')[0].toLowerCase();
+                    contagemPrimeirosNomes.set(primeiroNome, (contagemPrimeirosNomes.get(primeiroNome) || 0) + 1);
+                }
+                console.log('[Nome Inteligente] Contagem de primeiros nomes:', contagemPrimeirosNomes);
+
+                // Função interna para capitalizar corretamente (ex: "joaquim" -> "Joaquim")
+                const capitalizar = (palavra) => palavra ? palavra.charAt(0).toUpperCase() + palavra.slice(1).toLowerCase() : '';
+
+                // 2. Criar a nova lista de alunos, adicionando a propriedade 'nomeDeExibicao' em cada um.
+                const alunosComNomeDeExibicao = data.alunos.map(aluno => {
+                    const partesNome = aluno.nome.trim().split(' ').filter(p => p);
+                    const primeiroNomeOriginal = partesNome[0];
+                    const primeiroNomeLower = primeiroNomeOriginal.toLowerCase();
+
+                    let nomeParaExibir;
+
+                    // Se a contagem para este primeiro nome for > 1, há homônimos.
+                    if (contagemPrimeirosNomes.get(primeiroNomeLower) > 1) {
+                        const ultimoNome = partesNome.length > 1 ? partesNome[partesNome.length - 1] : '';
+                        nomeParaExibir = `${capitalizar(primeiroNomeOriginal)} ${capitalizar(ultimoNome)}`.trim();
+                        console.log(`[Nome Inteligente] "${aluno.nome}" será exibido como "${nomeParaExibir}" (HOMÔNIMO)`);
+                    } else {
+                        nomeParaExibir = capitalizar(primeiroNomeOriginal);
+                        console.log(`[Nome Inteligente] "${aluno.nome}" será exibido como "${nomeParaExibir}" (ÚNICO)`);
+                    }
+
+                    // Retorna o objeto do aluno enriquecido com a nova propriedade.
+                    return {
+                        ...aluno, // Mantém todas as propriedades originais (id, nome, etc.)
+                        nomeDeExibicao: nomeParaExibir // Adiciona o nome que será usado na tela
+                    };
+                });
+
+                // --- FIM DA NOVA INTELIGÊNCIA ---
+
+                // 3. Verifica o status real de saída para cada aluno (lógica que já tínhamos).
+                const alunosComStatusFinal = await this.verificarStatusDeSaida(alunosComNomeDeExibicao);
+
+                // 4. Ordena a lista final por nome completo original (para consistência).
                 return alunosComStatusFinal.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
             }
 
@@ -2536,7 +2577,6 @@
                 document.getElementById('periodoSala').textContent = textoCompleto;
             }
 
-            // 🎯 ATUALIZAR: renderizarAlunos
             renderizarAlunos() {
                 const grid = document.getElementById('alunosGrid');
                 grid.innerHTML = '';
@@ -2551,26 +2591,22 @@
                     card.className = 'aluno-card';
                     card.setAttribute('data-aluno-id', aluno.id);
 
-                    // Define o texto e a aparência baseado no status que veio do backend
                     const isPendente = aluno.status === 'AGUARDANDO_CONFIRMACAO';
                     const horarioTexto = isPendente ? 'Aguardando Confirmação' : 'Presente';
 
-                    // Adiciona a classe de cor se estiver pendente (ex: 'diretor', 'tutor')
                     if (isPendente) {
-                        // A mensagem do WebSocket que muda o status precisa também informar o tipo solicitante
-                        // para aplicarmos a cor correta (ex: 'diretor', 'tutor').
-                        // Por enquanto, vamos adicionar uma classe genérica.
                         card.classList.add('pendente', aluno.tipoSolicitante?.toLowerCase() || 'diretor');
                     }
 
+                    // --- MUDANÇA PRINCIPAL AQUI ---
+                    // Não usamos mais 'abreviarNome', usamos a propriedade pré-calculada 'nomeDeExibicao'.
                     card.innerHTML = `
-                        <div class="aluno-nome">${abreviarNome(aluno.nome)}</div>
+                        <div class="aluno-nome">${aluno.nomeDeExibicao}</div>
                         <div class="aluno-horario">${horarioTexto}</div>
                     `;
                     grid.appendChild(card);
                 });
             }
-
             async prepararVozCartesia(chamada) {
                 const CARTESIA_API_KEY = "sk_car_L661CH8Js5DZxLg9A72jyT";
 
@@ -2811,35 +2847,6 @@
                     this.redirecionarParaLogin();
                 }
             }
-        }
-
-        /**
-         * Abrevia nomes longos seguindo a regra: Primeiro Nome + Inicial do Meio + Último Nome.
-         * Também formata o nome para o estilo "Title Case" e ignora partículas.
-         * @param {string} nomeCompleto O nome completo do aluno.
-         * @returns {string} O nome formatado e, se necessário, abreviado.
-         */
-        function abreviarNome(nomeCompleto) {
-            if (!nomeCompleto) return '';
-
-            const partes = nomeCompleto.toLowerCase().split(' ').filter(p => p); // Remove espaços extras
-
-            const partesFormatadas = partes.map(parte => {
-                if (['de', 'da', 'dos', 'das'].includes(parte)) return parte;
-                return parte.charAt(0).toUpperCase() + parte.slice(1);
-            });
-
-            const nomeCapitalizado = partesFormatadas.join(' ');
-            const partesRelevantes = partesFormatadas.filter(p => !['de', 'da', 'dos', 'das'].includes(p.toLowerCase()));
-
-            if (partesRelevantes.length >= 3) {
-                const primeiroNome = partesRelevantes[0];
-                const inicialMeio = partesRelevantes[1].charAt(0).toUpperCase() + '.';
-                const ultimoNome = partesRelevantes[partesRelevantes.length - 1];
-                return `${primeiroNome} ${inicialMeio} ${ultimoNome}`;
-            }
-
-            return nomeCapitalizado;
         }
 
         document.addEventListener('DOMContentLoaded', () => {
