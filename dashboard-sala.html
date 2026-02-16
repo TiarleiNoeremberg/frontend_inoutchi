@@ -674,6 +674,7 @@
             }
 
             async inicializar() {
+                this.initAudioContextManager();
                 console.log('=== INICIALIZANDO DASHBOARD SALA COM WEBSOCKET STOMP ===');
                 if (!this.token || !this.tokenExpiry || new Date().getTime() > parseInt(this.tokenExpiry)) {
                     this.mostrarErro('Sessão expirada. Faça login novamente.');
@@ -704,7 +705,7 @@
                     this.mostrarErro('Erro ao carregar dashboard: ' + error.message);
                 }
             }
-            
+
             //========================================================
             //  ██████╗ ███████╗███╗   ██╗██████╗ ███████╗██████╗ 
             // ██╔════╝ ██╔════╝████╗  ██║██╔══██╗██╔════╝██╔══██╗
@@ -783,34 +784,22 @@
             //========================================================
 
             processarMensagemWebSocket(mensagem) {
-                console.log('📡 Mensagem WebSocket:', mensagem);
-
+                console.log("📡 Mensagem WebSocket:", mensagem);
                 switch (mensagem.tipo) {
                     case 'ENTRADA_ALUNO':
-                        if (!mensagem.aluno || !mensagem.aluno.id || !mensagem.aluno.nome) {
-                            console.error("❌ Payload de ENTRADA_ALUNO inválido.", mensagem);
-                            return;
-                        }
-                        this.processarEntradaAluno(mensagem.aluno, mensagem.timestamp);
+                        this.tocarSomAlertaEntrada(); // <--- ADICIONE ESTA CHAMADA
+                        this.atualizarAlunoPresente(mensagem.aluno.id, mensagem.aluno.nome);
+                        this.mostrarNotificacao('Entrada Registrada', `${mensagem.aluno.nome} entrou.`, 'info');
                         break;
-
                     case 'SAIDA_PENDENTE':
+                        // O som da chamada de voz será tratado pela fila, aqui não fazemos nada.
                         this.processarSaidaPendente(mensagem);
                         break;
-                    
-                    case 'CONFIRMADA_DIRETOR': // Agrupado para tratar da mesma forma
                     case 'SAIDA_CONFIRMADA':
+                        this.tocarSomAlertaSaida(); // <--- ADICIONE ESTA CHAMADA
                         this.processarSaidaConfirmada(mensagem);
+                        this.mostrarNotificacao('Saída Confirmada', `${mensagem.alunoNome} saiu.`, 'success');
                         break;
-
-                    // O caso 'NOVA_CHAMADA' parece ser para um propósito diferente (notificação, cor)
-                    // e não altera o estado de presença, então sua lógica original é mantida.
-                    case 'NOVA_CHAMADA':
-                        this.processarNovaChamada(mensagem);
-                        break;
-
-                    default:
-                        console.log('🚨 Mensagem WebSocket não reconhecida:', mensagem);
                 }
             }
 
@@ -825,7 +814,7 @@
                 // 2. ATUALIZA O ESTADO: Adiciona o aluno à lista de dados.
                 this.alunos.push({ id: aluno.id, nome: aluno.nome, status: 'PRESENTE' });
                 this.alunos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-                
+
                 // 3. ATUALIZA A TELA: Chama a função mestra para redesenhar a grade.
                 this.renderizarAlunos();
                 console.log(`[ENTRADA] Aluno ${aluno.nome} adicionado ao estado e tela renderizada.`);
@@ -844,7 +833,7 @@
                 if (aluno) {
                     aluno.status = 'AGUARDANDO_CONFIRMACAO';
                     aluno.tipoSolicitante = mensagem.tipoSolicitante;
-                    
+
                     // 2. ATUALIZA A TELA: Redesenha a grade com o card no estado "pendente".
                     this.renderizarAlunos();
                     console.log(`[PENDENTE] Estado do aluno ${aluno.nome} atualizado para pendente. Tela renderizada.`);
@@ -876,7 +865,7 @@
                     // 4. ATUALIZA A TELA: Redesenha a grade já sem o aluno.
                     this.renderizarAlunos();
                     console.log(`[SAÍDA] Aluno ${mensagem.alunoNome} removido do estado. Tela renderizada.`);
-                    
+
                     this.mostrarNotificacao('Saída Confirmada', `${mensagem.alunoNome} saiu da escola.`, 'warning');
                 }, 450); // Duração da animação CSS
             }
@@ -895,6 +884,67 @@
             // principais acima agora orquestram a renderização de forma
             // segura, mas a execução detalhada permanece sua.
             //========================================================
+
+            // Toca um som simples de "bip" para notificar entrada
+            tocarSomAlertaEntrada() {
+                if (!this.audioContext) {
+                    console.warn('Áudio context não iniciado, som de entrada pulado.');
+                    return;
+                }
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                oscillator.connect(gainNode);
+                gainNode.connect(this.audioContext.destination);
+
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(800, this.audioContext.currentTime);
+                gainNode.gain.setValueAtTime(0.3, this.audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + 0.5);
+
+                oscillator.start(this.audioContext.currentTime);
+                oscillator.stop(this.audioContext.currentTime + 0.5);
+            }
+
+            // Toca um som mais grave para notificar saída
+            tocarSomAlertaSaida() {
+                if (!this.audioContext) {
+                    console.warn('Áudio context não iniciado, som de saída pulado.');
+                    return;
+                }
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                oscillator.connect(gainNode);
+                gainNode.connect(this.audioContext.destination);
+
+                oscillator.type = 'triangle';
+                oscillator.frequency.setValueAtTime(400, this.audioContext.currentTime);
+                oscillator.frequency.linearRampToValueAtTime(200, this.audioContext.currentTime + 0.5);
+                gainNode.gain.setValueAtTime(0.4, this.audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + 0.7);
+
+                oscillator.start(this.audioContext.currentTime);
+                oscillator.stop(this.audioContext.currentTime + 0.7);
+            }
+
+            // GERENCIADOR CENTRAL DE ÁUDIO
+            // Responsável por destravar o áudio no navegador
+            initAudioContextManager() {
+                this.audioContext = null;
+                // A 'chave' para destravar o áudio
+                const unlockAudio = () => {
+                    if (!this.audioContext) {
+                        try {
+                            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                            console.log('✅ Contexto de Áudio INICIADO com sucesso após gesto do usuário.');
+                        } catch (e) {
+                            console.error('❌ Este navegador não suporta a Web Audio API.', e);
+                        }
+                    }
+                    // Remove o listener depois do primeiro clique para não rodar de novo
+                    document.removeEventListener('click', unlockAudio);
+                };
+                document.addEventListener('click', unlockAudio);
+            }
 
             async sincronizarSalaSilenciosamente() {
                 if (this.isProcessandoFila) {
@@ -1016,7 +1066,7 @@
                     console.error("❌ CRÍTICO: 'currentUser.salaId' não encontrado.", this.currentUser);
                 }
             }
-            
+
             async carregarDadosSala() {
                 try {
                     await this.carregarInfoSala();
@@ -1195,7 +1245,7 @@
                     const payload = { model_id: "sonic-3", transcript: textoParaVoz, voice: { id: vozSorteadaId, mode: "id" }, output_format: { container: "wav", encoding: "pcm_f32le", sample_rate: 44100 } };
                     const response = await fetch('https://api.cartesia.ai/tts/bytes', { method: 'POST', headers: { 'Cartesia-Version': '2025-04-16', 'X-API-Key': CARTESIA_API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                     if (!response.ok) throw new Error(`Falha na API Cartesia: ${response.status}`);
-                    
+
                     const audioBytes = await response.arrayBuffer();
                     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
                     return audioContext.decodeAudioData(audioBytes);
@@ -1243,7 +1293,7 @@
                     } catch (error) { reject(error); }
                 });
             }
-            
+
             tocarAlertaOriginal() {
                 try {
                     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -1252,11 +1302,11 @@
                     oscillator.connect(gainNode); gainNode.connect(audioContext.destination);
                     oscillator.frequency.setValueAtTime(400, audioContext.currentTime);
                     oscillator.start(); oscillator.stop(audioContext.currentTime + 0.3);
-                } catch(e) { console.warn("Fallback de áudio falhou", e)}
+                } catch (e) { console.warn("Fallback de áudio falhou", e) }
             }
-            
+
             tocarSomNotificacao() {
-                 try {
+                try {
                     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
                     const oscillator = audioContext.createOscillator();
                     const gainNode = audioContext.createGain();
@@ -1265,9 +1315,9 @@
                     gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
                     gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
                     oscillator.start(); oscillator.stop(audioContext.currentTime + 0.3);
-                } catch(e) { console.warn("Áudio não suportado", e)}
+                } catch (e) { console.warn("Áudio não suportado", e) }
             }
-            
+
             tocarSomAlerta() {
                 try {
                     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -1278,9 +1328,9 @@
                     gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
                     gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
                     oscillator.start(); oscillator.stop(audioContext.currentTime + 0.5);
-                } catch (e) { console.warn("Áudio não suportado", e)}
+                } catch (e) { console.warn("Áudio não suportado", e) }
             }
-            
+
             processarNovaChamada(mensagem) {
                 this.tocarSomNotificacao();
                 this.mostrarNotificacao('Presente na Escola', `${mensagem.alunoNome}`, 'info');
@@ -1368,4 +1418,5 @@
         });
     </script>
 </body>
+
 </html>
