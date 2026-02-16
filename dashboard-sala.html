@@ -1788,7 +1788,7 @@
                 alunoCard.classList.add('expandindo');
 
                 // Passo 4: LÓGICA DE SINCRONIZAÇÃO DE ÁUDIO E TEMPO MÍNIMO
-                const audioPromise = this.tocarAlertaExpansao(chamada);
+                const audioPromise = this.tocarAlertaDinamicoCartesia(chamada);
 
                 // Criamos uma segunda promessa que garante uma duração mínima de 3 segundos para o destaque visual.
                 const animationPromise = new Promise(resolve => setTimeout(resolve, 3000));
@@ -2520,6 +2520,120 @@
                 });
             }
 
+            // =========================================================================================
+            // ==== FUNÇÃO DE ÁUDIO DINÂMICO (VERSÃO COM LÓGICA DE PARENTESCO ESPECÍFICO) ====
+            // =========================================================================================
+            async tocarAlertaDinamicoCartesia(chamada) {
+                const CARTESIA_API_KEY = "sk_car_L661CH8Js5DZxLg9A72jyT";
+
+                return new Promise(async (resolve, reject) => {
+                    try {                        
+                        // 1. Extrai todos os dados necessários da chamada.
+                        const { alunoNome, tipoSolicitante, parentesco } = chamada;
+                        let textoParaVoz = `Atenção, ${alunoNome}! `;
+                        let solicitanteAnuncio = ''; // Variável para a parte customizada do anúncio.
+
+                        // 2. Lógica de prioridade:
+                        // Se for um TUTOR e tivermos a informação de PARENTESCO, usamos ela primeiro.
+                        if (tipoSolicitante === 'TUTOR' && parentesco) {
+                            switch (parentesco.toUpperCase()) { // Usamos toUpperCase para evitar erros de digitação (Pai, pai, PAI)
+                                case 'PAI':
+                                    solicitanteAnuncio = 'Seu pai';
+                                    break;
+                                case 'MAE': // A API de voz geralmente pronuncia "Mãe" corretamente.
+                                    solicitanteAnuncio = 'Sua mãe';
+                                    break;
+                                case 'IRMAO':
+                                    solicitanteAnuncio = 'Seu irmão ou irmã';
+                                    break;
+                                case 'PARENTE':
+                                    solicitanteAnuncio = 'Um parente seu';
+                                    break;
+                                case 'AMIGO':
+                                    solicitanteAnuncio = 'Um amigo de sua família';
+                                    break;
+                                case 'TRANSPORTE':
+                                    solicitanteAnuncio = 'A van escolar';
+                                    break;
+                                case 'DIRETOR':
+                                    solicitanteAnuncio = 'A direção da escola';
+                                    break;
+                                    
+                                // Adicione outros casos específicos se precisar (ex: TIO, AVÓ)
+                                default:
+                                    // Se for um parentesco não mapeado (ex: Primo), usa um texto genérico.
+                                    solicitanteAnuncio = 'Seu responsável, um tutor autorizado,';
+                            }
+                        } else {
+                            // 3. Se não for um TUTOR ou não tiver parentesco, usamos o mapa antigo.
+                            const mapaOutrosSolicitantes = {
+                                'TRANSPORTE': 'A van escolar', // Modificado conforme seu pedido.
+                                'DIRETOR': 'A direção da escola',
+                                'AMIGO': 'Um amigo de sua família',
+                                'PARENTE': 'Um parente seu',
+                                'SISTEMA': 'O sistema',
+                            };
+                            solicitanteAnuncio = mapaOutrosSolicitantes[tipoSolicitante] || 'Alguém';
+                        }
+
+                        // 4. Monta a frase final.
+                        textoParaVoz += solicitanteAnuncio + " está aguardando na saída.";
+
+                        // =======================================================================
+                        // ==== FIM DA MUDANÇA ====
+                        // =======================================================================
+
+                        console.log(`[Cartesia TTS] Texto a ser gerado: "${textoParaVoz}"`);
+
+                        const payload = {
+                            model_id: "sonic-3",
+                            transcript: textoParaVoz,
+                            voice: {
+                                mode: "id",
+                                id: "6a16c1f4-462b-44de-998d-ccdaa4125a0a"
+                            },
+                            output_format: { container: "wav", encoding: "pcm_f32le", sample_rate: 44100 },
+                            language: "pt"
+                        };
+
+                        const response = await fetch('https://api.cartesia.ai/tts/bytes', {
+                            method: 'POST',
+                            headers: {
+                                'Cartesia-Version': '2025-04-16',
+                                'X-API-Key': CARTESIA_API_KEY,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(payload)
+                        });
+
+                        if (!response.ok) {
+                            throw new Error(`Falha na API da Cartesia: ${response.status} ${response.statusText}`);
+                        }
+
+                        const audioBytes = await response.arrayBuffer();
+                        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                        const audioBuffer = await audioContext.decodeAudioData(audioBytes);
+
+                        const source = audioContext.createBufferSource();
+                        source.buffer = audioBuffer;
+                        source.connect(audioContext.destination);
+
+                        source.onended = () => {
+                            console.log("[Cartesia TTS] Reprodução de áudio finalizada.");
+                            resolve();
+                        };
+
+                        source.start(0);
+
+                    } catch (error) {
+                        console.error("[Cartesia TTS] Erro ao gerar ou tocar áudio:", error);
+                        this.tocarAlertaOriginal();
+                        reject(error);
+                    }
+                });
+            }
+
+
             aplicarDestaqueChamada(alunoCard, tipoSolicitante) {
                 alunoCard.classList.remove('tutor', 'token', 'diretor', 'transporte', 'destaque');
                 let classeCor = '';
@@ -2663,11 +2777,11 @@
         }
 
         /**
- * Abrevia nomes longos seguindo a regra: Primeiro Nome + Inicial do Meio + Último Nome.
- * Também formata o nome para o estilo "Title Case" e ignora partículas.
- * @param {string} nomeCompleto O nome completo do aluno.
- * @returns {string} O nome formatado e, se necessário, abreviado.
- */
+         * Abrevia nomes longos seguindo a regra: Primeiro Nome + Inicial do Meio + Último Nome.
+         * Também formata o nome para o estilo "Title Case" e ignora partículas.
+         * @param {string} nomeCompleto O nome completo do aluno.
+         * @returns {string} O nome formatado e, se necessário, abreviado.
+         */
         function abreviarNome(nomeCompleto) {
             if (!nomeCompleto) return '';
 
