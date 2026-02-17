@@ -840,29 +840,46 @@
             }
 
             processarSaidaPendente(mensagem) {
+                // 1. ATUALIZA O ESTADO (isso permanece o mesmo e é importante)
                 const aluno = this.alunos.find(a => a.id === mensagem.alunoId);
                 if (!aluno) {
                     console.warn(`[PENDENTE] Aluno com ID ${mensagem.alunoId} não foi encontrado.`);
                     return;
                 }
-
-                // 1. Atualiza o estado e a tela
                 aluno.status = 'AGUARDANDO_CONFIRMACAO';
                 aluno.tipoSolicitante = mensagem.tipoSolicitante;
-                this.renderizarAlunos();
-                console.log(`[PENDENTE] Estado do aluno ${aluno.nome} atualizado. Tela pronta para ser redesenhada.`);
 
-                // 2. Adiciona à fila
+                // 2. ATUALIZA A TELA DIRETAMENTE (O "BISTURI")
+                // Em vez de chamar renderizarAlunos(), nós modificamos o card existente.
+                const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
+                if (alunoCard) {
+                    console.log(`[BISTURI] Atualizando o card do aluno ${aluno.nome} diretamente no DOM.`);
+
+                    // Limpa classes de cor antigas para evitar conflitos
+                    alunoCard.classList.remove('tutor', 'diretor', 'token', 'sistema', 'transporte');
+
+                    // Determina e aplica a nova classe de cor
+                    let tipo = (mensagem.tipoSolicitante || 'diretor').toLowerCase();
+                    if (['parente', 'amigo', 'irmao'].includes(tipo)) {
+                        tipo = 'token'; // Normaliza para a classe CSS correta
+                    }
+                    alunoCard.classList.add('pendente', tipo);
+
+                    // Atualiza o texto do status
+                    const horarioElement = alunoCard.querySelector('.aluno-horario');
+                    if (horarioElement) {
+                        horarioElement.textContent = 'Aguardando Confirmação';
+                    }
+                } else {
+                    // Se, por algum motivo, o card não for encontrado, usamos a marreta como fallback.
+                    console.warn(`[BISTURI-FALLBACK] Card para ${aluno.nome} não encontrado, renderizando a grade inteira.`);
+                    this.renderizarAlunos();
+                }
+
+                // 3. A LÓGICA DA FILA (permanece a mesma, agora operando em um DOM estável)
                 this.filaDeChamadas.push(mensagem);
-
-                // 3. LÓGICA DO "PORTÃO DE ENTRADA" CORRIGIDA
                 if (!this.isProcessandoFila) {
-                    // Tranca o portão IMEDIATAMENTE para que nenhuma outra chamada
-                    // de processarSaidaPendente possa iniciar um novo loop.
                     this.isProcessandoFila = true;
-                    console.log("🏁 Fila de animação iniciada. Portão trancado.");
-
-                    // Inicia o processamento da fila. Não precisa mais de delay aqui.
                     this.processarProximoDaFila();
                 }
             }
