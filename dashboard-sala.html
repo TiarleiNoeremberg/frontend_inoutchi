@@ -1301,24 +1301,35 @@
 
                 if (!alunoCard) {
                     console.warn(`[ANIMAÇÃO] Card do aluno ${alunoNome} não encontrado no DOM. Pulando.`);
-                    return; // Sai da função para não travar a fila.
+                    return;
                 }
 
-                // Esta é a promessa que vai esperar o navegador desenhar a tela
-                // e SÓ DEPOIS iniciar a animação. Isso resolve o bug do primeiro card.
+                // Esta é a promessa que vai esperar a animação acontecer.
                 const promessaDeAnimacao = new Promise(resolve => {
-                    requestAnimationFrame(() => {
-                        // Agora que o navegador está pronto, calculamos e aplicamos a animação.
-                        const transformacao = this.calcularExpansaoCentralizada(alunoCard);
-                        alunoCard.style.transform = transformacao;
-                        alunoCard.classList.add('expandindo');
 
-                        // A promessa só resolve após o tempo mínimo da animação.
-                        setTimeout(resolve, 3000);
+                    // --- INÍCIO DA CORREÇÃO CRÍTICA (Duplo rAF) ---
+
+                    // 1. PRIMEIRO FRAME: Pede ao navegador para se preparar. Ele vai "ver" o
+                    //    card no seu estado inicial (sem transform) e pintar a tela.
+                    requestAnimationFrame(() => {
+
+                        // 2. SEGUNDO FRAME: Agora que o navegador já processou o estado inicial,
+                        //    nós pedimos para, no próximo quadro, ele aplicar a transformação.
+                        //    Isso cria a diferença de "antes" e "depois" que a transição CSS precisa.
+                        requestAnimationFrame(() => {
+                            const transformacao = this.calcularExpansaoCentralizada(alunoCard);
+                            alunoCard.style.transform = transformacao;
+                            alunoCard.classList.add('expandindo');
+
+                            // A promessa só é resolvida após o tempo da animação/áudio.
+                            setTimeout(resolve, 3000);
+                        });
                     });
+
+                    // --- FIM DA CORREÇÃO CRÍTICA ---
                 });
 
-                // A lógica de áudio permanece a mesma.
+                // A lógica de áudio permanece a mesma, executando em paralelo.
                 const promessaSequenciaAudio = (async () => {
                     try {
                         const promessaDaVoz = this.prepararVozCartesia(chamada);
@@ -1327,17 +1338,17 @@
                         await this.tocarBufferDeAudio(bufferDaVoz);
                     } catch (audioError) {
                         console.error(`💥 Erro na sequência de áudio para ${alunoNome}.`, audioError);
-                        this.tocarAlertaOriginal(); // Toca um som de fallback
+                        this.tocarAlertaOriginal();
                     }
                 })();
 
                 try {
-                    // Espera por AMBAS as promessas: a de animação/tempo e a de áudio.
+                    // Espera por AMBAS as promessas (animação e áudio).
                     await Promise.all([promessaDeAnimacao, promessaSequenciaAudio]);
                 } catch (error) {
                     console.error("Erro durante a sincronização de áudio/animação:", error);
                 } finally {
-                    // O finally garante que o card sempre será recolhido, mesmo se o áudio falhar.
+                    // Garante que a expansão sempre será finalizada.
                     this.finalizarExpansao(alunoCard, alunoId);
                 }
             }
