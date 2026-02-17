@@ -840,27 +840,30 @@
             }
 
             processarSaidaPendente(mensagem) {
-                // 1. ATUALIZA O ESTADO: Encontra o aluno e muda seu status.
                 const aluno = this.alunos.find(a => a.id === mensagem.alunoId);
-                if (aluno) {
-                    aluno.status = 'AGUARDANDO_CONFIRMACAO';
-                    aluno.tipoSolicitante = mensagem.tipoSolicitante;
+                if (!aluno) {
+                    console.warn(`[PENDENTE] Aluno com ID ${mensagem.alunoId} não foi encontrado.`);
+                    return;
+                }
 
-                    // 2. ATUALIZA A TELA: Redesenha a grade com o card no estado "pendente".
-                    this.renderizarAlunos();
-                    console.log(`[PENDENTE] Estado do aluno ${aluno.nome} atualizado para pendente. Tela renderizada.`);
+                // 1. Atualiza o estado e a tela
+                aluno.status = 'AGUARDANDO_CONFIRMACAO';
+                aluno.tipoSolicitante = mensagem.tipoSolicitante;
+                this.renderizarAlunos();
+                console.log(`[PENDENTE] Estado do aluno ${aluno.nome} atualizado. Tela pronta para ser redesenhada.`);
 
-                    // 3. INICIA ANIMAÇÃO: Adiciona à fila para o show de luz e som.
-                    this.filaDeChamadas.push(mensagem);
-                    if (!this.isProcessandoFila) {
-                        // Damos ao navegador uma pequena pausa (50ms) para garantir que
-                        // o 'renderizarAlunos()' tenha terminado antes de iniciar a animação.
-                        setTimeout(() => {
-                            this.processarProximoDaFila();
-                        }, 50);
-                    }
-                } else {
-                    console.warn(`[PENDENTE] Aluno com ID ${mensagem.alunoId} não encontrado.`);
+                // 2. Adiciona à fila
+                this.filaDeChamadas.push(mensagem);
+
+                // 3. LÓGICA DO "PORTÃO DE ENTRADA" CORRIGIDA
+                if (!this.isProcessandoFila) {
+                    // Tranca o portão IMEDIATAMENTE para que nenhuma outra chamada
+                    // de processarSaidaPendente possa iniciar um novo loop.
+                    this.isProcessandoFila = true;
+                    console.log("🏁 Fila de animação iniciada. Portão trancado.");
+
+                    // Inicia o processamento da fila. Não precisa mais de delay aqui.
+                    this.processarProximoDaFila();
                 }
             }
 
@@ -1293,33 +1296,48 @@
             }
 
             async executarDestaqueCompleto(chamada) {
-                const { alunoId, alunoNome, tipoSolicitante } = chamada;
+                const { alunoId, alunoNome } = chamada;
                 const alunoCard = document.querySelector(`[data-aluno-id="${alunoId}"]`);
-                if (!alunoCard) return;
 
-                // A LÓGICA DE ANIMAÇÃO PERMANECE AQUI
-                // A tela já foi renderizada com o estado 'pendente', agora só animamos.
-                const transformacao = this.calcularExpansaoCentralizada(alunoCard);
-                alunoCard.style.transform = transformacao;
-                alunoCard.classList.add('expandindo');
+                if (!alunoCard) {
+                    console.warn(`[ANIMAÇÃO] Card do aluno ${alunoNome} não encontrado no DOM. Pulando.`);
+                    return; // Sai da função para não travar a fila.
+                }
+
+                // Esta é a promessa que vai esperar o navegador desenhar a tela
+                // e SÓ DEPOIS iniciar a animação. Isso resolve o bug do primeiro card.
+                const promessaDeAnimacao = new Promise(resolve => {
+                    requestAnimationFrame(() => {
+                        // Agora que o navegador está pronto, calculamos e aplicamos a animação.
+                        const transformacao = this.calcularExpansaoCentralizada(alunoCard);
+                        alunoCard.style.transform = transformacao;
+                        alunoCard.classList.add('expandindo');
+
+                        // A promessa só resolve após o tempo mínimo da animação.
+                        setTimeout(resolve, 3000);
+                    });
+                });
+
+                // A lógica de áudio permanece a mesma.
+                const promessaSequenciaAudio = (async () => {
+                    try {
+                        const promessaDaVoz = this.prepararVozCartesia(chamada);
+                        await this.tocarBipDeAlerta();
+                        const bufferDaVoz = await promessaDaVoz;
+                        await this.tocarBufferDeAudio(bufferDaVoz);
+                    } catch (audioError) {
+                        console.error(`💥 Erro na sequência de áudio para ${alunoNome}.`, audioError);
+                        this.tocarAlertaOriginal(); // Toca um som de fallback
+                    }
+                })();
 
                 try {
-                    const promessaSequenciaAudio = (async () => {
-                        try {
-                            const promessaDaVoz = this.prepararVozCartesia(chamada);
-                            await this.tocarBipDeAlerta();
-                            const bufferDaVoz = await promessaDaVoz;
-                            await this.tocarBufferDeAudio(bufferDaVoz);
-                        } catch (audioError) {
-                            console.error(`💥 Erro na sequência de áudio para ${alunoNome}.`, audioError);
-                            this.tocarAlertaOriginal();
-                        }
-                    })();
-                    const promessaTempoMinimo = new Promise(resolve => setTimeout(resolve, 3000));
-                    await Promise.all([promessaSequenciaAudio, promessaTempoMinimo]);
+                    // Espera por AMBAS as promessas: a de animação/tempo e a de áudio.
+                    await Promise.all([promessaDeAnimacao, promessaSequenciaAudio]);
                 } catch (error) {
-                    console.error("Erro inesperado na lógica de sincronização:", error);
+                    console.error("Erro durante a sincronização de áudio/animação:", error);
                 } finally {
+                    // O finally garante que o card sempre será recolhido, mesmo se o áudio falhar.
                     this.finalizarExpansao(alunoCard, alunoId);
                 }
             }
