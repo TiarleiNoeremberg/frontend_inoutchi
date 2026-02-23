@@ -479,13 +479,28 @@
         /* A classe que prepara o card para expandir suavemente. */
         .aluno-card.expandindo {
             z-index: 1000;
-            transition: transform 0.8s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.8s ease;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            /* APLICA A TRANSFORMAÇÃO CALCULADA PELO JS */
+            transform: var(--card-transform);
+            /* A MÁGICA: Define que a transição do 'transform' deve levar 0.8 segundos */
+            transition: transform 0.8s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+
+        .aluno-card.expandindo .aluno-nome {
+            font-size: 1.5rem;
+            /* Aumenta a fonte para um tamanho bem visível */
+            font-weight: 700;
+            /* Também define uma transição suave para o tamanho da fonte */
+            transition: font-size 0.8s ease, font-weight 0.8s ease;
         }
 
         /* A classe que faz o card retornar à sua posição suavemente. */
         .aluno-card.recolhendo {
             z-index: 999;
-            transition: transform 0.6s cubic-bezier(0.5, 0, 0.75, 0), opacity 0.6s ease;
+            /* Anima de volta para a posição original (transformação nula) */
+            transform: scale(1);
+            /* Define que a transição de retorno deve levar 0.7 segundos */
+            transition: transform 0.7s cubic-bezier(0.5, 0, 0.75, 0);
         }
 
         /* A classe aplicada durante a animação de remoção final. */
@@ -1203,7 +1218,10 @@
             }
 
             async executarDestaqueCompleto(chamada) {
-                const { alunoId, alunoNome } = chamada;
+                const {
+                    alunoId,
+                    alunoNome
+                } = chamada;
                 const alunoCard = document.querySelector(`[data-aluno-id="${alunoId}"]`);
 
                 if (!alunoCard) {
@@ -1211,32 +1229,34 @@
                     return;
                 }
 
-                // A promessa que gerencia a animação
                 const promessaDeAnimacao = new Promise(resolve => {
+                    // --- INÍCIO DA CORREÇÃO CRÍTICA ---
 
-                    // --- INÍCIO DA CORREÇÃO CRÍTICA (Forçar Reflow + rAF) ---
-
-                    // PASSO 1: Força o navegador a calcular o layout do card AGORA.
-                    // Ler uma propriedade como 'offsetHeight' é uma forma conhecida e confiável
-                    // de forçar uma "reflow" síncrona. A variável não é usada.
+                    // Força o navegador a calcular o layout do card AGORA
                     const _ = alunoCard.offsetHeight;
 
-                    // PASSO 2: Agora que a posição inicial está garantida, esperamos o PRÓXIMO
-                    // quadro de animação para aplicar a classe e o transform.
-                    // Isso garante que o navegador veja a mudança de um estado inicial para um final.
+                    // Espera o PRÓXIMO quadro de animação para aplicar a mudança
                     requestAnimationFrame(() => {
                         const transformacao = this.calcularExpansaoCentralizada(alunoCard);
-                        alunoCard.style.transform = transformacao;
+
+                        // CORREÇÃO PRINCIPAL:
+                        // 1. NÃO aplicamos mais o transform direto no style.
+                        // Em vez disso, gravamos o valor em uma variável CSS no próprio elemento.
+                        alunoCard.style.setProperty('--card-transform', transformacao);
+
+                        // 2. AGORA, adicionamos a classe. O CSS vai ler a variável
+                        // e iniciar a transição suave de 0.8 segundos que definimos.
                         alunoCard.classList.add('expandindo');
 
-                        // Resolve a promessa após o tempo da animação para continuar a fila.
+                        // Resolve a promessa após o tempo total da animação para continuar a fila.
+                        // O tempo do som + animação deve ser de aprox. 3 segundos no total.
                         setTimeout(resolve, 3000);
                     });
 
                     // --- FIM DA CORREÇÃO CRÍTICA ---
                 });
 
-                // A lógica de áudio (que já está correta) executa em paralelo.
+                // A lógica de áudio continua a mesma, executando em paralelo
                 const promessaSequenciaAudio = (async () => {
                     try {
                         const promessaDaVoz = this.prepararVozCartesia(chamada);
@@ -1250,24 +1270,33 @@
                 })();
 
                 try {
-                    // Espera por AMBAS as promessas (animação e áudio).
                     await Promise.all([promessaDeAnimacao, promessaSequenciaAudio]);
                 } catch (error) {
                     console.error("Erro durante a sincronização de áudio/animação:", error);
                 } finally {
-                    // Garante que a expansão sempre será finalizada.
                     this.finalizarExpansao(alunoCard, alunoId);
                 }
             }
 
             finalizarExpansao(alunoCard, alunoId) {
                 if (!alunoCard) return;
+
+                // 1. Remove a classe de expansão
                 alunoCard.classList.remove('expandindo');
+
+                // 2. Adiciona a classe de recolhimento, que tem a transição de 0.7s
                 alunoCard.classList.add('recolhendo');
-                alunoCard.style.transform = '';
+
+                // 3. Após o tempo da animação de retorno, limpa tudo
                 setTimeout(() => {
-                    if (alunoCard) alunoCard.classList.remove('recolhendo');
-                }, 800);
+                    if (alunoCard) {
+                        alunoCard.classList.remove('recolhendo');
+                        // Limpa a variável CSS que gravamos no elemento
+                        alunoCard.style.removeProperty('--card-transform');
+                    }
+                }, 700); // <-- Duração DEVE ser igual à transição da classe .recolhendo (0.7s)
+
+                // O resto do seu código para atualizar o texto pode permanecer aqui
                 const horarioElement = alunoCard.querySelector('.aluno-horario');
                 if (horarioElement) horarioElement.textContent = 'Aguardando Confirmação';
             }
