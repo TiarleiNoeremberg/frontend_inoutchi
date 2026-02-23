@@ -2616,23 +2616,43 @@
          * Função principal que orquestra o carregamento de todos os dados da Visão Geral.
          */
         async function loadVisaoGeralData() {
-            try {
-                // Usando Promise.all para carregar dados em paralelo
-                const [kpis, fluxo, status, atividades] = await Promise.all([
-                    fetchDashboardKPIs(),
-                    fetchFluxoHorario(),
-                    fetchStatusAlunos(),
-                    fetchAtividadesRecentes()
-                ]);
+            console.log("Iniciando carregamento dos dados da Visão Geral...");
 
-                renderKPIs(kpis);
-                renderFluxoChart(fluxo);
-                renderStatusChart(status);
-                renderAtividadesRecentes(atividades);
+            // Pegando o token e o ID da escola do armazenamento local
+            const AUTH_TOKEN = localStorage.getItem('jwtToken');
+            const user = JSON.parse(localStorage.getItem('user'));
+            const escolaId = user ? user.escolaId : null;
+
+            if (!AUTH_TOKEN || !escolaId) {
+                console.error("Token de autenticação ou ID da escola não encontrado.");
+                showAlert('Sessão inválida. Por favor, faça login novamente.', 'error');
+                return;
+            }
+
+            try {
+                // FAZENDO A CHAMADA ÚNICA PARA O NOSSO NOVO ENDPOINT
+                const response = await fetch(`${API_URL}/api/dashboard/escola/${escolaId}`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Falha ao buscar os dados do dashboard do servidor.');
+                }
+
+                const data = await response.json(); // 'data' é o nosso DashboardKpiDto completo
+                console.log("Dados recebidos do backend:", data);
+
+                // Agora, passamos o mesmo objeto 'data' para as funções de renderização
+                renderKPIs(data);
+                renderFluxoChart(data); // O gráfico de fluxo usará os dados reais
+
+                // Mantemos os dados "fake" para os que ainda não foram implementados no backend
+                renderStatusChart(null);
+                renderAtividadesRecentes(null);
 
             } catch (error) {
                 console.error("Erro ao carregar dados da Visão Geral:", error);
-                // Poderia mostrar um erro geral na tela aqui
+                showAlert(error.message, 'error');
             }
         }
 
@@ -2747,14 +2767,16 @@
          * Renderiza os valores nos cards de KPI.
          */
         function renderKPIs(data) {
-            document.getElementById('kpi-presentes').textContent = data.presentes ?? '--';
+            // Usando os nomes exatos do DTO: alunosPresentes, saidasHoje, etc.
+            document.getElementById('kpi-presentes').textContent = data.alunosPresentes ?? '--';
             document.getElementById('kpi-saidas-hoje').textContent = data.saidasHoje ?? '--';
-            document.getElementById('kpi-pendencias').textContent = data.pendencias ?? '--';
+            document.getElementById('kpi-pendencias').textContent = data.pendenciasAtuais ?? '--';
 
-            // Formata o tempo médio de segundos para "Xmin Ys"
-            if (data.tempoMedioSaida) {
-                const mins = Math.floor(data.tempoMedioSaida / 60);
-                const secs = data.tempoMedioSaida % 60;
+            // O tempo médio ainda virá como 0, então exibimos '--' por enquanto
+            const tempoMedio = data.tempoMedioSaidaSegundos;
+            if (tempoMedio) {
+                const mins = Math.floor(tempoMedio / 60);
+                const secs = tempoMedio % 60;
                 document.getElementById('kpi-tempo-medio').textContent = `${mins}min ${secs}s`;
             } else {
                 document.getElementById('kpi-tempo-medio').textContent = '--';
@@ -2766,37 +2788,49 @@
          */
         function renderFluxoChart(data) {
             const ctx = document.getElementById('fluxoAlunosChart').getContext('2d');
-            const labels = Object.keys(data);
-            const entradasData = labels.map(label => data[label].entradas);
-            const saidasData = labels.map(label => data[label].saidas);
 
             if (fluxoChartInstance) {
                 fluxoChartInstance.destroy();
             }
 
+            // Extrai os dados do mapa 'fluxoPorHora' que veio do backend
+            const fluxoData = data.fluxoPorHora || {};
+            const labels = Object.keys(fluxoData); // ["07:00", "08:00", ...]
+            const entradasData = Object.values(fluxoData).map(fluxo => fluxo.entradas); // [15, 25, ...]
+            const saidasData = Object.values(fluxoData).map(fluxo => fluxo.saidas);   // [1, 2, ...]
+
             fluxoChartInstance = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: labels,
-                    datasets: [{
-                        label: 'Entradas',
-                        data: entradasData,
-                        backgroundColor: 'rgba(52, 152, 219, 0.7)',
-                        borderColor: 'rgba(52, 152, 219, 1)',
-                        borderWidth: 1
-                    }, {
-                        label: 'Saídas',
-                        data: saidasData,
-                        backgroundColor: 'rgba(231, 76, 60, 0.7)',
-                        borderColor: 'rgba(231, 76, 60, 1)',
-                        borderWidth: 1
-                    }]
+                    datasets: [
+                        {
+                            label: 'Entradas',
+                            data: entradasData,
+                            backgroundColor: 'rgba(54, 162, 235, 0.7)',
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Saídas',
+                            data: saidasData,
+                            backgroundColor: 'rgba(255, 99, 132, 0.7)',
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            borderWidth: 1
+                        }
+                    ]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
                     scales: {
-                        y: { beginAtZero: true }
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                // Garante que o eixo Y só tenha números inteiros
+                                stepSize: 1
+                            }
+                        }
                     }
                 }
             });
