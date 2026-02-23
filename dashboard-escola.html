@@ -2350,7 +2350,6 @@
         let fluxoAlunosChartInstance = null; // Instância para o gráfico de fluxo
         let statusAlunosChartInstance = null; // Instância para o gráfico de status
 
-
         // Lógica para navegação entre as abas
         document.addEventListener('DOMContentLoaded', async function () {
 
@@ -2363,40 +2362,53 @@
             function closeSuccessModal() { document.getElementById('successModal').style.display = 'none'; }
 
             // =========================================================================
-            // ==== INÍCIO: Autenticação e Carregamento Inicial
+            // ==== INÍCIO: Autenticação, Carregamento de Perfil e Dados Iniciais
             // =========================================================================
             try {
-                const response = await fetch(`${API_URL}/api/users/me`, { headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` } });
-                if (!response.ok) throw new Error('Falha ao carregar dados do usuário.');
-                currentUser = await response.json();
+                // 1. Pega o token salvo no login.
+                if (!AUTH_TOKEN) {
+                    throw new Error('Token de acesso não encontrado.');
+                }
 
-                // >>> NOVO: CARREGA OS DADOS DO DASHBOARD NA PRIMEIRA VEZ <<<
+                // 2. Busca os dados do usuário no backend.
+                const response = await fetch(`${API_URL}/api/users/me`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+                if (!response.ok) {
+                    throw new Error('Falha ao carregar dados do usuário do servidor.');
+                }
+                const userData = await response.json();
+
+                // 3. #### A CORREÇÃO FUNDAMENTAL ####
+                // Salva o objeto de usuário completo E o escolaId separadamente no localStorage.
+                localStorage.setItem('user', JSON.stringify(userData));
+                localStorage.setItem('escolaId', userData.escolaId); // Garante que a constante ESCOLA_ID funcione
+
+                // 4. Preenche as variáveis globais e a interface do usuário.
+                currentUser = userData;
+                document.getElementById('userName').textContent = currentUser.nome || 'Usuário';
+                const userAvatar = document.getElementById('userAvatar');
+                if (currentUser.nome) {
+                    userAvatar.textContent = currentUser.nome.charAt(0).toUpperCase();
+                }
+
+                // 5. Verifica se o escolaId foi carregado corretamente.
+                if (!currentUser.escolaId) {
+                    throw new Error('O usuário não está associado a uma escola.');
+                }
+
+                // 6. AGORA SIM: Com tudo carregado e salvo, chama a função do dashboard.
                 await loadVisaoGeralData();
 
             } catch (error) {
                 console.error("Erro crítico de inicialização:", error);
-                alert("Sessão inválida ou expirada. Faça login novamente.");
-                window.location.href = 'login.html';
-                return;
+                alert("Sessão inválida ou expirada. Por favor, faça login novamente.");
+                window.location.href = 'login.html'; // Redireciona para o login
+                return; // Interrompe a execução do restante do script
             }
-            if (!AUTH_TOKEN || !ESCOLA_ID) {
-                alert("Sessão inválida ou expirada. Faça login novamente.");
-                window.location.href = 'login.html';
-                return;
-            }
-
-
-
-
-
-
-
-
-
-
-
-
-
+            // =========================================================================
+            // ==== FIM: Autenticação e Carregamento Inicial
+            // =========================================================================
 
             // =========================================================================
             // ==== FUNÇÃO saveTutor (COM A SUBSTITUIÇÃO DO alert PELO openSuccessModal) ====
@@ -2480,22 +2492,7 @@
                 }
             }
 
-            // --- Bloco de Autenticação, Lógica de Formulários, Navegação (Tudo Mantido) ---
-            try {
-                const response = await fetch(`${API_URL}/api/users/me`, { headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` } });
-                if (!response.ok) throw new Error('Falha ao carregar dados do usuário.');
-                currentUser = await response.json();
-            } catch (error) {
-                console.error("Erro crítico de inicialização:", error);
-                alert("Sessão inválida ou expirada. Faça login novamente.");
-                window.location.href = 'login.html';
-                return;
-            }
-            if (!AUTH_TOKEN || !ESCOLA_ID) {
-                alert("Sessão inválida ou expirada. Faça login novamente.");
-                window.location.href = 'login.html';
-                return;
-            }
+
             const formHandlers = { 'salaForm': saveSala, 'diretorForm': saveDiretor, 'transporteForm': saveTransporte, 'tutorForm': saveTutor, 'alunoForm': saveAluno };
             for (const formId in formHandlers) {
                 const formElement = document.getElementById(formId);
@@ -2618,35 +2615,25 @@
         async function loadVisaoGeralData() {
             console.log("Iniciando carregamento dos dados da Visão Geral...");
 
-            // Pegando o token e o ID da escola do armazenamento local
-            const AUTH_TOKEN = localStorage.getItem('jwtToken');
-            const user = JSON.parse(localStorage.getItem('user'));
-            const escolaId = user ? user.escolaId : null;
-
-            if (!AUTH_TOKEN || !escolaId) {
-                console.error("Token de autenticação ou ID da escola não encontrado.");
-                showAlert('Sessão inválida. Por favor, faça login novamente.', 'error');
-                return;
-            }
-
             try {
-                // FAZENDO A CHAMADA ÚNICA PARA O NOSSO NOVO ENDPOINT
-                const response = await fetch(`${API_URL}/api/dashboard/escola/${escolaId}`, {
+                // A mágica acontece aqui: estas variáveis `ESCOLA_ID` e `AUTH_TOKEN`
+                // agora são as GLOBAIS que já foram validadas no início.
+                const response = await fetch(`${API_URL}/api/dashboard/escola/${ESCOLA_ID}`, {
                     headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
                 });
 
                 if (!response.ok) {
-                    throw new Error('Falha ao buscar os dados do dashboard do servidor.');
+                    throw new Error(`Falha ao buscar os dados do dashboard (Status: ${response.status})`);
                 }
 
-                const data = await response.json(); // 'data' é o nosso DashboardKpiDto completo
+                const data = await response.json();
                 console.log("Dados recebidos do backend:", data);
 
-                // Agora, passamos o mesmo objeto 'data' para as funções de renderização
+                // Renderiza os componentes com os dados reais
                 renderKPIs(data);
-                renderFluxoChart(data); // O gráfico de fluxo usará os dados reais
+                renderFluxoChart(data);
 
-                // Mantemos os dados "fake" para os que ainda não foram implementados no backend
+                // Mantém os dados "fake" para os gráficos que ainda não foram implementados
                 renderStatusChart(null);
                 renderAtividadesRecentes(null);
 
