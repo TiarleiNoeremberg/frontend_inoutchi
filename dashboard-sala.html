@@ -1222,38 +1222,11 @@
                 const alunoCard = document.querySelector(`[data-aluno-id="${alunoId}"]`);
 
                 if (!alunoCard) {
-                    console.warn(`[ANIMAÇÃO] Card do aluno ${alunoNome} não encontrado no DOM. Pulando.`);
+                    console.warn(`[ANIMAÇÃO] Card do aluno ${alunoNome} não encontrado. Pulando.`);
                     return;
                 }
 
-                const promessaDeAnimacao = new Promise(resolve => {
-                    // --- INÍCIO DA CORREÇÃO CRÍTICA ---
-
-                    // Força o navegador a calcular o layout do card AGORA
-                    const _ = alunoCard.offsetHeight;
-
-                    // Espera o PRÓXIMO quadro de animação para aplicar a mudança
-                    requestAnimationFrame(() => {
-                        const transformacao = this.calcularExpansaoCentralizada(alunoCard);
-
-                        // CORREÇÃO PRINCIPAL:
-                        // 1. NÃO aplicamos mais o transform direto no style.
-                        // Em vez disso, gravamos o valor em uma variável CSS no próprio elemento.
-                        alunoCard.style.setProperty('--card-transform', transformacao);
-
-                        // 2. AGORA, adicionamos a classe. O CSS vai ler a variável
-                        // e iniciar a transição suave de 0.8 segundos que definimos.
-                        alunoCard.classList.add('expandindo');
-
-                        // Resolve a promessa após o tempo total da animação para continuar a fila.
-                        // O tempo do som + animação deve ser de aprox. 3 segundos no total.
-                        setTimeout(resolve, 3000);
-                    });
-
-                    // --- FIM DA CORREÇÃO CRÍTICA ---
-                });
-
-                // A lógica de áudio continua a mesma, executando em paralelo
+                // Promessa para a sequência de áudio (NENHUMA MUDANÇA AQUI)
                 const promessaSequenciaAudio = (async () => {
                     try {
                         const promessaDaVoz = this.prepararVozCartesia(chamada);
@@ -1266,11 +1239,42 @@
                     }
                 })();
 
+                // Promessa para a sequência de ANIMAÇÃO (LÓGICA CORRIGIDA)
+                const promessaDeAnimacao = new Promise(resolve => {
+                    const transformacao = this.calcularExpansaoCentralizada(alunoCard);
+
+                    // 1. Define o tempo da transição ANTES de fazer a mudança.
+                    // Isso garante que a animação de IDA use 1.5 segundos.
+                    alunoCard.style.transition = 'transform 1.5s cubic-bezier(0.4, 0, 0.2, 1)';
+
+                    // Força o navegador a aplicar o estilo acima
+                    window.getComputedStyle(alunoCard).transition;
+
+                    // 2. Executa a transformação. O navegador agora animará isso em 1.5s.
+                    alunoCard.style.transform = transformacao;
+                    alunoCard.style.zIndex = '1000';
+                    alunoCard.querySelector('.aluno-nome').style.fontSize = '1.5rem';
+
+                    // 3. Define o tempo de espera. O card ficará destacado por 3 segundos.
+                    setTimeout(() => {
+                        // 4. PREPARA A VOLTA: Define que a animação de retorno também levará 1.5s
+                        alunoCard.style.transition = 'transform 1.5s cubic-bezier(0.4, 0, 0.2, 1)';
+
+                        // 5. MANDA O CARD VOLTAR: Remove a transformação, fazendo-o voltar à origem.
+                        alunoCard.style.transform = '';
+
+                        resolve(); // Resolve a promessa DEPOIS de mandar o card voltar.
+
+                    }, 3000); // Duração que o card fica destacado no centro
+                });
+
+                // ESPERA as duas promessas (áudio e animação) terminarem
                 try {
                     await Promise.all([promessaDeAnimacao, promessaSequenciaAudio]);
                 } catch (error) {
                     console.error("Erro durante a sincronização de áudio/animação:", error);
                 } finally {
+                    // A função 'finalizarExpansao' agora só limpa os estilos.
                     this.finalizarExpansao(alunoCard, alunoId);
                 }
             }
@@ -1278,22 +1282,17 @@
             finalizarExpansao(alunoCard, alunoId) {
                 if (!alunoCard) return;
 
-                // 1. Remove a classe de expansão
-                alunoCard.classList.remove('expandindo');
-
-                // 2. Adiciona a classe de recolhimento, que agora tem a transição de 1.5s
-                alunoCard.classList.add('recolhendo');
-
-                // 3. CRONÔMETRO SINCRONIZADO: Espera os 1.5 segundos da animação de retorno
-                //    terminarem antes de fazer a limpeza final.
+                // ESPERA A ANIMAÇÃO DE VOLTA TERMINAR (1.5s) PARA FAZER A LIMPEZA
                 setTimeout(() => {
                     if (alunoCard) {
-                        alunoCard.classList.remove('recolhendo');
-                        alunoCard.style.removeProperty('--card-transform');
+                        // Limpa os estilos inline para que o card volte a ser controlado pelo CSS
+                        alunoCard.style.transition = '';
+                        alunoCard.style.zIndex = '';
+                        alunoCard.querySelector('.aluno-nome').style.fontSize = '';
                     }
-                }, 1500); // <-- ANTES: 700. AGORA: 1500 milissegundos (exatos 1.5 segundos)
+                }, 1500); // Este tempo DEVE ser igual ao da transição de volta
 
-                // O resto do seu código para atualizar o texto permanece
+                // Atualiza o texto como antes
                 const horarioElement = alunoCard.querySelector('.aluno-horario');
                 if (horarioElement) horarioElement.textContent = 'Aguardando Confirmação';
             }
