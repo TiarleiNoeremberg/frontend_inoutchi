@@ -478,26 +478,27 @@
         /* 2. TRANSIÇÕES DE SAÍDA (ZOOM SUAVE) */
         /* A classe que prepara o card para expandir suavemente. */
         .aluno-card.expandindo {
-            z-index: 1000;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
             transform: var(--card-transform);
-            /* ANTES: 0.8s, AGORA: 1.5s. A animação de ida levará 1.5 segundos. */
-            transition: transform 1.5s cubic-bezier(0.25, 1, 0.5, 1);
+            z-index: 1000;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25);
+            /* A viagem de IDA leva 1.5 segundos. */
+            transition: transform 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
         }
 
         .aluno-card.expandindo .aluno-nome {
-            font-size: 1.5rem;
-            font-weight: 700;
-            /* ANTES: 0.8s, AGORA: 1.5s. A fonte também crescerá em 1.5 segundos. */
-            transition: font-size 1.5s ease, font-weight 1.5s ease;
+            font-size: 1.8rem !important;
+            font-weight: 700 !important;
+            transition: font-size 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+
+        .aluno-card.recolhendo .aluno-nome {
+            transition: font-size 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
         }
 
         /* A classe que faz o card retornar à sua posição suavemente. */
         .aluno-card.recolhendo {
-            z-index: 999;
-            transform: scale(1);
-            /* ANTES: 0.7s, AGORA: 1.5s. A animação de volta levará 1.5 segundos. */
-            transition: transform 1.5s cubic-bezier(0.5, 0, 0.75, 0);
+            /* A viagem de VOLTA também leva 1.5 segundos. */
+            transition: transform 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
         }
 
         /* A classe aplicada durante a animação de remoção final. */
@@ -1215,86 +1216,66 @@
             }
 
             async executarDestaqueCompleto(chamada) {
-                const {
-                    alunoId,
-                    alunoNome
-                } = chamada;
+                const { alunoId, alunoNome } = chamada;
                 const alunoCard = document.querySelector(`[data-aluno-id="${alunoId}"]`);
 
+                if (!alunoCard) return;
+
+                // O áudio executa em paralelo e, se falhar, não vai mais interromper a animação.
+                const promessaAudio = this.prepararVozCartesia(chamada)
+                    .then(buffer => this.tocarBufferDeAudio(buffer))
+                    .catch(err => {
+                        console.error(`Falha no áudio de ${alunoNome}, tocando fallback.`, err);
+                        this.tocarAlertaOriginal();
+                    });
+
+                // A promessa de animação que controla a FILA.
+                const promessaAnimacao = new Promise(resolve => {
+                    // 1. CALCULA O DESTINO
+                    const transformacao = this.calcularExpansaoCentralizada(alunoCard);
+                    alunoCard.style.setProperty('--card-transform', transformacao);
+
+                    // 2. INICIA A VIAGEM DE IDA
+                    alunoCard.classList.add('expandindo');
+
+                    // 3. ESPERA O TEMPO NO CENTRO
+                    // Após 3 segundos, inicia o processo de retorno.
+                    setTimeout(() => {
+                        this.finalizarExpansao(alunoCard, alunoId, resolve);
+                    }, 3000); // <-- Tempo que o card fica parado no centro
+                });
+
+                // Esperamos apenas a animação terminar para seguir a fila.
+                await promessaAnimacao;
+            }
+
+            finalizarExpansao(alunoCard, alunoId, resolveDaFila) {
                 if (!alunoCard) {
-                    console.warn(`[ANIMAÇÃO] Card do aluno ${alunoNome} não encontrado. Pulando.`);
+                    if (resolveDaFila) resolveDaFila();
                     return;
                 }
 
-                // Promessa para a sequência de áudio (NENHUMA MUDANÇA AQUI)
-                const promessaSequenciaAudio = (async () => {
-                    try {
-                        const promessaDaVoz = this.prepararVozCartesia(chamada);
-                        await this.tocarBipDeAlerta();
-                        const bufferDaVoz = await promessaDaVoz;
-                        await this.tocarBufferDeAudio(bufferDaVoz);
-                    } catch (audioError) {
-                        console.error(`💥 Erro na sequência de áudio para ${alunoNome}.`, audioError);
-                        this.tocarAlertaOriginal();
-                    }
-                })();
+                // 1. REMOVE A CLASSE DE IDA
+                alunoCard.classList.remove('expandindo');
 
-                // Promessa para a sequência de ANIMAÇÃO (LÓGICA CORRIGIDA)
-                const promessaDeAnimacao = new Promise(resolve => {
-                    const transformacao = this.calcularExpansaoCentralizada(alunoCard);
+                // 2. ADICIONA A CLASSE DE VOLTA (como no seu código original)
+                alunoCard.classList.add('recolhendo');
 
-                    // 1. Define o tempo da transição ANTES de fazer a mudança.
-                    // Isso garante que a animação de IDA use 1.5 segundos.
-                    alunoCard.style.transition = 'transform 1.5s cubic-bezier(0.4, 0, 0.2, 1)';
-
-                    // Força o navegador a aplicar o estilo acima
-                    window.getComputedStyle(alunoCard).transition;
-
-                    // 2. Executa a transformação. O navegador agora animará isso em 1.5s.
-                    alunoCard.style.transform = transformacao;
-                    alunoCard.style.zIndex = '1000';
-                    alunoCard.querySelector('.aluno-nome').style.fontSize = '1.5rem';
-
-                    // 3. Define o tempo de espera. O card ficará destacado por 3 segundos.
-                    setTimeout(() => {
-                        // 4. PREPARA A VOLTA: Define que a animação de retorno também levará 1.5s
-                        alunoCard.style.transition = 'transform 1.5s cubic-bezier(0.4, 0, 0.2, 1)';
-
-                        // 5. MANDA O CARD VOLTAR: Remove a transformação, fazendo-o voltar à origem.
-                        alunoCard.style.transform = '';
-
-                        resolve(); // Resolve a promessa DEPOIS de mandar o card voltar.
-
-                    }, 3000); // Duração que o card fica destacado no centro
-                });
-
-                // ESPERA as duas promessas (áudio e animação) terminarem
-                try {
-                    await Promise.all([promessaDeAnimacao, promessaSequenciaAudio]);
-                } catch (error) {
-                    console.error("Erro durante a sincronização de áudio/animação:", error);
-                } finally {
-                    // A função 'finalizarExpansao' agora só limpa os estilos.
-                    this.finalizarExpansao(alunoCard, alunoId);
-                }
-            }
-
-            finalizarExpansao(alunoCard, alunoId) {
-                if (!alunoCard) return;
-
-                // ESPERA A ANIMAÇÃO DE VOLTA TERMINAR (1.5s) PARA FAZER A LIMPEZA
+                // 3. LIMPEZA PÓS-ANIMAÇÃO DE VOLTA
+                // O cronômetro de limpeza agora está aqui, perfeitamente sincronizado.
                 setTimeout(() => {
                     if (alunoCard) {
-                        // Limpa os estilos inline para que o card volte a ser controlado pelo CSS
-                        alunoCard.style.transition = '';
-                        alunoCard.style.zIndex = '';
-                        alunoCard.querySelector('.aluno-nome').style.fontSize = '';
-                    }
-                }, 1500); // Este tempo DEVE ser igual ao da transição de volta
+                        alunoCard.classList.remove('recolhendo');
+                        alunoCard.style.removeProperty('--card-transform');
 
-                // Atualiza o texto como antes
-                const horarioElement = alunoCard.querySelector('.aluno-horario');
-                if (horarioElement) horarioElement.textContent = 'Aguardando Confirmação';
+                        const horarioElement = alunoCard.querySelector('.aluno-horario');
+                        if (horarioElement) horarioElement.textContent = 'Aguardando Confirmação';
+                    }
+
+                    // 4. FIM DA DANÇA: Avisa à fila que pode continuar.
+                    if (resolveDaFila) resolveDaFila();
+
+                }, 1500); // <-- Duração EXATA da animação da classe .recolhendo
             }
 
             async prepararVozCartesia(chamada) {
