@@ -2400,6 +2400,8 @@
                 // 6. AGORA SIM: Com tudo carregado e salvo, chama a função do dashboard.
                 await loadVisaoGeralData();
 
+                iniciarAutoRefreshVisaoGeral();
+
             } catch (error) {
                 console.error("Erro crítico de inicialização:", error);
                 alert("Sessão inválida ou expirada. Por favor, faça login novamente.");
@@ -2409,6 +2411,39 @@
             // =========================================================================
             // ==== FIM: Autenticação e Carregamento Inicial
             // =========================================================================
+
+            /**
+ * Função de atualização LEVE: Busca todos os dados do dashboard, mas renderiza
+ * apenas os componentes que não "piscam", como os KPIs e o feed de atividades.
+ * Propositalmente não chama as funções que renderizam os gráficos.
+ */
+            async function refreshDashboardData() {
+                try {
+                    // A chamada API é a mesma, pois o endpoint já traz todos os dados.
+                    const response = await fetch(`${API_URL}/api/v1/dashboard/${ESCOLA_ID}`, {
+                        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                    });
+
+                    // Para um refresh silencioso, não vamos mostrar um alerta de erro, apenas registrar no console.
+                    if (!response.ok) {
+                        console.error(`Falha no auto-refresh (Status: ${response.status})`);
+                        return; // Aborta a atualização silenciosamente em caso de erro.
+                    }
+
+                    const data = await response.json();
+
+                    // ======================================================================
+                    // ==== A MÁGICA: ATUALIZAÇÃO CIRÚRGICA ====
+                    // Chamamos apenas as funções que atualizam os textos, sem redesenhar os gráficos.
+                    // ======================================================================
+                    renderKPIs(data);
+                    renderAtividadesRecentes(data); // Mesmo que esteja mockada, já deixamos aqui para o futuro.
+
+                } catch (error) {
+                    // Registra qualquer outro erro que possa ocorrer (ex: rede)
+                    console.error("Erro durante o auto-refresh:", error);
+                }
+            }
 
             // =========================================================================
             // ==== FUNÇÃO saveTutor (COM A SUBSTITUIÇÃO DO alert PELO openSuccessModal) ====
@@ -2917,6 +2952,39 @@
                 container.innerHTML += atividadeHtml;
             });
         }
+
+        /**
+         * Inicia um auto-refresh que atua EXCLUSIVAMENTE na aba "Visão Geral".
+         * O refresh só ocorre se a aba "Visão Geral" estiver ativa e NENHUM modal estiver aberto.
+         */
+        function iniciarAutoRefreshVisaoGeral() {
+            const INTERVALO_DE_ATUALIZACAO = 10000; // 30 segundos
+
+            setInterval(() => {
+                const abaVisaoGeral = document.getElementById('visao-geral-content');
+                if (!abaVisaoGeral || !abaVisaoGeral.classList.contains('active')) {
+                    return;
+                }
+
+                const modais = document.querySelectorAll('.modal');
+                const algumModalAberto = Array.from(modais).some(
+                    modal => modal.style.display === 'flex' || modal.style.display === 'block'
+                );
+
+                if (algumModalAberto) {
+                    return;
+                }
+
+                console.log('Auto-refresh: Atualizando KPIs e atividades...');
+
+                // =======================================================================
+                // ==== CORREÇÃO FINAL: Chamando a nova função leve `refreshDashboardData` ====
+                // =======================================================================
+                refreshDashboardData();
+
+            }, INTERVALO_DE_ATUALIZACAO);
+        }
+
 
         // =========================================================================
         // ==== RESTANTE DO SEU CÓDIGO (CRUDs de Salas, Alunos, etc.) ====
