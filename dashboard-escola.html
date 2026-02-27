@@ -3722,18 +3722,16 @@
                 // ===== MUDANÇA APLICADA AQUI =====
                 // Trocamos JSON.stringify(tutor) por apenas tutor.id
                 row.innerHTML = `
-            <td>${tutor.nome}</td>
-            <td>${tutor.email}</td>
-            <td>${alunosNomes}</td>
-            <td class="action-buttons">
-                <button class="btn btn-edit" onclick="openTutorModal(${tutor.id})">
-                    <i class="fas fa-pencil-alt"></i> Editar
-                </button>
-                <button class="btn btn-delete" data-id="${tutor.id}" data-nome="${tutor.nome}">
-                    <i class="fas fa-trash"></i> Excluir
-                </button>
-            </td>
-        `;
+                    <td>${tutor.nome}</td>
+                        <td>${tutor.email}</td>
+                        <td>${alunosNomes}</td>
+                        <td class="action-buttons">
+                            <button class="btn btn-edit" onclick='openTutorModal(${JSON.stringify(tutor).replace(/'/g, "&apos;")})'>
+                                <i class="fas fa-pencil-alt"></i> Editar
+                            </button>
+                            <button class="btn btn-delete" data-id="${tutor.id}" data-nome="${tutor.nome}">Excluir</button>
+                        </td>
+                    `;
                 tableBody.appendChild(row);
             });
         }
@@ -3822,30 +3820,67 @@
         // Funções para controlar o Modal de Tutor
         const tutorModal = document.getElementById('tutorModal');
 
-        // 2. FUNÇÃO PARA ABRIR O MODAL (PARA CRIAR OU EDITAR)
-        function openTutorModal(tutor = null) {
+        // FUNÇÃO PARA ABRIR O MODAL (PARA CRIAR OU EDITAR) - VERSÃO CORRIGIDA COM API
+        async function openTutorModal(tutorId = null) {
             const modal = document.getElementById('tutorModal');
             const title = document.getElementById('tutorModalTitle');
             const form = document.getElementById('tutorForm');
-            form.reset(); // Limpa o formulário
 
-            if (tutor) {
-                // Lógica para preencher o formulário se estiver editando (não solicitado, mas preparado)
-                title.textContent = 'Editar Tutor';
-                document.getElementById('tutorId').value = tutor.id;
-                document.getElementById('tutorNome').value = tutor.nome;
-                document.getElementById('tutorCpf').value = aplicarMascaraCpf(tutor.cpf);
-                document.getElementById('tutorEmail').value = tutor.email;
-                document.getElementById('tutorFone').value = tutor.fone;
-                document.getElementById('tutorSenha').placeholder = 'Deixe em branco para não alterar';
+            // Limpa o formulário
+            form.reset();
 
-            } else {
-                // Lógica para adicionar um novo tutor
-                title.textContent = 'Adicionar Novo Tutor';
-                document.getElementById('tutorId').value = '';
-                document.getElementById('tutorSenha').placeholder = 'Padrão: 123456';
-            }
+            // Limpa todos os campos
+            document.getElementById('tutorId').value = '';
+            document.getElementById('tutorNome').value = '';
+            document.getElementById('tutorCpf').value = '';
+            document.getElementById('tutorEmail').value = '';
+            document.getElementById('tutorFone').value = '';
+            document.getElementById('tutorSenha').value = '';
+
+            // Mostra loading no título
+            title.textContent = 'Carregando...';
             modal.style.display = 'flex';
+
+            try {
+                if (tutorId) {
+                    // MODO EDIÇÃO - Busca dados completos da API
+                    console.log('Buscando dados do tutor ID:', tutorId); // Para debug
+
+                    const response = await fetch(`${API_URL}/api/tutores/${tutorId}`, {
+                        headers: {
+                            'Authorization': `Bearer ${AUTH_TOKEN}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Erro ${response.status}: ${response.statusText}`);
+                    }
+
+                    const tutor = await response.json();
+                    console.log('Dados recebidos:', tutor); // Para debug
+
+                    // Preenche o formulário com os dados recebidos
+                    title.textContent = 'Editar Tutor';
+                    document.getElementById('tutorId').value = tutor.id;
+                    document.getElementById('tutorNome').value = tutor.nome || '';
+                    document.getElementById('tutorCpf').value = tutor.cpf ? aplicarMascaraCpf(tutor.cpf) : '';
+                    document.getElementById('tutorEmail').value = tutor.email || '';
+                    document.getElementById('tutorFone').value = tutor.fone ? aplicarMascaraTelefone(tutor.fone) : '';
+                    document.getElementById('tutorSenha').placeholder = 'Deixe em branco para não alterar';
+                    document.getElementById('tutorSenha').value = ''; // Garante que fique vazio
+
+                } else {
+                    // MODO CRIAÇÃO
+                    title.textContent = 'Adicionar Novo Tutor';
+                    document.getElementById('tutorId').value = '';
+                    document.getElementById('tutorSenha').placeholder = 'Padrão: 123456';
+                }
+            } catch (error) {
+                console.error('Erro ao abrir modal de tutor:', error);
+                alert(`Erro ao carregar dados do tutor: ${error.message}`);
+                modal.style.display = 'none'; // Fecha o modal em caso de erro
+            }
         }
 
         function openSuccessModal(message) {
