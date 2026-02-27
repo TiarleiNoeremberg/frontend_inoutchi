@@ -2860,36 +2860,51 @@
         }
 
         /**
-         * Renderiza o gráfico de pizza (Donut) para o status geral dos alunos.
-         * AGORA UTILIZANDO DADOS REAIS vindos do backend.
-         */
+ * Renderiza o gráfico de pizza (Donut) para o status geral dos alunos,
+ * utilizando os dados reais da API e com tratamento de erro corrigido.
+ */
         function renderStatusChart(dashboardData) {
-            const ctx = document.getElementById('status-chart-canvas').getContext('2d');
+            const canvas = document.getElementById('status-chart-canvas');
 
-            // Destrói o gráfico anterior, se existir, para evitar sobreposição de tooltips e bugs.
-            if (window.statusChart instanceof Chart) {
-                window.statusChart.destroy();
-            }
-
-            // Validação: Se os dados do status não existirem no payload do dashboard, não tenta renderizar.
-            if (!dashboardData || !dashboardData.statusAlunos) {
-                console.warn("Dados de 'statusAlunos' não encontrados na resposta da API. O gráfico de status não será renderizado.");
-                // Opcional: Exibir uma mensagem no lugar do gráfico.
-                const wrapper = document.getElementById('status-card');
-                wrapper.innerHTML = '<h4><i class="fas fa-pie-chart"></i> Status Geral</h4><p class="text-center text-muted p-4">Dados de status indisponíveis.</p>';
+            // Validação de segurança: Se o canvas não existir, interrompe para evitar erros.
+            if (!canvas) {
+                console.error("O elemento <canvas id='status-chart-canvas'> não foi encontrado. O gráfico não pode ser renderizado.");
                 return;
             }
+            const ctx = canvas.getContext('2d');
+
+            // Destrói o gráfico anterior, se existir, para evitar sobreposição.
+            if (window.statusChartInstance) { // Usando uma variável de instância específica para este gráfico
+                window.statusChartInstance.destroy();
+            }
+
+            // Validação dos dados necessários: Verifica se os campos existem no objeto do dashboard.
+            const hasData = dashboardData &&
+                typeof dashboardData.alunosPresentes !== 'undefined' &&
+                typeof dashboardData.pendenciasAtuais !== 'undefined' &&
+                typeof dashboardData.totalAlunosNaEscola !== 'undefined';
+
+            if (!hasData) {
+                console.warn("Dados para o gráfico de status não foram encontrados na resposta da API. O gráfico não será renderizado.");
+                // Oculta o canvas em vez de destruir o HTML.
+                canvas.style.display = 'none';
+                return; // Interrompe a função.
+            }
+
+            // Se os dados são válidos, garante que o canvas esteja visível.
+            canvas.style.display = 'block';
+
+            // Cálculo dos valores a partir dos dados reais da API.
+            const presentes = dashboardData.alunosPresentes;
+            const pendentes = dashboardData.pendenciasAtuais;
+            // Garante que o cálculo de ausentes nunca seja negativo.
+            const ausentes = Math.max(0, dashboardData.totalAlunosNaEscola - presentes - pendentes);
 
             const data = {
                 labels: ['Presentes', 'Ausentes', 'Pendentes'],
                 datasets: [{
-                    label: 'Status dos Alunos',
-                    // Acessa diretamente os dados reais do objeto do dashboard
-                    data: [
-                        dashboardData.statusAlunos.presentes,
-                        dashboardData.statusAlunos.ausentes,
-                        dashboardData.statusAlunos.pendentes
-                    ],
+                    label: 'Alunos',
+                    data: [presentes, ausentes, pendentes],
                     backgroundColor: [
                         '#28a745', // Verde para Presentes
                         '#6c757d', // Cinza para Ausentes
@@ -2901,7 +2916,7 @@
                 }]
             };
 
-            window.statusChart = new Chart(ctx, {
+            window.statusChartInstance = new Chart(ctx, {
                 type: 'doughnut',
                 data: data,
                 options: {
@@ -2911,25 +2926,12 @@
                     plugins: {
                         legend: {
                             position: 'bottom',
-                            labels: {
-                                boxWidth: 12,
-                                padding: 15,
-                                font: {
-                                    size: 11
-                                }
-                            }
+                            labels: { boxWidth: 12, padding: 15, font: { size: 11 } }
                         },
                         tooltip: {
                             callbacks: {
                                 label: function (context) {
-                                    let label = context.label || '';
-                                    if (label) {
-                                        label += ': ';
-                                    }
-                                    if (context.parsed !== null) {
-                                        label += context.parsed + ' aluno(s)';
-                                    }
-                                    return label;
+                                    return `${context.label}: ${context.parsed} aluno(s)`;
                                 }
                             }
                         }
@@ -2937,6 +2939,7 @@
                 }
             });
         }
+
 
 
         /**
