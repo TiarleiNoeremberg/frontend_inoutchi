@@ -669,6 +669,11 @@
         .fullscreen-btn:hover {
             background-color: #2d3748;
         }
+
+        /* NOVO: Estilo para garantir que o conteúdo seja visível */
+        .webview-ready {
+            display: block !important;
+        }
     </style>
 </head>
 
@@ -681,7 +686,7 @@
         </button>
         <div id="webviewStatus"
             style="color: white; font-size: 1rem; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 8px;">
-            {{PLATFORM_STATUS}}
+            Verificando ambiente...
         </div>
     </div>
     <header class="header">
@@ -716,6 +721,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
 
     <script>
+        // Forçar modo de compatibilidade com WebView
         const BACKEND_URL = `https://inoutchi-backend.onrender.com`;
 
         class SalaDashboard {
@@ -742,21 +748,21 @@
                 const REFRESH_INTERVAL = 15000;
                 this.syncInterval = setInterval(() => this.sincronizarSalaSilenciosamente(), REFRESH_INTERVAL);
 
-                // NOVO: Flag para controlar se o áudio já foi iniciado
+                // Flag para controlar se o áudio já foi iniciado
                 this.audioInicializado = false;
 
-                // NOVO: Mostrar status da plataforma
+                // Mostrar status da plataforma
                 this.mostrarStatusPlataforma();
 
                 this.inicializar();
             }
 
-            // NOVO: Método para mostrar se está no app ou navegador
+            // Método para mostrar se está no app ou navegador
             mostrarStatusPlataforma() {
                 const statusElement = document.getElementById('webviewStatus');
                 if (statusElement) {
                     const isApp = window.AndroidBridge && typeof window.AndroidBridge.isAndroidApp === 'function';
-                    statusElement.textContent = isApp ? '📱 Modo App Android - Aguarde inicialização...' : '🌐 Modo Navegador - Pronto';
+                    statusElement.textContent = isApp ? '📱 Modo App Android - Clique em INICIAR' : '🌐 Modo Navegador - Clique em INICIAR';
                 }
             }
 
@@ -792,6 +798,8 @@
                     setInterval(() => this.atualizarHora(), 1000);
 
                     console.log('[RENDER FIX] Conteúdo principal carregado.');
+
+                    // Torna o corpo visível ANTES do botão ser clicado
                     document.body.classList.add('content-visible');
 
                     // Configurar botão INICIAR
@@ -872,7 +880,9 @@
                         this.processarSaidaPendente(mensagem);
                         break;
                     case 'SAIDA_CONFIRMADA':
-                        this.tocarSomAlertaSaida();
+                        if (this.audioInicializado) {
+                            this.tocarSomAlertaSaida();
+                        }
                         this.processarSaidaConfirmada(mensagem);
                         this.mostrarNotificacao('Saída Confirmada', `${mensagem.alunoNome} saiu da Escola.`, 'success');
                         break;
@@ -895,7 +905,6 @@
                 clearTimeout(this.batchEntradaTimer);
                 this.batchEntradaAlunos.set(aluno.id, aluno.nome);
                 this.batchEntradaTimer = setTimeout(() => this.processarBatchDeEntradas(), 350);
-                console.log(`[BATCH] Aluno ${aluno.nome} adicionado ao lote de entrada.`);
             }
 
             processarSaidaPendente(mensagem) {
@@ -950,7 +959,7 @@
                 }, 450);
             }
 
-            // NOVO: Método para inicializar áudio com segurança no WebView
+            // Método para inicializar áudio com segurança no WebView
             async inicializarAudio() {
                 if (this.audioInicializado) return true;
 
@@ -990,46 +999,9 @@
                 }
             }
 
-            tocarSomTremorSuave() {
-                if (!this.audioContext || !this.audioInicializado) {
-                    console.warn('Áudio não inicializado, som de tremor pulado.');
-                    return;
-                }
-                try {
-                    const now = this.audioContext.currentTime;
-
-                    const oscilador = this.audioContext.createOscillator();
-                    const ganho = this.audioContext.createGain();
-                    const lfo = this.audioContext.createOscillator();
-                    const ganhoLfo = this.audioContext.createGain();
-
-                    lfo.connect(ganhoLfo);
-                    ganhoLfo.connect(oscilador.frequency);
-                    oscilador.connect(ganho);
-                    ganho.connect(this.audioContext.destination);
-
-                    oscilador.type = 'sine';
-                    oscilador.frequency.setValueAtTime(100, now);
-
-                    lfo.type = 'sine';
-                    lfo.frequency.setValueAtTime(6, now);
-                    ganhoLfo.gain.setValueAtTime(20, now);
-
-                    ganho.gain.setValueAtTime(0.6, now);
-                    ganho.gain.linearRampToValueAtTime(0.0001, now + 2.9);
-
-                    lfo.start(now);
-                    oscilador.start(now);
-                    lfo.stop(now + 3.0);
-                    oscilador.stop(now + 3.0);
-                } catch (e) {
-                    console.warn('Erro ao tocar som:', e);
-                }
-            }
-
             tocarSomDeTremorGrave() {
                 if (!this.audioContext || !this.audioInicializado) {
-                    console.warn('Áudio não inicializado, som de tremor pulado.');
+                    console.log('Áudio não inicializado, som de tremor pulado (normal no WebView até clicar em INICIAR).');
                     return;
                 }
                 try {
@@ -1064,7 +1036,6 @@
 
             tocarSomAlertaSaida() {
                 if (!this.audioContext || !this.audioInicializado) {
-                    console.warn('Áudio não inicializado, som de saída pulado.');
                     return;
                 }
                 try {
@@ -1095,7 +1066,7 @@
                     statusElement.textContent = '📱 Inicializando serviços...';
                 }
 
-                // NOVO: Inicializar áudio PRIMEIRO
+                // Inicializar áudio PRIMEIRO
                 const audioOk = await this.inicializarAudio();
 
                 if (!audioOk) {
@@ -1108,8 +1079,11 @@
                 // Remover overlay
                 const overlay = document.getElementById('startOverlay');
                 if (overlay) {
-                    overlay.remove();
-                    console.log('[FINAL] Overlay removido.');
+                    overlay.style.opacity = '0';
+                    overlay.style.transition = 'opacity 0.3s ease';
+                    setTimeout(() => {
+                        overlay.remove();
+                    }, 300);
                 }
 
                 try {
@@ -1138,7 +1112,6 @@
 
             async sincronizarSalaSilenciosamente() {
                 if (this.isProcessandoFila) {
-                    console.log('🔄 [SYNC] Sincronização adiada: animação em andamento.');
                     return;
                 }
                 try {
@@ -1167,7 +1140,6 @@
                         const idsParaRemover = new Set(alunosParaRemover.map(a => a.id));
                         this.alunos = this.alunos.filter(aluno => !idsParaRemover.has(aluno.id));
                         mudancasDetectadas = true;
-                        alunosParaRemover.forEach(a => console.log(`🔄 [SYNC] Aluno a REMOVER: ${a.nome}.`));
                     }
 
                     if (mudancasDetectadas) {
@@ -1188,7 +1160,9 @@
                 console.log(`[BATCH] Processando lote de ${totalAlunosNoLote} novas entradas.`);
 
                 for (const alunoId of this.batchEntradaAlunos.keys()) {
-                    this.tocarSomDeTremorGrave();
+                    if (this.audioInicializado) {
+                        this.tocarSomDeTremorGrave();
+                    }
                     this.aplicarDestaqueTremor(alunoId);
                 }
 
@@ -1391,14 +1365,20 @@
                 });
 
                 const promessaSequenciaAudio = (async () => {
-                    try {
-                        const promessaDaVoz = this.prepararVozCartesia(chamada);
-                        await this.tocarBipDeAlerta();
-                        const bufferDaVoz = await promessaDaVoz;
-                        await this.tocarBufferDeAudio(bufferDaVoz);
-                    } catch (audioError) {
-                        console.error(`💥 Erro na sequência de áudio para ${alunoNome}.`, audioError);
-                        this.tocarAlertaOriginal();
+                    if (this.audioInicializado) {
+                        try {
+                            const promessaDaVoz = this.prepararVozCartesia(chamada);
+                            await this.tocarBipDeAlerta();
+                            const bufferDaVoz = await promessaDaVoz;
+                            await this.tocarBufferDeAudio(bufferDaVoz);
+                        } catch (audioError) {
+                            console.error(`💥 Erro na sequência de áudio para ${alunoNome}.`, audioError);
+                            if (this.audioInicializado) {
+                                this.tocarAlertaOriginal();
+                            }
+                        }
+                    } else {
+                        console.log(`Áudio não inicializado, pulando som para ${alunoNome}`);
                     }
                 })();
 
@@ -1490,7 +1470,7 @@
             tocarBipDeAlerta() {
                 return new Promise((resolve, reject) => {
                     if (!this.audioContext || !this.alertaSoundBuffer || !this.audioInicializado) {
-                        console.warn("Contexto de áudio ou buffer de som não estão prontos. Pulando bip.");
+                        console.log("Contexto de áudio ou buffer de som não estão prontos. Pulando bip.");
                         resolve();
                         return;
                     }
@@ -1506,7 +1486,6 @@
 
             tocarAlertaOriginal() {
                 if (!this.audioContext || !this.audioInicializado) {
-                    console.warn("Fallback de áudio falhou: AudioContext principal não existe ou não inicializado.");
                     return;
                 }
                 try {
@@ -1519,22 +1498,6 @@
                     oscillator.stop(this.audioContext.currentTime + 0.3);
                 } catch (e) {
                     console.warn("Fallback de áudio falhou", e);
-                }
-            }
-
-            processarNovaChamada(mensagem) {
-                this.mostrarNotificacao('Presente na Escola', `${mensagem.alunoNome}`, 'info');
-                const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
-                if (alunoCard) this.aplicarDestaqueChamada(alunoCard, mensagem.tipoSolicitante);
-            }
-
-            aplicarDestaqueChamada(alunoCard, tipoSolicitante) {
-                alunoCard.classList.remove('tutor', 'token', 'diretor', 'transporte', 'destaque');
-                let classeCor = (tipoSolicitante || '').toLowerCase();
-                if (['parente', 'irmao', 'amigo'].includes(classeCor)) classeCor = 'token';
-                if (classeCor) {
-                    alunoCard.classList.add(classeCor, 'destaque');
-                    setTimeout(() => alunoCard.classList.remove('destaque'), 5000);
                 }
             }
 
@@ -1647,8 +1610,20 @@
             }
         }
 
+        // Inicializar quando o DOM estiver pronto
         document.addEventListener('DOMContentLoaded', () => {
             window.salaDashboard = new SalaDashboard();
+        });
+
+        // Garantir que o WebView do Android renderize corretamente
+        window.addEventListener('load', function () {
+            console.log('Página completamente carregada');
+            // Forçar um reflow se necessário
+            setTimeout(() => {
+                if (window.salaDashboard && window.salaDashboard.alunos) {
+                    window.salaDashboard.renderizarAlunos();
+                }
+            }, 100);
         });
     </script>
 </body>
