@@ -1464,27 +1464,54 @@
             }
         }
 
+        async function buscarSaidaAtiva(alunoId) {
+            try {
+                const response = await fetchWithAuth(`/api/presencas/aluno/${alunoId}/saida-ativa`);
+                const data = await response.json();
+                return data.sucesso ? data.dados : null;
+            } catch (error) {
+                console.warn(`Erro ao buscar saída ativa para aluno ${alunoId}:`, error);
+                return null;
+            }
+        }
+
         async function refreshStudentsData() {
             try {
+                // Codificar o nome do tutor para a URL
                 const tutorNomeEncoded = encodeURIComponent(currentUser.nome);
+
                 const response = await fetchWithAuth(`/api/tutores/${tutorNomeEncoded}/alunos`);
-                const result = await response.json();
+                const data = await response.json();
 
-                // Log para debug
-                console.log('Resposta da API de alunos:', result);
+                console.log('Resposta da API de alunos:', data);
 
-                if (result.sucesso && Array.isArray(result.alunos)) {
-                    students = result.alunos;
-                    renderStudents(students);
-
-                    // Log para verificar se há alunos
-                    console.log(`Encontrados ${students.length} alunos`);
-                } else {
-                    throw new Error(result.erro || 'Falha ao carregar alunos.');
+                if (!data || !Array.isArray(data.alunos)) {
+                    throw new Error("Dados de alunos inválidos.");
                 }
+
+                // Para cada aluno, buscar se há uma saída ativa (status AGUARDANDO_CONFIRMACAO)
+                const studentPromises = data.alunos.map(async (student) => {
+                    try {
+                        const saidaResponse = await fetchWithAuth(`/api/presencas/aluno/${student.id}/saida-ativa`);
+                        const saidaAtiva = await saidaResponse.json();
+
+                        if (saidaAtiva.sucesso) {
+                            // Se o aluno tem uma saída ativa, sobrescreve o status
+                            student.status = saidaAtiva.dados?.status === 'AGUARDANDO_CONFIRMACAO' ? 'AGUARDANDO_CONFIRMACAO' : student.status;
+                        }
+                    } catch (error) {
+                        console.warn(`Erro ao buscar saída ativa para aluno ${student.id}:`, error);
+                    }
+                    return student;
+                });
+
+                students = await Promise.all(studentPromises);
+                renderStudents(students);
+                console.log(`Encontrados ${students.length} alunos`);
+
             } catch (error) {
                 console.error('Erro ao carregar alunos:', error);
-                if (!students.length) {
+                if (!students || !students.length) {
                     studentList.innerHTML = '<li class="empty-state"><i class="fas fa-child"></i><p>Não foi possível carregar seus alunos.</p></li>';
                 }
                 throw error;
@@ -1492,13 +1519,25 @@
         }
 
         function renderStudents(students) {
-            const statusPriority = { 'AGUARDANDO_CONFIRMACAO': 1, 'PRESENTE': 2, 'AUSENTE': 3 };
-            if (students.length > 1) {
-                students.sort((a, b) => {
-                    const pA = statusPriority[a.status] ?? 99;
-                    const pB = statusPriority[b.status] ?? 99;
-                    if (pA !== pB) return pA - pB;
-                    return a.nome.localeCompare(b.nome);
+            // Ordenar alunos por prioridade de status
+            const statusPriority = {
+                'AGUARDANDO_CONFIRMACAO': 1, // Prioridade máxima
+                'PRESENTE': 2,               // Segunda prioridade
+                'AUSENTE': 3                  // Última prioridade
+            };
+
+            if (students && students.length > 0) {
+                students.sort((alunoA, alunoB) => {
+                    const prioridadeA = statusPriority[alunoA.status] ?? 99;
+                    const prioridadeB = statusPriority[alunoB.status] ?? 99;
+
+                    // Critério Primário: Ordena por prioridade de status
+                    if (prioridadeA !== prioridadeB) {
+                        return prioridadeA - prioridadeB;
+                    }
+
+                    // Critério Secundário: Ordena alfabeticamente por nome
+                    return alunoA.nome.localeCompare(alunoB.nome);
                 });
             }
 
@@ -1526,7 +1565,7 @@
                         statusText = 'Aguardando';
                         actionButtonHtml = `<button class="btn btn-sm btn-warning text-dark" onclick="openManualConfirmModal(${student.id}, '${safeStudentName}')"><i class="fas fa-check-circle me-1"></i>Confirmar Saída</button>`;
                         break;
-                    default:
+                    default: // AUSENTE
                         statusClass = 'status-absent';
                         statusText = 'Ausente';
                         actionButtonHtml = `<button class="btn btn-sm btn-success" onclick="openLocationActionModal(${student.id}, 'entrada', '${safeStudentName}')"><i class="fas fa-sign-in-alt me-1"></i>Registrar Entrada</button>`;
@@ -1534,20 +1573,20 @@
                 }
 
                 li.innerHTML = `
-                    <div class="student-item-main">
-                        <div class="student-info">
-                            <span class="student-name">${student.nome}</span>
-                            <span class="student-class">${student.salaNome || 'Sem sala'}</span>
-                        </div>
-                        <span class="status-badge ${statusClass}">${statusText}</span>
-                    </div>
-                    <div class="student-actions">
-                        ${actionButtonHtml}
-                        <div class="student-actions-group">
-                            <button class="btn btn-sm btn-info" onclick="openGenerateTokenModal(event, ${student.id}, '${safeStudentName}')" title="Gerar Token"><i class="fas fa-key"></i></button>
-                            <button class="btn btn-sm btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}')" title="Ver Histórico"><i class="fas fa-clock-rotate-left"></i></button>
-                        </div>
-                    </div>`;
+            <div class="student-item-main">
+                <div class="student-info">
+                    <span class="student-name">${student.nome}</span>
+                    <span class="student-class">${student.salaNome || 'Sem sala'}</span>
+                </div>
+                <span class="status-badge ${statusClass}">${statusText}</span>
+            </div>
+            <div class="student-actions">
+                ${actionButtonHtml}
+                <div class="student-actions-group">
+                    <button class="btn btn-sm btn-info" onclick="openGenerateTokenModal(event, ${student.id}, '${safeStudentName}')" title="Gerar Token"><i class="fas fa-key"></i></button>
+                    <button class="btn btn-sm btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}')" title="Ver Histórico"><i class="fas fa-clock-rotate-left"></i></button>
+                </div>
+            </div>`;
                 studentList.appendChild(li);
             });
         }
