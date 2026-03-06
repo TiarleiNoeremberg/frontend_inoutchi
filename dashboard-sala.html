@@ -15,98 +15,80 @@
         html, body {
             height: 100%;
             width: 100%;
-            overflow: hidden;
-            background-color: #f8fafc;
+            background-color: #f5f5f5;
         }
 
         body {
             display: flex;
             flex-direction: column;
-            visibility: visible !important;
-            opacity: 1 !important;
         }
 
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #4a6fa5;
             color: white;
-            padding: 10px 15px;
+            padding: 8px 12px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            height: 70px;
+            height: 50px;
             flex-shrink: 0;
         }
 
         .container {
             flex: 1;
-            padding: 10px;
-            overflow: hidden;
-            background-color: #f0f0f0;
+            padding: 8px;
+            overflow: auto;
         }
 
-        .alunos-grid {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            grid-template-rows: repeat(6, 1fr);
-            gap: 8px;
-            width: 100%;
-            height: 100%;
-            background-color: #e0e0e0;
+        /* USAR FLEXBOX EM VEZ DE GRID PARA ECONOMIZAR MEMÓRIA */
+        .alunos-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            justify-content: flex-start;
         }
 
         .aluno-card {
             background: white;
-            border: 3px solid #22c55e !important;
-            border-radius: 12px;
-            padding: 8px;
-            display: flex !important;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            border: 2px solid #4a6fa5;
+            border-radius: 6px;
+            padding: 6px;
+            width: calc(20% - 5px); /* 5 cards por linha */
+            min-width: 0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             text-align: center;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            width: 100%;
-            height: 100%;
-            min-height: 60px;
         }
 
         .aluno-nome {
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 600;
-            color: #000000 !important;
-            margin-bottom: 4px;
+            color: #333;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .aluno-horario {
             font-size: 11px;
-            color: #666666 !important;
+            color: #666;
+            margin-top: 2px;
         }
 
         .status-info {
             display: flex;
-            gap: 15px;
+            gap: 10px;
             color: white;
+            font-size: 13px;
         }
 
         .logout-btn {
             background-color: #dc3545;
             color: white;
             border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
+            padding: 4px 10px;
+            border-radius: 4px;
             cursor: pointer;
-        }
-
-        .loading {
-            padding: 20px;
-            text-align: center;
-            color: #666;
-        }
-
-        .empty-state {
-            padding: 20px;
-            text-align: center;
-            color: #999;
+            font-size: 13px;
         }
 
         #startOverlay {
@@ -124,23 +106,14 @@
         }
 
         #startButton {
-            padding: 20px 40px;
-            font-size: 24px;
-            font-weight: bold;
+            padding: 15px 30px;
+            font-size: 20px;
+            background: #28a745;
             color: white;
-            background: #22c55e;
             border: none;
-            border-radius: 12px;
-            cursor: pointer;
-            margin-bottom: 20px;
-        }
-
-        #webviewStatus {
-            color: white;
-            font-size: 14px;
-            background: rgba(0,0,0,0.5);
-            padding: 10px;
             border-radius: 8px;
+            cursor: pointer;
+            margin-bottom: 15px;
         }
     </style>
 </head>
@@ -152,25 +125,21 @@
     </div>
 
     <header class="header">
-        <div class="sala-info">
-            <h1 id="periodoSala">Carregando...</h1>
+        <div>
+            <h1 id="periodoSala" style="font-size: 16px;">Carregando...</h1>
         </div>
         <div class="user-info">
             <div class="status-info">
-                <div class="status-item">
-                    <span id="horaAtual">--:--:--</span>
-                </div>
-                <div class="status-item" id="statusConexao">
-                    <span>🔴 Offline</span>
-                </div>
+                <span id="horaAtual">--:--:--</span>
+                <span id="statusConexao">🔴 Offline</span>
             </div>
             <button class="logout-btn" onclick="salaDashboard.logout()">Sair</button>
         </div>
     </header>
 
     <div class="container">
-        <div class="alunos-grid" id="alunosGrid">
-            <div class="loading">Inicializando...</div>
+        <div class="alunos-container" id="alunosContainer">
+            <div style="padding: 20px; text-align: center;">Inicializando...</div>
         </div>
     </div>
 
@@ -186,15 +155,18 @@
                 this.alunos = [];
                 this.salaId = null;
                 this.currentUser = null;
+                this.syncInterval = null;
                 
                 this.mostrarStatus();
                 this.inicializar();
             }
 
             mostrarStatus() {
-                const isApp = window.AndroidBridge && typeof window.AndroidBridge.isAndroidApp === 'function';
-                document.getElementById('webviewStatus').textContent = 
-                    isApp ? '📱 App Android - Clique para iniciar' : '🌐 Navegador - Clique para iniciar';
+                const statusEl = document.getElementById('webviewStatus');
+                if (statusEl) {
+                    const isApp = window.AndroidBridge?.isAndroidApp?.() || false;
+                    statusEl.textContent = isApp ? '📱 App Android - Clique para iniciar' : '🌐 Navegador - Clique para iniciar';
+                }
             }
 
             async inicializar() {
@@ -207,9 +179,11 @@
                     await this.carregarUsuario();
                     await this.carregarDadosSala();
                     
+                    // Relógio
                     this.atualizarHora();
                     setInterval(() => this.atualizarHora(), 1000);
 
+                    // Botão iniciar
                     document.getElementById('startButton').onclick = () => this.startApplication();
 
                 } catch (error) {
@@ -218,64 +192,76 @@
             }
 
             renderizarAlunos() {
-                const grid = document.getElementById('alunosGrid');
-                if (!grid) return;
+                const container = document.getElementById('alunosContainer');
+                if (!container) return;
 
                 console.log('Renderizando', this.alunos.length, 'alunos');
-                grid.innerHTML = '';
+                
+                // Limpar container
+                container.innerHTML = '';
 
                 if (!this.alunos || this.alunos.length === 0) {
-                    grid.innerHTML = '<div class="empty-state">Nenhum aluno presente</div>';
+                    container.innerHTML = '<div style="padding: 20px; text-align: center;">Nenhum aluno presente</div>';
                     return;
                 }
 
+                // Criar cards SIMPLES
                 this.alunos.forEach(aluno => {
-                    const nome = aluno.nome.split(' ')[0];
+                    const primeiroNome = aluno.nome.split(' ')[0];
                     const card = document.createElement('div');
                     card.className = 'aluno-card';
                     card.setAttribute('data-aluno-id', aluno.id);
                     card.innerHTML = `
-                        <div class="aluno-nome">${nome}</div>
+                        <div class="aluno-nome">${primeiroNome}</div>
                         <div class="aluno-horario">Presente</div>
                     `;
-                    grid.appendChild(card);
+                    container.appendChild(card);
                 });
 
-                // FORÇAR VISIBILIDADE
-                setTimeout(() => {
-                    grid.style.display = 'none';
-                    grid.offsetHeight;
-                    grid.style.display = 'grid';
-                }, 50);
+                console.log('Cards criados:', this.alunos.length);
             }
 
             async startApplication() {
-                document.getElementById('startOverlay').remove();
-                
+                // Remover overlay
+                const overlay = document.getElementById('startOverlay');
+                if (overlay) {
+                    overlay.style.display = 'none';
+                }
+
                 try {
-                    if (window.AndroidBridge) {
-                        // Inicializar áudio para WebView
-                        const AudioContext = window.AudioContext || window.webkitAudioContext;
-                        if (AudioContext) {
-                            const ctx = new AudioContext();
-                            if (ctx.state === 'suspended') await ctx.resume();
-                            const src = ctx.createBufferSource();
-                            src.buffer = ctx.createBuffer(1, 1, 22050);
-                            src.connect(ctx.destination);
-                            src.start();
-                        }
-                    }
-                    
+                    // Inicializar WebSocket (simplificado)
                     this.iniciarWebSocket();
+                    
+                    // Sincronização periódica
+                    this.syncInterval = setInterval(() => this.sincronizar(), 30000);
+                    
                 } catch (e) {
-                    console.warn('Áudio não disponível');
+                    console.warn('Erro ao iniciar:', e);
                 }
             }
 
             iniciarWebSocket() {
-                // WebSocket simplificado
                 console.log('WebSocket iniciado');
-                document.getElementById('statusConexao').innerHTML = '<span>🟢 Online</span>';
+                document.getElementById('statusConexao').innerHTML = '🟢 Online';
+            }
+
+            async sincronizar() {
+                try {
+                    const response = await fetch(
+                        `${BACKEND_URL}/api/diretores/salas/${this.salaId}/alunos?presentes=true`,
+                        { headers: { 'Authorization': `Bearer ${this.token}` } }
+                    );
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.alunos) {
+                            this.alunos = data.alunos;
+                            this.renderizarAlunos();
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Erro na sincronização:', e);
+                }
             }
 
             async carregarUsuario() {
@@ -303,7 +289,7 @@
             atualizarHora() {
                 const agora = new Date();
                 document.getElementById('horaAtual').textContent = 
-                    agora.toLocaleTimeString('pt-BR');
+                    agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
             }
 
             determinarPeriodo() {
@@ -314,11 +300,14 @@
             }
 
             mostrarErro(msg) {
-                document.getElementById('alunosGrid').innerHTML = 
-                    `<div class="error-state">${msg}</div>`;
+                const container = document.getElementById('alunosContainer');
+                if (container) {
+                    container.innerHTML = `<div style="color: red; padding: 20px;">${msg}</div>`;
+                }
             }
 
             logout() {
+                if (this.syncInterval) clearInterval(this.syncInterval);
                 localStorage.clear();
                 window.location.reload();
             }
@@ -328,4 +317,5 @@
         window.salaDashboard = new SalaDashboard();
     </script>
 </body>
+
 </html>
