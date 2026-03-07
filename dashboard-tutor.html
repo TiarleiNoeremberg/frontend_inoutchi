@@ -23,11 +23,8 @@
         html,
         body {
             height: 100vh;
-            /* 100% da altura da viewport */
             width: 100vw;
-            /* 100% da largura da viewport */
             overflow: hidden;
-            /* IMPEDE qualquer rolagem */
         }
 
         body {
@@ -76,20 +73,17 @@
             background: var(--surface);
             border-bottom: 1px solid var(--border);
             padding: 0 20px;
-
-            /* ALTURA FIXA DE 10% DA VIEWPORT */
             height: 10vh;
             min-height: 50px;
             max-height: 80px;
-
             display: flex;
             justify-content: space-between;
             align-items: center;
             flex-shrink: 0;
-            /* Impede que o header encolha */
             backdrop-filter: blur(12px);
             background: rgba(255, 255, 255, 0.92);
             z-index: 1020;
+            width: 100%;
         }
 
         .logo {
@@ -167,16 +161,14 @@
         /* ===== MAIN OCUPA OS 90% RESTANTES ===== */
         main {
             height: 90vh;
-            /* Exatamente 90% da altura */
             padding: 24px 16px;
             overflow-y: auto;
-            /* Permite ROLAGEM INTERNA se necessário */
             width: 100%;
             max-width: 800px;
             margin: 0 auto;
         }
 
-        /* Scrollbar personalizada para o conteúdo interno */
+        /* Scrollbar personalizada */
         main::-webkit-scrollbar {
             width: 6px;
         }
@@ -241,11 +233,6 @@
             font-size: 0.9rem;
             position: relative;
             z-index: 1;
-        }
-
-        .welcome-emoji {
-            font-size: 1.6rem;
-            margin-right: 6px;
         }
 
         /* ===== ALERT ===== */
@@ -589,7 +576,7 @@
             font-size: 0.85rem;
         }
 
-        /* ===== MODALS (mantidos iguais) ===== */
+        /* ===== MODALS ===== */
         .modal-content {
             border: none;
             border-radius: var(--radius);
@@ -738,7 +725,6 @@
         .modal-body-scrollable {
             overflow-y: auto;
             max-height: calc(90vh - 180px);
-            /* Ajustado para o novo contexto */
         }
 
         /* ===== RESPONSIVE ===== */
@@ -801,7 +787,7 @@
 </head>
 
 <body>
-    <!-- Overlay de erro do antivírus (mantido) -->
+    <!-- Overlay de erro do antivírus -->
     <div id="antivirus-error-overlay"
         style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(20, 20, 30, 0.9); color: white; z-index: 9999; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';">
         <div style="max-width: 600px;">
@@ -823,7 +809,7 @@
             <button id="myTokensBtn" class="btn-header btn-header-tokens" title="Meus Tokens">
                 <i class="fas fa-key"></i><span class="d-none d-md-inline">Meus Tokens</span>
             </button>
-            <div class="user-avatar" id="userAvatar" onclick="openProfileModal(event)" title="Meu Perfil">?</div>
+            <div class="user-avatar" id="userAvatar" onclick="openProfileModal()" title="Meu Perfil">?</div>
             <button class="btn-header btn-header-logout" onclick="openLogoutConfirmModal(event)" title="Sair">
                 <i class="fas fa-sign-out-alt"></i><span class="d-none d-sm-inline">Sair</span>
             </button>
@@ -1205,13 +1191,13 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Mantém todo o seu JavaScript original, sem alterações!
         window.onerror = function (message, source, lineno, colno, error) {
             if (message.includes("Unexpected token 'export'") && source.includes("webpage_content_reporter")) {
                 document.getElementById('antivirus-error-overlay').style.display = 'flex';
                 return true;
             }
         };
+
         const BACKEND_URL = 'https://inoutchi-backend.onrender.com';
         const HISTORY_PAGE_SIZE = 10;
 
@@ -1229,7 +1215,27 @@
         let isActionProcessing = false;
         let studentRefreshInterval = null;
 
-        document.addEventListener('DOMContentLoaded', initializeDashboard);
+        // Inicialização principal
+        document.addEventListener('DOMContentLoaded', function () {
+            console.log('DOM carregado, inicializando dashboard...');
+            initializeDOMElements();
+            initializeTokenModals();
+            initializeModals();
+            initializeEventListeners();
+
+            // Verifica autenticação
+            if (!localStorage.getItem('access_token')) {
+                alert("Sessão expirada. Faça login novamente.");
+                window.location.href = "login.html";
+                return;
+            }
+
+            // Mostra loading e carrega dados
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('content').style.display = 'none';
+
+            initializeDashboard();
+        });
 
         function initializeDOMElements() {
             alertBox = document.getElementById('alertBox');
@@ -1250,12 +1256,39 @@
             coordinatesDisplay = document.getElementById('coordinatesDisplay');
         }
 
+        function initializeModals() {
+            actionLocationModalInstance = new bootstrap.Modal(document.getElementById('actionLocationModal'));
+            manualConfirmExitModalInstance = new bootstrap.Modal(document.getElementById('manualConfirmExitModal'));
+            logoutConfirmModalInstance = new bootstrap.Modal(document.getElementById('logoutConfirmModal'));
+        }
+
+        function initializeEventListeners() {
+            document.getElementById('confirmLogoutBtn').addEventListener('click', () => {
+                logoutConfirmModalInstance.hide();
+                logout();
+            });
+            document.getElementById('confirmActionBtn').addEventListener('click', handleLocationActionConfirm);
+            document.getElementById('getLocationBtn').addEventListener('click', handleGetLocation);
+            document.getElementById('manualConfirmExitOkBtn').addEventListener('click', handleManualConfirmExit);
+
+            const totalPages = () => Math.ceil(historyData.length / HISTORY_PAGE_SIZE);
+            historyFirstBtn.addEventListener('click', () => { historyCurrentPage = 1; renderHistory(); });
+            historyPrevBtn.addEventListener('click', () => { if (historyCurrentPage > 1) { historyCurrentPage--; renderHistory(); } });
+            historyNextBtn.addEventListener('click', () => { if (historyCurrentPage < totalPages()) { historyCurrentPage++; renderHistory(); } });
+            historyLastBtn.addEventListener('click', () => { historyCurrentPage = totalPages(); renderHistory(); });
+        }
+
         let generateTokenModal, myTokensModal, tokenSuccessModal;
 
         function initializeTokenModals() {
-            generateTokenModal = new bootstrap.Modal(document.getElementById('generateTokenModal'));
-            myTokensModal = new bootstrap.Modal(document.getElementById('myTokensModal'));
-            tokenSuccessModal = new bootstrap.Modal(document.getElementById('tokenSuccessModal'));
+            const generateTokenEl = document.getElementById('generateTokenModal');
+            const myTokensEl = document.getElementById('myTokensModal');
+            const tokenSuccessEl = document.getElementById('tokenSuccessModal');
+
+            if (generateTokenEl) generateTokenModal = new bootstrap.Modal(generateTokenEl);
+            if (myTokensEl) myTokensModal = new bootstrap.Modal(myTokensEl);
+            if (tokenSuccessEl) tokenSuccessModal = new bootstrap.Modal(tokenSuccessEl);
+
             document.getElementById('myTokensBtn')?.addEventListener('click', openMyTokensModal);
             document.getElementById('generateTokenForm')?.addEventListener('submit', handleGenerateTokenSubmit);
         }
@@ -1271,6 +1304,8 @@
             document.getElementById('dataExpiracao').value = localDateTime;
             generateTokenModal.show();
         }
+
+        window.openGenerateTokenModal = openGenerateTokenModal;
 
         async function openMyTokensModal() {
             myTokensModal.show();
@@ -1358,6 +1393,8 @@
             }
         }
 
+        window.handleRevokeToken = handleRevokeToken;
+
         async function handleGenerateTokenSubmit(event) {
             event.preventDefault();
             const form = event.target;
@@ -1413,19 +1450,13 @@
             };
         }
 
-        /**
- * Inicia o auto-refresh para a lista de alunos.
- * Chama a função principal de atualização de dados a cada 20 segundos.
- */
         function startAutoRefresh() {
-            const REFRESH_INTERVAL_MS = 20000; // 20 segundos (alterado de 5000 para 20000)
+            const REFRESH_INTERVAL_MS = 20000;
 
-            // Limpa qualquer intervalo anterior para evitar múltiplos timers rodando
             if (studentRefreshInterval) {
                 clearInterval(studentRefreshInterval);
             }
 
-            // Inicia o novo temporizador
             studentRefreshInterval = setInterval(async () => {
                 console.log('🔄 Auto-refreshing student data...');
                 try {
@@ -1441,48 +1472,16 @@
         }
 
         async function initializeDashboard() {
-            initializeDOMElements();
-            initializeTokenModals();
-            actionLocationModalInstance = new bootstrap.Modal(document.getElementById('actionLocationModal'));
-            manualConfirmExitModalInstance = new bootstrap.Modal(document.getElementById('manualConfirmExitModal'));
-            logoutConfirmModalInstance = new bootstrap.Modal(document.getElementById('logoutConfirmModal'));
-            document.getElementById('confirmLogoutBtn').addEventListener('click', () => {
-                logoutConfirmModalInstance.hide();
-                window.logout();
-            });
-            document.getElementById('confirmActionBtn').addEventListener('click', handleLocationActionConfirm);
-            document.getElementById('getLocationBtn').addEventListener('click', handleGetLocation);
-            document.getElementById('manualConfirmExitOkBtn').addEventListener('click', handleManualConfirmExit);
-
-            const totalPages = () => Math.ceil(historyData.length / HISTORY_PAGE_SIZE);
-            historyFirstBtn.addEventListener('click', () => { historyCurrentPage = 1; renderHistory(); });
-            historyPrevBtn.addEventListener('click', () => { if (historyCurrentPage > 1) { historyCurrentPage--; renderHistory(); } });
-            historyNextBtn.addEventListener('click', () => { if (historyCurrentPage < totalPages()) { historyCurrentPage++; renderHistory(); } });
-            historyLastBtn.addEventListener('click', () => { historyCurrentPage = totalPages(); renderHistory(); });
-
-            if (!localStorage.getItem('access_token')) {
-                alert("Sessão expirada. Faça login novamente.");
-                window.location.href = "login.html";
-                return;
-            }
-
-            document.getElementById('loading').style.display = 'block';
-            document.getElementById('content').style.display = 'none';
-
             try {
                 await loadUserInfo();
                 await refreshStudentsData();
                 startAutoRefresh();
 
-                // Pausa e retoma a atualização automática para economizar recursos
                 document.addEventListener("visibilitychange", () => {
                     if (document.hidden) {
-                        // Se a página não está visível, limpa o intervalo
                         if (studentRefreshInterval) clearInterval(studentRefreshInterval);
                     } else {
-                        // Se a página voltar a ficar visível, reinicia o refresh
                         startAutoRefresh();
-                        // E faz uma atualização imediata para garantir que os dados estão sincronizados
                         refreshStudentsData();
                     }
                 });
@@ -1508,39 +1507,22 @@
             }
         }
 
-        async function buscarSaidaAtiva(alunoId) {
-            try {
-                const response = await fetchWithAuth(`/api/presencas/aluno/${alunoId}/saida-ativa`);
-                const data = await response.json();
-                return data.sucesso ? data.dados : null;
-            } catch (error) {
-                console.warn(`Erro ao buscar saída ativa para aluno ${alunoId}:`, error);
-                return null;
-            }
-        }
-
         async function refreshStudentsData() {
             try {
-                // Codificar o nome do tutor para a URL
                 const tutorNomeEncoded = encodeURIComponent(currentUser.nome);
-
                 const response = await fetchWithAuth(`/api/tutores/${tutorNomeEncoded}/alunos`);
                 const data = await response.json();
-
-                console.log('Resposta da API de alunos:', data);
 
                 if (!data || !Array.isArray(data.alunos)) {
                     throw new Error("Dados de alunos inválidos.");
                 }
 
-                // Para cada aluno, buscar se há uma saída ativa (status AGUARDANDO_CONFIRMACAO)
                 const studentPromises = data.alunos.map(async (student) => {
                     try {
                         const saidaResponse = await fetchWithAuth(`/api/presencas/aluno/${student.id}/saida-ativa`);
                         const saidaAtiva = await saidaResponse.json();
 
                         if (saidaAtiva.sucesso) {
-                            // Se o aluno tem uma saída ativa, sobrescreve o status
                             student.status = saidaAtiva.dados?.status === 'AGUARDANDO_CONFIRMACAO' ? 'AGUARDANDO_CONFIRMACAO' : student.status;
                         }
                     } catch (error) {
@@ -1551,7 +1533,6 @@
 
                 students = await Promise.all(studentPromises);
                 renderStudents(students);
-                console.log(`Encontrados ${students.length} alunos`);
 
             } catch (error) {
                 console.error('Erro ao carregar alunos:', error);
@@ -1563,11 +1544,10 @@
         }
 
         function renderStudents(students) {
-            // Ordenar alunos por prioridade de status
             const statusPriority = {
-                'AGUARDANDO_CONFIRMACAO': 1, // Prioridade máxima
-                'PRESENTE': 2,               // Segunda prioridade
-                'AUSENTE': 3                  // Última prioridade
+                'AGUARDANDO_CONFIRMACAO': 1,
+                'PRESENTE': 2,
+                'AUSENTE': 3
             };
 
             if (students && students.length > 0) {
@@ -1575,12 +1555,9 @@
                     const prioridadeA = statusPriority[alunoA.status] ?? 99;
                     const prioridadeB = statusPriority[alunoB.status] ?? 99;
 
-                    // Critério Primário: Ordena por prioridade de status
                     if (prioridadeA !== prioridadeB) {
                         return prioridadeA - prioridadeB;
                     }
-
-                    // Critério Secundário: Ordena alfabeticamente por nome
                     return alunoA.nome.localeCompare(alunoB.nome);
                 });
             }
@@ -1609,7 +1586,7 @@
                         statusText = 'Aguardando';
                         actionButtonHtml = `<button class="btn btn-sm btn-warning text-dark" onclick="openManualConfirmModal(${student.id}, '${safeStudentName}')"><i class="fas fa-check-circle me-1"></i>Confirmar Saída</button>`;
                         break;
-                    default: // AUSENTE
+                    default:
                         statusClass = 'status-absent';
                         statusText = 'Ausente';
                         actionButtonHtml = `<button class="btn btn-sm btn-success" onclick="openLocationActionModal(${student.id}, 'entrada', '${safeStudentName}')"><i class="fas fa-sign-in-alt me-1"></i>Registrar Entrada</button>`;
@@ -1617,20 +1594,20 @@
                 }
 
                 li.innerHTML = `
-            <div class="student-item-main">
-                <div class="student-info">
-                    <span class="student-name">${student.nome}</span>
-                    <span class="student-class">${student.salaNome || 'Sem sala'}</span>
-                </div>
-                <span class="status-badge ${statusClass}">${statusText}</span>
-            </div>
-            <div class="student-actions">
-                ${actionButtonHtml}
-                <div class="student-actions-group">
-                    <button class="btn btn-sm btn-info" onclick="openGenerateTokenModal(event, ${student.id}, '${safeStudentName}')" title="Gerar Token"><i class="fas fa-key"></i></button>
-                    <button class="btn btn-sm btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}')" title="Ver Histórico"><i class="fas fa-clock-rotate-left"></i></button>
-                </div>
-            </div>`;
+                    <div class="student-item-main">
+                        <div class="student-info">
+                            <span class="student-name">${student.nome}</span>
+                            <span class="student-class">${student.salaNome || 'Sem sala'}</span>
+                        </div>
+                        <span class="status-badge ${statusClass}">${statusText}</span>
+                    </div>
+                    <div class="student-actions">
+                        ${actionButtonHtml}
+                        <div class="student-actions-group">
+                            <button class="btn btn-sm btn-info" onclick="openGenerateTokenModal(event, ${student.id}, '${safeStudentName}')" title="Gerar Token"><i class="fas fa-key"></i></button>
+                            <button class="btn btn-sm btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}')" title="Ver Histórico"><i class="fas fa-clock-rotate-left"></i></button>
+                        </div>
+                    </div>`;
                 studentList.appendChild(li);
             });
         }
@@ -1820,17 +1797,11 @@
             }
         }
 
-        /**
- * Garante que o usuário tenha um token de acesso válido, renovando-o se necessário.
- * Esta função centraliza a lógica de autenticação antes de fazer chamadas à API.
- * @returns {Promise<string|null>} O token de acesso válido ou null se a autenticação falhar.
- */
         async function garantirAutenticacao() {
             console.log('🔐 Verificando a necessidade de autenticação...');
             let accessToken = localStorage.getItem('access_token');
             const refreshToken = localStorage.getItem('refresh_token');
 
-            // Se não tivermos um token de acesso, precisamos de um refresh token para continuar.
             if (!accessToken && !refreshToken) {
                 console.log('❌ Nenhum token de acesso ou de renovação encontrado. Desconectando.');
                 showAlert('Sessão inválida. Por favor, faça login novamente.', 'danger');
@@ -1838,7 +1809,6 @@
                 return null;
             }
 
-            // Testa se o token de acesso atual ainda é válido.
             if (accessToken) {
                 try {
                     const response = await fetch(`${BACKEND_URL}/api/users/me`, {
@@ -1854,7 +1824,6 @@
                 }
             }
 
-            // Se o token de acesso não for válido ou não existir, e não houver refresh token, não há o que fazer.
             if (!refreshToken) {
                 console.log('❌ Não há refresh token disponível para renovar a sessão.');
                 showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
@@ -1862,11 +1831,8 @@
                 return null;
             }
 
-            // Tenta renovar o token usando o refresh token.
             try {
                 console.log('🔄 Executando a renovação do token de acesso...');
-
-                // Endpoint correto para renovação
                 const response = await fetch(`${BACKEND_URL}/api/auth/refresh-token`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1892,65 +1858,23 @@
             }
         }
 
-        /**
- * Função alternativa para renovar o token de acesso usando o endpoint OAuth2.
- * Útil se o endpoint /api/auth/refresh-token não funcionar.
- * 
- * @returns {Promise<string|null>} O novo token de acesso ou null em caso de falha.
- */
-        async function renovarTokenOAuth2() {
-            console.log('🔄 Executando renovação de token via OAuth2...');
-
-            const refreshToken = localStorage.getItem('refresh_token');
-            if (!refreshToken) {
-                console.error('❌ Refresh token não encontrado.');
-                return null;
-            }
-
-            // Estes valores devem vir do seu arquivo de configuração
-            // Se não funcionar, você pode precisar ajustá-los
-            const clientId = 'myclientid';
-            const clientSecret = 'myclientsecret';
-
-            const body = new URLSearchParams();
-            body.append('grant_type', 'refresh_token');
-            body.append('refresh_token', refreshToken);
-
-            try {
-                const response = await fetch(`${BACKEND_URL}/oauth2/token`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'Authorization': 'Basic ' + btoa(clientId + ':' + clientSecret)
-                    },
-                    body: body
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`Falha ao renovar token. Status: ${response.status}. Resposta: ${errorText}`);
-                }
-
-                const tokenData = await response.json();
-
-                localStorage.setItem('access_token', tokenData.access_token);
-                if (tokenData.refresh_token) {
-                    localStorage.setItem('refresh_token', tokenData.refresh_token);
-                }
-
-                console.log('✅ Token renovado com sucesso via OAuth2!');
-                return tokenData.access_token;
-
-            } catch (error) {
-                console.error('❌ Erro ao renovar token via OAuth2:', error);
-                return null;
-            }
-        }
-
         async function fetchWithAuth(endpoint, options = {}) {
-            const headers = { 'Authorization': `Bearer ${localStorage.getItem('access_token')}`, 'Content-Type': 'application/json', ...options.headers };
+            const accessToken = await garantirAutenticacao();
+            if (!accessToken) throw new Error('Não foi possível obter um token de acesso válido.');
+
+            const headers = {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                ...options.headers
+            };
+
             const response = await fetch(BACKEND_URL + endpoint, { ...options, headers });
-            if (!response.ok) { const errorData = await response.json().catch(() => ({})); throw new Error(errorData.mensagem || `Erro ${response.status}: ${response.statusText}`); }
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.mensagem || `Erro ${response.status}: ${response.statusText}`);
+            }
+
             return response;
         }
 
@@ -1958,43 +1882,58 @@
             alertBox.textContent = message;
             alertBox.className = `alert alert-${type} alert-dismissible fade show`;
             alertBox.style.display = 'block';
-            setTimeout(() => { if (alertBox && alertBox.style.display !== 'none') bootstrap.Alert.getOrCreateInstance(alertBox).close(); }, 5000);
+            setTimeout(() => {
+                if (alertBox && alertBox.style.display !== 'none') {
+                    try {
+                        bootstrap.Alert.getOrCreateInstance(alertBox).close();
+                    } catch (e) {
+                        alertBox.style.display = 'none';
+                    }
+                }
+            }, 5000);
         }
 
         function setModalLoading(isLoading, text = 'Processando...') {
             const modalLoading = document.getElementById('modalLoading');
-            if (modalLoading) { modalLoading.style.display = isLoading ? 'flex' : 'none'; document.getElementById('modalLoadingText').textContent = text; }
+            if (modalLoading) {
+                modalLoading.style.display = isLoading ? 'flex' : 'none';
+                document.getElementById('modalLoadingText').textContent = text;
+            }
         }
 
-        window.logout = function () {
+        function logout() {
             if (studentRefreshInterval) {
                 clearInterval(studentRefreshInterval);
                 console.log('🛑 Auto-refresh stopped.');
             }
             localStorage.clear();
             window.location.href = 'index.html';
-        };
+        }
+
+        window.logout = logout;
 
         window.openLogoutConfirmModal = function (event) {
             event.preventDefault();
             if (logoutConfirmModalInstance) logoutConfirmModalInstance.show();
         }
 
-        const profileModalEl = document.getElementById('profileModal');
-        const profileModalInstance = new bootstrap.Modal(profileModalEl);
+        window.openProfileModal = function () {
+            const profileModalEl = document.getElementById('profileModal');
+            const profileModalInstance = new bootstrap.Modal(profileModalEl);
 
-        window.openProfileModal = function (event) {
-            if (event) event.preventDefault();
             document.getElementById('changePasswordForm').reset();
             document.getElementById('profileNome').textContent = 'Carregando...';
             document.getElementById('profileEmail').textContent = 'Carregando...';
             document.getElementById('profileCpf').textContent = 'Carregando...';
             document.getElementById('profileFone').textContent = 'Carregando...';
             profileModalInstance.show();
+
             (async () => {
                 try {
                     const accessToken = await garantirAutenticacao();
-                    const response = await fetch(`${BACKEND_URL}/api/users/me/profile`, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+                    const response = await fetch(`${BACKEND_URL}/api/users/me/profile`, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                    });
                     if (!response.ok) throw new Error('Falha ao buscar perfil.');
                     const userData = await response.json();
                     document.getElementById('profileNome').textContent = userData.nome || 'Não informado';
@@ -2015,7 +1954,10 @@
             const oldPassword = document.getElementById('oldPassword').value;
             const newPassword = document.getElementById('newPassword').value;
             const confirmPassword = document.getElementById('confirmPassword').value;
-            if (newPassword !== confirmPassword) { showAlert('A nova senha e a confirmação não correspondem.', 'danger'); return; }
+            if (newPassword !== confirmPassword) {
+                showAlert('A nova senha e a confirmação não correspondem.', 'danger');
+                return;
+            }
             const saveButton = this.querySelector('button[type="submit"]');
             saveButton.disabled = true;
             saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
@@ -2029,7 +1971,7 @@
                 const result = await response.json();
                 if (!response.ok) throw new Error(result.mensagem || 'Erro ao alterar a senha.');
                 showAlert('Senha alterada com sucesso!', 'success');
-                profileModalInstance.hide();
+                bootstrap.Modal.getInstance(document.getElementById('profileModal')).hide();
             } catch (error) {
                 showAlert(error.message, 'danger');
             } finally {
