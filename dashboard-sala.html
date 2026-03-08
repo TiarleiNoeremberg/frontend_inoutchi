@@ -71,10 +71,10 @@
             gap: 1rem;
             width: 100%;
             height: 100%;
-            min-height: 0;
-            /* Importante para grids em flex containers */
-            flex: 1;
-            overflow: hidden;
+            min-height: 200px;
+            background-color: transparent;
+            position: relative;
+            z-index: 1;
         }
 
         /* OVERLAY - GARANTE VISIBILIDADE */
@@ -115,16 +115,16 @@
             align-items: center;
             justify-content: center;
             text-align: center;
-            transition: all 0.3s ease;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-            cursor: default;
-            user-select: none;
-            position: relative;
-            overflow: hidden;
-
-            /* GARANTE QUE O CARD OCUPE TODO O ESPAÇO DA CÉLULA */
             width: 100%;
             height: 100%;
+            min-height: 80px;
+            /* Altura mínima */
+            opacity: 1 !important;
+            /* Força opacidade */
+            visibility: visible !important;
+            /* Força visibilidade */
+            position: relative;
+            z-index: 2;
         }
 
         /* TEXTOS RESPONSIVOS - AJUSTAM AUTOMATICAMENTE */
@@ -873,56 +873,74 @@
              */
             renderizarAlunos() {
                 const grid = document.getElementById('alunosGrid');
-                grid.innerHTML = ''; // 1. Limpa a grade completamente.
 
-                if (!this.alunos || this.alunos.length === 0) {
+                // SALVA O ESTADO ATUAL PARA COMPARAÇÃO (opcional, mas útil para debug)
+                const tinhaAlunos = this.alunos && this.alunos.length > 0;
+
+                // 1. Limpa a grade
+                grid.innerHTML = '';
+
+                if (!tinhaAlunos) {
                     grid.innerHTML = '<div class="empty-state">Nenhum aluno presente na sala</div>';
                     return;
                 }
 
-                // 2. Lógica para identificar nomes repetidos (sempre recalculada).
-                const contagemPrimeirosNomes = new Map();
+                // 2. CRIA OS CARDS EM MEMÓRIA PRIMEIRO (DocumentFragment)
+                const fragment = document.createDocumentFragment();
+
                 this.alunos.forEach(aluno => {
-                    const primeiroNome = aluno.nome.trim().split(' ')[0].toLowerCase();
-                    contagemPrimeirosNomes.set(primeiroNome, (contagemPrimeirosNomes.get(primeiroNome) || 0) + 1);
-                });
-                const capitalizar = (palavra) => palavra ? palavra.charAt(0).toUpperCase() + palavra.slice(1).toLowerCase() : '';
-
-                // 3. Itera sobre a lista de dados e cria os cards.
-                this.alunos.forEach(aluno => {
-                    const partesNome = aluno.nome.trim().split(' ').filter(p => p);
-                    const primeiroNomeOriginal = partesNome[0];
-                    let nomeParaExibir;
-
-                    if (contagemPrimeirosNomes.get(primeiroNomeOriginal.toLowerCase()) > 1) {
-                        const ultimoNome = partesNome.length > 1 ? partesNome[partesNome.length - 1] : '';
-                        nomeParaExibir = `${capitalizar(primeiroNomeOriginal)} ${capitalizar(ultimoNome)}`.trim();
-                    } else {
-                        nomeParaExibir = capitalizar(primeiroNomeOriginal);
-                    }
-
                     const card = document.createElement('div');
                     card.className = 'aluno-card';
                     card.setAttribute('data-aluno-id', aluno.id);
 
-                    // Aplica o estado visual com base nos dados do aluno.
-                    const isPendente = aluno.status === 'AGUARDANDO_CONFIRMACAO';
-                    const horarioTexto = isPendente ? 'Aguardando' : 'Presente';
-
-                    if (isPendente) {
-                        let tipo = (aluno.tipoSolicitante || 'diretor').toLowerCase();
-                        if (['parente', 'amigo', 'irmao'].includes(tipo)) {
-                            tipo = 'token'; // Normaliza para a classe CSS correta
-                        }
-                        card.classList.add('pendente', tipo);
-                    }
+                    // ... configuração do card (seu código existente)
+                    const nomeParaExibir = this.formatarNomeAluno(aluno); // extraia sua lógica
+                    const horarioTexto = aluno.status === 'AGUARDANDO_CONFIRMACAO' ? 'Aguardando' : 'Presente';
 
                     card.innerHTML = `
-                        <div class="aluno-nome">${nomeParaExibir}</div>
-                        <div class="aluno-horario">${horarioTexto}</div>
-                    `;
-                    grid.appendChild(card);
+            <div class="aluno-nome">${nomeParaExibir}</div>
+            <div class="aluno-horario">${horarioTexto}</div>
+        `;
+
+                    fragment.appendChild(card);
                 });
+
+                // 3. ADICIONA TODOS OS CARDS DE UMA SÓ VEZ
+                grid.appendChild(fragment);
+
+                // 4. FORÇA REPAINT NO WEBVIEW (CRÍTICO!)
+                setTimeout(() => {
+                    // Truque para forçar repaint
+                    grid.style.display = 'none';
+                    grid.offsetHeight; // Força reflow
+                    grid.style.display = 'grid';
+
+                    // Alternativa: força um pequeno ajuste no transform
+                    grid.style.transform = 'translateZ(0)';
+                    setTimeout(() => {
+                        grid.style.transform = '';
+                    }, 50);
+                }, 10);
+            }
+
+            formatarNomeAluno(aluno) {
+                const contagemPrimeirosNomes = new Map();
+                this.alunos.forEach(a => {
+                    const primeiroNome = a.nome.trim().split(' ')[0].toLowerCase();
+                    contagemPrimeirosNomes.set(primeiroNome, (contagemPrimeirosNomes.get(primeiroNome) || 0) + 1);
+                });
+
+                const capitalizar = (palavra) => palavra ? palavra.charAt(0).toUpperCase() + palavra.slice(1).toLowerCase() : '';
+
+                const partesNome = aluno.nome.trim().split(' ').filter(p => p);
+                const primeiroNomeOriginal = partesNome[0];
+
+                if (contagemPrimeirosNomes.get(primeiroNomeOriginal.toLowerCase()) > 1) {
+                    const ultimoNome = partesNome.length > 1 ? partesNome[partesNome.length - 1] : '';
+                    return `${capitalizar(primeiroNomeOriginal)} ${capitalizar(ultimoNome)}`.trim();
+                }
+
+                return capitalizar(primeiroNomeOriginal);
             }
 
             //========================================================
