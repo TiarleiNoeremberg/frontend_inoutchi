@@ -77,7 +77,10 @@
             color: var(--text);
             display: flex;
             flex-direction: column;
-            /* NÃO defina height aqui */
+            overflow-y: auto;
+            /* Permite rolagem natural da página */
+            height: 100vh;
+            /* Altura total da viewport */
             font-size: 14px;
             line-height: 1.5;
             -webkit-font-smoothing: antialiased;
@@ -191,13 +194,12 @@
         main {
             flex: 1;
             min-height: 0;
-            /* CRÍTICO! */
-            overflow-y: auto;
             padding: 20px;
             width: 100%;
             max-width: 1200px;
             margin: 0 auto;
             animation: fadeInUp 0.5s ease-out;
+            /* REMOVA overflow-y daqui - quem controla é o body */
         }
 
         @keyframes fadeInUp {
@@ -1471,6 +1473,98 @@
         .fullscreen-btn .d-sm-inline {
             color: white !important;
         }
+
+        /* ===== CORREÇÃO DE ROLAGEM PARA LISTAS E HISTÓRICO ===== */
+        /* Lista de alunos presentes na visão geral */
+        #presentStudentsList {
+            min-height: 150px;
+            max-height: 300px;
+            overflow-y: auto !important;
+        }
+
+        /* Lista de histórico pessoal do diretor */
+        #directorPersonalHistory .student-list {
+            max-height: 200px;
+            overflow-y: auto !important;
+        }
+
+        /* Tabelas de alunos e tutores */
+        .table-responsive {
+            width: 100%;
+            overflow-x: auto;
+            overflow-y: visible;
+            -webkit-overflow-scrolling: touch;
+            border-radius: var(--radius);
+        }
+
+        /* Paginação */
+        .pagination-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: center;
+            margin: 14px 0;
+            padding: 14px;
+            background: var(--surface);
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .pagination-buttons {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        /* Botões de paginação */
+        .pagination-btn {
+            padding: 6px 10px;
+            font-size: 0.78rem;
+            min-width: 40px;
+        }
+
+        .pagination-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* Garantir que a tabela de histórico tenha rolagem horizontal se necessário */
+        .history-table {
+            width: 100%;
+            min-width: 600px;
+        }
+
+        /* Botão voltar ao topo (opcional, igual ao tutor) */
+        #backToTop {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: var(--primary);
+            color: white;
+            border: none;
+            box-shadow: var(--shadow-lg);
+            cursor: pointer;
+            display: none;
+            z-index: 1000;
+            transition: all 0.3s;
+            font-size: 1.2rem;
+        }
+
+        #backToTop:hover {
+            background: var(--primary-dark);
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-glow);
+        }
+
+        #backToTop:active {
+            transform: translateY(0);
+        }
     </style>
 </head>
 
@@ -2274,6 +2368,65 @@
                 setTimeout(() => setupWebSocket(currentSchoolId), 10000);
             });
         }
+
+        // ===== FUNÇÕES DE ROLAGEM GARANTIDA (igual ao tutor) =====
+        function garantirRolagem() {
+            // Remove qualquer overflow: hidden que possa estar travando
+            document.body.style.overflowY = 'auto';
+            document.documentElement.style.overflowY = 'auto';
+
+            // Garante que o main não tenha overflow: hidden
+            const main = document.querySelector('main');
+            if (main) {
+                main.style.overflowY = 'visible';
+            }
+
+            console.log('✅ Rolagem garantida');
+        }
+
+        // Função para voltar ao topo
+        function addBackToTopButton() {
+            if (document.getElementById('backToTop')) return;
+
+            const btn = document.createElement('button');
+            btn.id = 'backToTop';
+            btn.innerHTML = '<i class="fas fa-arrow-up"></i>';
+            btn.onclick = () => {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            };
+            document.body.appendChild(btn);
+
+            window.addEventListener('scroll', () => {
+                if (window.scrollY > 300) {
+                    btn.style.display = 'block';
+                } else {
+                    btn.style.display = 'none';
+                }
+            });
+        }
+
+        // Chamar funções após carregar
+        document.addEventListener('DOMContentLoaded', addBackToTopButton);
+
+        // Substituir as funções de visualização de histórico para garantir rolagem
+        const originalViewDirectorHistory = window.viewDirectorHistory;
+        window.viewDirectorHistory = async function () {
+            await originalViewDirectorHistory();
+            setTimeout(garantirRolagem, 500);
+        };
+
+        const originalViewStudentHistory = window.viewStudentHistory;
+        window.viewStudentHistory = async function (studentId, studentName, page) {
+            await originalViewStudentHistory(studentId, studentName, page);
+            setTimeout(garantirRolagem, 500);
+        };
+
+        // Garantir rolagem ao mudar de aba
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', function () {
+                setTimeout(garantirRolagem, 300);
+            });
+        });
 
         /**
          * Atualiza o indicador visual de status da conexão WebSocket.
@@ -3209,7 +3362,6 @@
 
                 const accessToken = localStorage.getItem('access_token');
 
-
                 // Pede um número muito grande de alunos para garantir que todos venham.
                 let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=${page}&size=${pageSize}`;
 
@@ -3250,6 +3402,8 @@
                     // Não é mais necessário fatiar (slice) ou calcular páginas no cliente.
                     renderStudentsTable(paginatedData);
                     setupStudentsPagination(paginatedData);
+                    // Garantir rolagem
+                    setTimeout(garantirRolagem, 100);
                 } else {
                     throw new Error(`Erro ${response.status}: ${response.statusText}`);
                 }
