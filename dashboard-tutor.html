@@ -22,13 +22,14 @@
             padding: 0;
         }
 
+        /* CORREÇÃO CRÍTICA - html/body SEM HEIGHT */
         html,
         body {
             margin: 0;
             padding: 0;
             overflow: hidden;
-            /* NÃO DEFINA HEIGHT */
-        }        
+            /* SEM height */
+        }
 
         body {
             font-family: 'Inter', -apple-system, sans-serif;
@@ -37,9 +38,10 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            /* SEM height */
         }
 
-        /* ===== DESIGN SYSTEM ===== */
+        /* ===== DESIGN SYSTEM (mantido) ===== */
         :root {
             --primary: #1a6fc4;
             --primary-light: #e8f2fc;
@@ -71,16 +73,16 @@
             --shadow-glow: 0 0 30px rgba(26, 111, 196, 0.15);
         }
 
-        /* ===== HEADER FIXO ===== */
+        /* ===== HEADER CORRIGIDO ===== */
         header {
             background: var(--surface);
             border-bottom: 1px solid var(--border);
             padding: 0 20px;
 
-            /* ALTURA FIXA DE 10% DA VIEWPORT */
-            height: 10vh;
-            min-height: 50px;
-            max-height: 80px;
+            /* CORREÇÃO: Altura fixa em px */
+            height: 70px;
+            min-height: 70px;
+            max-height: 70px;
 
             display: flex;
             justify-content: space-between;
@@ -166,13 +168,15 @@
 
         /* ===== MAIN OCUPA OS 90% RESTANTES ===== */
         main {
-            height: 90vh;
+            /* CORREÇÃO: Remove height fixa e usa flex */
+            flex: 1;
+            min-height: 0;
+            /* CRÍTICO! */
             padding: 24px 16px;
             overflow-y: auto;
             width: 100%;
             max-width: 800px;
             margin: 0 auto;
-            flex: 1;
         }
 
         /* Scrollbar personalizada */
@@ -813,6 +817,55 @@
 
         .fullscreen-btn i {
             margin-right: 5px;
+        }
+
+        /* ===== CORREÇÃO DO HISTÓRICO ===== */
+        #historySection {
+            display: none;
+            /* Mantém oculto inicialmente */
+            max-height: 400px;
+            /* Altura máxima para o histórico */
+            overflow-y: auto;
+            /* Permite rolagem interna */
+            margin-top: 20px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+        }
+
+        #historySection .card-body {
+            max-height: 350px;
+            overflow-y: auto;
+            padding: 0;
+        }
+
+        #historySection .table-responsive {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        /* Garantir que o main sempre possa rolar */
+        main {
+            overflow-y: auto !important;
+            height: auto !important;
+            min-height: 0 !important;
+        }
+
+        /* Ajuste para quando o histórico estiver visível */
+        #historySection.visible {
+            display: block;
+            animation: slideDown 0.3s ease-out;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
     </style>
 </head>
@@ -1672,18 +1725,31 @@
         window.viewStudentHistory = async function (studentId, studentName) {
             historyViewingStudentId = studentId;
             historyTitle.textContent = `Histórico — ${studentName}`;
+
+            // Mostra a seção de histórico com classe para animação
             historySection.style.display = 'block';
-            historyTableBody.innerHTML = '<tr><td colspan="5" class="text-center p-4"><div class="loading-spinner mx-auto"></div></td></tr>';
+            historySection.classList.add('visible');
+
+            // Rola suavemente até o histórico
+            setTimeout(() => {
+                historySection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 100);
+
+            historyTableBody.innerHTML = '<tr><td colspan="5" class="text-center p-4"><div class="loading-spinner mx-auto"></div><p class="mt-2">Carregando histórico...</p></td></tr>';
             historyPaginationControls.style.display = 'none';
+
             try {
                 const response = await fetchWithAuth(`/api/presencas/historico/${studentId}`);
                 const result = await response.json();
                 historyData = (result.sucesso && Array.isArray(result.dados)) ? result.dados.sort((a, b) => new Date(b.entradaAt) - new Date(a.entradaAt)) : [];
                 historyCurrentPage = 1;
                 renderHistory();
-                historySection.scrollIntoView({ behavior: 'smooth' });
+
+                // Garantir que o main ainda possa rolar
+                document.querySelector('main').style.overflowY = 'auto';
+
             } catch (error) {
-                historyTableBody.innerHTML = `<tr><td colspan="5" class="text-center p-4" style="color: var(--danger);">Erro ao carregar histórico.</td></tr>`;
+                historyTableBody.innerHTML = `<tr><td colspan="5" class="text-center p-4" style="color: var(--danger);">Erro ao carregar histórico: ${error.message}</td></tr>`;
                 showAlert(error.message, 'danger');
             }
         }
