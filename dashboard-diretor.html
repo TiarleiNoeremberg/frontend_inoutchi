@@ -612,12 +612,21 @@
         }
 
         .tab-content {
-            display: none;
+            display: none !important;
             animation: fadeInUp 0.3s ease-out;
         }
 
         .tab-content.active {
-            display: block;
+            display: block !important;
+        }
+
+        /* Forçar visibilidade no WebView */
+        #overview-tab.active,
+        #students-tab.active,
+        #tutors-tab.active,
+        #classrooms-tab.active,
+        #history-tab.active {
+            display: block !important;
         }
 
         /* ===== STATS CARDS ===== */
@@ -2911,8 +2920,6 @@
             console.log('Inicializando dashboard diretor...');
             initializeDOMElements();
 
-            // 2. Configura a interatividade da UI (abas, botões, etc.)
-            //setupTabNavigation();
             const accessToken = localStorage.getItem('access_token');
             const expiry = localStorage.getItem('token_expiry');
 
@@ -2927,6 +2934,7 @@
             try {
                 // 1. Carrega dados essenciais
                 await loadUserInfo();
+
                 if (currentSchoolId) {
                     setupWebSocket(currentSchoolId);
                 } else {
@@ -2936,16 +2944,38 @@
                 // 2. Carrega o resto dos dados
                 await loadDirectorData();
                 await loadAllStudents();
+
+                // 3. **CRÍTICO**: Configurar as abas ANTES de carregar os dados das abas
+                console.log('🔧 Configurando abas do dashboard...');
                 setupTabs();
+
+                // 4. Carregar dados da aba inicial (Visão Geral)
                 await loadOverviewData();
 
-                // 3. Mostrar conteúdo principal
+                // 5. Mostrar conteúdo principal
                 showContent();
 
-                console.log('Dashboard inicializado com sucesso e polling de tutores iniciado!');
+                // 6. Garantir que a primeira aba esteja ativa e visível
+                setTimeout(() => {
+                    const firstTab = document.querySelector('.tab');
+                    if (firstTab && !document.querySelector('.tab.active')) {
+                        console.log('Ativando primeira aba manualmente');
+                        firstTab.classList.add('active');
+
+                        const firstContent = document.getElementById('overview-tab');
+                        if (firstContent) {
+                            firstContent.classList.add('active');
+                            firstContent.style.display = 'block';
+                        }
+                    }
+
+                    // Garantir rolagem
+                    garantirRolagem();
+                }, 500);
+
+                console.log('Dashboard inicializado com sucesso!');
 
             } catch (error) {
-                // O erro que você viu estava sendo capturado aqui
                 console.error('Erro ao inicializar dashboard:', error);
                 showAlert('Erro ao carregar informações. Tente novamente.', 'error');
             }
@@ -3046,32 +3076,69 @@
 
         // MODIFICAR a função setupTabs para gerenciar a verificação automática
         function setupTabs() {
+            console.log('🔧 Configurando sistema de abas...');
+
             const tabs = document.querySelectorAll('.tab');
             const tabContents = document.querySelectorAll('.tab-content');
 
-            tabs.forEach(tab => {
-                tab.addEventListener('click', () => {
-                    // Remover active de todas as abas
-                    tabs.forEach(t => t.classList.remove('active'));
-                    tabContents.forEach(tc => tc.classList.remove('active'));
+            console.log(`📊 Encontradas ${tabs.length} abas e ${tabContents.length} conteúdos`);
 
-                    // Adicionar active na aba clicada
-                    tab.classList.add('active');
-                    const tabName = tab.getAttribute('data-tab');
-                    const content = document.getElementById(`${tabName}-tab`);
-                    if (content) {
-                        content.classList.add('active');
+            if (tabs.length === 0) {
+                console.error('❌ Nenhuma aba encontrada!');
+                return;
+            }
+
+            // Remover listeners antigos (clonando e substituindo)
+            tabs.forEach(oldTab => {
+                const newTab = oldTab.cloneNode(true);
+                oldTab.parentNode.replaceChild(newTab, oldTab);
+            });
+
+            // Pegar as novas abas
+            const newTabs = document.querySelectorAll('.tab');
+
+            // Adicionar listeners
+            newTabs.forEach(tab => {
+                tab.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const tabName = this.getAttribute('data-tab');
+                    console.log(`👆 Aba clicada: ${tabName}`);
+
+                    const targetContent = document.getElementById(`${tabName}-tab`);
+
+                    if (!targetContent) {
+                        console.error(`❌ Conteúdo não encontrado para: ${tabName}-tab`);
+                        return;
                     }
 
-                    // Carregar dados específicos de cada aba
+                    // Remover active de todas as abas
+                    newTabs.forEach(t => t.classList.remove('active'));
+
+                    // Esconder todos os conteúdos
+                    tabContents.forEach(content => {
+                        content.classList.remove('active');
+                        content.style.display = 'none';
+                    });
+
+                    // Ativar aba clicada
+                    this.classList.add('active');
+
+                    // Mostrar conteúdo correspondente
+                    targetContent.classList.add('active');
+                    targetContent.style.display = 'block';
+
+                    console.log(`✅ Aba ${tabName} ativada`);
+
+                    // Carregar dados específicos da aba
                     switch (tabName) {
                         case 'overview':
                             loadOverviewData();
                             break;
                         case 'students':
-                            // Carregar alunos e iniciar atualização automática
-                            loadAllStudents(currentStudentsPage, document.getElementById('studentSearch').value);
-                            startStudentsAutoRefresh(); // INICIAR ATUALIZAÇÃO AUTOMÁTICA
+                            loadAllStudents(currentStudentsPage, document.getElementById('studentSearch')?.value || '');
+                            startStudentsAutoRefresh();
                             break;
                         case 'tutors':
                             loadAllTutors(currentTutorsPage);
@@ -3082,10 +3149,17 @@
                         case 'history':
                             loadHistory();
                             break;
-                        // REMOVER O CASE 'director'
                     }
                 });
             });
+
+            // Ativar primeira aba se nenhuma estiver ativa
+            if (!document.querySelector('.tab.active')) {
+                console.log('Ativando primeira aba');
+                if (newTabs.length > 0) {
+                    newTabs[0].click();
+                }
+            }
         }
 
         /**
