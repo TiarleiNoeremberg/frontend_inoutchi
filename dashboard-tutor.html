@@ -2889,20 +2889,64 @@
             confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Excluindo...';
 
             try {
-                if (!currentUser || !currentUser.id) {
+                if (!currentUser || !currentUser.email) {
                     await loadUserInfo();
                 }
 
-                if (!currentUser || !currentUser.id) {
+                if (!currentUser || !currentUser.email) {
                     throw new Error('Não foi possível identificar o usuário logado.');
                 }
 
-                const tutorId = currentUser.id;
-                console.log(`Tentando excluir tutor com ID: ${tutorId}`);
+                const userEmail = currentUser.email;
+                console.log(`Email do usuário: ${userEmail}`);
+                console.log(`ID do usuário na tabela usuario: ${currentUser.id}`); // Será 72
 
-                // === MODIFICAÇÃO PARA VER A RESPOSTA COMPLETA ===
                 const accessToken = await garantirAutenticacao();
-                const response = await fetch(`${BACKEND_URL}/api/tutores/${tutorId}`, {
+
+                // === SOLUÇÃO DEFINITIVA ===
+                // 1. Buscar o tutor pelo email para obter o ID correto (40)
+                console.log('Buscando tutor pelo email...');
+
+                // Endpoint para buscar tutor por email
+                const tutorResponse = await fetch(`${BACKEND_URL}/api/tutores/busca?email=${encodeURIComponent(userEmail)}`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+
+                if (!tutorResponse.ok) {
+                    // Se não encontrar por email, tenta buscar por nome (fallback)
+                    console.log('Buscando tutor pelo nome como fallback...');
+                    const nomeResponse = await fetch(`${BACKEND_URL}/api/diretores/tutores?nome=${encodeURIComponent(currentUser.nome || '')}&page=0&size=10`, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                    });
+
+                    if (!nomeResponse.ok) {
+                        throw new Error('Não foi possível localizar o tutor no sistema.');
+                    }
+
+                    const nomeData = await nomeResponse.json();
+                    const tutores = nomeData.content || [];
+
+                    // Filtra pelo email para garantir
+                    const tutorEncontrado = tutores.find(t => t.email === userEmail);
+
+                    if (!tutorEncontrado || !tutorEncontrado.id) {
+                        console.error('Tutores encontrados:', tutores);
+                        throw new Error('Tutor não encontrado para o email fornecido.');
+                    }
+
+                    var tutorId = tutorEncontrado.id;
+                } else {
+                    const tutorData = await tutorResponse.json();
+                    var tutorId = tutorData.id;
+                }
+
+                console.log(`✅ ID do tutor encontrado: ${tutorId} (deve ser 40)`);
+
+                // 2. Confirmar com o usuário o ID que será deletado (opcional, só para debug)
+                console.log(`Deletando tutor ID: ${tutorId} (usuário associado ID: ${currentUser.id})`);
+
+                // 3. Agora sim, deletar com o ID correto da tabela tutor
+                const deleteResponse = await fetch(`${BACKEND_URL}/api/tutores/${tutorId}`, {
                     method: 'DELETE',
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
@@ -2910,54 +2954,45 @@
                     }
                 });
 
-                // LOG DETALHADO DA RESPOSTA
-                console.log('Status da resposta:', response.status);
-                console.log('Status text:', response.statusText);
+                console.log('Status da resposta:', deleteResponse.status);
 
-                // Tenta ler o corpo da resposta (mesmo em erro)
-                let responseBody = null;
-                try {
-                    responseBody = await response.json();
-                    console.log('Corpo da resposta:', responseBody);
-                } catch (e) {
-                    console.log('Resposta não é JSON ou está vazia');
-                }
+                if (deleteResponse.status === 204) {
+                    console.log('✅ Sucesso! Tutor deletado.');
 
-                if (response.status === 204) {
-                    console.log('✅ Sucesso! Status 204 recebido');
-
-                    // Verifica se realmente deletou (opcional - faz uma consulta)
-                    setTimeout(async () => {
-                        try {
-                            const checkResponse = await fetch(`${BACKEND_URL}/api/tutores/${tutorId}`, {
-                                headers: { 'Authorization': `Bearer ${accessToken}` }
-                            });
-                            console.log('Verificação pós-delete - status:', checkResponse.status);
-                        } catch (e) {
-                            console.log('Erro ao verificar (esperado se deletou):', e);
-                        }
-                    }, 2000);
-
+                    // Fecha o modal de confirmação
                     if (deleteAccountConfirmModalInstance) {
                         deleteAccountConfirmModalInstance.hide();
                     }
+
+                    // Fecha também o modal de perfil se estiver aberto
+                    const profileModal = bootstrap.Modal.getInstance(document.getElementById('profileModal'));
+                    if (profileModal) {
+                        profileModal.hide();
+                    }
+
                     showAlert('Sua conta foi excluída. Você será redirecionado.', 'success');
+
+                    // Aguarda um pouco para o usuário ver a mensagem
                     setTimeout(() => {
+                        // Para o auto-refresh
                         if (studentRefreshInterval) {
                             clearInterval(studentRefreshInterval);
                         }
+                        // Limpa tudo e redireciona
                         localStorage.clear();
                         window.location.href = 'index.html';
                     }, 2500);
+
                 } else {
-                    const errorMessage = responseBody?.mensagem || responseBody?.message || `Erro ${response.status}`;
-                    throw new Error(errorMessage);
+                    const errorData = await deleteResponse.json().catch(() => ({}));
+                    throw new Error(errorData.mensagem || errorData.message || `Erro ${deleteResponse.status}`);
                 }
 
             } catch (error) {
                 console.error('❌ Erro na exclusão da conta:', error);
                 showAlert(`Erro ao excluir conta: ${error.message}`, 'danger');
 
+                // Reabilita o botão em caso de erro
                 confirmBtn.disabled = false;
                 confirmBtn.innerHTML = '<i class="fas fa-trash-alt me-2"></i>Sim, Excluir Minha Conta';
             }
