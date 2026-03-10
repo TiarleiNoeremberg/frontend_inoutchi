@@ -3,7 +3,8 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -888,8 +889,13 @@
 
         #splash-screen {
             position: fixed;
+            top: 0;
+            left: 0;
             width: 100%;
-            height: 100vh;
+            height: 100%;
+            /* Fallback */
+            height: 100dvh;
+            /* Dynamic viewport height */
             background: #2c3e50;
             display: flex;
             justify-content: center;
@@ -905,7 +911,17 @@
 
         #splash-screen img {
             width: 120px;
+            height: auto;
+            max-width: 80%;
             animation: pulse 1.5s infinite;
+            /* Garante centralização perfeita */
+            position: relative;
+            margin: auto;
+            display: block;
+        }
+
+        body.splash-active {
+            overflow: hidden;
         }
 
         @keyframes pulse {
@@ -1697,107 +1713,107 @@
             }
         }
 
-            async function loadUserInfo() {
-                try {
-                    const response = await fetchWithAuth('/api/users/me');
-                    currentUser = await response.json();
-                    if (!currentUser || !currentUser.nome) {
-                        throw new Error('Dados do usuário incompletos');
-                    }
-                    userFullName.textContent = currentUser.nome;
-                    userAvatar.textContent = currentUser.nome.charAt(0).toUpperCase();
-                } catch (error) {
-                    throw new Error('Não foi possível carregar suas informações.');
+        async function loadUserInfo() {
+            try {
+                const response = await fetchWithAuth('/api/users/me');
+                currentUser = await response.json();
+                if (!currentUser || !currentUser.nome) {
+                    throw new Error('Dados do usuário incompletos');
                 }
+                userFullName.textContent = currentUser.nome;
+                userAvatar.textContent = currentUser.nome.charAt(0).toUpperCase();
+            } catch (error) {
+                throw new Error('Não foi possível carregar suas informações.');
+            }
+        }
+
+        async function refreshStudentsData() {
+            try {
+                const tutorNomeEncoded = encodeURIComponent(currentUser.nome);
+                const response = await fetchWithAuth(`/api/tutores/${tutorNomeEncoded}/alunos`);
+                const data = await response.json();
+
+                if (!data || !Array.isArray(data.alunos)) {
+                    throw new Error("Dados de alunos inválidos.");
+                }
+
+                const studentPromises = data.alunos.map(async (student) => {
+                    try {
+                        const saidaResponse = await fetchWithAuth(`/api/presencas/aluno/${student.id}/saida-ativa`);
+                        const saidaAtiva = await saidaResponse.json();
+
+                        if (saidaAtiva.sucesso) {
+                            student.status = saidaAtiva.dados?.status === 'AGUARDANDO_CONFIRMACAO' ? 'AGUARDANDO_CONFIRMACAO' : student.status;
+                        }
+                    } catch (error) {
+                        console.warn(`Erro ao buscar saída ativa para aluno ${student.id}:`, error);
+                    }
+                    return student;
+                });
+
+                students = await Promise.all(studentPromises);
+                renderStudents(students);
+
+            } catch (error) {
+                console.error('Erro ao carregar alunos:', error);
+                if (!students || !students.length) {
+                    studentList.innerHTML = '<li class="empty-state"><i class="fas fa-child"></i><p>Não foi possível carregar seus alunos.</p></li>';
+                }
+                throw error;
+            }
+        }
+
+        function renderStudents(students) {
+            const statusPriority = {
+                'AGUARDANDO_CONFIRMACAO': 1,
+                'PRESENTE': 2,
+                'AUSENTE': 3
+            };
+
+            if (students && students.length > 0) {
+                students.sort((alunoA, alunoB) => {
+                    const prioridadeA = statusPriority[alunoA.status] ?? 99;
+                    const prioridadeB = statusPriority[alunoB.status] ?? 99;
+
+                    if (prioridadeA !== prioridadeB) {
+                        return prioridadeA - prioridadeB;
+                    }
+                    return alunoA.nome.localeCompare(alunoB.nome);
+                });
             }
 
-            async function refreshStudentsData() {
-                try {
-                    const tutorNomeEncoded = encodeURIComponent(currentUser.nome);
-                    const response = await fetchWithAuth(`/api/tutores/${tutorNomeEncoded}/alunos`);
-                    const data = await response.json();
-
-                    if (!data || !Array.isArray(data.alunos)) {
-                        throw new Error("Dados de alunos inválidos.");
-                    }
-
-                    const studentPromises = data.alunos.map(async (student) => {
-                        try {
-                            const saidaResponse = await fetchWithAuth(`/api/presencas/aluno/${student.id}/saida-ativa`);
-                            const saidaAtiva = await saidaResponse.json();
-
-                            if (saidaAtiva.sucesso) {
-                                student.status = saidaAtiva.dados?.status === 'AGUARDANDO_CONFIRMACAO' ? 'AGUARDANDO_CONFIRMACAO' : student.status;
-                            }
-                        } catch (error) {
-                            console.warn(`Erro ao buscar saída ativa para aluno ${student.id}:`, error);
-                        }
-                        return student;
-                    });
-
-                    students = await Promise.all(studentPromises);
-                    renderStudents(students);
-
-                } catch (error) {
-                    console.error('Erro ao carregar alunos:', error);
-                    if (!students || !students.length) {
-                        studentList.innerHTML = '<li class="empty-state"><i class="fas fa-child"></i><p>Não foi possível carregar seus alunos.</p></li>';
-                    }
-                    throw error;
-                }
+            studentList.innerHTML = '';
+            if (!students.length) {
+                studentList.innerHTML = '<li class="empty-state"><i class="fas fa-child d-block"></i><p>Nenhum aluno vinculado.</p></li>';
+                return;
             }
 
-            function renderStudents(students) {
-                const statusPriority = {
-                    'AGUARDANDO_CONFIRMACAO': 1,
-                    'PRESENTE': 2,
-                    'AUSENTE': 3
-                };
+            students.forEach((student, index) => {
+                const li = document.createElement('li');
+                li.className = 'student-item';
+                li.style.animationDelay = `${index * 0.05}s`;
+                const safeStudentName = student.nome ? student.nome.replace(/'/g, "\\'") : 'Aluno';
 
-                if (students && students.length > 0) {
-                    students.sort((alunoA, alunoB) => {
-                        const prioridadeA = statusPriority[alunoA.status] ?? 99;
-                        const prioridadeB = statusPriority[alunoB.status] ?? 99;
-
-                        if (prioridadeA !== prioridadeB) {
-                            return prioridadeA - prioridadeB;
-                        }
-                        return alunoA.nome.localeCompare(alunoB.nome);
-                    });
+                let statusClass, statusText, actionButtonHtml;
+                switch (student.status) {
+                    case 'PRESENTE':
+                        statusClass = 'status-present';
+                        statusText = 'Presente';
+                        actionButtonHtml = `<button class="btn btn-sm btn-danger" onclick="openLocationActionModal(${student.id}, 'saida', '${safeStudentName}')"><i class="fas fa-sign-out-alt me-1"></i>Solicitar Saída</button>`;
+                        break;
+                    case 'AGUARDANDO_CONFIRMACAO':
+                        statusClass = 'status-warning';
+                        statusText = 'Aguardando';
+                        actionButtonHtml = `<button class="btn btn-sm btn-warning text-dark" onclick="openManualConfirmModal(${student.id}, '${safeStudentName}')"><i class="fas fa-check-circle me-1"></i>Confirmar Saída</button>`;
+                        break;
+                    default:
+                        statusClass = 'status-absent';
+                        statusText = 'Ausente';
+                        actionButtonHtml = `<button class="btn btn-sm btn-success" onclick="openLocationActionModal(${student.id}, 'entrada', '${safeStudentName}')"><i class="fas fa-sign-in-alt me-1"></i>Registrar Entrada</button>`;
+                        break;
                 }
 
-                studentList.innerHTML = '';
-                if (!students.length) {
-                    studentList.innerHTML = '<li class="empty-state"><i class="fas fa-child d-block"></i><p>Nenhum aluno vinculado.</p></li>';
-                    return;
-                }
-
-                students.forEach((student, index) => {
-                    const li = document.createElement('li');
-                    li.className = 'student-item';
-                    li.style.animationDelay = `${index * 0.05}s`;
-                    const safeStudentName = student.nome ? student.nome.replace(/'/g, "\\'") : 'Aluno';
-
-                    let statusClass, statusText, actionButtonHtml;
-                    switch (student.status) {
-                        case 'PRESENTE':
-                            statusClass = 'status-present';
-                            statusText = 'Presente';
-                            actionButtonHtml = `<button class="btn btn-sm btn-danger" onclick="openLocationActionModal(${student.id}, 'saida', '${safeStudentName}')"><i class="fas fa-sign-out-alt me-1"></i>Solicitar Saída</button>`;
-                            break;
-                        case 'AGUARDANDO_CONFIRMACAO':
-                            statusClass = 'status-warning';
-                            statusText = 'Aguardando';
-                            actionButtonHtml = `<button class="btn btn-sm btn-warning text-dark" onclick="openManualConfirmModal(${student.id}, '${safeStudentName}')"><i class="fas fa-check-circle me-1"></i>Confirmar Saída</button>`;
-                            break;
-                        default:
-                            statusClass = 'status-absent';
-                            statusText = 'Ausente';
-                            actionButtonHtml = `<button class="btn btn-sm btn-success" onclick="openLocationActionModal(${student.id}, 'entrada', '${safeStudentName}')"><i class="fas fa-sign-in-alt me-1"></i>Registrar Entrada</button>`;
-                            break;
-                    }
-
-                    li.innerHTML = `
+                li.innerHTML = `
                     <div class="student-item-main">
                         <div class="student-info">
                             <span class="student-name">${student.nome}</span>
@@ -1812,83 +1828,143 @@
                             <button class="btn btn-sm btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}')" title="Ver Histórico"><i class="fas fa-clock-rotate-left"></i></button>
                         </div>
                     </div>`;
-                    studentList.appendChild(li);
-                });
+                studentList.appendChild(li);
+            });
+        }
+
+        // Detecta WebView Android
+        function detectWebView() {
+            const isAndroid = /Android/i.test(navigator.userAgent);
+            const isWebView = isAndroid && (
+                /wv/.test(navigator.userAgent) ||
+                /WebView/.test(navigator.userAgent) ||
+                (window.AndroidBridge !== undefined) ||
+                (window.navigator.standalone === undefined && window.matchMedia('(display-mode: standalone)').matches === false && window.matchMedia('(display-mode: fullscreen)').matches === false && !window.navigator.standalone)
+            );
+            return isWebView;
+        }
+
+
+        // Ajusta splash para WebView
+        function ajustarSplashParaWebView() {
+            const splash = document.getElementById('splash-screen');
+            if (!splash) return;
+
+            if (detectWebView()) {
+                console.log('📱 WebView Android detectado, aplicando correções');
+
+                // Força centralização absoluta
+                splash.style.display = 'flex';
+                splash.style.justifyContent = 'center';
+                splash.style.alignItems = 'center';
+                splash.style.position = 'fixed';
+                splash.style.top = '0';
+                splash.style.left = '0';
+                splash.style.right = '0';
+                splash.style.bottom = '0';
+                splash.style.width = '100%';
+                splash.style.height = '100%';
+                splash.style.margin = '0';
+                splash.style.padding = '0';
+
+                // Ajusta a imagem
+                const img = splash.querySelector('img');
+                if (img) {
+                    img.style.maxWidth = '150px';
+                    img.style.width = 'auto';
+                    img.style.height = 'auto';
+                    img.style.margin = 'auto';
+                    img.style.position = 'relative';
+                    img.style.top = 'auto';
+                    img.style.left = 'auto';
+                    img.style.transform = 'none';
+                }
+
+                // Esconde conteúdo enquanto splash existe
+                document.getElementById('content').style.opacity = '0';
             }
+        }
 
-            window.viewStudentHistory = async function (studentId, studentName) {
-                historyViewingStudentId = studentId;
-                historyTitle.textContent = `Histórico de Presença — ${studentName}`;
+        // Executa assim que possível
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', ajustarSplashParaWebView);
+        } else {
+            ajustarSplashParaWebView();
+        }
 
-                // Mostra a seção de histórico
-                historySection.style.display = 'block';
-                historySection.classList.add('visible');
+        window.viewStudentHistory = async function (studentId, studentName) {
+            historyViewingStudentId = studentId;
+            historyTitle.textContent = `Histórico de Presença — ${studentName}`;
 
-                // Limpa e mostra loading
-                historyTableBody.innerHTML = '<tr><td colspan="5" class="text-center p-5"><div class="loading-spinner mx-auto"></div><p class="mt-3">Carregando histórico...</p></td></tr>';
+            // Mostra a seção de histórico
+            historySection.style.display = 'block';
+            historySection.classList.add('visible');
+
+            // Limpa e mostra loading
+            historyTableBody.innerHTML = '<tr><td colspan="5" class="text-center p-5"><div class="loading-spinner mx-auto"></div><p class="mt-3">Carregando histórico...</p></td></tr>';
+            historyPaginationControls.style.display = 'none';
+
+            try {
+                const response = await fetchWithAuth(`/api/presencas/historico/${studentId}`);
+                const result = await response.json();
+
+                if (result.sucesso && Array.isArray(result.dados)) {
+                    historyData = result.dados.sort((a, b) => new Date(b.entradaAt) - new Date(a.entradaAt));
+                    historyCurrentPage = 1;
+                    renderHistory();
+
+                    // Rola suavemente até o histórico após carregar
+                    setTimeout(() => {
+                        historySection.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'start'
+                        });
+                    }, 200);
+                } else {
+                    throw new Error('Dados inválidos recebidos do servidor.');
+                }
+            } catch (error) {
+                historyTableBody.innerHTML = `<tr><td colspan="5" class="text-center p-5" style="color: var(--danger);">Erro ao carregar histórico: ${error.message}</td></tr>`;
+                showAlert(error.message, 'danger');
+            }
+        }
+
+        function renderHistory() {
+            historyTableBody.innerHTML = '';
+
+            if (historyData.length === 0) {
+                historyTableBody.innerHTML = `<tr><td colspan="5" class="text-center p-5" style="color: var(--text-secondary);">Nenhum registro encontrado para este aluno.</td></tr>`;
                 historyPaginationControls.style.display = 'none';
-
-                try {
-                    const response = await fetchWithAuth(`/api/presencas/historico/${studentId}`);
-                    const result = await response.json();
-
-                    if (result.sucesso && Array.isArray(result.dados)) {
-                        historyData = result.dados.sort((a, b) => new Date(b.entradaAt) - new Date(a.entradaAt));
-                        historyCurrentPage = 1;
-                        renderHistory();
-
-                        // Rola suavemente até o histórico após carregar
-                        setTimeout(() => {
-                            historySection.scrollIntoView({
-                                behavior: 'smooth',
-                                block: 'start'
-                            });
-                        }, 200);
-                    } else {
-                        throw new Error('Dados inválidos recebidos do servidor.');
-                    }
-                } catch (error) {
-                    historyTableBody.innerHTML = `<tr><td colspan="5" class="text-center p-5" style="color: var(--danger);">Erro ao carregar histórico: ${error.message}</td></tr>`;
-                    showAlert(error.message, 'danger');
-                }
+                return;
             }
 
-            function renderHistory() {
-                historyTableBody.innerHTML = '';
+            const totalPages = Math.ceil(historyData.length / HISTORY_PAGE_SIZE);
+            const start = (historyCurrentPage - 1) * HISTORY_PAGE_SIZE;
+            const pageData = historyData.slice(start, start + HISTORY_PAGE_SIZE);
 
-                if (historyData.length === 0) {
-                    historyTableBody.innerHTML = `<tr><td colspan="5" class="text-center p-5" style="color: var(--text-secondary);">Nenhum registro encontrado para este aluno.</td></tr>`;
-                    historyPaginationControls.style.display = 'none';
-                    return;
-                }
+            // Renderiza cada linha
+            pageData.forEach(record => {
+                const tr = document.createElement('tr');
 
-                const totalPages = Math.ceil(historyData.length / HISTORY_PAGE_SIZE);
-                const start = (historyCurrentPage - 1) * HISTORY_PAGE_SIZE;
-                const pageData = historyData.slice(start, start + HISTORY_PAGE_SIZE);
+                const entrada = record.entradaAt
+                    ? new Date(record.entradaAt).toLocaleString('pt-BR', {
+                        dateStyle: 'short',
+                        timeStyle: 'short'
+                    })
+                    : '---';
 
-                // Renderiza cada linha
-                pageData.forEach(record => {
-                    const tr = document.createElement('tr');
+                const saida = record.saidaAt
+                    ? new Date(record.saidaAt).toLocaleString('pt-BR', {
+                        dateStyle: 'short',
+                        timeStyle: 'short'
+                    })
+                    : '---';
 
-                    const entrada = record.entradaAt
-                        ? new Date(record.entradaAt).toLocaleString('pt-BR', {
-                            dateStyle: 'short',
-                            timeStyle: 'short'
-                        })
-                        : '---';
+                const status = record.status === 'PRESENTE'
+                    ? '<span class="status-badge status-present">Presente</span>'
+                    : '<span class="status-badge status-finalizado">Finalizado</span>';
 
-                    const saida = record.saidaAt
-                        ? new Date(record.saidaAt).toLocaleString('pt-BR', {
-                            dateStyle: 'short',
-                            timeStyle: 'short'
-                        })
-                        : '---';
-
-                    const status = record.status === 'PRESENTE'
-                        ? '<span class="status-badge status-present">Presente</span>'
-                        : '<span class="status-badge status-finalizado">Finalizado</span>';
-
-                    tr.innerHTML = `
+                tr.innerHTML = `
             <td>${entrada}</td>
             <td>${record.iniciadoPor || '---'}</td>
             <td>${saida}</td>
@@ -1896,520 +1972,547 @@
             <td>${status}</td>
         `;
 
-                    historyTableBody.appendChild(tr);
+                historyTableBody.appendChild(tr);
+            });
+
+            // Configura a paginação
+            historyPaginationControls.style.display = 'flex';
+            historyPaginationInfo.textContent = `Página ${historyCurrentPage} de ${totalPages} | Total: ${historyData.length} registro(s)`;
+
+            // Atualiza estado dos botões
+            historyFirstBtn.disabled = historyCurrentPage === 1;
+            historyPrevBtn.disabled = historyCurrentPage === 1;
+            historyNextBtn.disabled = historyCurrentPage === totalPages;
+            historyLastBtn.disabled = historyCurrentPage === totalPages;
+
+            // Remove eventos antigos e adiciona novos
+            historyFirstBtn.onclick = () => {
+                historyCurrentPage = 1;
+                renderHistory();
+                window.scrollTo({ top: historySection.offsetTop - 20, behavior: 'smooth' });
+            };
+
+            historyPrevBtn.onclick = () => {
+                if (historyCurrentPage > 1) {
+                    historyCurrentPage--;
+                    renderHistory();
+                    window.scrollTo({ top: historySection.offsetTop - 20, behavior: 'smooth' });
+                }
+            };
+
+            historyNextBtn.onclick = () => {
+                if (historyCurrentPage < totalPages) {
+                    historyCurrentPage++;
+                    renderHistory();
+                    window.scrollTo({ top: historySection.offsetTop - 20, behavior: 'smooth' });
+                }
+            };
+
+            historyLastBtn.onclick = () => {
+                historyCurrentPage = totalPages;
+                renderHistory();
+                window.scrollTo({ top: historySection.offsetTop - 20, behavior: 'smooth' });
+            };
+        }
+
+        function addCloseHistoryButton() {
+            const header = document.querySelector('#historySection .card-header');
+            if (header && !document.getElementById('closeHistoryBtn')) {
+                const closeBtn = document.createElement('button');
+                closeBtn.id = 'closeHistoryBtn';
+                closeBtn.className = 'btn btn-sm btn-outline-secondary ms-auto';
+                closeBtn.innerHTML = '<i class="fas fa-times"></i> Fechar';
+                closeBtn.onclick = () => {
+                    historySection.style.display = 'none';
+                    historySection.classList.remove('visible');
+                    // Opcional: rolar para o topo da página
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                };
+                header.appendChild(closeBtn);
+            }
+        }
+
+        window.openLocationActionModal = function (studentId, type, studentName) {
+            if (isActionProcessing) return;
+            const modal = document.getElementById('actionLocationModal');
+            modal.querySelector('#actionLocationModalLabel').textContent = type === 'entrada' ? '📍 Registrar Entrada' : '📍 Solicitar Saída';
+            modal.querySelector('#modalMessage').textContent = `Para ${type === 'entrada' ? 'registrar a entrada' : 'solicitar a saída'} de ${studentName}, sua localização precisa ser validada.`;
+            const confirmBtn = modal.querySelector('#confirmActionBtn');
+            confirmBtn.textContent = type === 'entrada' ? 'Confirmar Entrada' : 'Confirmar Solicitação';
+            confirmBtn.dataset.studentId = studentId;
+            confirmBtn.dataset.actionType = type;
+            resetLocationState();
+            actionLocationModalInstance.show();
+            setTimeout(handleGetLocation, 300);
+        }
+
+        async function handleGetLocation() {
+            const statusEl = document.getElementById('locationStatus');
+            const confirmBtn = document.getElementById('confirmActionBtn');
+            const getBtn = document.getElementById('getLocationBtn');
+            statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo localização...';
+            statusEl.className = 'location-status location-loading';
+            statusEl.style.display = 'block';
+            coordinatesDisplay.style.display = 'none';
+            confirmBtn.disabled = true;
+            getBtn.disabled = true;
+            try {
+                const pos = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 }));
+                statusEl.innerHTML = `<i class="fas fa-check-circle"></i> Localização obtida com sucesso!`;
+                statusEl.className = 'location-status location-success';
+                displayLatitude.textContent = pos.coords.latitude.toFixed(6);
+                displayLongitude.textContent = pos.coords.longitude.toFixed(6);
+                coordinatesDisplay.style.display = 'flex';
+                confirmBtn.dataset.latitude = pos.coords.latitude;
+                confirmBtn.dataset.longitude = pos.coords.longitude;
+                confirmBtn.disabled = false;
+            } catch (error) {
+                statusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Falha ao obter localização. Verifique as permissões.`;
+                statusEl.className = 'location-status location-error';
+            } finally {
+                getBtn.disabled = false;
+            }
+        }
+
+        async function handleLocationActionConfirm() {
+            if (isActionProcessing) return;
+            const btn = document.getElementById('confirmActionBtn');
+            btn.blur();
+            const { studentId, actionType, latitude, longitude } = btn.dataset;
+            if (!studentId || !latitude || !longitude) {
+                const statusEl = document.getElementById('locationStatus');
+                statusEl.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Dados de localização ausentes.';
+                statusEl.className = 'location-status location-error';
+                statusEl.style.display = 'block';
+                return;
+            }
+            isActionProcessing = true;
+            setModalLoading(true, actionType === 'entrada' ? 'Registrando...' : 'Solicitando...');
+            try {
+                let endpoint, body = { alunoId: parseInt(studentId), latitude: parseFloat(latitude), longitude: parseFloat(longitude) };
+                if (actionType === 'entrada') {
+                    endpoint = '/api/presencas/entrada';
+                    body.responsavelId = currentUser.id;
+                    body.responsavelNome = currentUser.nome;
+                    body.responsavelTipo = 'TUTOR';
+                } else {
+                    endpoint = '/api/presencas/saida/solicitar';
+                    const student = students.find(s => s.id == studentId);
+                    body.escolaId = student?.escolaId;
+                }
+                const response = await fetchWithAuth(endpoint, { method: 'POST', body: JSON.stringify(body) });
+                await response.json();
+                showAlert(`Ação de ${actionType} registrada com sucesso!`, 'success');
+                actionLocationModalInstance.hide();
+                await refreshStudentsData();
+                if (historySection.style.display === 'block' && historyViewingStudentId == studentId) {
+                    const student = students.find(s => s.id == studentId);
+                    await viewStudentHistory(studentId, student.nome);
+                }
+            } catch (error) {
+                const statusEl = document.getElementById('locationStatus');
+                statusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${error.message}`;
+                statusEl.className = 'location-status location-error';
+                statusEl.style.display = 'block';
+                document.getElementById('coordinatesDisplay').style.display = 'none';
+                document.getElementById('getLocationBtn').disabled = false;
+                document.getElementById('confirmActionBtn').disabled = true;
+            } finally {
+                isActionProcessing = false;
+                setModalLoading(false);
+            }
+        }
+
+        function resetLocationState() {
+            const modal = document.getElementById('actionLocationModal');
+            modal.querySelector('#locationStatus').style.display = 'none';
+            modal.querySelector('#coordinatesDisplay').style.display = 'none';
+            modal.querySelector('#confirmActionBtn').disabled = true;
+            modal.querySelector('#getLocationBtn').disabled = false;
+        }
+
+        window.openManualConfirmModal = function (alunoId, alunoNome) {
+            if (isActionProcessing || !alunoId) return;
+            const modal = document.getElementById('manualConfirmExitModal');
+            modal.querySelector('#manualConfirmExitMessage').textContent = `Deseja confirmar a saída do aluno ${alunoNome}?`;
+            modal.querySelector('#manualConfirmExitOkBtn').dataset.studentId = alunoId;
+            manualConfirmExitModalInstance.show();
+        }
+
+        async function handleManualConfirmExit() {
+            if (isActionProcessing) return;
+            const btn = document.getElementById('manualConfirmExitOkBtn');
+            btn.blur();
+            const { studentId } = btn.dataset;
+            if (!studentId) return showAlert('ID do aluno não encontrado.', 'danger');
+            isActionProcessing = true;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Confirmando...';
+            try {
+                await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
+                showAlert('Saída confirmada com sucesso!', 'success');
+                manualConfirmExitModalInstance.hide();
+                await refreshStudentsData();
+                if (historySection.style.display === 'block' && historyViewingStudentId == studentId) {
+                    const student = students.find(s => s.id == studentId);
+                    await viewStudentHistory(studentId, student.nome);
+                }
+            } catch (error) {
+                showAlert(error.message, 'danger');
+            } finally {
+                isActionProcessing = false;
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-check-circle"></i> Sim, Confirmar';
+            }
+        }
+
+        async function garantirAutenticacao() {
+            console.log('🔐 Verificando a necessidade de autenticação...');
+            let accessToken = localStorage.getItem('access_token');
+            const refreshToken = localStorage.getItem('refresh_token');
+
+            if (!accessToken && !refreshToken) {
+                console.log('❌ Nenhum token de acesso ou de renovação encontrado. Desconectando.');
+                showAlert('Sessão inválida. Por favor, faça login novamente.', 'danger');
+                logout();
+                return null;
+            }
+
+            if (accessToken) {
+                try {
+                    const response = await fetch(`${BACKEND_URL}/api/users/me`, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                    });
+                    if (response.ok) {
+                        console.log('✅ Token de acesso ainda é válido. Usando o existente.');
+                        return accessToken;
+                    }
+                    console.log('⚠️ Token de acesso expirado ou inválido. Tentando renovar...');
+                } catch (error) {
+                    console.error('Erro ao testar o token de acesso. Tentando renovar...', error);
+                }
+            }
+
+            if (!refreshToken) {
+                console.log('❌ Não há refresh token disponível para renovar a sessão.');
+                showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
+                logout();
+                return null;
+            }
+
+            try {
+                console.log('🔄 Executando a renovação do token de acesso...');
+                const response = await fetch(`${BACKEND_URL}/api/auth/refresh-token`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refreshToken: refreshToken })
                 });
 
-                // Configura a paginação
-                historyPaginationControls.style.display = 'flex';
-                historyPaginationInfo.textContent = `Página ${historyCurrentPage} de ${totalPages} | Total: ${historyData.length} registro(s)`;
-
-                // Atualiza estado dos botões
-                historyFirstBtn.disabled = historyCurrentPage === 1;
-                historyPrevBtn.disabled = historyCurrentPage === 1;
-                historyNextBtn.disabled = historyCurrentPage === totalPages;
-                historyLastBtn.disabled = historyCurrentPage === totalPages;
-
-                // Remove eventos antigos e adiciona novos
-                historyFirstBtn.onclick = () => {
-                    historyCurrentPage = 1;
-                    renderHistory();
-                    window.scrollTo({ top: historySection.offsetTop - 20, behavior: 'smooth' });
-                };
-
-                historyPrevBtn.onclick = () => {
-                    if (historyCurrentPage > 1) {
-                        historyCurrentPage--;
-                        renderHistory();
-                        window.scrollTo({ top: historySection.offsetTop - 20, behavior: 'smooth' });
+                if (response.ok) {
+                    const tokenData = await response.json();
+                    localStorage.setItem('access_token', tokenData.access_token);
+                    if (tokenData.refresh_token) {
+                        localStorage.setItem('refresh_token', tokenData.refresh_token);
                     }
-                };
-
-                historyNextBtn.onclick = () => {
-                    if (historyCurrentPage < totalPages) {
-                        historyCurrentPage++;
-                        renderHistory();
-                        window.scrollTo({ top: historySection.offsetTop - 20, behavior: 'smooth' });
-                    }
-                };
-
-                historyLastBtn.onclick = () => {
-                    historyCurrentPage = totalPages;
-                    renderHistory();
-                    window.scrollTo({ top: historySection.offsetTop - 20, behavior: 'smooth' });
-                };
-            }
-
-            function addCloseHistoryButton() {
-                const header = document.querySelector('#historySection .card-header');
-                if (header && !document.getElementById('closeHistoryBtn')) {
-                    const closeBtn = document.createElement('button');
-                    closeBtn.id = 'closeHistoryBtn';
-                    closeBtn.className = 'btn btn-sm btn-outline-secondary ms-auto';
-                    closeBtn.innerHTML = '<i class="fas fa-times"></i> Fechar';
-                    closeBtn.onclick = () => {
-                        historySection.style.display = 'none';
-                        historySection.classList.remove('visible');
-                        // Opcional: rolar para o topo da página
-                        window.scrollTo({ top: 0, behavior: 'smooth' });
-                    };
-                    header.appendChild(closeBtn);
-                }
-            }
-
-            window.openLocationActionModal = function (studentId, type, studentName) {
-                if (isActionProcessing) return;
-                const modal = document.getElementById('actionLocationModal');
-                modal.querySelector('#actionLocationModalLabel').textContent = type === 'entrada' ? '📍 Registrar Entrada' : '📍 Solicitar Saída';
-                modal.querySelector('#modalMessage').textContent = `Para ${type === 'entrada' ? 'registrar a entrada' : 'solicitar a saída'} de ${studentName}, sua localização precisa ser validada.`;
-                const confirmBtn = modal.querySelector('#confirmActionBtn');
-                confirmBtn.textContent = type === 'entrada' ? 'Confirmar Entrada' : 'Confirmar Solicitação';
-                confirmBtn.dataset.studentId = studentId;
-                confirmBtn.dataset.actionType = type;
-                resetLocationState();
-                actionLocationModalInstance.show();
-                setTimeout(handleGetLocation, 300);
-            }
-
-            async function handleGetLocation() {
-                const statusEl = document.getElementById('locationStatus');
-                const confirmBtn = document.getElementById('confirmActionBtn');
-                const getBtn = document.getElementById('getLocationBtn');
-                statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo localização...';
-                statusEl.className = 'location-status location-loading';
-                statusEl.style.display = 'block';
-                coordinatesDisplay.style.display = 'none';
-                confirmBtn.disabled = true;
-                getBtn.disabled = true;
-                try {
-                    const pos = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 }));
-                    statusEl.innerHTML = `<i class="fas fa-check-circle"></i> Localização obtida com sucesso!`;
-                    statusEl.className = 'location-status location-success';
-                    displayLatitude.textContent = pos.coords.latitude.toFixed(6);
-                    displayLongitude.textContent = pos.coords.longitude.toFixed(6);
-                    coordinatesDisplay.style.display = 'flex';
-                    confirmBtn.dataset.latitude = pos.coords.latitude;
-                    confirmBtn.dataset.longitude = pos.coords.longitude;
-                    confirmBtn.disabled = false;
-                } catch (error) {
-                    statusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Falha ao obter localização. Verifique as permissões.`;
-                    statusEl.className = 'location-status location-error';
-                } finally {
-                    getBtn.disabled = false;
-                }
-            }
-
-            async function handleLocationActionConfirm() {
-                if (isActionProcessing) return;
-                const btn = document.getElementById('confirmActionBtn');
-                btn.blur();
-                const { studentId, actionType, latitude, longitude } = btn.dataset;
-                if (!studentId || !latitude || !longitude) {
-                    const statusEl = document.getElementById('locationStatus');
-                    statusEl.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Dados de localização ausentes.';
-                    statusEl.className = 'location-status location-error';
-                    statusEl.style.display = 'block';
-                    return;
-                }
-                isActionProcessing = true;
-                setModalLoading(true, actionType === 'entrada' ? 'Registrando...' : 'Solicitando...');
-                try {
-                    let endpoint, body = { alunoId: parseInt(studentId), latitude: parseFloat(latitude), longitude: parseFloat(longitude) };
-                    if (actionType === 'entrada') {
-                        endpoint = '/api/presencas/entrada';
-                        body.responsavelId = currentUser.id;
-                        body.responsavelNome = currentUser.nome;
-                        body.responsavelTipo = 'TUTOR';
-                    } else {
-                        endpoint = '/api/presencas/saida/solicitar';
-                        const student = students.find(s => s.id == studentId);
-                        body.escolaId = student?.escolaId;
-                    }
-                    const response = await fetchWithAuth(endpoint, { method: 'POST', body: JSON.stringify(body) });
-                    await response.json();
-                    showAlert(`Ação de ${actionType} registrada com sucesso!`, 'success');
-                    actionLocationModalInstance.hide();
-                    await refreshStudentsData();
-                    if (historySection.style.display === 'block' && historyViewingStudentId == studentId) {
-                        const student = students.find(s => s.id == studentId);
-                        await viewStudentHistory(studentId, student.nome);
-                    }
-                } catch (error) {
-                    const statusEl = document.getElementById('locationStatus');
-                    statusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${error.message}`;
-                    statusEl.className = 'location-status location-error';
-                    statusEl.style.display = 'block';
-                    document.getElementById('coordinatesDisplay').style.display = 'none';
-                    document.getElementById('getLocationBtn').disabled = false;
-                    document.getElementById('confirmActionBtn').disabled = true;
-                } finally {
-                    isActionProcessing = false;
-                    setModalLoading(false);
-                }
-            }
-
-            function resetLocationState() {
-                const modal = document.getElementById('actionLocationModal');
-                modal.querySelector('#locationStatus').style.display = 'none';
-                modal.querySelector('#coordinatesDisplay').style.display = 'none';
-                modal.querySelector('#confirmActionBtn').disabled = true;
-                modal.querySelector('#getLocationBtn').disabled = false;
-            }
-
-            window.openManualConfirmModal = function (alunoId, alunoNome) {
-                if (isActionProcessing || !alunoId) return;
-                const modal = document.getElementById('manualConfirmExitModal');
-                modal.querySelector('#manualConfirmExitMessage').textContent = `Deseja confirmar a saída do aluno ${alunoNome}?`;
-                modal.querySelector('#manualConfirmExitOkBtn').dataset.studentId = alunoId;
-                manualConfirmExitModalInstance.show();
-            }
-
-            async function handleManualConfirmExit() {
-                if (isActionProcessing) return;
-                const btn = document.getElementById('manualConfirmExitOkBtn');
-                btn.blur();
-                const { studentId } = btn.dataset;
-                if (!studentId) return showAlert('ID do aluno não encontrado.', 'danger');
-                isActionProcessing = true;
-                btn.disabled = true;
-                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Confirmando...';
-                try {
-                    await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
-                    showAlert('Saída confirmada com sucesso!', 'success');
-                    manualConfirmExitModalInstance.hide();
-                    await refreshStudentsData();
-                    if (historySection.style.display === 'block' && historyViewingStudentId == studentId) {
-                        const student = students.find(s => s.id == studentId);
-                        await viewStudentHistory(studentId, student.nome);
-                    }
-                } catch (error) {
-                    showAlert(error.message, 'danger');
-                } finally {
-                    isActionProcessing = false;
-                    btn.disabled = false;
-                    btn.innerHTML = '<i class="fas fa-check-circle"></i> Sim, Confirmar';
-                }
-            }
-
-            async function garantirAutenticacao() {
-                console.log('🔐 Verificando a necessidade de autenticação...');
-                let accessToken = localStorage.getItem('access_token');
-                const refreshToken = localStorage.getItem('refresh_token');
-
-                if (!accessToken && !refreshToken) {
-                    console.log('❌ Nenhum token de acesso ou de renovação encontrado. Desconectando.');
-                    showAlert('Sessão inválida. Por favor, faça login novamente.', 'danger');
-                    logout();
-                    return null;
-                }
-
-                if (accessToken) {
-                    try {
-                        const response = await fetch(`${BACKEND_URL}/api/users/me`, {
-                            headers: { 'Authorization': `Bearer ${accessToken}` }
-                        });
-                        if (response.ok) {
-                            console.log('✅ Token de acesso ainda é válido. Usando o existente.');
-                            return accessToken;
-                        }
-                        console.log('⚠️ Token de acesso expirado ou inválido. Tentando renovar...');
-                    } catch (error) {
-                        console.error('Erro ao testar o token de acesso. Tentando renovar...', error);
-                    }
-                }
-
-                if (!refreshToken) {
-                    console.log('❌ Não há refresh token disponível para renovar a sessão.');
-                    showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
-                    logout();
-                    return null;
-                }
-
-                try {
-                    console.log('🔄 Executando a renovação do token de acesso...');
-                    const response = await fetch(`${BACKEND_URL}/api/auth/refresh-token`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ refreshToken: refreshToken })
-                    });
-
-                    if (response.ok) {
-                        const tokenData = await response.json();
-                        localStorage.setItem('access_token', tokenData.access_token);
-                        if (tokenData.refresh_token) {
-                            localStorage.setItem('refresh_token', tokenData.refresh_token);
-                        }
-                        console.log('✅ Token de acesso renovado com sucesso!');
-                        return tokenData.access_token;
-                    } else {
-                        throw new Error(`Falha ao renovar a sessão (status: ${response.status}).`);
-                    }
-                } catch (error) {
-                    console.error('❌ Erro crítico na renovação do token:', error);
-                    showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
-                    logout();
-                    return null;
-                }
-            }
-
-            async function fetchWithAuth(endpoint, options = {}) {
-                const accessToken = await garantirAutenticacao();
-                if (!accessToken) throw new Error('Não foi possível obter um token de acesso válido.');
-
-                const headers = {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                    ...options.headers
-                };
-
-                const response = await fetch(BACKEND_URL + endpoint, { ...options, headers });
-
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.mensagem || `Erro ${response.status}: ${response.statusText}`);
-                }
-
-                return response;
-            }
-
-            function showAlert(message, type = 'success') {
-                alertBox.textContent = message;
-                alertBox.className = `alert alert-${type} alert-dismissible fade show`;
-                alertBox.style.display = 'block';
-                setTimeout(() => {
-                    if (alertBox && alertBox.style.display !== 'none') {
-                        try {
-                            bootstrap.Alert.getOrCreateInstance(alertBox).close();
-                        } catch (e) {
-                            alertBox.style.display = 'none';
-                        }
-                    }
-                }, 5000);
-            }
-
-            function setModalLoading(isLoading, text = 'Processando...') {
-                const modalLoading = document.getElementById('modalLoading');
-                if (modalLoading) {
-                    modalLoading.style.display = isLoading ? 'flex' : 'none';
-                    document.getElementById('modalLoadingText').textContent = text;
-                }
-            }
-
-            function logout() {
-                if (studentRefreshInterval) {
-                    clearInterval(studentRefreshInterval);
-                    console.log('🛑 Auto-refresh stopped.');
-                }
-                localStorage.clear();
-                window.location.href = 'index.html';
-            }
-
-            // ===== DETECÇÃO DE DISPOSITIVO E TROCA DE LOGO =====
-            function ajustarLogoPorDispositivo() {
-                const logo = document.getElementById('logoImage');
-                if (!logo) return;
-
-                // Detecta se é celular (largura <= 768px) OU se é dispositivo touch pequeno
-                const isMobile = window.matchMedia("(max-width: 768px)").matches ||
-                    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
-                if (isMobile) {
-                    // Em celulares, usa a logo mais compacta
-                    logo.src = "assets/images/LogoMarcaInoutchi.png";
-                    logo.alt = "Inoutchi";
+                    console.log('✅ Token de acesso renovado com sucesso!');
+                    return tokenData.access_token;
                 } else {
-                    // Em desktop, usa a logo com texto
-                    logo.src = "assets/images/LogoInoutchi_linha.png";
-                    logo.alt = "Logotipo Inoutchi";
+                    throw new Error(`Falha ao renovar a sessão (status: ${response.status}).`);
                 }
+            } catch (error) {
+                console.error('❌ Erro crítico na renovação do token:', error);
+                showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
+                logout();
+                return null;
+            }
+        }
+
+        async function fetchWithAuth(endpoint, options = {}) {
+            const accessToken = await garantirAutenticacao();
+            if (!accessToken) throw new Error('Não foi possível obter um token de acesso válido.');
+
+            const headers = {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                ...options.headers
+            };
+
+            const response = await fetch(BACKEND_URL + endpoint, { ...options, headers });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.mensagem || `Erro ${response.status}: ${response.statusText}`);
             }
 
-            // Executar quando a página carregar e quando a janela for redimensionada
-            document.addEventListener('DOMContentLoaded', ajustarLogoPorDispositivo);
-            window.addEventListener('resize', ajustarLogoPorDispositivo);
+            return response;
+        }
 
-            // ===== FUNÇÕES DE TELA CHEIA =====
-            function toggleFullScreen() {
-                if (!document.fullscreenElement && !document.webkitFullscreenElement &&
-                    !document.mozFullScreenElement && !document.msFullscreenElement) {
-                    entrarEmTelaCheia();
-                } else {
-                    sairDaTelaCheia();
-                }
-            }
-
-            function entrarEmTelaCheia() {
-                const elemento = document.documentElement;
-                try {
-                    if (elemento.requestFullscreen) {
-                        elemento.requestFullscreen();
-                    } else if (elemento.webkitRequestFullscreen) {
-                        elemento.webkitRequestFullscreen();
-                    } else if (elemento.mozRequestFullScreen) {
-                        elemento.mozRequestFullScreen();
-                    } else if (elemento.msRequestFullscreen) {
-                        elemento.msRequestFullscreen();
-                    }
-                    console.log("✅ Modo tela cheia ativado!");
-                    atualizarIconeFullScreen(true);
-                } catch (err) {
-                    console.error("❌ Erro ao ativar tela cheia:", err);
-                }
-            }
-
-            function sairDaTelaCheia() {
-                try {
-                    if (document.exitFullscreen) {
-                        document.exitFullscreen();
-                    } else if (document.webkitExitFullscreen) {
-                        document.webkitExitFullscreen();
-                    } else if (document.mozCancelFullScreen) {
-                        document.mozCancelFullScreen();
-                    } else if (document.msExitFullscreen) {
-                        document.msExitFullscreen();
-                    }
-                    console.log("✅ Modo tela cheia desativado!");
-                    atualizarIconeFullScreen(false);
-                } catch (err) {
-                    console.error("❌ Erro ao sair da tela cheia:", err);
-                }
-            }
-
-            function atualizarIconeFullScreen(isFullscreen) {
-                const btn = document.querySelector('.fullscreen-btn i');
-                if (btn) {
-                    btn.className = isFullscreen ? 'fas fa-compress' : 'fas fa-expand';
-                }
-            }
-
-            // Monitorar mudanças no estado de tela cheia
-            document.addEventListener('fullscreenchange', () => {
-                atualizarIconeFullScreen(!!document.fullscreenElement);
-            });
-            document.addEventListener('webkitfullscreenchange', () => {
-                atualizarIconeFullScreen(!!document.webkitFullscreenElement);
-            });
-            document.addEventListener('mozfullscreenchange', () => {
-                atualizarIconeFullScreen(!!document.mozFullScreenElement);
-            });
-            document.addEventListener('MSFullscreenChange', () => {
-                atualizarIconeFullScreen(!!document.msFullscreenElement);
-            });
-
-            window.logout = logout;
-
-            window.openLogoutConfirmModal = function (event) {
-                event.preventDefault();
-                if (logoutConfirmModalInstance) logoutConfirmModalInstance.show();
-            }
-
-            window.openProfileModal = function () {
-                const profileModalEl = document.getElementById('profileModal');
-                const profileModalInstance = new bootstrap.Modal(profileModalEl);
-
-                document.getElementById('changePasswordForm').reset();
-                document.getElementById('profileNome').textContent = 'Carregando...';
-                document.getElementById('profileEmail').textContent = 'Carregando...';
-                document.getElementById('profileCpf').textContent = 'Carregando...';
-                document.getElementById('profileFone').textContent = 'Carregando...';
-                profileModalInstance.show();
-
-                (async () => {
+        function showAlert(message, type = 'success') {
+            alertBox.textContent = message;
+            alertBox.className = `alert alert-${type} alert-dismissible fade show`;
+            alertBox.style.display = 'block';
+            setTimeout(() => {
+                if (alertBox && alertBox.style.display !== 'none') {
                     try {
-                        const accessToken = await garantirAutenticacao();
-                        const response = await fetch(`${BACKEND_URL}/api/users/me/profile`, {
-                            headers: { 'Authorization': `Bearer ${accessToken}` }
-                        });
-                        if (!response.ok) throw new Error('Falha ao buscar perfil.');
-                        const userData = await response.json();
-                        document.getElementById('profileNome').textContent = userData.nome || 'Não informado';
-                        document.getElementById('profileEmail').textContent = userData.email || 'Não informado';
-                        document.getElementById('profileCpf').textContent = userData.cpf || 'Não informado';
-                        document.getElementById('profileFone').textContent = userData.fone || 'Não informado';
-                    } catch (error) {
-                        document.getElementById('profileNome').textContent = 'Erro ao carregar.';
-                        document.getElementById('profileEmail').textContent = 'Tente novamente.';
-                        document.getElementById('profileCpf').textContent = '---';
-                        document.getElementById('profileFone').textContent = '---';
+                        bootstrap.Alert.getOrCreateInstance(alertBox).close();
+                    } catch (e) {
+                        alertBox.style.display = 'none';
                     }
-                })();
-            }
-
-            document.getElementById('changePasswordForm').addEventListener('submit', async function (event) {
-                event.preventDefault();
-                const oldPassword = document.getElementById('oldPassword').value;
-                const newPassword = document.getElementById('newPassword').value;
-                const confirmPassword = document.getElementById('confirmPassword').value;
-                if (newPassword !== confirmPassword) {
-                    showAlert('A nova senha e a confirmação não correspondem.', 'danger');
-                    return;
                 }
-                const saveButton = this.querySelector('button[type="submit"]');
-                saveButton.disabled = true;
-                saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+            }, 5000);
+        }
+
+        function setModalLoading(isLoading, text = 'Processando...') {
+            const modalLoading = document.getElementById('modalLoading');
+            if (modalLoading) {
+                modalLoading.style.display = isLoading ? 'flex' : 'none';
+                document.getElementById('modalLoadingText').textContent = text;
+            }
+        }
+
+        function logout() {
+            if (studentRefreshInterval) {
+                clearInterval(studentRefreshInterval);
+                console.log('🛑 Auto-refresh stopped.');
+            }
+            localStorage.clear();
+            window.location.href = 'index.html';
+        }
+
+        // ===== DETECÇÃO DE DISPOSITIVO E TROCA DE LOGO =====
+        function ajustarLogoPorDispositivo() {
+            const logo = document.getElementById('logoImage');
+            if (!logo) return;
+
+            // Detecta se é celular (largura <= 768px) OU se é dispositivo touch pequeno
+            const isMobile = window.matchMedia("(max-width: 768px)").matches ||
+                /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+            if (isMobile) {
+                // Em celulares, usa a logo mais compacta
+                logo.src = "assets/images/LogoMarcaInoutchi.png";
+                logo.alt = "Inoutchi";
+            } else {
+                // Em desktop, usa a logo com texto
+                logo.src = "assets/images/LogoInoutchi_linha.png";
+                logo.alt = "Logotipo Inoutchi";
+            }
+        }
+
+        // Executar quando a página carregar e quando a janela for redimensionada
+        document.addEventListener('DOMContentLoaded', ajustarLogoPorDispositivo);
+        window.addEventListener('resize', ajustarLogoPorDispositivo);
+
+        // ===== FUNÇÕES DE TELA CHEIA =====
+        function toggleFullScreen() {
+            if (!document.fullscreenElement && !document.webkitFullscreenElement &&
+                !document.mozFullScreenElement && !document.msFullscreenElement) {
+                entrarEmTelaCheia();
+            } else {
+                sairDaTelaCheia();
+            }
+        }
+
+        function entrarEmTelaCheia() {
+            const elemento = document.documentElement;
+            try {
+                if (elemento.requestFullscreen) {
+                    elemento.requestFullscreen();
+                } else if (elemento.webkitRequestFullscreen) {
+                    elemento.webkitRequestFullscreen();
+                } else if (elemento.mozRequestFullScreen) {
+                    elemento.mozRequestFullScreen();
+                } else if (elemento.msRequestFullscreen) {
+                    elemento.msRequestFullscreen();
+                }
+                console.log("✅ Modo tela cheia ativado!");
+                atualizarIconeFullScreen(true);
+            } catch (err) {
+                console.error("❌ Erro ao ativar tela cheia:", err);
+            }
+        }
+
+        function sairDaTelaCheia() {
+            try {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) {
+                    document.webkitExitFullscreen();
+                } else if (document.mozCancelFullScreen) {
+                    document.mozCancelFullScreen();
+                } else if (document.msExitFullscreen) {
+                    document.msExitFullscreen();
+                }
+                console.log("✅ Modo tela cheia desativado!");
+                atualizarIconeFullScreen(false);
+            } catch (err) {
+                console.error("❌ Erro ao sair da tela cheia:", err);
+            }
+        }
+
+        function atualizarIconeFullScreen(isFullscreen) {
+            const btn = document.querySelector('.fullscreen-btn i');
+            if (btn) {
+                btn.className = isFullscreen ? 'fas fa-compress' : 'fas fa-expand';
+            }
+        }
+
+        // Monitorar mudanças no estado de tela cheia
+        document.addEventListener('fullscreenchange', () => {
+            atualizarIconeFullScreen(!!document.fullscreenElement);
+        });
+        document.addEventListener('webkitfullscreenchange', () => {
+            atualizarIconeFullScreen(!!document.webkitFullscreenElement);
+        });
+        document.addEventListener('mozfullscreenchange', () => {
+            atualizarIconeFullScreen(!!document.mozFullScreenElement);
+        });
+        document.addEventListener('MSFullscreenChange', () => {
+            atualizarIconeFullScreen(!!document.msFullscreenElement);
+        });
+
+        window.logout = logout;
+
+        window.openLogoutConfirmModal = function (event) {
+            event.preventDefault();
+            if (logoutConfirmModalInstance) logoutConfirmModalInstance.show();
+        }
+
+        window.openProfileModal = function () {
+            const profileModalEl = document.getElementById('profileModal');
+            const profileModalInstance = new bootstrap.Modal(profileModalEl);
+
+            document.getElementById('changePasswordForm').reset();
+            document.getElementById('profileNome').textContent = 'Carregando...';
+            document.getElementById('profileEmail').textContent = 'Carregando...';
+            document.getElementById('profileCpf').textContent = 'Carregando...';
+            document.getElementById('profileFone').textContent = 'Carregando...';
+            profileModalInstance.show();
+
+            (async () => {
                 try {
                     const accessToken = await garantirAutenticacao();
-                    const response = await fetch(`${BACKEND_URL}/api/users/me/password`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
-                        body: JSON.stringify({ oldPassword, newPassword, confirmPassword })
+                    const response = await fetch(`${BACKEND_URL}/api/users/me/profile`, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
                     });
-                    const result = await response.json();
-                    if (!response.ok) throw new Error(result.mensagem || 'Erro ao alterar a senha.');
-                    showAlert('Senha alterada com sucesso!', 'success');
-                    bootstrap.Modal.getInstance(document.getElementById('profileModal')).hide();
+                    if (!response.ok) throw new Error('Falha ao buscar perfil.');
+                    const userData = await response.json();
+                    document.getElementById('profileNome').textContent = userData.nome || 'Não informado';
+                    document.getElementById('profileEmail').textContent = userData.email || 'Não informado';
+                    document.getElementById('profileCpf').textContent = userData.cpf || 'Não informado';
+                    document.getElementById('profileFone').textContent = userData.fone || 'Não informado';
                 } catch (error) {
-                    showAlert(error.message, 'danger');
-                } finally {
-                    saveButton.disabled = false;
-                    saveButton.innerHTML = '<i class="fas fa-save me-2"></i>Salvar Nova Senha';
+                    document.getElementById('profileNome').textContent = 'Erro ao carregar.';
+                    document.getElementById('profileEmail').textContent = 'Tente novamente.';
+                    document.getElementById('profileCpf').textContent = '---';
+                    document.getElementById('profileFone').textContent = '---';
                 }
-            });
+            })();
+        }
 
-            // ===== NOVA LÓGICA DO SPLASH SCREEN =====
-            // Isso vai imediatamente após todo o seu código existente
-            // e antes da tag </body>
+        document.getElementById('changePasswordForm').addEventListener('submit', async function (event) {
+            event.preventDefault();
+            const oldPassword = document.getElementById('oldPassword').value;
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            if (newPassword !== confirmPassword) {
+                showAlert('A nova senha e a confirmação não correspondem.', 'danger');
+                return;
+            }
+            const saveButton = this.querySelector('button[type="submit"]');
+            saveButton.disabled = true;
+            saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+            try {
+                const accessToken = await garantirAutenticacao();
+                const response = await fetch(`${BACKEND_URL}/api/users/me/password`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
+                    body: JSON.stringify({ oldPassword, newPassword, confirmPassword })
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.mensagem || 'Erro ao alterar a senha.');
+                showAlert('Senha alterada com sucesso!', 'success');
+                bootstrap.Modal.getInstance(document.getElementById('profileModal')).hide();
+            } catch (error) {
+                showAlert(error.message, 'danger');
+            } finally {
+                saveButton.disabled = false;
+                saveButton.innerHTML = '<i class="fas fa-save me-2"></i>Salvar Nova Senha';
+            }
+        });
 
-            // Fallback de segurança: esconde o splash após 3 segundos SEMPRE
-            setTimeout(function () {
-                const splashScreen = document.getElementById('splash-screen');
-                if (splashScreen && splashScreen.style.display !== 'none' && !splashScreen.classList.contains('fade-out')) {
-                    splashScreen.classList.add('fade-out');
-                    setTimeout(() => {
-                        splashScreen.style.display = 'none';
-                    }, 500);
-                    console.log('Splash screen escondido por timeout de segurança');
-                }
-            }, 3000);
+        // ===== NOVA LÓGICA DO SPLASH SCREEN =====
+        // Isso vai imediatamente após todo o seu código existente
+        // e antes da tag </body>
 
-            // Quando o DOM estiver pronto (HTML carregado)
-            document.addEventListener('DOMContentLoaded', function () {
-                // Se os dados estiverem em cache, esconde mais rápido
-                if (localStorage.getItem('access_token')) {
-                    setTimeout(() => {
-                        const splashScreen = document.getElementById('splash-screen');
-                        if (splashScreen) {
-                            splashScreen.classList.add('fade-out');
-                            setTimeout(() => {
-                                splashScreen.style.display = 'none';
-                            }, 500);
-                        }
-                    }, 800);
-                }
-            });
+        // Fallback de segurança: esconde o splash após 3 segundos
+        setTimeout(function () {
+            const splashScreen = document.getElementById('splash-screen');
+            if (splashScreen && splashScreen.style.display !== 'none' && !splashScreen.classList.contains('fade-out')) {
+                splashScreen.classList.add('fade-out');
+                document.body.classList.remove('splash-active');
+                document.getElementById('content').style.opacity = '1';
+                setTimeout(() => {
+                    splashScreen.style.display = 'none';
+                }, 500);
+                console.log('Splash screen escondido por timeout de segurança');
+            }
+        }, 3000);
 
-            // Quando a página estiver completamente carregada (incluindo imagens)
-            window.addEventListener('load', function () {
-                setTimeout(function () {
+        // Quando o DOM estiver pronto
+        document.addEventListener('DOMContentLoaded', function () {
+            // Aplica ajustes para WebView
+            ajustarSplashParaWebView();
+
+            // Se os dados estiverem em cache, esconde mais rápido
+            if (localStorage.getItem('access_token')) {
+                setTimeout(() => {
                     const splashScreen = document.getElementById('splash-screen');
                     if (splashScreen) {
                         splashScreen.classList.add('fade-out');
+                        document.body.classList.remove('splash-active');
+                        document.getElementById('content').style.opacity = '1';
                         setTimeout(() => {
                             splashScreen.style.display = 'none';
                         }, 500);
                     }
-                }, 1200); // 1.2 segundos para dar tempo de ver a animação
+                }, 800);
+            }
+        });
+
+        // Quando a página estiver completamente carregada
+        window.addEventListener('load', function () {
+            setTimeout(function () {
+                const splashScreen = document.getElementById('splash-screen');
+                if (splashScreen) {
+                    splashScreen.classList.add('fade-out');
+                    document.body.classList.remove('splash-active');
+                    document.getElementById('content').style.opacity = '1';
+                    setTimeout(() => {
+                        splashScreen.style.display = 'none';
+                    }, 500);
+                }
+            }, 1200);
+        });
+
+        // Observer para quando o splash sumir via outras funções
+        const splashObserver = new MutationObserver(function (mutations) {
+            mutations.forEach(function (mutation) {
+                if (mutation.attributeName === 'class' || mutation.attributeName === 'style') {
+                    const splash = document.getElementById('splash-screen');
+                    if (splash && (splash.style.display === 'none' || splash.classList.contains('fade-out'))) {
+                        document.body.classList.remove('splash-active');
+                        document.getElementById('content').style.opacity = '1';
+                    }
+                }
             });
-        
+        });
+
+        const splashScreen = document.getElementById('splash-screen');
+        if (splashScreen) {
+            splashObserver.observe(splashScreen, { attributes: true });
+        }
+
     </script>
 </body>
 
