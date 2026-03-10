@@ -1492,7 +1492,7 @@
                     <hr class="my-4" style="border-top: 2px dashed var(--border);">
                     <div class="text-center">
                         <h6 class="card-title mb-3" style="color: var(--danger);">
-                            <i class="fas fa-exclamation-triangle me-2"></i>Zona de Perigo
+                            <i class="fas fa-exclamation-triangle me-2"></i>!Extrema Atenção!
                         </h6>
                         <p class="small text-muted mb-3">Ao excluir sua conta, todos os seus dados e vínculos com alunos
                             serão removidos permanentemente. Esta ação não pode ser desfeita.</p>
@@ -2885,14 +2885,11 @@
             const confirmBtn = document.getElementById('confirmDeleteAccountBtn');
             if (!confirmBtn) return;
 
-            // Desabilita o botão para evitar cliques duplicados
             confirmBtn.disabled = true;
             confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Excluindo...';
 
             try {
-                // 1. Buscar o ID do tutor logado. Precisamos do currentUser.
                 if (!currentUser || !currentUser.id) {
-                    // Se não tiver os dados do usuário, tenta carregar de novo.
                     await loadUserInfo();
                 }
 
@@ -2903,44 +2900,70 @@
                 const tutorId = currentUser.id;
                 console.log(`Tentando excluir tutor com ID: ${tutorId}`);
 
-                // 2. Fazer a chamada DELETE para o backend
-                const response = await fetchWithAuth(`/api/tutores/${tutorId}`, {
+                // === MODIFICAÇÃO PARA VER A RESPOSTA COMPLETA ===
+                const accessToken = await garantirAutenticacao();
+                const response = await fetch(`${BACKEND_URL}/api/tutores/${tutorId}`, {
                     method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
                 });
 
-                // 3. Tratar a resposta
-                // Para DELETE, o backend retorna 204 No Content em caso de sucesso.
+                // LOG DETALHADO DA RESPOSTA
+                console.log('Status da resposta:', response.status);
+                console.log('Status text:', response.statusText);
+
+                // Tenta ler o corpo da resposta (mesmo em erro)
+                let responseBody = null;
+                try {
+                    responseBody = await response.json();
+                    console.log('Corpo da resposta:', responseBody);
+                } catch (e) {
+                    console.log('Resposta não é JSON ou está vazia');
+                }
+
                 if (response.status === 204) {
-                    console.log('Conta deletada com sucesso!');
-                    // Fecha o modal de confirmação
+                    console.log('✅ Sucesso! Status 204 recebido');
+
+                    // Verifica se realmente deletou (opcional - faz uma consulta)
+                    setTimeout(async () => {
+                        try {
+                            const checkResponse = await fetch(`${BACKEND_URL}/api/tutores/${tutorId}`, {
+                                headers: { 'Authorization': `Bearer ${accessToken}` }
+                            });
+                            console.log('Verificação pós-delete - status:', checkResponse.status);
+                        } catch (e) {
+                            console.log('Erro ao verificar (esperado se deletou):', e);
+                        }
+                    }, 2000);
+
                     if (deleteAccountConfirmModalInstance) {
                         deleteAccountConfirmModalInstance.hide();
                     }
-                    // Mostra uma mensagem de despedida
                     showAlert('Sua conta foi excluída. Você será redirecionado.', 'success');
-                    // Limpa o localStorage e redireciona
                     setTimeout(() => {
                         if (studentRefreshInterval) {
                             clearInterval(studentRefreshInterval);
                         }
                         localStorage.clear();
                         window.location.href = 'index.html';
-                    }, 2500); // Aguarda 2.5 segundos para o usuário ler a mensagem
+                    }, 2500);
                 } else {
-                    // Tenta ler a mensagem de erro do corpo da resposta
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.mensagem || errorData.message || `Erro ${response.status} ao deletar a conta.`);
+                    const errorMessage = responseBody?.mensagem || responseBody?.message || `Erro ${response.status}`;
+                    throw new Error(errorMessage);
                 }
 
             } catch (error) {
-                console.error('Erro na exclusão da conta:', error);
+                console.error('❌ Erro na exclusão da conta:', error);
                 showAlert(`Erro ao excluir conta: ${error.message}`, 'danger');
 
-                // Reabilita o botão em caso de erro
                 confirmBtn.disabled = false;
                 confirmBtn.innerHTML = '<i class="fas fa-trash-alt me-2"></i>Sim, Excluir Minha Conta';
             }
         }
+
+
 
         document.getElementById('changePasswordForm').addEventListener('submit', async function (event) {
             event.preventDefault();
