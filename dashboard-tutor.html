@@ -987,37 +987,6 @@
             font-weight: 600;
             color: #0066cc;
         }
-
-        /* CORREÇÃO DO MODAL LGPD */
-        #lgpd-modal {
-            display: none;
-            position: fixed;
-            z-index: 1050;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.5);
-            align-items: center;
-            justify-content: center;
-        }
-
-        #lgpd-modal.show {
-            display: flex !important;
-        }
-
-        #lgpd-modal .modal-content {
-            margin: 0 auto;
-            transform: none;
-            max-height: 90vh;
-            overflow: hidden;
-        }
-
-        #lgpd-modal .modal-body {
-            max-height: calc(90vh - 130px);
-            overflow-y: auto;
-            padding: 20px;
-        }
     </style>
 </head>
 
@@ -1069,15 +1038,27 @@
         </div>
     </header>
 
-    <!-- Modal LGPD - Adaptado dos modais que funcionam -->
-    <div id="lgpd-modal" class="modal" style="display: none;">
-        <div class="modal-content" style="width: 600px; max-width: 90%;">
-            <div class="modal-header">
-                <h2>Política de Privacidade - LGPD</h2>
-                <span class="close-button" onclick="closeLGPDModal()">&times;</span>
-            </div>
-            <div class="modal-body" id="lgpd-modal-body" style="max-height: 70vh; overflow-y: auto;">
-                <!-- O conteúdo será carregado aqui -->
+    <!-- Modal LGPD - USANDO O MESMO PADRÃO DOS OUTROS MODAIS -->
+    <div id="lgpdModal" class="modal fade" tabindex="-1" aria-labelledby="lgpdModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="lgpdModalLabel">
+                        <i class="fas fa-shield-alt me-2"></i>Política de Privacidade - LGPD
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="lgpdModalBody" style="max-height: 70vh; overflow-y: auto;">
+                    <div class="text-center py-4">
+                        <div class="loading-spinner" role="status">
+                            <span class="visually-hidden">Carregando...</span>
+                        </div>
+                        <p class="mt-3" style="color: var(--text-secondary);">Carregando...</p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                </div>
             </div>
         </div>
     </div>
@@ -1489,7 +1470,10 @@
 
         document.body.classList.add('splash-active');
 
-        // Inicialização principal
+        // Variável global para o modal LGPD (assim como generateTokenModal, myTokensModal, etc.)
+        let lgpdModal;
+
+        // Inicialização no DOMContentLoaded (dentro do seu listener principal)
         document.addEventListener('DOMContentLoaded', function () {
             console.log('DOM carregado, inicializando dashboard...');
 
@@ -1498,6 +1482,12 @@
             initializeTokenModals();
             initializeModals();
             initializeEventListeners();
+
+            // ===== INICIALIZA O MODAL LGPD (IGUAL AOS OUTROS) =====
+            const lgpdModalEl = document.getElementById('lgpdModal');
+            if (lgpdModalEl) {
+                lgpdModal = new bootstrap.Modal(lgpdModalEl);
+            }
 
             // Verifica autenticação
             if (!localStorage.getItem('access_token')) {
@@ -1512,15 +1502,31 @@
 
             initializeDashboard();
 
+            // Evento do botão LGPD
             const shieldBtn = document.querySelector('.lgpd-shield-btn');
             if (shieldBtn) {
                 shieldBtn.addEventListener('click', openLGPDModal);
             }
+
+            // ===== CÓDIGO MOVIDO DO SEGUNDO LISTENER =====
+            // Aplica ajustes para WebView
+            ajustarSplashParaWebView();
+
+            // Se os dados estiverem em cache, esconde mais rápido
+            if (localStorage.getItem('access_token')) {
+                setTimeout(() => {
+                    const splashScreen = document.getElementById('splash-screen');
+                    if (splashScreen) {
+                        splashScreen.classList.add('fade-out');
+                        document.body.classList.remove('splash-active');
+                        document.getElementById('content').style.opacity = '1';
+                        setTimeout(() => {
+                            splashScreen.style.display = 'none';
+                        }, 500);
+                    }
+                }, 800);
+            }
         });
-
-
-        // Chamar após o DOM carregar
-        document.addEventListener('DOMContentLoaded', addCloseHistoryButton);
 
         function initializeDOMElements() {
             alertBox = document.getElementById('alertBox');
@@ -1589,26 +1595,6 @@
             const localDateTime = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
             document.getElementById('dataExpiracao').value = localDateTime;
             generateTokenModal.show();
-        }
-
-        // Funções globais para abrir/fechar modal LGPD
-        function openLGPDModal() {
-            const modal = document.getElementById('lgpd-modal');
-            if (modal) {
-                modal.classList.add('show');  // Usa classe show em vez de style.display direto
-                loadPrivacyPolicy();
-                document.body.style.overflow = 'hidden'; // Impede rolagem da página
-            }
-        }
-
-        function closeLGPDModal() {
-            const modal = document.getElementById('lgpd-modal');
-            if (modal) {
-                modal.classList.remove('show');
-                document.body.style.overflow = ''; // Restaura rolagem
-                // Limpa o conteúdo
-                document.getElementById('lgpd-modal-body').innerHTML = '';
-            }
         }
 
         window.openGenerateTokenModal = openGenerateTokenModal;
@@ -1830,55 +1816,49 @@
             }
         }
 
-        // Carregar conteúdo da política
+        // Função para carregar conteúdo (adaptada do seu código mas sem causar tela branca)
         async function loadPrivacyPolicy() {
-            const modalBody = document.getElementById('lgpd-modal-body');
+            const modalBody = document.getElementById('lgpdModalBody');
 
             try {
-                modalBody.innerHTML = '<div style="text-align: center; padding: 40px;"><div class="loading-spinner" style="margin: 20px auto;"></div><p style="margin-top: 20px; color: var(--text-secondary);">Carregando política de privacidade...</p></div>';
+                // Mantém o loading visual
+                modalBody.innerHTML = `
+            <div class="text-center py-4">
+                <div class="loading-spinner" role="status">
+                    <span class="visually-hidden">Carregando...</span>
+                </div>
+                <p class="mt-3" style="color: var(--text-secondary);">Carregando política de privacidade...</p>
+            </div>
+        `;
 
-                // Usar caminho absoluto a partir da raiz
                 const response = await fetch('/politica-privacidade.html');
 
                 if (!response.ok) {
-                    throw new Error(`Erro HTTP: ${response.status}`);
+                    throw new Error(`Erro ao carregar: ${response.status}`);
                 }
 
-                const html = await response.text();
+                let html = await response.text();
 
-                // Extrai apenas o conteúdo principal (body) e remove scripts
-                let content = '';
+                // Extrai apenas o conteúdo do body e limpa scripts
                 const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+                let content = bodyMatch ? bodyMatch[1] : html;
 
-                if (bodyMatch && bodyMatch[1]) {
-                    content = bodyMatch[1];
-                } else {
-                    // Se não encontrar body, usa o HTML todo mas remove tags head
-                    content = html.replace(/<head[\s\S]*?<\/head>/i, '');
-                }
-
-                // Remove scripts e estilos que possam causar problemas
+                // Remove scripts que podem causar tela branca
                 content = content.replace(/<script[\s\S]*?<\/script>/gi, '');
-                content = content.replace(/<link[^>]*>/gi, '');
-                content = content.replace(/<style[\s\S]*?<\/style>/gi, '');
 
                 modalBody.innerHTML = content;
 
-                // Se não carregou nada, mostra mensagem
-                if (!content || content.trim() === '') {
-                    modalBody.innerHTML = '<div style="color: #666; padding: 40px; text-align: center;">Conteúdo não disponível no momento.</div>';
-                }
-
             } catch (error) {
-                console.error('Erro ao carregar política:', error);
-                modalBody.innerHTML = `<div style="color: #ef4444; padding: 40px; text-align: center;">
-            <i class="fas fa-exclamation-triangle" style="font-size: 2rem; margin-bottom: 15px;"></i>
-            <p>Erro ao carregar política de privacidade.</p>
-            <p style="font-size: 0.8rem; margin-top: 10px;">${error.message}</p>
-            <button onclick="loadPrivacyPolicy()" class="btn btn-sm btn-primary mt-3">
-                <i class="fas fa-redo-alt"></i> Tentar novamente
-            </button>
-        </div>`;
+                console.error('Erro:', error);
+                modalBody.innerHTML = `
+                    <div class="text-center py-4 text-danger">
+                        <i class="fas fa-exclamation-triangle fa-2x mb-3"></i>
+                        <p>Erro ao carregar a política de privacidade.</p>
+                        <button class="btn btn-sm btn-primary mt-2" onclick="loadPrivacyPolicy()">
+                            Tentar novamente
+                        </button>
+                    </div>
+                `;
             }
         }
 
@@ -2627,27 +2607,6 @@
                 console.log('Splash screen escondido por timeout de segurança');
             }
         }, 3000);
-
-        // Quando o DOM estiver pronto
-        document.addEventListener('DOMContentLoaded', function () {
-            // Aplica ajustes para WebView
-            ajustarSplashParaWebView();
-
-            // Se os dados estiverem em cache, esconde mais rápido
-            if (localStorage.getItem('access_token')) {
-                setTimeout(() => {
-                    const splashScreen = document.getElementById('splash-screen');
-                    if (splashScreen) {
-                        splashScreen.classList.add('fade-out');
-                        document.body.classList.remove('splash-active');
-                        document.getElementById('content').style.opacity = '1';
-                        setTimeout(() => {
-                            splashScreen.style.display = 'none';
-                        }, 500);
-                    }
-                }, 800);
-            }
-        });
 
         // Quando a página estiver completamente carregada
         window.addEventListener('load', function () {
