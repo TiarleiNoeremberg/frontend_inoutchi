@@ -2174,7 +2174,8 @@
                     throw new Error("Dados de alunos inválidos.");
                 }
 
-                const studentPromises = data.alunos.map(async (student) => {
+                // Busca status de saída ativa para cada aluno
+                const novosAlunos = await Promise.all(data.alunos.map(async (student) => {
                     try {
                         const saidaResponse = await fetchWithAuth(`/api/presencas/aluno/${student.id}/saida-ativa`);
                         const saidaAtiva = await saidaResponse.json();
@@ -2186,17 +2187,92 @@
                         console.warn(`Erro ao buscar saída ativa para aluno ${student.id}:`, error);
                     }
                     return student;
-                });
+                }));
 
-                students = await Promise.all(studentPromises);
-                renderStudents(students);
+                // Se não tem alunos ainda, renderiza tudo
+                if (!students || students.length === 0) {
+                    students = novosAlunos;
+                    renderStudents(students);
+                    return;
+                }
+
+                // === ATUALIZAÇÃO INTELIGENTE: só o que mudou ===
+                let precisaRenderizar = false;
+
+                for (let i = 0; i < novosAlunos.length; i++) {
+                    const alunoNovo = novosAlunos[i];
+                    const alunoAntigo = students.find(a => a.id === alunoNovo.id);
+
+                    // Se não encontrou o aluno antigo (nunca deve acontecer), mas por segurança
+                    if (!alunoAntigo) {
+                        precisaRenderizar = true;
+                        break;
+                    }
+
+                    // Verifica se o STATUS mudou (é a ÚNICA coisa que muda!)
+                    if (alunoAntigo.status !== alunoNovo.status) {
+                        console.log(`Status do aluno ${alunoNovo.nome} mudou: ${alunoAntigo.status} -> ${alunoNovo.status}`);
+
+                        // Atualiza apenas o card específico
+                        const cardAluno = document.querySelector(`.student-item .student-name[data-student-id="${alunoNovo.id}"]`)?.closest('.student-item');
+
+                        if (cardAluno) {
+                            // Atualiza o status badge
+                            const statusBadge = cardAluno.querySelector('.status-badge');
+                            const actionBtn = cardAluno.querySelector('.student-actions > .btn');
+
+                            let statusClass, statusText, actionButtonHtml;
+                            const safeStudentName = alunoNovo.nome.replace(/'/g, "\\'");
+
+                            switch (alunoNovo.status) {
+                                case 'PRESENTE':
+                                    statusClass = 'status-present';
+                                    statusText = 'Presente';
+                                    actionButtonHtml = `<button class="btn btn-sm btn-danger" onclick="openLocationActionModal(${alunoNovo.id}, 'saida', '${safeStudentName}')"><i class="fas fa-sign-out-alt me-1"></i>Solicitar Saída</button>`;
+                                    break;
+                                case 'AGUARDANDO_CONFIRMACAO':
+                                    statusClass = 'status-warning';
+                                    statusText = 'Aguardando';
+                                    actionButtonHtml = `<button class="btn btn-sm btn-warning text-dark" onclick="openManualConfirmModal(${alunoNovo.id}, '${safeStudentName}')"><i class="fas fa-check-circle me-1"></i>Confirmar Saída</button>`;
+                                    break;
+                                default:
+                                    statusClass = 'status-absent';
+                                    statusText = 'Ausente';
+                                    actionButtonHtml = `<button class="btn btn-sm btn-success" onclick="openLocationActionModal(${alunoNovo.id}, 'entrada', '${safeStudentName}')"><i class="fas fa-sign-in-alt me-1"></i>Registrar Entrada</button>`;
+                                    break;
+                            }
+
+                            // Atualiza o badge
+                            statusBadge.className = `status-badge ${statusClass}`;
+                            statusBadge.textContent = statusText;
+
+                            // Atualiza o botão (substitui o HTML)
+                            actionBtn.outerHTML = actionButtonHtml;
+
+                            // Destaque suave para mostrar que houve mudança
+                            cardAluno.style.transition = 'background-color 0.3s';
+                            cardAluno.style.backgroundColor = 'rgba(26, 111, 196, 0.1)';
+                            setTimeout(() => {
+                                cardAluno.style.backgroundColor = '';
+                            }, 500);
+                        }
+
+                        // Atualiza o objeto students
+                        alunoAntigo.status = alunoNovo.status;
+                    }
+                }
+
+                // Se precisou renderizar tudo por algum motivo
+                if (precisaRenderizar) {
+                    students = novosAlunos;
+                    renderStudents(students);
+                }
 
             } catch (error) {
                 console.error('Erro ao carregar alunos:', error);
                 if (!students || !students.length) {
                     studentList.innerHTML = '<li class="empty-state"><i class="fas fa-child"></i><p>Não foi possível carregar seus alunos.</p></li>';
                 }
-                throw error;
             }
         }
 
@@ -2253,7 +2329,7 @@
                 li.innerHTML = `
                     <div class="student-item-main">
                         <div class="student-info">
-                            <span class="student-name">${student.nome}</span>
+                            <span class="student-name" data-student-id="${student.id}">${student.nome}</span>
                             <span class="student-class">${student.salaNome || 'Sem sala'}</span>
                         </div>
                         <span class="status-badge ${statusClass}">${statusText}</span>
