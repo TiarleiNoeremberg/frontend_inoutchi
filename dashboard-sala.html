@@ -1035,7 +1035,7 @@
             }
 
             processarSaidaPendente(mensagem) {
-                // 1. ATUALIZA O ESTADO (isso permanece o mesmo e é importante)
+                // 1. ATUALIZA O ESTADO
                 const aluno = this.alunos.find(a => a.id === mensagem.alunoId);
                 if (!aluno) {
                     console.warn(`[PENDENTE] Aluno com ID ${mensagem.alunoId} não foi encontrado.`);
@@ -1044,34 +1044,26 @@
                 aluno.status = 'AGUARDANDO_CONFIRMACAO';
                 aluno.tipoSolicitante = mensagem.tipoSolicitante;
 
-                // 2. ATUALIZA A TELA DIRETAMENTE (O "BISTURI")
-                // Em vez de chamar renderizarAlunos(), nós modificamos o card existente.
-                const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
-                if (alunoCard) {
-                    console.log(`[BISTURI] Atualizando o card do aluno ${aluno.nome} diretamente no DOM.`);
+                // 2. ATUALIZA O CARD DIRETAMENTE
+                let alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
 
-                    // Limpa classes de cor antigas para evitar conflitos
-                    alunoCard.classList.remove('tutor', 'diretor', 'token', 'sistema', 'transporte');
-
-                    // Determina e aplica a nova classe de cor
-                    let tipo = (mensagem.tipoSolicitante || 'diretor').toLowerCase();
-                    if (['parente', 'amigo', 'irmao'].includes(tipo)) {
-                        tipo = 'token'; // Normaliza para a classe CSS correta
-                    }
-                    alunoCard.classList.add('pendente', tipo);
-
-                    // Atualiza o texto do status
-                    const horarioElement = alunoCard.querySelector('.aluno-horario');
-                    if (horarioElement) {
-                        horarioElement.textContent = 'Aguardando';
-                    }
-                } else {
-                    // Se, por algum motivo, o card não for encontrado, usamos a marreta como fallback.
-                    console.warn(`[BISTURI-FALLBACK] Card para ${aluno.nome} não encontrado, renderizando a grade inteira.`);
-                    this.renderizarAlunos();
+                // Se o card não existe (pode ter sido recriado), busca novamente após um pequeno delay
+                if (!alunoCard) {
+                    setTimeout(() => {
+                        alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
+                        if (alunoCard) {
+                            this.aplicarEstiloPendenteAoCard(alunoCard, mensagem);
+                        } else {
+                            // Fallback: renderiza tudo se realmente não achar
+                            this.renderizarAlunos();
+                        }
+                    }, 100);
+                    return;
                 }
 
-                // 3. A LÓGICA DA FILA (permanece a mesma, agora operando em um DOM estável)
+                this.aplicarEstiloPendenteAoCard(alunoCard, mensagem);
+
+                // 3. LÓGICA DA FILA
                 this.filaDeChamadas.push(mensagem);
                 if (!this.isProcessandoFila) {
                     this.isProcessandoFila = true;
@@ -1079,9 +1071,48 @@
                 }
             }
 
+            aplicarEstiloPendenteAoCard(alunoCard, mensagem) {
+                console.log(`[BISTURI] Atualizando o card do aluno ${mensagem.alunoNome} diretamente no DOM.`);
+
+                // Limpa classes de cor antigas
+                alunoCard.classList.remove('tutor', 'diretor', 'token', 'sistema', 'transporte');
+
+                // Determina e aplica a nova classe de cor
+                let tipo = (mensagem.tipoSolicitante || 'diretor').toLowerCase();
+                if (['parente', 'amigo', 'irmao'].includes(tipo)) {
+                    tipo = 'token';
+                }
+                alunoCard.classList.add('pendente', tipo);
+
+                // Atualiza o texto do status
+                const horarioElement = alunoCard.querySelector('.aluno-horario');
+                if (horarioElement) {
+                    horarioElement.textContent = 'Aguardando';
+                }
+            }
+
+            removerAlunoEspecifico(alunoId, alunoNome) {
+                const alunoCard = document.querySelector(`[data-aluno-id="${alunoId}"]`);
+
+                if (alunoCard) {
+                    alunoCard.classList.add('removendo');
+
+                    setTimeout(() => {
+                        alunoCard.remove();
+                        // Atualiza o estado
+                        this.alunos = this.alunos.filter(aluno => aluno.id !== alunoId);
+                        console.log(`[SAÍDA] Aluno ${alunoNome} removido do DOM sem recriar toda a tela.`);
+                    }, 450);
+                } else {
+                    // Fallback: remove do estado e renderiza tudo
+                    this.alunos = this.alunos.filter(aluno => aluno.id !== alunoId);
+                    this.renderizarAlunos();
+                    console.log(`[SAÍDA] Fallback: Aluno ${alunoNome} removido com renderização total.`);
+                }
+            }
+
             processarSaidaConfirmada(mensagem) {
                 const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
-
 
                 // 1. ANIMAÇÃO: Aplica a classe para a animação de saída.
                 if (alunoCard) {
@@ -1093,9 +1124,16 @@
                     // 3. ATUALIZA O ESTADO: Remove o aluno da lista de dados.
                     this.alunos = this.alunos.filter(aluno => aluno.id !== mensagem.alunoId);
 
-                    // 4. ATUALIZA A TELA: Redesenha a grade já sem o aluno.
-                    this.renderizarAlunos();
-                    console.log(`[SAÍDA] Aluno ${mensagem.alunoNome} removido do estado. Tela renderizada.`);
+                    // === SOLUÇÃO: NÃO RENDERIZAR TUDO, APENAS REMOVER O CARD DO DOM ===
+                    if (alunoCard) {
+                        alunoCard.remove(); // Remove apenas o card específico
+                        console.log(`[SAÍDA] Card do aluno ${mensagem.alunoNome} removido do DOM.`);
+                    } else {
+                        // Fallback: se não encontrou o card, renderiza tudo
+                        this.renderizarAlunos();
+                    }
+
+                    console.log(`[SAÍDA] Aluno ${mensagem.alunoNome} removido do estado.`);
 
                 }, 450); // Duração da animação CSS
             }
@@ -1564,12 +1602,26 @@
 
             finalizarExpansao(alunoCard, alunoId) {
                 if (!alunoCard) return;
+
+                // Guarda as classes atuais antes de modificar
+                const classesAtuais = alunoCard.className;
+
                 alunoCard.classList.remove('expandindo');
                 alunoCard.classList.add('recolhendo');
                 alunoCard.style.transform = '';
+
                 setTimeout(() => {
-                    if (alunoCard) alunoCard.classList.remove('recolhendo');
+                    if (alunoCard) {
+                        alunoCard.classList.remove('recolhendo');
+                        // Restaura as classes de cor se necessário
+                        const aluno = this.alunos.find(a => a.id === alunoId);
+                        if (aluno && aluno.status === 'AGUARDANDO_CONFIRMACAO') {
+                            // Se ainda está pendente, mantém a classe de cor
+                            console.log(`[FINALIZAR] Mantendo classe pendente para ${aluno.nome}`);
+                        }
+                    }
                 }, 800);
+
                 const horarioElement = alunoCard.querySelector('.aluno-horario');
                 if (horarioElement) horarioElement.textContent = 'Aguardando';
             }
