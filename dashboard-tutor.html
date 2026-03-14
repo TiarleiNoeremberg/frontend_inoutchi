@@ -3891,6 +3891,7 @@
             let isDragging = false;
             let startX = 0;
             let currentOffset = 0;
+            let isCompleted = false; // NOVO: flag para indicar se o deslize foi completado
 
             // Garantir que o texto comece centralizado
             if (label) {
@@ -3911,7 +3912,7 @@
             const slidesRight = (action === 'entrada' || action === 'confirmar');
 
             function onStart(e) {
-                if (btn.classList.contains('activated') || isActionProcessing) return;
+                if (btn.classList.contains('activated') || isActionProcessing || isCompleted) return;
                 isDragging = true;
                 btn.classList.add('sliding');
                 startX = (e.touches ? e.touches[0].clientX : e.clientX);
@@ -3940,10 +3941,7 @@
             }
 
             async function onEnd() {
-                if (!isDragging || isActionProcessing) return;
-
-                isActionProcessing = true;
-                btn.classList.add('processing');
+                if (!isDragging || isActionProcessing || isCompleted) return;
 
                 const maxTravel = getMaxTravel();
                 const progress = Math.abs(currentOffset) / maxTravel;
@@ -3951,13 +3949,19 @@
                 // Se não completou o deslize, volta
                 if (progress < 0.85) {
                     resetSlideBtn(btn, thumb, fill, label);
-                    isActionProcessing = false;
-                    btn.classList.remove('processing');
+                    isDragging = false;
                     return;
                 }
 
-                // Se completou, inicia o processo
+                // MARCA COMO COMPLETADO E MANTÉM NA POSIÇÃO
+                isCompleted = true;
+                isDragging = false;
                 btn.classList.add('activated');
+
+                // Remove a classe sliding
+                btn.classList.remove('sliding');
+
+                // Aplica transição suave para a posição final
                 thumb.style.transition = 'transform 0.2s ease-out';
                 fill.style.transition = 'width 0.2s ease-out';
 
@@ -3972,13 +3976,32 @@
                 // Haptic feedback
                 if (navigator.vibrate) navigator.vibrate(50);
 
+                // Inicia o processamento
+                isActionProcessing = true;
+                btn.classList.add('processing');
+
                 // Pega dados do aluno
                 const studentId = btn.dataset.studentId;
                 const studentName = btn.dataset.studentName;
                 const aluno = students.find(s => s.id == studentId);
 
                 try {
-                    // 1. OBTER LOCALIZAÇÃO AUTOMATICAMENTE
+                    // Se for confirmação, não precisa de localização
+                    if (action === 'confirmar') {
+                        await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
+
+                        // Tela de sucesso
+                        mostrarTelaSucesso('confirmacao', async () => {
+                            await refreshStudentsData();
+                            // SÓ RESETA DEPOIS QUE A TELA DE SUCESSO TERMINAR
+                            resetSlideBtn(btn, thumb, fill, label);
+                            isCompleted = false;
+                        });
+
+                        return;
+                    }
+
+                    // Para entrada e saída, obtém localização
                     showAlert(`Obtendo localização para ${action === 'entrada' ? 'entrada' : 'saída'}...`, 'info');
 
                     const position = await new Promise((resolve, reject) => {
@@ -3990,9 +4013,8 @@
 
                     const { latitude, longitude } = position.coords;
 
-                    // 2. VERIFICAR SE ESTÁ DENTRO DA ÁREA (chamada direta à API)
+                    // Prepara o endpoint e body
                     let endpoint, body;
-
                     if (action === 'entrada') {
                         endpoint = '/api/presencas/entrada';
                         body = {
@@ -4003,7 +4025,7 @@
                             responsavelNome: currentUser.nome,
                             responsavelTipo: 'TUTOR'
                         };
-                    } else if (action === 'saida') {
+                    } else { // saída
                         endpoint = '/api/presencas/saida/solicitar';
                         body = {
                             alunoId: parseInt(studentId),
@@ -4011,21 +4033,9 @@
                             longitude,
                             escolaId: aluno?.escolaId
                         };
-                    } else if (action === 'confirmar') {
-                        // Confirmação manual não precisa de localização
-                        await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
-
-                        // Tela de sucesso
-                        mostrarTelaSucesso('confirmacao', async () => {
-                            await refreshStudentsData();
-                            // Reset após atualizar
-                            resetSlideBtn(btn, thumb, fill, label);
-                        });
-
-                        return; // Sai da função, não executa o finally imediatamente
                     }
 
-                    // 3. EXECUTAR AÇÃO AUTOMATICAMENTE (sem modal!)
+                    // Executa a ação
                     const response = await fetchWithAuth(endpoint, {
                         method: 'POST',
                         body: JSON.stringify(body)
@@ -4033,33 +4043,30 @@
 
                     await response.json();
 
-                    // 4. MOSTRA TELA DE SUCESSO e atualiza dados
+                    // Mostra tela de sucesso
                     const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
                     mostrarTelaSucesso(tipoSucesso, async () => {
                         await refreshStudentsData();
-                        // Reset após atualizar
+                        // SÓ RESETA DEPOIS QUE A TELA DE SUCESSO TERMINAR
                         resetSlideBtn(btn, thumb, fill, label);
+                        isCompleted = false;
                     });
 
                 } catch (error) {
-                    // Se algo der errado (geolocalização negada, fora da área, etc.)
                     console.error('Erro no processo automático:', error);
+                    showAlert(error.message || 'Não foi possível completar a operação.', 'danger');
 
-                    // Mostra erro sem modal, apenas alerta
-                    showAlert(error.message || 'Não foi possível completar a operação. Verifique sua localização.', 'danger');
-
-                    // Reseta o botão imediatamente em caso de erro
+                    // Em caso de erro, reseta o botão
                     resetSlideBtn(btn, thumb, fill, label);
+                    isCompleted = false;
 
-                    // Se foi erro de localização, oferece tentar novamente? Talvez abrir modal manual?
+                    // Fallback para erro de localização
                     if (error.message.includes('localização') || error.message.includes('permissão')) {
-                        // Fallback: abre modal manual para tentar novamente
                         if (action === 'entrada' || action === 'saida') {
                             openLocationActionModal(parseInt(studentId), action, studentName);
                         }
                     }
                 } finally {
-                    // Libera a flag de processamento
                     isActionProcessing = false;
                     btn.classList.remove('processing');
                 }
@@ -4071,7 +4078,6 @@
                 f.style.transition = 'width 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
                 t.style.transform = 'translateX(0)';
                 f.style.width = '0';
-                // Texto continua FIXO no centro
             }
 
             // Event listeners
