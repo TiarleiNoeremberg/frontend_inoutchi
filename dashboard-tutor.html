@@ -3882,11 +3882,11 @@
         }
 
         function bindSlideButton(btn) {
-            // Remove qualquer listener anterior para evitar duplicação
+            // Remove qualquer listener anterior
             const thumb = btn.querySelector('.slide-btn-thumb');
             if (!thumb) return;
 
-            // Clona e substitui o botão para remover listeners antigos
+            // Clona e substitui para remover listeners antigos
             const newBtn = btn.cloneNode(true);
             btn.parentNode.replaceChild(newBtn, btn);
 
@@ -3904,9 +3904,16 @@
             let startX = 0;
             let currentOffset = 0;
             let isProcessing = false;
-            let isCompleted = false; // NOVO: controla se já completou o movimento
             let moveListener = null;
             let endListener = null;
+
+            // GARANTIR QUE NÃO HÁ ANIMAÇÃO PADRÃO NO CSS
+            // Isso é CRÍTICO - sobrescreve qualquer animation do CSS
+            newThumb.style.animation = 'none';
+            btn.style.animation = 'none';
+
+            // Remove a classe sliding se existir
+            btn.classList.remove('sliding', 'activated', 'processing');
 
             // Garantir que o texto comece centralizado
             if (label) {
@@ -3914,6 +3921,7 @@
                 label.style.left = '50%';
                 label.style.top = '50%';
                 label.style.opacity = '1';
+                label.style.position = 'absolute';
             }
 
             function getTrackWidth() {
@@ -3927,13 +3935,13 @@
             const slidesRight = (action === 'entrada' || action === 'confirmar');
 
             function onStart(e) {
-                // PREVENIR COMPORTAMENTO PADRÃO
+                // IMPEDE COMPORTAMENTO PADRÃO
                 e.preventDefault();
                 e.stopPropagation();
 
-                // Só permite se não estiver processando e não completou
-                if (isProcessing || isActionProcessing || isCompleted) {
-                    console.log('⛔ Bloqueado: processando ou já completado');
+                // Só permite se não estiver processando
+                if (isProcessing || isActionProcessing) {
+                    console.log('⛔ Bloqueado: processando');
                     return;
                 }
 
@@ -3942,20 +3950,21 @@
                 startX = (e.touches ? e.touches[0].clientX : e.clientX);
                 currentOffset = 0;
 
-                // Remove transições para movimento livre
+                // Remove TODAS as transições para movimento livre
                 newThumb.style.transition = 'none';
                 fill.style.transition = 'none';
+                newThumb.style.animation = 'none';
 
-                // Reseta posições
+                // Garante que começa do zero
                 newThumb.style.transform = 'translateX(0)';
                 fill.style.width = '0';
 
-                // Adiciona classe de sliding
+                // Adiciona classe de sliding (opcional)
                 btn.classList.add('sliding');
             }
 
             function onMove(e) {
-                if (!isDragging || isProcessing || isCompleted) return;
+                if (!isDragging || isProcessing || isActionProcessing) return;
 
                 e.preventDefault();
                 e.stopPropagation();
@@ -3964,12 +3973,18 @@
                 let delta = clientX - startX;
                 const maxTravel = getMaxTravel();
 
+                // Calcula o deslocamento
                 if (slidesRight) {
                     currentOffset = Math.max(0, Math.min(delta, maxTravel));
+                } else {
+                    currentOffset = Math.min(0, Math.max(delta, -maxTravel));
+                }
+
+                // Aplica a posição SEM TRANSIÇÃO
+                if (slidesRight) {
                     newThumb.style.transform = `translateX(${currentOffset}px)`;
                     fill.style.width = `${currentOffset + THUMB_SIZE}px`;
                 } else {
-                    currentOffset = Math.min(0, Math.max(delta, -maxTravel));
                     newThumb.style.transform = `translateX(${currentOffset}px)`;
                     fill.style.width = `${Math.abs(currentOffset) + THUMB_SIZE}px`;
                 }
@@ -3989,7 +4004,7 @@
                 isDragging = false;
 
                 // Se já está processando, ignora
-                if (isProcessing || isActionProcessing || isCompleted) {
+                if (isProcessing || isActionProcessing) {
                     console.log('⛔ Já está processando');
                     return;
                 }
@@ -3997,26 +4012,33 @@
                 const maxTravel = getMaxTravel();
                 const progress = Math.abs(currentOffset) / maxTravel;
 
-                console.log(`📊 Progresso: ${progress.toFixed(2)}`);
+                console.log(`📊 Progresso: ${(progress * 100).toFixed(0)}%`);
 
-                // Se não completou o deslize (menos de 85%), volta rápido
-                if (progress < 0.85) {
-                    console.log('⏪ Não completou, voltando');
-                    resetSlideBtn(btn, newThumb, fill, label, 'fast');
+                // Se não completou o deslize (menos de 80%), volta rápido
+                if (progress < 0.8) {
+                    console.log('⏪ Não completou, voltando rápido');
+
+                    // Aplica transição apenas para voltar
+                    newThumb.style.transition = 'transform 0.2s ease-out';
+                    fill.style.transition = 'width 0.2s ease-out';
+
+                    newThumb.style.transform = 'translateX(0)';
+                    fill.style.width = '0';
+
                     return;
                 }
 
                 // COMPLETOU O DESLIZE!
-                console.log('✅ Deslize completado, iniciando processo');
+                console.log('✅ Deslize completado (>=80%), fixando na posição final');
 
-                // Marca como completado e processando
-                isCompleted = true;
+                // IMPEDE QUALQUER RETORNO - FIXA NA POSIÇÃO FINAL IMEDIATAMENTE
                 isProcessing = true;
 
-                // Aplica transição para posição final
-                newThumb.style.transition = 'transform 0.2s ease-out';
-                fill.style.transition = 'width 0.2s ease-out';
+                // Remove TODAS as transições primeiro
+                newThumb.style.transition = 'none';
+                fill.style.transition = 'none';
 
+                // Fixa na posição final SEM ANIMAÇÃO
                 if (slidesRight) {
                     newThumb.style.transform = `translateX(${maxTravel}px)`;
                     fill.style.width = '100%';
@@ -4024,6 +4046,10 @@
                     newThumb.style.transform = `translateX(${-maxTravel}px)`;
                     fill.style.width = '100%';
                 }
+
+                // FORÇA O BROWSER A APLICAR AS MUDANÇAS IMEDIATAMENTE
+                // Isso é importante para garantir que não haja "mola"
+                void newThumb.offsetHeight; // Força reflow
 
                 // Haptic feedback
                 if (navigator.vibrate) navigator.vibrate(50);
@@ -4050,7 +4076,7 @@
                             refreshStudentsData();
                         });
 
-                        // Reset silencioso imediato
+                        // Reset silencioso imediato (agora com transição lenta)
                         resetSlideBtn(btn, newThumb, fill, label, 'slow', true);
                         isProcessing = false;
 
@@ -4078,7 +4104,6 @@
                         setTimeout(() => {
                             resetSlideBtn(btn, newThumb, fill, label, 'slow', false);
                             isProcessing = false;
-                            isCompleted = false; // Permite nova tentativa
                         }, 2500);
 
                         return;
@@ -4144,7 +4169,6 @@
                     setTimeout(() => {
                         resetSlideBtn(btn, newThumb, fill, label, 'slow', false);
                         isProcessing = false;
-                        isCompleted = false; // Permite nova tentativa
                     }, 2500);
 
                 } finally {
@@ -4154,12 +4178,14 @@
             }
 
             function resetSlideBtn(b, t, f, l, speed = 'normal', silent = false) {
+                console.log(`🔄 Resetando slider (${silent ? 'silencioso' : 'visível'})`);
+
                 // Se for silencioso, remove a classe activated imediatamente
                 if (silent) {
                     b.classList.remove('activated');
                 }
 
-                // Define a velocidade da animação
+                // Define a velocidade da animação para VOLTAR
                 if (speed === 'slow') {
                     t.style.transition = 'transform 1s cubic-bezier(0.2, 0.8, 0.4, 1)';
                     f.style.transition = 'width 1s cubic-bezier(0.2, 0.8, 0.4, 1)';
@@ -4171,6 +4197,7 @@
                     f.style.transition = 'width 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
                 }
 
+                // Volta à posição inicial
                 t.style.transform = 'translateX(0)';
                 f.style.width = '0';
 
@@ -4178,11 +4205,9 @@
                 if (!silent) {
                     b.classList.remove('activated');
                 }
-
-                console.log(`🔄 Reset ${silent ? 'silencioso' : 'visível'} concluído`);
             }
 
-            // Remove listeners antigos (se houver) e adiciona novos
+            // Remove listeners antigos
             newThumb.removeEventListener('touchstart', onStart);
             newThumb.removeEventListener('mousedown', onStart);
 
@@ -4206,6 +4231,12 @@
             document.addEventListener('mousemove', moveListener);
             document.addEventListener('touchend', endListener);
             document.addEventListener('mouseup', endListener);
+
+            // Garantir que o botão começa na posição correta
+            newThumb.style.transform = 'translateX(0)';
+            fill.style.width = '0';
+            newThumb.style.transition = 'none';
+            fill.style.transition = 'none';
 
             console.log(`🎨 Slider configurado para ação: ${action}`);
         }
