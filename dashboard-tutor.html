@@ -3882,16 +3882,31 @@
         }
 
         function bindSlideButton(btn) {
+            // Remove qualquer listener anterior para evitar duplicação
             const thumb = btn.querySelector('.slide-btn-thumb');
+            if (!thumb) return;
+
+            // Clona e substitui o botão para remover listeners antigos
+            const newBtn = btn.cloneNode(true);
+            btn.parentNode.replaceChild(newBtn, btn);
+
+            // Agora trabalha com o novo botão
+            btn = newBtn;
+            const newThumb = btn.querySelector('.slide-btn-thumb');
             const fill = btn.querySelector('.slide-btn-fill');
             const track = btn.querySelector('.slide-btn-track');
             const label = btn.querySelector('.slide-btn-label');
             const action = btn.dataset.action;
             const THUMB_SIZE = 80;
+
+            // Variáveis de controle
             let isDragging = false;
             let startX = 0;
             let currentOffset = 0;
             let isProcessing = false;
+            let isCompleted = false; // NOVO: controla se já completou o movimento
+            let moveListener = null;
+            let endListener = null;
 
             // Garantir que o texto comece centralizado
             if (label) {
@@ -3912,64 +3927,101 @@
             const slidesRight = (action === 'entrada' || action === 'confirmar');
 
             function onStart(e) {
-                // Permite novo início apenas se não estiver processando
-                if (isProcessing || isActionProcessing) return;
+                // PREVENIR COMPORTAMENTO PADRÃO
+                e.preventDefault();
+                e.stopPropagation();
 
+                // Só permite se não estiver processando e não completou
+                if (isProcessing || isActionProcessing || isCompleted) {
+                    console.log('⛔ Bloqueado: processando ou já completado');
+                    return;
+                }
+
+                console.log('🎯 Iniciou deslize');
                 isDragging = true;
-                btn.classList.add('sliding');
                 startX = (e.touches ? e.touches[0].clientX : e.clientX);
                 currentOffset = 0;
-                thumb.style.transition = 'none';
+
+                // Remove transições para movimento livre
+                newThumb.style.transition = 'none';
                 fill.style.transition = 'none';
-                e.preventDefault();
+
+                // Reseta posições
+                newThumb.style.transform = 'translateX(0)';
+                fill.style.width = '0';
+
+                // Adiciona classe de sliding
+                btn.classList.add('sliding');
             }
 
             function onMove(e) {
-                if (!isDragging) return;
+                if (!isDragging || isProcessing || isCompleted) return;
+
+                e.preventDefault();
+                e.stopPropagation();
+
                 const clientX = e.touches ? e.touches[0].clientX : e.clientX;
                 let delta = clientX - startX;
                 const maxTravel = getMaxTravel();
 
                 if (slidesRight) {
                     currentOffset = Math.max(0, Math.min(delta, maxTravel));
-                    thumb.style.transform = `translateX(${currentOffset}px)`;
+                    newThumb.style.transform = `translateX(${currentOffset}px)`;
                     fill.style.width = `${currentOffset + THUMB_SIZE}px`;
                 } else {
                     currentOffset = Math.min(0, Math.max(delta, -maxTravel));
-                    thumb.style.transform = `translateX(${currentOffset}px)`;
+                    newThumb.style.transform = `translateX(${currentOffset}px)`;
                     fill.style.width = `${Math.abs(currentOffset) + THUMB_SIZE}px`;
                 }
-                e.preventDefault();
             }
 
-            async function onEnd() {
-                if (!isDragging || isProcessing || isActionProcessing) return;
+            async function onEnd(e) {
+                if (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+
+                // Se não estava arrastando, ignora
+                if (!isDragging) return;
+
+                // Remove classe de sliding
+                btn.classList.remove('sliding');
+                isDragging = false;
+
+                // Se já está processando, ignora
+                if (isProcessing || isActionProcessing || isCompleted) {
+                    console.log('⛔ Já está processando');
+                    return;
+                }
 
                 const maxTravel = getMaxTravel();
                 const progress = Math.abs(currentOffset) / maxTravel;
 
-                // Se não completou o deslize, volta rápido
+                console.log(`📊 Progresso: ${progress.toFixed(2)}`);
+
+                // Se não completou o deslize (menos de 85%), volta rápido
                 if (progress < 0.85) {
-                    resetSlideBtn(btn, thumb, fill, label, 'fast');
-                    isDragging = false;
+                    console.log('⏪ Não completou, voltando');
+                    resetSlideBtn(btn, newThumb, fill, label, 'fast');
                     return;
                 }
 
-                // MARCA COMO PROCESSANDO E MANTÉM NA POSIÇÃO
-                isProcessing = true;
-                isDragging = false;
-                btn.classList.add('activated');
-                btn.classList.remove('sliding');
+                // COMPLETOU O DESLIZE!
+                console.log('✅ Deslize completado, iniciando processo');
 
-                // Aplica transição suave para a posição final e MANTÉM
-                thumb.style.transition = 'transform 0.2s ease-out';
+                // Marca como completado e processando
+                isCompleted = true;
+                isProcessing = true;
+
+                // Aplica transição para posição final
+                newThumb.style.transition = 'transform 0.2s ease-out';
                 fill.style.transition = 'width 0.2s ease-out';
 
                 if (slidesRight) {
-                    thumb.style.transform = `translateX(${maxTravel}px)`;
+                    newThumb.style.transform = `translateX(${maxTravel}px)`;
                     fill.style.width = '100%';
                 } else {
-                    thumb.style.transform = `translateX(${-maxTravel}px)`;
+                    newThumb.style.transform = `translateX(${-maxTravel}px)`;
                     fill.style.width = '100%';
                 }
 
@@ -3979,6 +4031,7 @@
                 // Inicia o processamento da ação
                 isActionProcessing = true;
                 btn.classList.add('processing');
+                btn.classList.add('activated');
 
                 // Pega dados do aluno
                 const studentId = btn.dataset.studentId;
@@ -3993,15 +4046,13 @@
                         await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
 
                         // SUCESSO NA CONFIRMAÇÃO
-                        // O slider volta POR BAIXO DOS PANOS enquanto a tela de sucesso aparece
                         mostrarTelaSucesso('confirmacao', () => {
-                            // Callback executado quando a tela de sucesso termina
                             refreshStudentsData();
-                            // O reset já foi feito silenciosamente durante a exibição
                         });
 
-                        // VOLTA SILENCIOSA (por baixo dos panos) - Imediatamente após chamar a tela de sucesso
-                        resetSlideBtn(btn, thumb, fill, label, 'slow', true); // silent = true
+                        // Reset silencioso imediato
+                        resetSlideBtn(btn, newThumb, fill, label, 'slow', true);
+                        isProcessing = false;
 
                         return;
                     }
@@ -4020,13 +4071,14 @@
                             });
                         });
                     } catch (locationError) {
-                        // ERRO DE LOCALIZAÇÃO - volta VISÍVEL após mensagem
+                        // ERRO DE LOCALIZAÇÃO
                         showAlert('Não foi possível obter sua localização. Verifique as permissões.', 'danger');
 
-                        // Aguarda um pouco para o usuário ler a mensagem e DEPOIS volta (visível)
+                        // Volta visível após 2.5 segundos
                         setTimeout(() => {
-                            resetSlideBtn(btn, thumb, fill, label, 'slow', false); // silent = false (visível)
+                            resetSlideBtn(btn, newThumb, fill, label, 'slow', false);
                             isProcessing = false;
+                            isCompleted = false; // Permite nova tentativa
                         }, 2500);
 
                         return;
@@ -4074,26 +4126,25 @@
                     // SUCESSO - mostra tela colorida
                     const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
 
-                    // Chama a tela de sucesso
                     mostrarTelaSucesso(tipoSucesso, () => {
-                        // Callback executado quando a tela de sucesso termina
                         refreshStudentsData();
-                        // O reset já foi feito silenciosamente
                     });
 
-                    // VOLTA SILENCIOSA (por baixo dos panos) - Imediatamente após chamar a tela de sucesso
-                    resetSlideBtn(btn, thumb, fill, label, 'slow', true); // silent = true
+                    // Reset silencioso imediato
+                    resetSlideBtn(btn, newThumb, fill, label, 'slow', true);
+                    isProcessing = false;
 
                 } catch (error) {
                     console.error('Erro no processo:', error);
 
-                    // ERRO (ex: fora da área) - volta VISÍVEL após mensagem
+                    // ERRO (ex: fora da área)
                     showAlert(error.message || 'Não foi possível completar a operação.', 'danger');
 
                     // Aguarda um pouco para o usuário ler a mensagem e DEPOIS volta (visível)
                     setTimeout(() => {
-                        resetSlideBtn(btn, thumb, fill, label, 'slow', false); // silent = false (visível)
+                        resetSlideBtn(btn, newThumb, fill, label, 'slow', false);
                         isProcessing = false;
+                        isCompleted = false; // Permite nova tentativa
                     }, 2500);
 
                 } finally {
@@ -4103,20 +4154,19 @@
             }
 
             function resetSlideBtn(b, t, f, l, speed = 'normal', silent = false) {
-                // Remove a classe de ativado
-                b.classList.remove('activated');
+                // Se for silencioso, remove a classe activated imediatamente
+                if (silent) {
+                    b.classList.remove('activated');
+                }
 
                 // Define a velocidade da animação
                 if (speed === 'slow') {
-                    // Volta BEM devagar (1 segundo)
                     t.style.transition = 'transform 1s cubic-bezier(0.2, 0.8, 0.4, 1)';
                     f.style.transition = 'width 1s cubic-bezier(0.2, 0.8, 0.4, 1)';
                 } else if (speed === 'fast') {
-                    // Volta rápido (0.2 segundos) - para quando não completou
                     t.style.transition = 'transform 0.2s ease-out';
                     f.style.transition = 'width 0.2s ease-out';
                 } else {
-                    // Volta normal (0.35 segundos)
                     t.style.transition = 'transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
                     f.style.transition = 'width 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
                 }
@@ -4124,33 +4174,40 @@
                 t.style.transform = 'translateX(0)';
                 f.style.width = '0';
 
-                // Se for silencioso, não faz nada além de resetar (já está invisível)
-                if (silent) {
-                    console.log('🔄 Slider resetado silenciosamente (por baixo dos panos)');
+                // Remove classe activated se não for silencioso
+                if (!silent) {
+                    b.classList.remove('activated');
                 }
+
+                console.log(`🔄 Reset ${silent ? 'silencioso' : 'visível'} concluído`);
             }
 
-            // Função para resetar completamente (para novas tentativas)
-            function hardReset() {
-                if (isProcessing) return; // Não interrompe processo em andamento
+            // Remove listeners antigos (se houver) e adiciona novos
+            newThumb.removeEventListener('touchstart', onStart);
+            newThumb.removeEventListener('mousedown', onStart);
 
-                resetSlideBtn(btn, thumb, fill, label, 'fast', false);
-                isProcessing = false;
-                isDragging = false;
-                btn.classList.remove('activated', 'processing', 'sliding');
+            if (moveListener) {
+                document.removeEventListener('touchmove', moveListener);
+                document.removeEventListener('mousemove', moveListener);
+            }
+            if (endListener) {
+                document.removeEventListener('touchend', endListener);
+                document.removeEventListener('mouseup', endListener);
             }
 
-            // Event listeners
-            thumb.addEventListener('touchstart', onStart, { passive: false });
-            document.addEventListener('touchmove', onMove, { passive: false });
-            document.addEventListener('touchend', onEnd);
+            // Adiciona novos listeners
+            newThumb.addEventListener('touchstart', onStart, { passive: false });
+            newThumb.addEventListener('mousedown', onStart);
 
-            thumb.addEventListener('mousedown', onStart);
-            document.addEventListener('mousemove', onMove);
-            document.addEventListener('mouseup', onEnd);
+            moveListener = onMove;
+            endListener = onEnd;
 
-            // EXPÕE função de reset para uso externo (se necessário)
-            btn.hardReset = hardReset;
+            document.addEventListener('touchmove', moveListener, { passive: false });
+            document.addEventListener('mousemove', moveListener);
+            document.addEventListener('touchend', endListener);
+            document.addEventListener('mouseup', endListener);
+
+            console.log(`🎨 Slider configurado para ação: ${action}`);
         }
 
     </script>
