@@ -1566,27 +1566,6 @@
         .tela-sucesso.amarelo .circulo-check svg {
             color: #fbbf24 !important;
         }
-
-        .slide-btn.processing {
-            opacity: 0.8;
-            pointer-events: none;
-        }
-
-        .slide-btn.processing .slide-btn-thumb {
-            animation: processingPulse 1s infinite;
-        }
-
-        @keyframes processingPulse {
-
-            0%,
-            100% {
-                transform: scale(1);
-            }
-
-            50% {
-                transform: scale(1.1);
-            }
-        }
     </style>
 </head>
 
@@ -2218,17 +2197,6 @@
             if (confirmDeleteAccountBtn) {
                 confirmDeleteAccountBtn.addEventListener('click', executeDeleteAccount);
             }
-
-            // ===== 🔴 NOVO: FIX PARA BOTÕES NO CELULAR =====
-            // Garante que eventos de clique funcionem no celular
-            setTimeout(() => {
-                document.querySelectorAll('button:not(.slide-btn)').forEach(btn => {
-                    btn.addEventListener('touchstart', function (e) {
-                        // Apenas para garantir que o evento não seja bloqueado
-                    }, { passive: true });
-                });
-                console.log('📱 Fix de touch aplicado aos botões');
-            }, 1000); // Pequeno delay para garantir que os botões foram renderizados
         });
 
         function initializeDOMElements() {
@@ -2434,6 +2402,8 @@
             generateTokenModal.show();
         }
 
+        window.openGenerateTokenModal = openGenerateTokenModal;
+
         async function openMyTokensModal() {
             myTokensModal.show();
             const loadingEl = document.getElementById('myTokensLoading');
@@ -2519,6 +2489,8 @@
                 showAlert(`Erro ao revogar: ${error.message}`, 'danger');
             }
         }
+
+        window.handleRevokeToken = handleRevokeToken;
 
         async function handleGenerateTokenSubmit(event) {
             event.preventDefault();
@@ -2927,10 +2899,10 @@
                             <span class="status-badge ${statusClass}">${statusText}</span>
                         </div>
                         <div class="student-actions-group">
-                            <button class="btn btn-sm btn-info" onclick="window.openGenerateTokenModal(event, ${student.id}, '${safeStudentName}')">
+                            <button class="btn btn-sm btn-info" onclick="openGenerateTokenModal(event, ${student.id}, '${safeStudentName}')" title="Gerar Token">
                                 <i class="fas fa-key"></i>
                             </button>
-                            <button class="btn btn-sm btn-primary" onclick="window.viewStudentHistory(${student.id}, '${safeStudentName}')">
+                            <button class="btn btn-sm btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}')" title="Ver Histórico">
                                 <i class="fas fa-clock-rotate-left"></i>
                             </button>
                         </div>
@@ -3181,10 +3153,6 @@
 
         window.openLocationActionModal = function (studentId, type, studentName) {
             if (isActionProcessing) return;
-
-            // Se já tem localização recente? Talvez tentar automático novamente?
-            // Por enquanto, mantém o comportamento original como fallback
-
             const modal = document.getElementById('actionLocationModal');
             modal.querySelector('#actionLocationModalLabel').textContent = type === 'entrada' ? '📍 Registrar Entrada' : '📍 Solicitar Saída';
             modal.querySelector('#modalMessage').textContent = `Para ${type === 'entrada' ? 'registrar a entrada' : 'solicitar a saída'} de ${studentName}, sua localização precisa ser validada.`;
@@ -3240,24 +3208,17 @@
             isActionProcessing = true;
             setModalLoading(true, actionType === 'entrada' ? 'Registrando...' : 'Solicitando...');
             try {
-                let endpoint, body = {
-                    alunoId: parseInt(studentId),
-                    latitude: parseFloat(latitude),
-                    longitude: parseFloat(longitude)
-                };
-
+                let endpoint, body = { alunoId: parseInt(studentId), latitude: parseFloat(latitude), longitude: parseFloat(longitude) };
                 if (actionType === 'entrada') {
                     endpoint = '/api/presencas/entrada';
                     body.responsavelId = currentUser.id;
                     body.responsavelNome = currentUser.nome;
                     body.responsavelTipo = 'TUTOR';
-                } else { // SAÍDA
+                } else {
                     endpoint = '/api/presencas/saida/solicitar';
-                    // ⚠️ REMOVER esta linha que adiciona escolaId:
-                    // const student = students.find(s => s.id == studentId);
-                    // body.escolaId = student?.escolaId;  ← ISSO NÃO EXISTE MAIS!
+                    const student = students.find(s => s.id == studentId);
+                    body.escolaId = student?.escolaId;
                 }
-
                 const response = await fetchWithAuth(endpoint, { method: 'POST', body: JSON.stringify(body) });
                 await response.json();
                 showAlert(`Ação de ${actionType} registrada com sucesso!`, 'success');
@@ -3281,6 +3242,7 @@
                         }
                     });
                 }
+
             } catch (error) {
                 const statusEl = document.getElementById('locationStatus');
                 statusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${error.message}`;
@@ -3546,6 +3508,8 @@
         document.addEventListener('MSFullscreenChange', () => {
             atualizarIconeFullScreen(!!document.msFullscreenElement);
         });
+
+        window.logout = logout;
 
         window.openLogoutConfirmModal = function (event) {
             event.preventDefault();
@@ -3892,97 +3856,23 @@
             });
         }
 
-        // Função global para mostrar mensagens de status (FORA do bindSlideButton)
-        function showStatusMessage(message, type = 'info') {
-            // Remove mensagem anterior se existir
-            const oldMsg = document.getElementById('statusMessage');
-            if (oldMsg) {
-                oldMsg.remove();
-            }
-
-            // Encontra o local correto para inserir a mensagem
-            const welcomeSection = document.querySelector('.welcome-section');
-
-            if (!welcomeSection) {
-                console.error('Welcome section não encontrada');
-                return;
-            }
-
-            // Cria nova mensagem
-            const statusMsg = document.createElement('div');
-            statusMsg.id = 'statusMessage';
-            statusMsg.className = `alert alert-${type} alert-dismissible fade show`;
-            statusMsg.role = 'alert';
-            statusMsg.style.marginBottom = '20px';
-            statusMsg.style.borderRadius = 'var(--radius-sm)';
-            statusMsg.style.fontWeight = '500';
-            statusMsg.style.fontSize = '0.9rem';
-            statusMsg.style.animation = 'slideDown 0.3s ease-out';
-
-            statusMsg.innerHTML = `
-        ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-    `;
-
-            // Insere a mensagem após o welcome-section
-            welcomeSection.insertAdjacentElement('afterend', statusMsg);
-
-            // Auto fade após 5 segundos
-            setTimeout(() => {
-                const msg = document.getElementById('statusMessage');
-                if (msg) {
-                    msg.style.transition = 'opacity 0.5s';
-                    msg.style.opacity = '0';
-                    setTimeout(() => {
-                        if (msg && msg.parentNode) {
-                            msg.remove();
-                        }
-                    }, 500);
-                }
-            }, 5000);
-        }
-
         function bindSlideButton(btn) {
-            // Remove qualquer listener anterior
             const thumb = btn.querySelector('.slide-btn-thumb');
-            if (!thumb) return;
-
-            // Clona e substitui para remover listeners antigos
-            const newBtn = btn.cloneNode(true);
-            btn.parentNode.replaceChild(newBtn, btn);
-
-            // Agora trabalha com o novo botão
-            btn = newBtn;
-            const newThumb = btn.querySelector('.slide-btn-thumb');
             const fill = btn.querySelector('.slide-btn-fill');
             const track = btn.querySelector('.slide-btn-track');
             const label = btn.querySelector('.slide-btn-label');
             const action = btn.dataset.action;
             const THUMB_SIZE = 80;
-
-            // Variáveis de controle
             let isDragging = false;
             let startX = 0;
             let currentOffset = 0;
-            let isProcessing = false;
-            let moveListener = null;
-            let endListener = null;
-            let errorTimeout = null;
 
-            // GARANTIR QUE NÃO HÁ ANIMAÇÃO PADRÃO NO CSS
-            newThumb.style.animation = 'none';
-            btn.style.animation = 'none';
-
-            // Remove classes
-            btn.classList.remove('sliding', 'activated', 'processing');
-
-            // Garantir que o texto comece centralizado
+            // Garantir que o texto comece centralizado e FIXO
             if (label) {
                 label.style.transform = 'translate(-50%, -50%)';
                 label.style.left = '50%';
                 label.style.top = '50%';
                 label.style.opacity = '1';
-                label.style.position = 'absolute';
             }
 
             function getTrackWidth() {
@@ -3996,322 +3886,95 @@
             const slidesRight = (action === 'entrada' || action === 'confirmar');
 
             function onStart(e) {
-                e.preventDefault();
-                e.stopPropagation();
-
-                // LIMPA TIMEOUT PENDENTE
-                if (errorTimeout) {
-                    clearTimeout(errorTimeout);
-                    errorTimeout = null;
-                }
-
-                // Remove mensagem anterior
-                const existingMsg = document.getElementById('statusMessage');
-                if (existingMsg) {
-                    existingMsg.remove();
-                }
-
-                // Só permite se não estiver processando
-                if (isProcessing || isActionProcessing) {
-                    console.log('⛔ Bloqueado: processando');
-                    return;
-                }
-
-                console.log('🎯 Iniciou deslize');
+                if (btn.classList.contains('activated')) return;
                 isDragging = true;
+                btn.classList.add('sliding');
                 startX = (e.touches ? e.touches[0].clientX : e.clientX);
                 currentOffset = 0;
-
-                // Remove TODAS as transições
-                newThumb.style.transition = 'none';
+                thumb.style.transition = 'none';
                 fill.style.transition = 'none';
-                newThumb.style.animation = 'none';
-
-                // Garante que começa do zero
-                newThumb.style.transform = 'translateX(0)';
-                fill.style.width = '0';
-
-                btn.classList.add('sliding');
+                e.preventDefault();
             }
 
             function onMove(e) {
-                if (!isDragging || isProcessing || isActionProcessing) return;
-
-                e.preventDefault();
-                e.stopPropagation();
-
+                if (!isDragging) return;
                 const clientX = e.touches ? e.touches[0].clientX : e.clientX;
                 let delta = clientX - startX;
                 const maxTravel = getMaxTravel();
 
                 if (slidesRight) {
                     currentOffset = Math.max(0, Math.min(delta, maxTravel));
-                    newThumb.style.transform = `translateX(${currentOffset}px)`;
+                    thumb.style.transform = `translateX(${currentOffset}px)`;
                     fill.style.width = `${currentOffset + THUMB_SIZE}px`;
                 } else {
                     currentOffset = Math.min(0, Math.max(delta, -maxTravel));
-                    newThumb.style.transform = `translateX(${currentOffset}px)`;
+                    thumb.style.transform = `translateX(${currentOffset}px)`;
                     fill.style.width = `${Math.abs(currentOffset) + THUMB_SIZE}px`;
                 }
+
+                // NÃO MEXE NO TEXTO - ele fica FIXO no centro
+
+                e.preventDefault();
             }
 
-            async function onEnd(e) {
-                if (e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                }
-
+            function onEnd() {
                 if (!isDragging) return;
-
-                btn.classList.remove('sliding');
                 isDragging = false;
-
-                if (isProcessing || isActionProcessing) {
-                    console.log('⛔ Já está processando');
-                    return;
-                }
-
+                btn.classList.remove('sliding');
                 const maxTravel = getMaxTravel();
                 const progress = Math.abs(currentOffset) / maxTravel;
 
-                console.log(`📊 Progresso: ${(progress * 100).toFixed(0)}%`);
-
-                if (progress < 0.8) {
-                    console.log('⏪ Não completou, voltando rápido');
-                    newThumb.style.transition = 'transform 0.2s ease-out';
+                if (progress >= 0.85) {
+                    // ACTIVATED!
+                    btn.classList.add('activated');
+                    thumb.style.transition = 'transform 0.2s ease-out';
                     fill.style.transition = 'width 0.2s ease-out';
-                    newThumb.style.transform = 'translateX(0)';
-                    fill.style.width = '0';
-                    return;
-                }
 
-                // COMPLETOU O DESLIZE!
-                console.log('✅ Deslize completado, fixando na posição final');
-
-                isProcessing = true;
-
-                // Fixa na posição final SEM ANIMAÇÃO
-                newThumb.style.transition = 'none';
-                fill.style.transition = 'none';
-
-                if (slidesRight) {
-                    newThumb.style.transform = `translateX(${maxTravel}px)`;
-                    fill.style.width = '100%';
-                } else {
-                    newThumb.style.transform = `translateX(${-maxTravel}px)`;
-                    fill.style.width = '100%';
-                }
-
-                // Força reflow
-                void newThumb.offsetHeight;
-
-                // Haptic feedback
-                if (navigator.vibrate) navigator.vibrate(50);
-
-                // Inicia o processamento da ação
-                isActionProcessing = true;
-                btn.classList.add('processing');
-                btn.classList.add('activated');
-
-                // Pega dados do aluno
-                const studentId = btn.dataset.studentId;
-                const studentName = btn.dataset.studentName;
-                const aluno = students.find(s => s.id == studentId);
-
-                try {
-                    // CASO 1: CONFIRMAÇÃO
-                    if (action === 'confirmar') {
-                        showStatusMessage(`Confirmando saída de ${studentName}...`, 'info');
-
-                        await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
-
-                        // 🔴 PRIMEIRO: Reset silencioso IMEDIATO (por baixo dos panos)
-                        resetSlideBtn(btn, newThumb, fill, label, 'slow', true); // silent = true
-
-                        // 🔴 SEGUNDO: Mostra tela de sucesso
-                        mostrarTelaSucesso('confirmacao', async () => {
-                            // 🟢 Quando a tela de sucesso terminar, atualiza os dados
-                            await refreshStudentsData();
-                            // As flags já foram resetadas, o slider já voltou
-                        });
-
-                        isProcessing = false;
-                        isActionProcessing = false;
-
-                        return;
+                    if (slidesRight) {
+                        thumb.style.transform = `translateX(${maxTravel}px)`;
+                        fill.style.width = '100%';
+                    } else {
+                        thumb.style.transform = `translateX(${-maxTravel}px)`;
+                        fill.style.width = '100%';
                     }
 
-                    // CASO 2: ENTRADA OU SAÍDA
-                    showStatusMessage(`Obtendo localização para ${action === 'entrada' ? 'entrada' : 'saída'}...`, 'info');
+                    if (navigator.vibrate) navigator.vibrate(50);
 
-                    // Tenta obter a localização
-                    let position;
-                    try {
-                        position = await new Promise((resolve, reject) => {
-                            navigator.geolocation.getCurrentPosition(resolve, reject, {
-                                enableHighAccuracy: true,
-                                timeout: 10000,
-                                maximumAge: 0
-                            });
-                        });
-                    } catch (locationError) {
-                        showStatusMessage('Não foi possível obter sua localização. Verifique as permissões.', 'danger');
+                    setTimeout(() => {
+                        const studentId = btn.dataset.studentId;
+                        const studentName = btn.dataset.studentName;
 
-                        errorTimeout = setTimeout(() => {
-                            resetSlideBtn(btn, newThumb, fill, label, 'slow', false);
-                            isProcessing = false;
-                            isActionProcessing = false;
-                            btn.classList.remove('processing', 'activated');
-                            errorTimeout = null;
-                        }, 2500);
-
-                        return;
-                    }
-
-                    const { latitude, longitude } = position.coords;
-
-                    showStatusMessage(`Verificando se você está dentro da área permitida...`, 'info');
-
-                    // Prepara o endpoint e body
-                    let endpoint, body;
-
-                    if (action === 'entrada') {
-                        endpoint = '/api/presencas/entrada';
-                        body = {
-                            alunoId: parseInt(studentId),
-                            latitude,
-                            longitude,
-                            responsavelId: currentUser.id,
-                            responsavelNome: currentUser.nome,
-                            responsavelTipo: 'TUTOR'
-                        };
-                    } else { // saída
-                        endpoint = '/api/presencas/saida/solicitar';
-                        body = {
-                            alunoId: parseInt(studentId),
-                            latitude,
-                            longitude
-                        };
-                    }
-
-                    // Executa a ação
-                    const response = await fetchWithAuth(endpoint, {
-                        method: 'POST',
-                        body: JSON.stringify(body)
-                    });
-
-                    const result = await response.json();
-
-                    // Verifica se houve erro (como fora da área)
-                    if (!response.ok) {
-                        if (response.status === 403) {
-                            throw new Error(result.mensagem || `Localização fora da área permitida para ${action === 'entrada' ? 'entrada' : 'saída'}`);
+                        if (action === 'entrada' || action === 'saida') {
+                            openLocationActionModal(parseInt(studentId), action === 'entrada' ? 'entrada' : 'saida', studentName);
+                        } else if (action === 'confirmar') {
+                            openManualConfirmModal(parseInt(studentId), studentName);
                         }
-                        throw new Error(result.mensagem || 'Erro ao processar solicitação');
-                    }
 
-                    // SUCESSO
-                    const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
-
-                    // 🔴 PRIMEIRO: Reset silencioso IMEDIATO (por baixo dos panos)
-                    resetSlideBtn(btn, newThumb, fill, label, 'slow', true); // silent = true
-
-                    // 🔴 SEGUNDO: Mostra tela de sucesso
-                    mostrarTelaSucesso(tipoSucesso, async () => {
-                        // 🟢 Quando a tela de sucesso terminar, atualiza os dados
-                        await refreshStudentsData();
-                        // O slider já voltou silenciosamente
-                    });
-
-                    isProcessing = false;
-                    isActionProcessing = false;
-                    btn.classList.remove('processing', 'activated');
-
-                } catch (error) {
-                    console.error('Erro no processo:', error);
-
-                    showStatusMessage(error.message || 'Não foi possível completar a operação.', 'danger');
-
-                    errorTimeout = setTimeout(() => {
-                        resetSlideBtn(btn, newThumb, fill, label, 'slow', false);
-                        isProcessing = false;
-                        isActionProcessing = false;
-                        btn.classList.remove('processing', 'activated');
-                        errorTimeout = null;
-                    }, 2500);
+                        setTimeout(() => resetSlideBtn(btn, thumb, fill, label), 500);
+                    }, 300);
+                } else {
+                    resetSlideBtn(btn, thumb, fill, label);
                 }
             }
 
-            function resetSlideBtn(b, t, f, l, speed = 'normal', silent = false) {
-                console.log(`🔄 Resetando slider (${silent ? 'silencioso' : 'visível'})`);
-
-                if (silent) {
-                    b.classList.remove('activated');
-                }
-
-                if (speed === 'slow') {
-                    t.style.transition = 'transform 1s cubic-bezier(0.2, 0.8, 0.4, 1)';
-                    f.style.transition = 'width 1s cubic-bezier(0.2, 0.8, 0.4, 1)';
-                } else if (speed === 'fast') {
-                    t.style.transition = 'transform 0.2s ease-out';
-                    f.style.transition = 'width 0.2s ease-out';
-                } else {
-                    t.style.transition = 'transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
-                    f.style.transition = 'width 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
-                }
-
+            function resetSlideBtn(b, t, f, l) {
+                b.classList.remove('activated');
+                t.style.transition = 'transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+                f.style.transition = 'width 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
                 t.style.transform = 'translateX(0)';
                 f.style.width = '0';
-
-                if (!silent) {
-                    b.classList.remove('activated');
-                }
+                // Texto continua FIXO no centro, não precisa resetar
             }
 
-            // Remove listeners antigos
-            newThumb.removeEventListener('touchstart', onStart);
-            newThumb.removeEventListener('mousedown', onStart);
+            thumb.addEventListener('touchstart', onStart, { passive: false });
+            document.addEventListener('touchmove', onMove, { passive: false });
+            document.addEventListener('touchend', onEnd);
 
-            if (moveListener) {
-                document.removeEventListener('touchmove', moveListener);
-                document.removeEventListener('mousemove', moveListener);
-            }
-            if (endListener) {
-                document.removeEventListener('touchend', endListener);
-                document.removeEventListener('mouseup', endListener);
-            }
-
-            // Adiciona novos listeners
-            newThumb.addEventListener('touchstart', onStart, { passive: false });
-            newThumb.addEventListener('mousedown', onStart);
-
-            moveListener = onMove;
-            endListener = onEnd;
-
-            document.addEventListener('touchmove', moveListener, { passive: false });
-            document.addEventListener('mousemove', moveListener);
-            document.addEventListener('touchend', endListener);
-            document.addEventListener('mouseup', endListener);
-
-            // Posição inicial
-            newThumb.style.transform = 'translateX(0)';
-            fill.style.width = '0';
-            newThumb.style.transition = 'none';
-            fill.style.transition = 'none';
-
-            console.log(`🎨 Slider configurado para ação: ${action}`);
+            thumb.addEventListener('mousedown', onStart);
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onEnd);
         }
 
-        window.openGenerateTokenModal = openGenerateTokenModal;
-        window.viewStudentHistory = viewStudentHistory;
-        window.openLocationActionModal = openLocationActionModal;
-        window.openManualConfirmModal = openManualConfirmModal;
-        window.openLogoutConfirmModal = openLogoutConfirmModal;
-        window.openProfileModal = openProfileModal;
-        window.openDeleteAccountConfirmModal = openDeleteAccountConfirmModal;
-        window.toggleFullScreen = toggleFullScreen;
-        window.handleRevokeToken = handleRevokeToken;
-        window.logout = logout;
     </script>
 </body>
 
