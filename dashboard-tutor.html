@@ -579,6 +579,7 @@
         }
 
         .slide-btn-track {
+            z-index: 1;
             position: absolute;
             inset: 0;
             border-radius: 80px;
@@ -634,37 +635,40 @@
             width: 100%;
             text-align: center;
             font-size: 0.85rem;
-            /* Reduzido de 1rem para 0.85rem */
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            /* Reduzido ligeiramente */
             pointer-events: none;
-            z-index: 1;
-            transition: opacity 0.2s;
+            z-index: 5;
+            transition: opacity 0.2s, transform 0.05s linear;
+            /* Adiciona transição para movimento */
             white-space: nowrap;
-            /* Impede quebra de linha */
             overflow: hidden;
             text-overflow: ellipsis;
-            padding: 0 10px;
-            /* Adiciona padding para não encostar nas bordas */
+            padding: 0 15px;
+            /* Padding lateral */
+            line-height: 80px;
+            /* Centraliza verticalmente */
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            margin: 0;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            /* Leve sombra para destacar */
         }
 
         /* Ajuste específico para textos maiores */
         .slide-btn[data-action="entrada"] .slide-btn-label {
             color: #059669;
-            font-size: 0.8rem;
-            /* Ainda menor para "Registrar Entrada" */
         }
 
         .slide-btn[data-action="saida"] .slide-btn-label {
             color: #dc2626;
-            font-size: 0.85rem;
         }
 
         .slide-btn[data-action="confirmar"] .slide-btn-label {
             color: #b45309;
-            font-size: 0.85rem;
         }
 
         .slide-btn-thumb {
@@ -676,7 +680,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            z-index: 2;
+            z-index: 3;
             transition: transform 0.05s linear, box-shadow 0.2s;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
         }
@@ -3812,17 +3816,30 @@
             }, 3000);
         }
 
-        // ===== SLIDE BUTTON LOGIC =====
         function initSlideButtons() {
-            document.querySelectorAll('.slide-btn').forEach(btn => bindSlideButton(btn));
+            document.querySelectorAll('.slide-btn').forEach(btn => {
+                // Reset qualquer estado anterior
+                btn.classList.remove('activated', 'sliding');
+                const thumb = btn.querySelector('.slide-btn-thumb');
+                const fill = btn.querySelector('.slide-btn-fill');
+                const label = btn.querySelector('.slide-btn-label');
+                if (thumb) thumb.style.transform = 'translateX(0)';
+                if (fill) fill.style.width = '0';
+                if (label) {
+                    label.style.transform = 'translateX(0)';
+                    label.style.opacity = '1';
+                }
+                bindSlideButton(btn);
+            });
         }
 
         function bindSlideButton(btn) {
             const thumb = btn.querySelector('.slide-btn-thumb');
             const fill = btn.querySelector('.slide-btn-fill');
             const track = btn.querySelector('.slide-btn-track');
+            const label = btn.querySelector('.slide-btn-label');
             const action = btn.dataset.action;
-            const THUMB_SIZE = 57;
+            const THUMB_SIZE = 80; // Atualizado para 80px
             let isDragging = false;
             let startX = 0;
             let currentOffset = 0;
@@ -3839,6 +3856,34 @@
             // saida slides left (thumb starts right)
             const slidesRight = (action === 'entrada' || action === 'confirmar');
 
+            function updateLabelPosition(offset) {
+                if (!label) return;
+
+                const maxTravel = getMaxTravel();
+                const progress = Math.abs(offset) / maxTravel;
+                const thumbSize = THUMB_SIZE;
+
+                if (slidesRight) {
+                    // Quando desliza para direita, o texto se move para direita
+                    // Começa centralizado (0) e vai até +30px
+                    const moveAmount = offset * 0.3; // Move 30% da distância do polegar
+                    label.style.transform = `translateX(${moveAmount}px)`;
+                } else {
+                    // Quando desliza para esquerda, o texto se move para esquerda
+                    const moveAmount = offset * 0.3; // offset é negativo
+                    label.style.transform = `translateX(${moveAmount}px)`;
+                }
+
+                // Reduz a opacidade conforme o progresso (já existente)
+                label.style.opacity = 1 - (progress * 0.4); // Reduz no máximo 40%
+            }
+
+            function resetLabelPosition() {
+                if (!label) return;
+                label.style.transform = 'translateX(0)';
+                label.style.opacity = '1';
+            }
+
             function onStart(e) {
                 if (btn.classList.contains('activated')) return;
                 isDragging = true;
@@ -3847,6 +3892,7 @@
                 currentOffset = 0;
                 thumb.style.transition = 'none';
                 fill.style.transition = 'none';
+                if (label) label.style.transition = 'none';
                 e.preventDefault();
             }
 
@@ -3866,9 +3912,8 @@
                     fill.style.width = `${Math.abs(currentOffset) + THUMB_SIZE}px`;
                 }
 
-                // Fade label as thumb moves
-                const progress = Math.abs(currentOffset) / maxTravel;
-                btn.querySelector('.slide-btn-label').style.opacity = 1 - progress;
+                // Atualiza posição do texto
+                updateLabelPosition(currentOffset);
                 e.preventDefault();
             }
 
@@ -3884,13 +3929,16 @@
                     btn.classList.add('activated');
                     thumb.style.transition = 'transform 0.2s ease-out';
                     fill.style.transition = 'width 0.2s ease-out';
+                    if (label) label.style.transition = 'transform 0.2s ease-out, opacity 0.2s ease-out';
 
                     if (slidesRight) {
                         thumb.style.transform = `translateX(${maxTravel}px)`;
                         fill.style.width = '100%';
+                        if (label) label.style.transform = `translateX(${maxTravel * 0.3}px)`;
                     } else {
                         thumb.style.transform = `translateX(${-maxTravel}px)`;
                         fill.style.width = '100%';
+                        if (label) label.style.transform = `translateX(${-maxTravel * 0.3}px)`;
                     }
 
                     // Haptic feedback
@@ -3908,21 +3956,25 @@
                         }
 
                         // Reset after a delay
-                        setTimeout(() => resetSlideBtn(btn, thumb, fill, slidesRight), 500);
+                        setTimeout(() => resetSlideBtn(btn, thumb, fill, label, slidesRight), 500);
                     }, 300);
                 } else {
                     // Snap back
-                    resetSlideBtn(btn, thumb, fill, slidesRight);
+                    resetSlideBtn(btn, thumb, fill, label, slidesRight);
                 }
             }
 
-            function resetSlideBtn(b, t, f, right) {
+            function resetSlideBtn(b, t, f, l, right) {
                 b.classList.remove('activated');
                 t.style.transition = 'transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
                 f.style.transition = 'width 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+                if (l) {
+                    l.style.transition = 'transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.35s ease';
+                    l.style.transform = 'translateX(0)';
+                    l.style.opacity = '1';
+                }
                 t.style.transform = 'translateX(0)';
                 f.style.width = '0';
-                b.querySelector('.slide-btn-label').style.opacity = 1;
             }
 
             // Touch events
