@@ -3891,7 +3891,7 @@
             let isDragging = false;
             let startX = 0;
             let currentOffset = 0;
-            let isCompleted = false; // NOVO: flag para indicar se o deslize foi completado
+            let isProcessing = false;
 
             // Garantir que o texto comece centralizado
             if (label) {
@@ -3912,7 +3912,9 @@
             const slidesRight = (action === 'entrada' || action === 'confirmar');
 
             function onStart(e) {
-                if (btn.classList.contains('activated') || isActionProcessing || isCompleted) return;
+                // Permite novo início apenas se não estiver processando
+                if (isProcessing || isActionProcessing) return;
+
                 isDragging = true;
                 btn.classList.add('sliding');
                 startX = (e.touches ? e.touches[0].clientX : e.clientX);
@@ -3941,27 +3943,25 @@
             }
 
             async function onEnd() {
-                if (!isDragging || isActionProcessing || isCompleted) return;
+                if (!isDragging || isProcessing || isActionProcessing) return;
 
                 const maxTravel = getMaxTravel();
                 const progress = Math.abs(currentOffset) / maxTravel;
 
-                // Se não completou o deslize, volta
+                // Se não completou o deslize, volta rápido
                 if (progress < 0.85) {
-                    resetSlideBtn(btn, thumb, fill, label);
+                    resetSlideBtn(btn, thumb, fill, label, 'fast');
                     isDragging = false;
                     return;
                 }
 
-                // MARCA COMO COMPLETADO E MANTÉM NA POSIÇÃO
-                isCompleted = true;
+                // MARCA COMO PROCESSANDO E MANTÉM NA POSIÇÃO
+                isProcessing = true;
                 isDragging = false;
                 btn.classList.add('activated');
-
-                // Remove a classe sliding
                 btn.classList.remove('sliding');
 
-                // Aplica transição suave para a posição final
+                // Aplica transição suave para a posição final e MANTÉM
                 thumb.style.transition = 'transform 0.2s ease-out';
                 fill.style.transition = 'width 0.2s ease-out';
 
@@ -3976,7 +3976,7 @@
                 // Haptic feedback
                 if (navigator.vibrate) navigator.vibrate(50);
 
-                // Inicia o processamento
+                // Inicia o processamento da ação
                 isActionProcessing = true;
                 btn.classList.add('processing');
 
@@ -3986,32 +3986,55 @@
                 const aluno = students.find(s => s.id == studentId);
 
                 try {
-                    // Se for confirmação, não precisa de localização
+                    // CASO 1: CONFIRMAÇÃO (não precisa de localização)
                     if (action === 'confirmar') {
+                        showAlert(`Confirmando saída de ${studentName}...`, 'info');
+
                         await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
 
-                        // Tela de sucesso
-                        mostrarTelaSucesso('confirmacao', async () => {
-                            await refreshStudentsData();
-                            // SÓ RESETA DEPOIS QUE A TELA DE SUCESSO TERMINAR
-                            resetSlideBtn(btn, thumb, fill, label);
-                            isCompleted = false;
+                        // SUCESSO NA CONFIRMAÇÃO
+                        // O slider volta POR BAIXO DOS PANOS enquanto a tela de sucesso aparece
+                        mostrarTelaSucesso('confirmacao', () => {
+                            // Callback executado quando a tela de sucesso termina
+                            refreshStudentsData();
+                            // O reset já foi feito silenciosamente durante a exibição
                         });
+
+                        // VOLTA SILENCIOSA (por baixo dos panos) - Imediatamente após chamar a tela de sucesso
+                        resetSlideBtn(btn, thumb, fill, label, 'slow', true); // silent = true
 
                         return;
                     }
 
-                    // Para entrada e saída, obtém localização
+                    // CASO 2: ENTRADA OU SAÍDA - precisa de localização
                     showAlert(`Obtendo localização para ${action === 'entrada' ? 'entrada' : 'saída'}...`, 'info');
 
-                    const position = await new Promise((resolve, reject) => {
-                        navigator.geolocation.getCurrentPosition(resolve, reject, {
-                            enableHighAccuracy: true,
-                            timeout: 10000
+                    // Tenta obter a localização
+                    let position;
+                    try {
+                        position = await new Promise((resolve, reject) => {
+                            navigator.geolocation.getCurrentPosition(resolve, reject, {
+                                enableHighAccuracy: true,
+                                timeout: 10000,
+                                maximumAge: 0
+                            });
                         });
-                    });
+                    } catch (locationError) {
+                        // ERRO DE LOCALIZAÇÃO - volta VISÍVEL após mensagem
+                        showAlert('Não foi possível obter sua localização. Verifique as permissões.', 'danger');
+
+                        // Aguarda um pouco para o usuário ler a mensagem e DEPOIS volta (visível)
+                        setTimeout(() => {
+                            resetSlideBtn(btn, thumb, fill, label, 'slow', false); // silent = false (visível)
+                            isProcessing = false;
+                        }, 2500);
+
+                        return;
+                    }
 
                     const { latitude, longitude } = position.coords;
+
+                    showAlert(`Verificando se você está dentro da área permitida...`, 'info');
 
                     // Prepara o endpoint e body
                     let endpoint, body;
@@ -4041,43 +4064,80 @@
                         body: JSON.stringify(body)
                     });
 
-                    await response.json();
+                    const result = await response.json();
 
-                    // Mostra tela de sucesso
+                    // Verifica se houve erro (como fora da área)
+                    if (!response.ok) {
+                        throw new Error(result.mensagem || 'Erro ao processar solicitação');
+                    }
+
+                    // SUCESSO - mostra tela colorida
                     const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
-                    mostrarTelaSucesso(tipoSucesso, async () => {
-                        await refreshStudentsData();
-                        // SÓ RESETA DEPOIS QUE A TELA DE SUCESSO TERMINAR
-                        resetSlideBtn(btn, thumb, fill, label);
-                        isCompleted = false;
+
+                    // Chama a tela de sucesso
+                    mostrarTelaSucesso(tipoSucesso, () => {
+                        // Callback executado quando a tela de sucesso termina
+                        refreshStudentsData();
+                        // O reset já foi feito silenciosamente
                     });
 
+                    // VOLTA SILENCIOSA (por baixo dos panos) - Imediatamente após chamar a tela de sucesso
+                    resetSlideBtn(btn, thumb, fill, label, 'slow', true); // silent = true
+
                 } catch (error) {
-                    console.error('Erro no processo automático:', error);
+                    console.error('Erro no processo:', error);
+
+                    // ERRO (ex: fora da área) - volta VISÍVEL após mensagem
                     showAlert(error.message || 'Não foi possível completar a operação.', 'danger');
 
-                    // Em caso de erro, reseta o botão
-                    resetSlideBtn(btn, thumb, fill, label);
-                    isCompleted = false;
+                    // Aguarda um pouco para o usuário ler a mensagem e DEPOIS volta (visível)
+                    setTimeout(() => {
+                        resetSlideBtn(btn, thumb, fill, label, 'slow', false); // silent = false (visível)
+                        isProcessing = false;
+                    }, 2500);
 
-                    // Fallback para erro de localização
-                    if (error.message.includes('localização') || error.message.includes('permissão')) {
-                        if (action === 'entrada' || action === 'saida') {
-                            openLocationActionModal(parseInt(studentId), action, studentName);
-                        }
-                    }
                 } finally {
                     isActionProcessing = false;
                     btn.classList.remove('processing');
                 }
             }
 
-            function resetSlideBtn(b, t, f, l) {
+            function resetSlideBtn(b, t, f, l, speed = 'normal', silent = false) {
+                // Remove a classe de ativado
                 b.classList.remove('activated');
-                t.style.transition = 'transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
-                f.style.transition = 'width 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+
+                // Define a velocidade da animação
+                if (speed === 'slow') {
+                    // Volta BEM devagar (1 segundo)
+                    t.style.transition = 'transform 1s cubic-bezier(0.2, 0.8, 0.4, 1)';
+                    f.style.transition = 'width 1s cubic-bezier(0.2, 0.8, 0.4, 1)';
+                } else if (speed === 'fast') {
+                    // Volta rápido (0.2 segundos) - para quando não completou
+                    t.style.transition = 'transform 0.2s ease-out';
+                    f.style.transition = 'width 0.2s ease-out';
+                } else {
+                    // Volta normal (0.35 segundos)
+                    t.style.transition = 'transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+                    f.style.transition = 'width 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+                }
+
                 t.style.transform = 'translateX(0)';
                 f.style.width = '0';
+
+                // Se for silencioso, não faz nada além de resetar (já está invisível)
+                if (silent) {
+                    console.log('🔄 Slider resetado silenciosamente (por baixo dos panos)');
+                }
+            }
+
+            // Função para resetar completamente (para novas tentativas)
+            function hardReset() {
+                if (isProcessing) return; // Não interrompe processo em andamento
+
+                resetSlideBtn(btn, thumb, fill, label, 'fast', false);
+                isProcessing = false;
+                isDragging = false;
+                btn.classList.remove('activated', 'processing', 'sliding');
             }
 
             // Event listeners
@@ -4088,6 +4148,9 @@
             thumb.addEventListener('mousedown', onStart);
             document.addEventListener('mousemove', onMove);
             document.addEventListener('mouseup', onEnd);
+
+            // EXPÕE função de reset para uso externo (se necessário)
+            btn.hardReset = hardReset;
         }
 
     </script>
