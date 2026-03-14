@@ -3908,11 +3908,10 @@
             let endListener = null;
 
             // GARANTIR QUE NÃO HÁ ANIMAÇÃO PADRÃO NO CSS
-            // Isso é CRÍTICO - sobrescreve qualquer animation do CSS
             newThumb.style.animation = 'none';
             btn.style.animation = 'none';
 
-            // Remove a classe sliding se existir
+            // Remove classes
             btn.classList.remove('sliding', 'activated', 'processing');
 
             // Garantir que o texto comece centralizado
@@ -3935,7 +3934,6 @@
             const slidesRight = (action === 'entrada' || action === 'confirmar');
 
             function onStart(e) {
-                // IMPEDE COMPORTAMENTO PADRÃO
                 e.preventDefault();
                 e.stopPropagation();
 
@@ -3950,7 +3948,7 @@
                 startX = (e.touches ? e.touches[0].clientX : e.clientX);
                 currentOffset = 0;
 
-                // Remove TODAS as transições para movimento livre
+                // Remove TODAS as transições
                 newThumb.style.transition = 'none';
                 fill.style.transition = 'none';
                 newThumb.style.animation = 'none';
@@ -3959,7 +3957,6 @@
                 newThumb.style.transform = 'translateX(0)';
                 fill.style.width = '0';
 
-                // Adiciona classe de sliding (opcional)
                 btn.classList.add('sliding');
             }
 
@@ -3973,18 +3970,12 @@
                 let delta = clientX - startX;
                 const maxTravel = getMaxTravel();
 
-                // Calcula o deslocamento
                 if (slidesRight) {
                     currentOffset = Math.max(0, Math.min(delta, maxTravel));
-                } else {
-                    currentOffset = Math.min(0, Math.max(delta, -maxTravel));
-                }
-
-                // Aplica a posição SEM TRANSIÇÃO
-                if (slidesRight) {
                     newThumb.style.transform = `translateX(${currentOffset}px)`;
                     fill.style.width = `${currentOffset + THUMB_SIZE}px`;
                 } else {
+                    currentOffset = Math.min(0, Math.max(delta, -maxTravel));
                     newThumb.style.transform = `translateX(${currentOffset}px)`;
                     fill.style.width = `${Math.abs(currentOffset) + THUMB_SIZE}px`;
                 }
@@ -3996,14 +3987,11 @@
                     e.stopPropagation();
                 }
 
-                // Se não estava arrastando, ignora
                 if (!isDragging) return;
 
-                // Remove classe de sliding
                 btn.classList.remove('sliding');
                 isDragging = false;
 
-                // Se já está processando, ignora
                 if (isProcessing || isActionProcessing) {
                     console.log('⛔ Já está processando');
                     return;
@@ -4014,31 +4002,24 @@
 
                 console.log(`📊 Progresso: ${(progress * 100).toFixed(0)}%`);
 
-                // Se não completou o deslize (menos de 80%), volta rápido
                 if (progress < 0.8) {
                     console.log('⏪ Não completou, voltando rápido');
-
-                    // Aplica transição apenas para voltar
                     newThumb.style.transition = 'transform 0.2s ease-out';
                     fill.style.transition = 'width 0.2s ease-out';
-
                     newThumb.style.transform = 'translateX(0)';
                     fill.style.width = '0';
-
                     return;
                 }
 
                 // COMPLETOU O DESLIZE!
-                console.log('✅ Deslize completado (>=80%), fixando na posição final');
+                console.log('✅ Deslize completado, fixando na posição final');
 
-                // IMPEDE QUALQUER RETORNO - FIXA NA POSIÇÃO FINAL IMEDIATAMENTE
                 isProcessing = true;
 
-                // Remove TODAS as transições primeiro
+                // Fixa na posição final SEM ANIMAÇÃO
                 newThumb.style.transition = 'none';
                 fill.style.transition = 'none';
 
-                // Fixa na posição final SEM ANIMAÇÃO
                 if (slidesRight) {
                     newThumb.style.transform = `translateX(${maxTravel}px)`;
                     fill.style.width = '100%';
@@ -4047,9 +4028,8 @@
                     fill.style.width = '100%';
                 }
 
-                // FORÇA O BROWSER A APLICAR AS MUDANÇAS IMEDIATAMENTE
-                // Isso é importante para garantir que não haja "mola"
-                void newThumb.offsetHeight; // Força reflow
+                // Força reflow
+                void newThumb.offsetHeight;
 
                 // Haptic feedback
                 if (navigator.vibrate) navigator.vibrate(50);
@@ -4065,25 +4045,23 @@
                 const aluno = students.find(s => s.id == studentId);
 
                 try {
-                    // CASO 1: CONFIRMAÇÃO (não precisa de localização)
+                    // CASO 1: CONFIRMAÇÃO
                     if (action === 'confirmar') {
                         showAlert(`Confirmando saída de ${studentName}...`, 'info');
 
                         await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
 
-                        // SUCESSO NA CONFIRMAÇÃO
                         mostrarTelaSucesso('confirmacao', () => {
                             refreshStudentsData();
                         });
 
-                        // Reset silencioso imediato (agora com transição lenta)
                         resetSlideBtn(btn, newThumb, fill, label, 'slow', true);
                         isProcessing = false;
 
                         return;
                     }
 
-                    // CASO 2: ENTRADA OU SAÍDA - precisa de localização
+                    // CASO 2: ENTRADA OU SAÍDA
                     showAlert(`Obtendo localização para ${action === 'entrada' ? 'entrada' : 'saída'}...`, 'info');
 
                     // Tenta obter a localização
@@ -4093,17 +4071,19 @@
                             navigator.geolocation.getCurrentPosition(resolve, reject, {
                                 enableHighAccuracy: true,
                                 timeout: 10000,
-                                maximumAge: 0
+                                maximumAge: 0 // SEMPRE fresh location
                             });
                         });
                     } catch (locationError) {
                         // ERRO DE LOCALIZAÇÃO
                         showAlert('Não foi possível obter sua localização. Verifique as permissões.', 'danger');
 
-                        // Volta visível após 2.5 segundos
                         setTimeout(() => {
                             resetSlideBtn(btn, newThumb, fill, label, 'slow', false);
+                            // RESET COMPLETO DAS FLAGS PARA PERMITIR NOVA TENTATIVA
                             isProcessing = false;
+                            isActionProcessing = false;
+                            btn.classList.remove('processing', 'activated');
                         }, 2500);
 
                         return;
@@ -4148,14 +4128,13 @@
                         throw new Error(result.mensagem || 'Erro ao processar solicitação');
                     }
 
-                    // SUCESSO - mostra tela colorida
+                    // SUCESSO
                     const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
 
                     mostrarTelaSucesso(tipoSucesso, () => {
                         refreshStudentsData();
                     });
 
-                    // Reset silencioso imediato
                     resetSlideBtn(btn, newThumb, fill, label, 'slow', true);
                     isProcessing = false;
 
@@ -4165,27 +4144,28 @@
                     // ERRO (ex: fora da área)
                     showAlert(error.message || 'Não foi possível completar a operação.', 'danger');
 
-                    // Aguarda um pouco para o usuário ler a mensagem e DEPOIS volta (visível)
                     setTimeout(() => {
                         resetSlideBtn(btn, newThumb, fill, label, 'slow', false);
+                        // RESET COMPLETO DAS FLAGS PARA PERMITIR NOVA TENTATIVA
                         isProcessing = false;
+                        isActionProcessing = false;
+                        btn.classList.remove('processing', 'activated');
                     }, 2500);
 
                 } finally {
-                    isActionProcessing = false;
-                    btn.classList.remove('processing');
+                    // Não resetamos as flags aqui porque queremos que só resetem após o setTimeout
+                    // isActionProcessing = false;
+                    // btn.classList.remove('processing');
                 }
             }
 
             function resetSlideBtn(b, t, f, l, speed = 'normal', silent = false) {
                 console.log(`🔄 Resetando slider (${silent ? 'silencioso' : 'visível'})`);
 
-                // Se for silencioso, remove a classe activated imediatamente
                 if (silent) {
                     b.classList.remove('activated');
                 }
 
-                // Define a velocidade da animação para VOLTAR
                 if (speed === 'slow') {
                     t.style.transition = 'transform 1s cubic-bezier(0.2, 0.8, 0.4, 1)';
                     f.style.transition = 'width 1s cubic-bezier(0.2, 0.8, 0.4, 1)';
@@ -4197,11 +4177,9 @@
                     f.style.transition = 'width 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
                 }
 
-                // Volta à posição inicial
                 t.style.transform = 'translateX(0)';
                 f.style.width = '0';
 
-                // Remove classe activated se não for silencioso
                 if (!silent) {
                     b.classList.remove('activated');
                 }
@@ -4232,7 +4210,7 @@
             document.addEventListener('touchend', endListener);
             document.addEventListener('mouseup', endListener);
 
-            // Garantir que o botão começa na posição correta
+            // Posição inicial
             newThumb.style.transform = 'translateX(0)';
             fill.style.width = '0';
             newThumb.style.transition = 'none';
