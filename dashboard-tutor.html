@@ -3906,7 +3906,7 @@
             let isProcessing = false;
             let moveListener = null;
             let endListener = null;
-            let errorTimeout = null; // Para controlar o timeout do erro
+            let errorTimeout = null;
 
             // GARANTIR QUE NÃO HÁ ANIMAÇÃO PADRÃO NO CSS
             newThumb.style.animation = 'none';
@@ -3938,12 +3938,17 @@
                 e.preventDefault();
                 e.stopPropagation();
 
-                const oldMsg = document.getElementById('statusMessage');
-                if (oldMsg) {
-                    oldMsg.style.display = 'none';
+                // LIMPA TIMEOUT PENDENTE
+                if (errorTimeout) {
+                    clearTimeout(errorTimeout);
+                    errorTimeout = null;
                 }
 
-                
+                // Remove mensagem anterior
+                const existingMsg = document.getElementById('statusMessage');
+                if (existingMsg) {
+                    existingMsg.remove();
+                }
 
                 // Só permite se não estiver processando
                 if (isProcessing || isActionProcessing) {
@@ -4055,7 +4060,7 @@
                 try {
                     // CASO 1: CONFIRMAÇÃO
                     if (action === 'confirmar') {
-                        showAlert(`Confirmando saída de ${studentName}...`, 'info');
+                        showStatusMessage(`Confirmando saída de ${studentName}...`, 'info');
 
                         await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
 
@@ -4087,16 +4092,12 @@
                         // ERRO DE LOCALIZAÇÃO
                         showStatusMessage('Não foi possível obter sua localização. Verifique as permissões.', 'danger');
 
-                        // Guarda o timeout para poder cancelar se necessário
                         errorTimeout = setTimeout(() => {
                             resetSlideBtn(btn, newThumb, fill, label, 'slow', false);
-
-                            // RESET COMPLETO PARA PRÓXIMA TENTATIVA
                             isProcessing = false;
                             isActionProcessing = false;
                             btn.classList.remove('processing', 'activated');
                             errorTimeout = null;
-
                             console.log('🔄 Pronto para nova tentativa (erro localização)');
                         }, 2500);
 
@@ -4150,8 +4151,6 @@
                     });
 
                     resetSlideBtn(btn, newThumb, fill, label, 'slow', true);
-
-                    // RESET COMPLETO DAS FLAGS
                     isProcessing = false;
                     isActionProcessing = false;
                     btn.classList.remove('processing', 'activated');
@@ -4160,18 +4159,14 @@
                     console.error('Erro no processo:', error);
 
                     // ERRO (ex: fora da área)
-                    showAlert(error.message || 'Não foi possível completar a operação.', 'danger');
+                    showStatusMessage(error.message || 'Não foi possível completar a operação.', 'danger');
 
-                    // Guarda o timeout para poder cancelar se necessário
                     errorTimeout = setTimeout(() => {
                         resetSlideBtn(btn, newThumb, fill, label, 'slow', false);
-
-                        // RESET COMPLETO PARA PRÓXIMA TENTATIVA
                         isProcessing = false;
                         isActionProcessing = false;
                         btn.classList.remove('processing', 'activated');
                         errorTimeout = null;
-
                         console.log('🔄 Pronto para nova tentativa (erro validação)');
                     }, 2500);
                 }
@@ -4179,48 +4174,61 @@
 
             // Função específica para mostrar mensagens no card entre welcome e alunos
             function showStatusMessage(message, type = 'info') {
-                // Primeiro, vamos encontrar ou criar o elemento de mensagem
-                let statusMsg = document.getElementById('statusMessage');
-
-                if (!statusMsg) {
-                    // Se não existir, vamos criar
-                    const welcomeSection = document.querySelector('.welcome-section');
-                    const studentsCard = document.querySelector('.card:first-of-type');
-
-                    if (welcomeSection && studentsCard) {
-                        statusMsg = document.createElement('div');
-                        statusMsg.id = 'statusMessage';
-                        statusMsg.className = `alert alert-${type} alert-dismissible fade show`;
-                        statusMsg.role = 'alert';
-                        statusMsg.style.marginBottom = '20px';
-                        statusMsg.style.borderRadius = 'var(--radius-sm)';
-                        statusMsg.style.fontWeight = '500';
-                        statusMsg.style.fontSize = '0.9rem';
-
-                        // Insere entre o welcome e o card de alunos
-                        welcomeSection.parentNode.insertBefore(statusMsg, studentsCard);
-                    }
+                // Remove mensagem anterior se existir
+                const oldMsg = document.getElementById('statusMessage');
+                if (oldMsg) {
+                    oldMsg.remove();
                 }
 
-                if (statusMsg) {
-                    statusMsg.className = `alert alert-${type} alert-dismissible fade show`;
-                    statusMsg.innerHTML = `
+                // Encontra o local correto para inserir a mensagem
+                const welcomeSection = document.querySelector('.welcome-section');
+                const studentsCard = document.querySelector('.card:first-of-type');
+
+                if (!welcomeSection || !studentsCard) {
+                    console.error('Elementos não encontrados para mostrar mensagem');
+                    return;
+                }
+
+                // Cria nova mensagem
+                const statusMsg = document.createElement('div');
+                statusMsg.id = 'statusMessage';
+                statusMsg.className = `alert alert-${type} alert-dismissible fade show`;
+                statusMsg.role = 'alert';
+                statusMsg.style.marginBottom = '20px';
+                statusMsg.style.borderRadius = 'var(--radius-sm)';
+                statusMsg.style.fontWeight = '500';
+                statusMsg.style.fontSize = '0.9rem';
+                statusMsg.style.animation = 'slideDown 0.3s ease-out';
+
+                statusMsg.innerHTML = `
             ${message}
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            `;
-                    statusMsg.style.display = 'block';
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
 
-                    // Auto fade after 5 seconds
-                    setTimeout(() => {
-                        if (statusMsg && statusMsg.style.display !== 'none') {
-                            statusMsg.style.transition = 'opacity 0.5s';
-                            statusMsg.style.opacity = '0';
-                            setTimeout(() => {
-                                if (statusMsg) statusMsg.style.display = 'none';
-                            }, 500);
-                        }
-                    }, 5000);
+                // Insere a mensagem no lugar correto (entre welcome e card de alunos)
+                // O main contém: welcome-section, alertBox, loading, content
+                // O content contém o card de alunos
+                // Então inserimos depois do welcome-section, mas antes do content
+                const content = document.getElementById('content');
+                if (content) {
+                    welcomeSection.parentNode.insertBefore(statusMsg, content);
+                } else {
+                    welcomeSection.parentNode.insertBefore(statusMsg, studentsCard);
                 }
+
+                // Auto fade após 5 segundos
+                setTimeout(() => {
+                    const msg = document.getElementById('statusMessage');
+                    if (msg) {
+                        msg.style.transition = 'opacity 0.5s';
+                        msg.style.opacity = '0';
+                        setTimeout(() => {
+                            if (msg && msg.parentNode) {
+                                msg.remove();
+                            }
+                        }, 500);
+                    }
+                }, 5000);
             }
 
             function resetSlideBtn(b, t, f, l, speed = 'normal', silent = false) {
