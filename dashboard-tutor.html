@@ -579,13 +579,13 @@
         }
 
         .slide-btn-track {
-            z-index: 1;
             position: absolute;
             inset: 0;
             border-radius: 80px;
             display: flex;
             align-items: center;
             transition: background 0.3s;
+            z-index: 1;
         }
 
         /* State colors */
@@ -613,6 +613,7 @@
             transition: width 0.05s linear;
             pointer-events: none;
             opacity: 0.35;
+            z-index: 1;
         }
 
         .slide-btn[data-action="entrada"] .slide-btn-fill {
@@ -639,23 +640,22 @@
             text-transform: uppercase;
             letter-spacing: 0.5px;
             pointer-events: none;
-            z-index: 5;
-            transition: opacity 0.2s, transform 0.05s linear;
-            /* Adiciona transição para movimento */
+            z-index: 2;
+            /* Acima do fill, abaixo do thumb? Não, thumb tem z-index 3 */
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
             padding: 0 15px;
-            /* Padding lateral */
             line-height: 80px;
-            /* Centraliza verticalmente */
             top: 0;
             left: 0;
             right: 0;
             bottom: 0;
             margin: 0;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            /* Leve sombra para destacar */
+            /* REMOVA qualquer transformação */
+            transform: none !important;
+            transition: opacity 0.2s ease;
+            /* APENAS opacidade */
         }
 
         /* Ajuste específico para textos maiores */
@@ -674,13 +674,13 @@
         .slide-btn-thumb {
             position: absolute;
             width: 80px;
-            /* Aumentado para igualar à altura */
             height: 80px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             z-index: 3;
+            /* Thumb acima de tudo */
             transition: transform 0.05s linear, box-shadow 0.2s;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
         }
@@ -764,10 +764,20 @@
             }
         }
 
+
+
         /* Chevron bounce hint */
         .slide-btn .slide-hint {
             position: absolute;
             z-index: 1;
+            opacity: 0.4;
+            pointer-events: none;
+        }
+
+        .slide-hint {
+            position: absolute;
+            z-index: 2;
+            /* Acima do texto? Não, texto tem z-index 2 também */
             opacity: 0.4;
             pointer-events: none;
         }
@@ -3818,17 +3828,18 @@
 
         function initSlideButtons() {
             document.querySelectorAll('.slide-btn').forEach(btn => {
-                // Reset qualquer estado anterior
                 btn.classList.remove('activated', 'sliding');
                 const thumb = btn.querySelector('.slide-btn-thumb');
                 const fill = btn.querySelector('.slide-btn-fill');
                 const label = btn.querySelector('.slide-btn-label');
+
                 if (thumb) thumb.style.transform = 'translateX(0)';
                 if (fill) fill.style.width = '0';
                 if (label) {
-                    label.style.transform = 'translateX(0)';
+                    label.style.transform = 'none'; // Remove qualquer transform anterior
                     label.style.opacity = '1';
                 }
+
                 bindSlideButton(btn);
             });
         }
@@ -3839,7 +3850,7 @@
             const track = btn.querySelector('.slide-btn-track');
             const label = btn.querySelector('.slide-btn-label');
             const action = btn.dataset.action;
-            const THUMB_SIZE = 80; // Atualizado para 80px
+            const THUMB_SIZE = 80;
             let isDragging = false;
             let startX = 0;
             let currentOffset = 0;
@@ -3856,34 +3867,6 @@
             // saida slides left (thumb starts right)
             const slidesRight = (action === 'entrada' || action === 'confirmar');
 
-            function updateLabelPosition(offset) {
-                if (!label) return;
-
-                const maxTravel = getMaxTravel();
-                const progress = Math.abs(offset) / maxTravel;
-                const thumbSize = THUMB_SIZE;
-
-                if (slidesRight) {
-                    // Quando desliza para direita, o texto se move para direita
-                    // Começa centralizado (0) e vai até +30px
-                    const moveAmount = offset * 0.3; // Move 30% da distância do polegar
-                    label.style.transform = `translateX(${moveAmount}px)`;
-                } else {
-                    // Quando desliza para esquerda, o texto se move para esquerda
-                    const moveAmount = offset * 0.3; // offset é negativo
-                    label.style.transform = `translateX(${moveAmount}px)`;
-                }
-
-                // Reduz a opacidade conforme o progresso (já existente)
-                label.style.opacity = 1 - (progress * 0.4); // Reduz no máximo 40%
-            }
-
-            function resetLabelPosition() {
-                if (!label) return;
-                label.style.transform = 'translateX(0)';
-                label.style.opacity = '1';
-            }
-
             function onStart(e) {
                 if (btn.classList.contains('activated')) return;
                 isDragging = true;
@@ -3892,7 +3875,7 @@
                 currentOffset = 0;
                 thumb.style.transition = 'none';
                 fill.style.transition = 'none';
-                if (label) label.style.transition = 'none';
+                // NÃO mexe no label
                 e.preventDefault();
             }
 
@@ -3912,8 +3895,12 @@
                     fill.style.width = `${Math.abs(currentOffset) + THUMB_SIZE}px`;
                 }
 
-                // Atualiza posição do texto
-                updateLabelPosition(currentOffset);
+                // Reduz opacidade do texto conforme avança (opcional)
+                if (label) {
+                    const progress = Math.abs(currentOffset) / maxTravel;
+                    label.style.opacity = 1 - (progress * 0.3); // Reduz até 30%
+                }
+
                 e.preventDefault();
             }
 
@@ -3929,16 +3916,13 @@
                     btn.classList.add('activated');
                     thumb.style.transition = 'transform 0.2s ease-out';
                     fill.style.transition = 'width 0.2s ease-out';
-                    if (label) label.style.transition = 'transform 0.2s ease-out, opacity 0.2s ease-out';
 
                     if (slidesRight) {
                         thumb.style.transform = `translateX(${maxTravel}px)`;
                         fill.style.width = '100%';
-                        if (label) label.style.transform = `translateX(${maxTravel * 0.3}px)`;
                     } else {
                         thumb.style.transform = `translateX(${-maxTravel}px)`;
                         fill.style.width = '100%';
-                        if (label) label.style.transform = `translateX(${-maxTravel * 0.3}px)`;
                     }
 
                     // Haptic feedback
@@ -3956,25 +3940,23 @@
                         }
 
                         // Reset after a delay
-                        setTimeout(() => resetSlideBtn(btn, thumb, fill, label, slidesRight), 500);
+                        setTimeout(() => resetSlideBtn(btn, thumb, fill, label), 500);
                     }, 300);
                 } else {
                     // Snap back
-                    resetSlideBtn(btn, thumb, fill, label, slidesRight);
+                    resetSlideBtn(btn, thumb, fill, label);
                 }
             }
 
-            function resetSlideBtn(b, t, f, l, right) {
+            function resetSlideBtn(b, t, f, l) {
                 b.classList.remove('activated');
                 t.style.transition = 'transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
                 f.style.transition = 'width 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
-                if (l) {
-                    l.style.transition = 'transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.35s ease';
-                    l.style.transform = 'translateX(0)';
-                    l.style.opacity = '1';
-                }
                 t.style.transform = 'translateX(0)';
                 f.style.width = '0';
+                if (l) {
+                    l.style.opacity = '1'; // Restaura opacidade
+                }
             }
 
             // Touch events
