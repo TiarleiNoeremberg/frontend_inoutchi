@@ -3906,6 +3906,7 @@
             let isProcessing = false;
             let moveListener = null;
             let endListener = null;
+            let errorTimeout = null; // Para controlar o timeout do erro
 
             // GARANTIR QUE NÃO HÁ ANIMAÇÃO PADRÃO NO CSS
             newThumb.style.animation = 'none';
@@ -3936,6 +3937,12 @@
             function onStart(e) {
                 e.preventDefault();
                 e.stopPropagation();
+
+                // LIMPA QUALQUER TIMEOUT PENDENTE
+                if (errorTimeout) {
+                    clearTimeout(errorTimeout);
+                    errorTimeout = null;
+                }
 
                 // Só permite se não estiver processando
                 if (isProcessing || isActionProcessing) {
@@ -4057,6 +4064,7 @@
 
                         resetSlideBtn(btn, newThumb, fill, label, 'slow', true);
                         isProcessing = false;
+                        isActionProcessing = false;
 
                         return;
                     }
@@ -4071,19 +4079,24 @@
                             navigator.geolocation.getCurrentPosition(resolve, reject, {
                                 enableHighAccuracy: true,
                                 timeout: 10000,
-                                maximumAge: 0 // SEMPRE fresh location
+                                maximumAge: 0
                             });
                         });
                     } catch (locationError) {
                         // ERRO DE LOCALIZAÇÃO
                         showAlert('Não foi possível obter sua localização. Verifique as permissões.', 'danger');
 
-                        setTimeout(() => {
+                        // Guarda o timeout para poder cancelar se necessário
+                        errorTimeout = setTimeout(() => {
                             resetSlideBtn(btn, newThumb, fill, label, 'slow', false);
-                            // RESET COMPLETO DAS FLAGS PARA PERMITIR NOVA TENTATIVA
+
+                            // RESET COMPLETO PARA PRÓXIMA TENTATIVA
                             isProcessing = false;
                             isActionProcessing = false;
                             btn.classList.remove('processing', 'activated');
+                            errorTimeout = null;
+
+                            console.log('🔄 Pronto para nova tentativa (erro localização)');
                         }, 2500);
 
                         return;
@@ -4136,7 +4149,11 @@
                     });
 
                     resetSlideBtn(btn, newThumb, fill, label, 'slow', true);
+
+                    // RESET COMPLETO DAS FLAGS
                     isProcessing = false;
+                    isActionProcessing = false;
+                    btn.classList.remove('processing', 'activated');
 
                 } catch (error) {
                     console.error('Erro no processo:', error);
@@ -4144,18 +4161,18 @@
                     // ERRO (ex: fora da área)
                     showAlert(error.message || 'Não foi possível completar a operação.', 'danger');
 
-                    setTimeout(() => {
+                    // Guarda o timeout para poder cancelar se necessário
+                    errorTimeout = setTimeout(() => {
                         resetSlideBtn(btn, newThumb, fill, label, 'slow', false);
-                        // RESET COMPLETO DAS FLAGS PARA PERMITIR NOVA TENTATIVA
+
+                        // RESET COMPLETO PARA PRÓXIMA TENTATIVA
                         isProcessing = false;
                         isActionProcessing = false;
                         btn.classList.remove('processing', 'activated');
-                    }, 2500);
+                        errorTimeout = null;
 
-                } finally {
-                    // Não resetamos as flags aqui porque queremos que só resetem após o setTimeout
-                    // isActionProcessing = false;
-                    // btn.classList.remove('processing');
+                        console.log('🔄 Pronto para nova tentativa (erro validação)');
+                    }, 2500);
                 }
             }
 
