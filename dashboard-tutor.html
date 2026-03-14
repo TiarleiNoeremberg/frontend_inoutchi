@@ -4078,9 +4078,12 @@
             const label = btn.querySelector('.slide-btn-label');
             const action = btn.dataset.action;
             const THUMB_SIZE = 80;
+
+            // Variáveis de controle
             let isDragging = false;
             let startX = 0;
             let currentOffset = 0;
+            let isProcessing = false; // Impede múltiplos processamentos
 
             if (label) {
                 label.style.transform = 'translate(-50%, -50%)';
@@ -4100,7 +4103,9 @@
             const slidesRight = (action === 'entrada' || action === 'confirmar');
 
             function onStart(e) {
-                if (btn.classList.contains('activated')) return;
+                // Se já está processando, não permite novo início
+                if (btn.classList.contains('activated') || isProcessing || isActionProcessing) return;
+
                 isDragging = true;
                 btn.classList.add('sliding');
                 startX = (e.touches ? e.touches[0].clientX : e.clientX);
@@ -4111,7 +4116,8 @@
             }
 
             function onMove(e) {
-                if (!isDragging) return;
+                if (!isDragging || isProcessing || isActionProcessing) return;
+
                 const clientX = e.touches ? e.touches[0].clientX : e.clientX;
                 let delta = clientX - startX;
                 const maxTravel = getMaxTravel();
@@ -4128,54 +4134,173 @@
                 e.preventDefault();
             }
 
-            function onEnd() {
-                if (!isDragging) return;
+            async function onEnd() {
+                if (!isDragging || isProcessing || isActionProcessing) return;
+
                 isDragging = false;
                 btn.classList.remove('sliding');
+
                 const maxTravel = getMaxTravel();
                 const progress = Math.abs(currentOffset) / maxTravel;
 
-                if (progress >= 0.85) {
-                    btn.classList.add('activated');
-                    thumb.style.transition = 'transform 0.2s ease-out';
-                    fill.style.transition = 'width 0.2s ease-out';
+                // Se não completou o deslize, volta rápido
+                if (progress < 0.85) {
+                    resetSlideBtn(btn, thumb, fill, label, 'fast');
+                    return;
+                }
 
-                    if (slidesRight) {
-                        thumb.style.transform = `translateX(${maxTravel}px)`;
-                        fill.style.width = '100%';
-                    } else {
-                        thumb.style.transform = `translateX(${-maxTravel}px)`;
-                        fill.style.width = '100%';
-                    }
+                // ===== COMPLETOU O DESLIZE =====
+                // Marca como processando para evitar novas ações
+                isProcessing = true;
+                isActionProcessing = true;
+                btn.classList.add('activated');
 
-                    if (navigator.vibrate) navigator.vibrate(50);
+                // 🔴 PASSO 1: Slider vai para posição final e FICA LÁ
+                thumb.style.transition = 'transform 0.2s ease-out';
+                fill.style.transition = 'width 0.2s ease-out';
 
-                    setTimeout(() => {
-                        const studentId = btn.dataset.studentId;
-                        const studentName = btn.dataset.studentName;
+                if (slidesRight) {
+                    thumb.style.transform = `translateX(${maxTravel}px)`;
+                    fill.style.width = '100%';
+                } else {
+                    thumb.style.transform = `translateX(${-maxTravel}px)`;
+                    fill.style.width = '100%';
+                }
 
-                        if (action === 'entrada' || action === 'saida') {
-                            // 🔴 AGORA ABRE O MODAL COM PROCESSAMENTO AUTOMÁTICO
-                            abrirModalComProcessamentoAutomatico(parseInt(studentId), action, studentName);
-                        } else if (action === 'confirmar') {
-                            openManualConfirmModal(parseInt(studentId), studentName);
+                if (navigator.vibrate) navigator.vibrate(50);
+
+                // Pega dados do aluno
+                const studentId = btn.dataset.studentId;
+                const studentName = btn.dataset.studentName;
+                const aluno = students.find(s => s.id == studentId);
+
+                try {
+                    if (action === 'confirmar') {
+                        // 🔴 CASO CONFIRMAR
+                        await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
+
+                        // 🔴 Slider volta SILENCIOSAMENTE durante a tela de sucesso
+                        mostrarTelaSucesso('confirmacao', async () => {
+                            await refreshStudentsData();
+                            // Só reseta as flags depois que a tela sumir
+                            isProcessing = false;
+                            isActionProcessing = false;
+                        });
+
+                        // 🔴 Reset silencioso imediato (por baixo dos panos)
+                        resetSlideBtn(btn, thumb, fill, label, 'slow', true);
+
+                    } else if (action === 'entrada' || action === 'saida') {
+                        // 🔴 CASO ENTRADA OU SAÍDA
+                        showStatusMessage(`Obtendo localização para ${action}...`, 'info');
+
+                        // Obtém localização
+                        const position = await new Promise((resolve, reject) => {
+                            navigator.geolocation.getCurrentPosition(resolve, reject, {
+                                enableHighAccuracy: true,
+                                timeout: 10000,
+                                maximumAge: 0
+                            });
+                        });
+
+                        const { latitude, longitude } = position.coords;
+
+                        showStatusMessage(`Validando geolocalização...`, 'info');
+
+                        // Prepara a chamada
+                        let endpoint, body;
+                        if (action === 'entrada') {
+                            endpoint = '/api/presencas/entrada';
+                            body = {
+                                alunoId: parseInt(studentId),
+                                latitude,
+                                longitude,
+                                responsavelId: currentUser.id,
+                                responsavelNome: currentUser.nome,
+                                responsavelTipo: 'TUTOR'
+                            };
+                        } else {
+                            endpoint = '/api/presencas/saida/solicitar';
+                            body = {
+                                alunoId: parseInt(studentId),
+                                latitude,
+                                longitude
+                            };
                         }
 
-                        setTimeout(() => resetSlideBtn(btn, thumb, fill, label), 500);
-                    }, 300);
-                } else {
-                    resetSlideBtn(btn, thumb, fill, label);
+                        // Executa a ação
+                        const response = await fetchWithAuth(endpoint, {
+                            method: 'POST',
+                            body: JSON.stringify(body)
+                        });
+
+                        const result = await response.json();
+
+                        if (!response.ok) {
+                            if (response.status === 403) {
+                                throw new Error(result.mensagem || `Fora da área permitida`);
+                            }
+                            throw new Error(result.mensagem || 'Erro na operação');
+                        }
+
+                        // 🔴 SUCESSO - mostra tela colorida
+                        const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
+
+                        // 🔴 Slider volta SILENCIOSAMENTE durante a tela de sucesso
+                        mostrarTelaSucesso(tipoSucesso, async () => {
+                            await refreshStudentsData();
+                            // Só reseta as flags depois que a tela sumir
+                            isProcessing = false;
+                            isActionProcessing = false;
+                        });
+
+                        // 🔴 Reset silencioso imediato (por baixo dos panos)
+                        resetSlideBtn(btn, thumb, fill, label, 'slow', true);
+                    }
+
+                } catch (error) {
+                    console.error('Erro no processo:', error);
+
+                    // 🔴 ERRO - mostra mensagem e volta VISIVELMENTE
+                    showStatusMessage(error.message || 'Erro ao processar', 'danger');
+
+                    // Aguarda um pouco para o usuário ler a mensagem
+                    setTimeout(() => {
+                        // 🔴 Reset VISÍVEL (usuário vê o slider voltando)
+                        resetSlideBtn(btn, thumb, fill, label, 'slow', false);
+                        isProcessing = false;
+                        isActionProcessing = false;
+                    }, 2500);
                 }
             }
 
-            function resetSlideBtn(b, t, f, l) {
-                b.classList.remove('activated');
-                t.style.transition = 'transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
-                f.style.transition = 'width 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+            function resetSlideBtn(b, t, f, l, speed = 'normal', silent = false) {
+                console.log(`🔄 Resetando slider (${silent ? 'silencioso' : 'visível'})`);
+
+                // Define a velocidade da animação
+                if (speed === 'slow') {
+                    t.style.transition = 'transform 1s cubic-bezier(0.2, 0.8, 0.4, 1)';
+                    f.style.transition = 'width 1s cubic-bezier(0.2, 0.8, 0.4, 1)';
+                } else if (speed === 'fast') {
+                    t.style.transition = 'transform 0.2s ease-out';
+                    f.style.transition = 'width 0.2s ease-out';
+                } else {
+                    t.style.transition = 'transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+                    f.style.transition = 'width 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+                }
+
                 t.style.transform = 'translateX(0)';
                 f.style.width = '0';
+
+                // Se for silencioso, remove a classe activated sem animação visual
+                if (silent) {
+                    b.classList.remove('activated');
+                } else {
+                    b.classList.remove('activated');
+                }
             }
 
+            // Event listeners
             thumb.addEventListener('touchstart', onStart, { passive: false });
             document.addEventListener('touchmove', onMove, { passive: false });
             document.addEventListener('touchend', onEnd);
