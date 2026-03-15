@@ -4111,142 +4111,34 @@
             }, 5000);
         }
 
-        // ===== NOVA FUNÇÃO: Abre modal e já inicia processo automático =====
-        function abrirModalComProcessamentoAutomatico(studentId, action, studentName) {
-            if (isActionProcessing) return;
 
-            const modal = document.getElementById('actionLocationModal');
-            const modalTitle = modal.querySelector('#actionLocationModalLabel');
-            const modalMessage = modal.querySelector('#modalMessage');
-            const confirmBtn = modal.querySelector('#confirmActionBtn');
-            const getLocationBtn = document.getElementById('getLocationBtn');
 
-            // Configura o modal
-            modalTitle.textContent = action === 'entrada' ? '📍 Registrar Entrada' : '📍 Solicitar Saída';
-            modalMessage.textContent = `Obtendo localização para ${action === 'entrada' ? 'entrada' : 'saída'} de ${studentName}...`;
-
-            // Desabilita botões enquanto processa automaticamente
-            confirmBtn.disabled = true;
-            getLocationBtn.disabled = true;
-
-            // Configura os datasets
-            confirmBtn.dataset.studentId = studentId;
-            confirmBtn.dataset.actionType = action;
-
-            // Limpa estados anteriores
-            resetLocationState();
-
-            // Mostra o modal
-            actionLocationModalInstance.show();
-
-            // INICIA PROCESSAMENTO AUTOMÁTICO
-            processarLocalizacaoAutomatica(studentId, action, studentName);
-        }
-
-        // ===== PROCESSAMENTO AUTOMÁTICO DA LOCALIZAÇÃO =====
-        async function processarLocalizacaoAutomatica(studentId, action, studentName) {
-            const statusEl = document.getElementById('locationStatus');
-            const confirmBtn = document.getElementById('confirmActionBtn');
-            const getLocationBtn = document.getElementById('getLocationBtn');
-            const aluno = students.find(s => s.id == studentId);
+        async function processarConfirmacao(studentId, studentName, btn, thumb, fill) {
+            isActionProcessing = true;
 
             try {
-                // 1. Mostra status de loading
-                statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo localização...';
-                statusEl.className = 'location-status location-loading';
-                statusEl.style.display = 'block';
+                await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
 
-                // 2. Obtém localização
-                const position = await new Promise((resolve, reject) => {
-                    navigator.geolocation.getCurrentPosition(resolve, reject, {
-                        enableHighAccuracy: true,
-                        timeout: 10000,
-                        maximumAge: 0
-                    });
+                // Slider volta silenciosamente durante a tela de sucesso
+                mostrarTelaSucesso('confirmacao', async () => {
+                    await refreshStudentsData();
                 });
 
-                // 3. Mostra que obteve e está validando
-                statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida! Validando área...';
-                statusEl.className = 'location-status location-success';
-
-                // 4. Prepara dados da chamada
-                let endpoint, body;
-
-                if (action === 'entrada') {
-                    endpoint = '/api/presencas/entrada';
-                    body = {
-                        alunoId: parseInt(studentId),
-                        latitude: position.coords.latitude,
-                        longitude: position.coords.longitude,
-                        responsavelId: currentUser.id,
-                        responsavelNome: currentUser.nome,
-                        responsavelTipo: 'TUTOR'
-                    };
-                } else {
-                    endpoint = '/api/presencas/saida/solicitar';
-                    body = {
-                        alunoId: parseInt(studentId),
-                        latitude: position.coords.latitude,
-                        longitude: position.coords.longitude
-                    };
-                }
-
-                // 5. Executa a ação
-                const response = await fetchWithAuth(endpoint, {
-                    method: 'POST',
-                    body: JSON.stringify(body)
-                });
-
-                const result = await response.json();
-
-                // 6. Verifica se houve erro (fora da área)
-                if (!response.ok) {
-                    if (response.status === 403) {
-                        throw new Error(result.mensagem || `Fora da área permitida`);
-                    }
-                    throw new Error(result.mensagem || 'Erro ao processar solicitação');
-                }
-
-                // 7. ✅ SUCESSO! Fecha o modal automaticamente
-                statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Operação realizada com sucesso!';
-
-                // Fecha o modal após 500ms
                 setTimeout(() => {
-                    actionLocationModalInstance.hide();
-
-                    // Mostra tela de sucesso
-                    const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
-                    mostrarTelaSucesso(tipoSucesso, async () => {
-                        await refreshStudentsData();
-                    });
+                    resetSlideBtn(thumb, fill);
+                    btn.classList.remove('activated');
+                    isActionProcessing = false;
                 }, 500);
 
             } catch (error) {
-                console.error('Erro no processamento automático:', error);
-
-                // 8. ❌ ERRO (fora da área ou falha na localização)
-                statusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${error.message}`;
-                statusEl.className = 'location-status location-error';
-
-                // Habilita os botões para o usuário tentar novamente manualmente
-                getLocationBtn.disabled = false;
-
-                // Se foi erro de geofence, o confirmBtn fica desabilitado (precisa tentar de novo)
-                // Se foi erro de permissão, também precisa tentar de novo
-                confirmBtn.disabled = true;
-
-                // Exibe as coordenadas se disponíveis (apenas para debug)
-                if (position) {
-                    displayLatitude.textContent = position.coords.latitude.toFixed(6);
-                    displayLongitude.textContent = position.coords.longitude.toFixed(6);
-                    coordinatesDisplay.style.display = 'flex';
-                }
-
-                // Mostra mensagem amigável
-                document.getElementById('modalMessage').textContent =
-                    `Não foi possível completar a ${action === 'entrada' ? 'entrada' : 'saída'} automaticamente. Use os botões abaixo para tentar novamente.`;
+                showAlert(error.message, 'danger');
+                resetSlideBtn(thumb, fill);
+                btn.classList.remove('activated');
+                isActionProcessing = false;
             }
         }
+
+
 
         function bindSlideButton(btn) {
             const thumb = btn.querySelector('.slide-btn-thumb');
@@ -4256,17 +4148,14 @@
             const action = btn.dataset.action;
             const THUMB_SIZE = 80;
 
-            // Variáveis de controle
             let isDragging = false;
             let startX = 0;
             let currentOffset = 0;
-            let isProcessing = false; // Impede múltiplos processamentos
 
             if (label) {
                 label.style.transform = 'translate(-50%, -50%)';
                 label.style.left = '50%';
                 label.style.top = '50%';
-                label.style.opacity = '1';
             }
 
             function getTrackWidth() {
@@ -4280,9 +4169,7 @@
             const slidesRight = (action === 'entrada' || action === 'confirmar');
 
             function onStart(e) {
-                // Se já está processando, não permite novo início
-                if (btn.classList.contains('activated') || isProcessing || isActionProcessing) return;
-
+                if (btn.classList.contains('activated') || isActionProcessing) return;
                 isDragging = true;
                 btn.classList.add('sliding');
                 startX = (e.touches ? e.touches[0].clientX : e.clientX);
@@ -4293,8 +4180,7 @@
             }
 
             function onMove(e) {
-                if (!isDragging || isProcessing || isActionProcessing) return;
-
+                if (!isDragging || isActionProcessing) return;
                 const clientX = e.touches ? e.touches[0].clientX : e.clientX;
                 let delta = clientX - startX;
                 const maxTravel = getMaxTravel();
@@ -4311,9 +4197,8 @@
                 e.preventDefault();
             }
 
-            async function onEnd() {
-                if (!isDragging || isProcessing || isActionProcessing) return;
-
+            function onEnd() {
+                if (!isDragging || isActionProcessing) return;
                 isDragging = false;
                 btn.classList.remove('sliding');
 
@@ -4321,26 +4206,19 @@
                 const progress = Math.abs(currentOffset) / maxTravel;
 
                 if (progress < 0.85) {
-                    // ✅ CORRIGIDO: thumb em vez de newThumb
-                    resetSlideBtn(btn, thumb, fill, label, 'fast');
+                    resetSlideBtn(thumb, fill);
                     return;
                 }
 
-                // COMPLETOU O DESLIZE!
-                isProcessing = true;
-                isActionProcessing = true;
-
-                // Fixa na posição final
-                // ✅ CORRIGIDO: thumb em vez de newThumb
+                // Ativa o slider
+                btn.classList.add('activated');
                 thumb.style.transition = 'transform 0.2s ease-out';
                 fill.style.transition = 'width 0.2s ease-out';
 
                 if (slidesRight) {
-                    // ✅ CORRIGIDO: thumb em vez de newThumb
                     thumb.style.transform = `translateX(${maxTravel}px)`;
                     fill.style.width = '100%';
                 } else {
-                    // ✅ CORRIGIDO: thumb em vez de newThumb
                     thumb.style.transform = `translateX(${-maxTravel}px)`;
                     fill.style.width = '100%';
                 }
@@ -4349,77 +4227,41 @@
 
                 const studentId = btn.dataset.studentId;
                 const studentName = btn.dataset.studentName;
-                const aluno = students.find(s => s.id == studentId);
 
-                try {
-                    if (action === 'confirmar') {
-                        await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
-
-                        // ✅ CORRIGIDO: thumb em vez de newThumb
-                        resetSlideBtn(btn, thumb, fill, label, 'slow', true);
-
-                        mostrarTelaSucesso('confirmacao', async () => {
-                            await refreshStudentsData();
-                            isProcessing = false;
+                // Processa a ação
+                setTimeout(() => {
+                    if (action === 'entrada' || action === 'saida') {
+                        // ✅ CHAMADA CORRETA - apenas 3 parâmetros
+                        processarAcaoComModal(studentId, action, studentName).then(sucesso => {
+                            if (sucesso) {
+                                // Sucesso: slider volta durante tela de sucesso
+                                setTimeout(() => {
+                                    resetSlideBtn(thumb, fill);
+                                    btn.classList.remove('activated');
+                                }, 500);
+                            } else {
+                                // Falha: slider volta agora
+                                resetSlideBtn(thumb, fill);
+                                btn.classList.remove('activated');
+                            }
                             isActionProcessing = false;
                         });
-
-                    } else if (action === 'entrada' || action === 'saida') {
-                        await processarAcaoComModal(studentId, action, studentName);
-
-                        // ✅ CORRIGIDO: thumb em vez de newThumb
-                        resetSlideBtn(btn, thumb, fill, label, 'slow', true);
-
-                        await refreshStudentsData();
-
-                        isProcessing = false;
-                        isActionProcessing = false;
+                    } else if (action === 'confirmar') {
+                        processarConfirmacao(studentId, studentName, btn, thumb, fill);
                     }
-
-                } catch (error) {
-                    console.error('Erro:', error);
-                    showStatusMessage(error.message, 'danger');
-
-                    setTimeout(() => {
-                        // ✅ CORRIGIDO: thumb em vez de newThumb
-                        resetSlideBtn(btn, thumb, fill, label, 'slow', false);
-                        isProcessing = false;
-                        isActionProcessing = false;
-                    }, 2500);
-                }
+                }, 300);
             }
 
-            function resetSlideBtn(b, t, f, l, speed = 'normal', silent = false) {
-                console.log(`🔄 Resetando slider (${silent ? 'silencioso' : 'visível'})`);
-
-                // Define a velocidade da animação
-                if (speed === 'slow') {
-                    t.style.transition = 'transform 1s cubic-bezier(0.2, 0.8, 0.4, 1)';
-                    f.style.transition = 'width 1s cubic-bezier(0.2, 0.8, 0.4, 1)';
-                } else if (speed === 'fast') {
-                    t.style.transition = 'transform 0.2s ease-out';
-                    f.style.transition = 'width 0.2s ease-out';
-                } else {
-                    t.style.transition = 'transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
-                    f.style.transition = 'width 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
-                }
-
+            function resetSlideBtn(t, f) {
+                t.style.transition = 'transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+                f.style.transition = 'width 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
                 t.style.transform = 'translateX(0)';
                 f.style.width = '0';
-
-                // Se for silencioso, remove a classe activated sem animação visual
-                if (silent) {
-                    b.classList.remove('activated');
-                } else {
-                    b.classList.remove('activated');
-                }
             }
 
-            // Event listeners
             thumb.addEventListener('touchstart', onStart, { passive: false });
             document.addEventListener('touchmove', onMove, { passive: false });
             document.addEventListener('touchend', onEnd);
-
             thumb.addEventListener('mousedown', onStart);
             document.addEventListener('mousemove', onMove);
             document.addEventListener('mouseup', onEnd);
@@ -4549,185 +4391,6 @@
             }
         }
 
-        // ===== NOVA FUNÇÃO QUE CONTROLA O MODAL E RETORNA PROMISE =====
-        async function processarComModalAutomatico(studentId, action, studentName) {
-            return new Promise(async (resolve) => {
-                try {
-                    // Abre o modal
-                    const modal = document.getElementById('actionLocationModal');
-                    modal.querySelector('#actionLocationModalLabel').textContent =
-                        action === 'entrada' ? '📍 Registrar Entrada' : '📍 Solicitar Saída';
-
-                    const confirmBtn = modal.querySelector('#confirmActionBtn');
-                    confirmBtn.dataset.studentId = studentId;
-                    confirmBtn.dataset.actionType = action;
-
-                    resetLocationState();
-                    actionLocationModalInstance.show();
-
-                    // Obtém localização automaticamente
-                    const statusEl = document.getElementById('locationStatus');
-                    const getBtn = document.getElementById('getLocationBtn');
-
-                    statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo localização...';
-                    statusEl.className = 'location-status location-loading';
-                    statusEl.style.display = 'block';
-
-                    try {
-                        const position = await new Promise((resolve, reject) => {
-                            navigator.geolocation.getCurrentPosition(resolve, reject, {
-                                enableHighAccuracy: true,
-                                timeout: 10000
-                            });
-                        });
-
-                        displayLatitude.textContent = position.coords.latitude.toFixed(6);
-                        displayLongitude.textContent = position.coords.longitude.toFixed(6);
-                        coordinatesDisplay.style.display = 'flex';
-                        confirmBtn.dataset.latitude = position.coords.latitude;
-                        confirmBtn.dataset.longitude = position.coords.longitude;
-
-                        statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Localização validada!';
-                        statusEl.className = 'location-status location-success';
-
-                        // Executa a ação
-                        let endpoint, body;
-                        if (action === 'entrada') {
-                            endpoint = '/api/presencas/entrada';
-                            body = {
-                                alunoId: parseInt(studentId),
-                                latitude: position.coords.latitude,
-                                longitude: position.coords.longitude,
-                                responsavelId: currentUser.id,
-                                responsavelNome: currentUser.nome,
-                                responsavelTipo: 'TUTOR'
-                            };
-                        } else {
-                            endpoint = '/api/presencas/saida/solicitar';
-                            body = {
-                                alunoId: parseInt(studentId),
-                                latitude: position.coords.latitude,
-                                longitude: position.coords.longitude
-                            };
-                        }
-
-                        const response = await fetchWithAuth(endpoint, {
-                            method: 'POST',
-                            body: JSON.stringify(body)
-                        });
-
-                        if (!response.ok) {
-                            if (response.status === 403) {
-                                throw new Error('Fora da área permitida');
-                            }
-                            throw new Error('Erro na operação');
-                        }
-
-                        // ✅ SUCESSO DENTRO DA GEOFENCE!
-                        actionLocationModalInstance.hide();
-
-                        const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
-
-                        // 🔴 MOSTRA PAINEL DE SUCESSO COM CONTROLE
-                        mostrarTelaSucessoComControle(tipoSucesso, async () => {
-                            // Callback quando o painel for sumir
-                            // O slider já voltou (chamado antes)
-                            // Os dados já foram atualizados
-                            resolve(true); // Resolve a Promise com sucesso
-                        });
-
-                    } catch (locationError) {
-                        // ❌ ERRO DE LOCALIZAÇÃO
-                        statusEl.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Falha na localização. Tente novamente.';
-                        statusEl.className = 'location-status location-error';
-                        getBtn.disabled = false; // Habilita botão "Tentar Novamente"
-
-                        // Não resolve a Promise ainda - aguarda ação do usuário
-                        // O modal fica aberto com botões
-
-                        // Configura listener para quando o usuário clicar em "Tentar Novamente"
-                        const tentarNovamenteHandler = async () => {
-                            getBtn.removeEventListener('click', tentarNovamenteHandler);
-                            // Tenta novamente recursivamente
-                            const resultado = await processarComModalAutomatico(studentId, action, studentName);
-                            resolve(resultado);
-                        };
-
-                        getBtn.addEventListener('click', tentarNovamenteHandler);
-
-                        // Configura listener para cancelar
-                        const cancelarHandler = () => {
-                            const cancelBtn = modal.querySelector('.btn-secondary');
-                            cancelBtn.removeEventListener('click', cancelarHandler);
-                            actionLocationModalInstance.hide();
-                            resolve(false); // Resolve com falha
-                        };
-
-                        modal.querySelector('.btn-secondary').addEventListener('click', cancelarHandler);
-                    }
-
-                } catch (error) {
-                    console.error('Erro no processo automático:', error);
-                    actionLocationModalInstance.hide();
-                    resolve(false);
-                }
-            });
-        }
-
-        // ===== NOVA VERSÃO DO mostrarTelaSucesso COM CONTROLE =====
-        function mostrarTelaSucessoComControle(tipo, callback) {
-            // Remove se já existir
-            const existente = document.getElementById('telaSucesso');
-            if (existente) existente.remove();
-
-            // Define configurações
-            let cor, mensagem;
-
-            if (tipo === 'entrada') {
-                cor = '#10b981';
-                mensagem = 'Entrada registrada<br>com sucesso!';
-            } else if (tipo === 'solicitacao') {
-                cor = '#f87171';
-                mensagem = 'Saída solicitada<br>com sucesso!';
-            } else {
-                cor = '#fbbf24';
-                mensagem = 'Saída confirmada<br>com sucesso!';
-            }
-
-            // Cria elemento com HTML direto
-            const div = document.createElement('div');
-            div.id = 'telaSucesso';
-            div.innerHTML = `
-                    <div style="position:fixed; top:0; left:0; width:100%; height:100%; background:${cor}; z-index:9999999; display:table; text-align:center;">
-                        <div style="display:table-cell; vertical-align:middle;">
-                            <div style="width:120px; height:120px; background:white; border-radius:50%; margin:0 auto 30px auto; box-shadow:0 10px 25px rgba(0,0,0,0.15); display:flex; align-items:center; justify-content:center;">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="${cor}" stroke-width="3" style="width:70px; height:70px;">
-                                    <polyline points="20 6 9 17 4 12"></polyline>
-                                </svg>
-                            </div>
-                            <div style="color:white; font-size:2.5rem; font-weight:700; font-family:'Inter',sans-serif; text-shadow:0 2px 10px rgba(0,0,0,0.1);">${mensagem}</div>
-                        </div>
-                    </div>
-                `;
-
-            document.body.appendChild(div);
-
-            // 🔴 GARANTE que o painel fica visível por 3 segundos
-            // e SÓ então executa o callback
-            setTimeout(() => {
-                const el = document.getElementById('telaSucesso');
-                if (el) {
-                    el.style.opacity = '0';
-                    el.style.transition = 'opacity 0.3s';
-
-                    setTimeout(() => {
-                        el.remove();
-                        // 🔴 SÓ EXECUTA O CALLBACK DEPOIS QUE O PAINEL SUMIR
-                        if (typeof callback === 'function') callback();
-                    }, 300);
-                }
-            }, 3000); // 3 segundos fixos
-        }
 
     </script>
 </body>
