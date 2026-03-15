@@ -2877,103 +2877,47 @@
                     return;
                 }
 
+                // === ATUALIZAÇÃO FORÇADA: sempre re-renderiza COMPLETAMENTE ===
+                // Isso garante que o DOM seja totalmente recriado com os novos estados
+                students = novosAlunos;
+                renderStudents(students);
+
+                /* COMENTE ou REMOVA todo o código de atualização inteligente abaixo
                 // === ATUALIZAÇÃO INTELIGENTE: só o que mudou ===
                 let precisaRenderizar = false;
-
+                
                 for (let i = 0; i < novosAlunos.length; i++) {
                     const alunoNovo = novosAlunos[i];
                     const alunoAntigo = students.find(a => a.id === alunoNovo.id);
-
+                    
                     // Se não encontrou o aluno antigo (nunca deve acontecer), mas por segurança
                     if (!alunoAntigo) {
                         precisaRenderizar = true;
                         break;
                     }
-
+                    
                     // Verifica se o STATUS mudou (é a ÚNICA coisa que muda!)
                     if (alunoAntigo.status !== alunoNovo.status) {
                         console.log(`Status do aluno ${alunoNovo.nome} mudou: ${alunoAntigo.status} -> ${alunoNovo.status}`);
-
+                        
                         // Atualiza apenas o card específico
                         const cardAluno = document.querySelector(`.student-item .student-name[data-student-id="${alunoNovo.id}"]`)?.closest('.student-item');
-
+                        
                         if (cardAluno) {
-                            // Atualiza o status badge
-                            const statusBadge = cardAluno.querySelector('.status-badge');
-                            const slideContainer = cardAluno.querySelector('.student-slide-container');
-
-                            let statusClass, statusText, slideAction, slideLabel, arrowDir;
-                            const safeStudentName = alunoNovo.nome.replace(/'/g, "\\'");
-
-                            const arrowSvgRight = `<svg class="arrow-icon" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>`;
-                            const arrowSvgLeft = `<svg class="arrow-icon" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>`;
-                            const hintChevronRight = `<svg viewBox="0 0 24 24"><polyline points="9 6 15 12 9 18"/></svg>`;
-                            const hintChevronLeft = `<svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>`;
-
-                            switch (alunoNovo.status) {
-                                case 'PRESENTE':
-                                    statusClass = 'status-present';
-                                    statusText = 'Presente';
-                                    slideAction = 'saida';
-                                    slideLabel = 'SAIR';
-                                    arrowDir = 'left';
-                                    break;
-                                case 'AGUARDANDO_CONFIRMACAO':
-                                    statusClass = 'status-warning';
-                                    statusText = 'Aguardando';
-                                    slideAction = 'confirmar';
-                                    slideLabel = 'CONFIRMAR';
-                                    arrowDir = 'right';
-                                    break;
-                                default:
-                                    statusClass = 'status-absent';
-                                    statusText = 'Ausente';
-                                    slideAction = 'entrada';
-                                    slideLabel = 'ENTRAR';
-                                    arrowDir = 'right';
-                                    break;
-                            }
-
-                            // Atualiza o badge
-                            statusBadge.className = `status-badge ${statusClass}`;
-                            statusBadge.textContent = statusText;
-
-                            // Recria o botão deslizante com o novo estado (mantendo o tamanho ampliado)
-                            if (slideContainer) {
-                                const newSlideBtn = document.createElement('div');
-                                newSlideBtn.className = 'slide-btn';
-                                newSlideBtn.dataset.action = slideAction;
-                                newSlideBtn.dataset.studentId = alunoNovo.id;
-                                newSlideBtn.dataset.studentName = safeStudentName;
-                                newSlideBtn.innerHTML = `
-                                    <div class="slide-btn-track">
-                                        <span class="slide-btn-label">${slideLabel}</span>
-                                        <div class="slide-btn-fill"></div>
-                                        <div class="slide-btn-thumb">${arrowDir === 'right' ? arrowSvgRight : arrowSvgLeft}</div>
-                                        <div class="slide-hint">${arrowDir === 'right' ? hintChevronRight : hintChevronLeft}</div>
-                                    </div>
-                                `;
-
-                                slideContainer.innerHTML = '';
-                                slideContainer.appendChild(newSlideBtn);
-                                bindSlideButton(newSlideBtn);
-                            }
-
-                            // Destaque suave
-                            cardAluno.classList.add('atualizado');
-                            setTimeout(() => cardAluno.classList.remove('atualizado'), 500);
+                            // ... código de atualização do card ...
                         }
-
+                        
                         // Atualiza o objeto students
                         alunoAntigo.status = alunoNovo.status;
                     }
                 }
-
+                
                 // Se precisou renderizar tudo por algum motivo
                 if (precisaRenderizar) {
                     students = novosAlunos;
                     renderStudents(students);
                 }
+                */
 
             } catch (error) {
                 console.error('Erro ao carregar alunos:', error);
@@ -4270,84 +4214,23 @@
         // ===== FUNÇÃO SIMPLIFICADA - SEM PROMISE COMPLEXA =====
         async function processarAcaoComModal(studentId, action, studentName) {
             try {
-                // Abre o modal
-                const modal = document.getElementById('actionLocationModal');
-                modal.querySelector('#actionLocationModalLabel').textContent =
-                    action === 'entrada' ? '📍 Registrar Entrada' : '📍 Solicitar Saída';
-
-                const confirmBtn = modal.querySelector('#confirmActionBtn');
-                confirmBtn.dataset.studentId = studentId;
-                confirmBtn.dataset.actionType = action;
-
-                resetLocationState();
-                actionLocationModalInstance.show();
-
-                // Obtém localização automaticamente
-                const statusEl = document.getElementById('locationStatus');
-
-                statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo localização...';
-                statusEl.className = 'location-status location-loading';
-                statusEl.style.display = 'block';
-
-                // 🔴 Promise para obter localização
-                const position = await new Promise((resolve, reject) => {
-                    navigator.geolocation.getCurrentPosition(resolve, reject, {
-                        enableHighAccuracy: true,
-                        timeout: 10000
-                    });
-                });
-
-                // Mostra coordenadas
-                displayLatitude.textContent = position.coords.latitude.toFixed(6);
-                displayLongitude.textContent = position.coords.longitude.toFixed(6);
-                coordinatesDisplay.style.display = 'flex';
-
-                statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida! Validando...';
-                statusEl.className = 'location-status location-success';
-
-                // Executa a ação
-                let endpoint, body;
-                if (action === 'entrada') {
-                    endpoint = '/api/presencas/entrada';
-                    body = {
-                        alunoId: parseInt(studentId),
-                        latitude: position.coords.latitude,
-                        longitude: position.coords.longitude,
-                        responsavelId: currentUser.id,
-                        responsavelNome: currentUser.nome,
-                        responsavelTipo: 'TUTOR'
-                    };
-                } else {
-                    endpoint = '/api/presencas/saida/solicitar';
-                    body = {
-                        alunoId: parseInt(studentId),
-                        latitude: position.coords.latitude,
-                        longitude: position.coords.longitude
-                    };
-                }
-
-                const response = await fetchWithAuth(endpoint, {
-                    method: 'POST',
-                    body: JSON.stringify(body)
-                });
-
-                const result = await response.json();
-
-                if (!response.ok) {
-                    if (response.status === 403) {
-                        throw new Error(result.mensagem || 'Fora da área permitida');
-                    }
-                    throw new Error(result.mensagem || 'Erro na operação');
-                }
+                // ... código existente ...
 
                 // ✅ SUCESSO! Fecha modal e mostra tela de sucesso
                 actionLocationModalInstance.hide();
 
                 const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
 
-                // 🔴 Usa a função existente de tela de sucesso
                 return new Promise((resolve) => {
-                    mostrarTelaSucesso(tipoSucesso, () => {
+                    mostrarTelaSucesso(tipoSucesso, async () => {
+                        // 🔴 FORÇA ATUALIZAÇÃO COMPLETA DOS DADOS
+                        await refreshStudentsData();
+
+                        // 🔴 GARANTE QUE OS BOTÕES DO SLIDER SÃO REINICIALIZADOS
+                        setTimeout(() => {
+                            initSlideButtons();
+                        }, 100);
+
                         resolve(true);
                     });
                 });
