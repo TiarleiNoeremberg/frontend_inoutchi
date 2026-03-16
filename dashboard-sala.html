@@ -915,7 +915,7 @@
             renderizarAlunos() {
                 const grid = document.getElementById('alunosGrid');
 
-                // SALVA O ESTADO ATUAL PARA COMPARAÇÃO (opcional, mas útil para debug)
+                // SALVA O ESTADO ATUAL PARA COMPARAÇÃO
                 const tinhaAlunos = this.alunos && this.alunos.length > 0;
 
                 // 1. Limpa a grade
@@ -926,7 +926,7 @@
                     return;
                 }
 
-                // 2. CRIA OS CARDS EM MEMÓRIA PRIMEIRO (DocumentFragment)
+                // 2. CRIA OS CARDS EM MEMÓRIA
                 const fragment = document.createDocumentFragment();
 
                 this.alunos.forEach(aluno => {
@@ -934,8 +934,29 @@
                     card.className = 'aluno-card';
                     card.setAttribute('data-aluno-id', aluno.id);
 
-                    // ... configuração do card (seu código existente)
-                    const nomeParaExibir = this.formatarNomeAluno(aluno); // extraia sua lógica
+                    // === NOVO: Aplica a classe de cor baseada no status ===
+                    if (aluno.status === 'AGUARDANDO_CONFIRMACAO') {
+                        card.classList.add('pendente');
+
+                        // Aplica a classe específica do solicitante
+                        let tipo = (aluno.tipoSolicitante || 'diretor').toLowerCase();
+
+                        // Normaliza os tipos
+                        if (['parente', 'amigo', 'irmao'].includes(tipo)) {
+                            tipo = 'token';
+                        } else if (tipo === 'tutor') {
+                            tipo = 'tutor';
+                        } else if (tipo === 'diretor') {
+                            tipo = 'diretor';
+                        } else if (tipo === 'transporte') {
+                            tipo = 'transporte';
+                        }
+
+                        card.classList.add(tipo);
+                        console.log(`[RENDER] Aluno ${aluno.nome} em AGUARDANDO, tipo: ${tipo}`);
+                    }
+
+                    const nomeParaExibir = this.formatarNomeAluno(aluno);
                     const horarioTexto = aluno.status === 'AGUARDANDO_CONFIRMACAO' ? 'Aguardando' : 'Presente';
 
                     card.innerHTML = `
@@ -949,14 +970,11 @@
                 // 3. ADICIONA TODOS OS CARDS DE UMA SÓ VEZ
                 grid.appendChild(fragment);
 
-                // 4. FORÇA REPAINT NO WEBVIEW (CRÍTICO!)
+                // 4. FORÇA REPAINT NO WEBVIEW
                 setTimeout(() => {
-                    // Truque para forçar repaint
                     grid.style.display = 'none';
                     grid.offsetHeight; // Força reflow
                     grid.style.display = 'grid';
-
-                    // Alternativa: força um pequeno ajuste no transform
                     grid.style.transform = 'translateZ(0)';
                     setTimeout(() => {
                         grid.style.transform = '';
@@ -1473,6 +1491,14 @@
             async processarDadosAlunos(data) {
                 if (!data.alunos || !Array.isArray(data.alunos)) return [];
                 const alunosComStatus = await this.verificarStatusDeSaida(data.alunos);
+
+                // Log para debug
+                alunosComStatus.forEach(aluno => {
+                    if (aluno.status === 'AGUARDANDO_CONFIRMACAO') {
+                        console.log(`[DEBUG] Aluno ${aluno.nome} - Status: ${aluno.status}, Tipo: ${aluno.tipoSolicitante}`);
+                    }
+                });
+
                 return alunosComStatus.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
             }
 
@@ -1484,13 +1510,19 @@
                         if (response.status === 200) {
                             const apiResponse = await response.json();
                             if (apiResponse.codigo === 'SAIDA_ATIVA' && apiResponse.dados) {
-                                return { ...aluno, status: 'AGUARDANDO_CONFIRMACAO', tipoSolicitante: apiResponse.dados.tipoSolicitante };
+                                console.log(`[STATUS] Aluno ${aluno.nome} com saída ativa:`, apiResponse.dados.tipoSolicitante);
+                                return {
+                                    ...aluno,
+                                    status: 'AGUARDANDO_CONFIRMACAO',
+                                    tipoSolicitante: apiResponse.dados.tipoSolicitante,
+                                    parentesco: apiResponse.dados.parentesco // Salva parentesco se existir
+                                };
                             }
                         }
                         return { ...aluno, status: 'PRESENTE' };
                     } catch (error) {
-                        console.error(`❌ Erro de rede ao verificar status para aluno ${aluno.id}:`, error);
-                        return { ...aluno, status: 'PRESENTE' }; // Fallback
+                        console.error(`❌ Erro ao verificar status para aluno ${aluno.id}:`, error);
+                        return { ...aluno, status: 'PRESENTE' };
                     }
                 });
                 return Promise.all(statusPromises);
