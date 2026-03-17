@@ -4947,21 +4947,42 @@
                         response = await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
                     } else if (action === 'entrada' || action === 'saida') {
                         if (action === 'saida') {
-                            // Buscamos o aluno para saber a qual sala ele pertence
                             const aluno = students.find(s => s.id == studentId);
+                            const nomeSalaAluno = aluno.sala_nome || aluno.sala;
 
-                            // Chamamos a validação de horário do utils.js baseada no nome da sala
-                            // Importante: aluno.sala_nome deve corresponder a '2° ANO' ou '5° ANO'
-                            const validacao = validarHorarioSaida(aluno.sala_nome || aluno.sala);
+                            // Obtém o horário exato de Florianópolis para comparação
+                            const agora = new Date();
+                            const floripa = new Date(agora.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+                            const horaAtual = floripa.getHours();
+                            const minutoAtual = floripa.getMinutes();
+                            const totalMinutosAtual = (horaAtual * 60) + minutoAtual;
 
-                            if (!validacao.permitido) {
-                                // Se não estiver no horário, avisamos o tutor e resetamos o slider
-                                showStatusMessage(`Saída bloqueada: permitida para esta sala apenas após ${validacao.horarioPermitido}`, 'warning');
+                            // Regras de Bloqueio (Convertendo horários para minutos totais do dia)
+                            // 15:10 = 910 minutos | 15:30 = 930 minutos
+
+                            let bloqueado = false;
+                            let horarioMensagem = "";
+
+                            if (nomeSalaAluno === '2° ANO') {
+                                if (totalMinutosAtual < 910) { // Bloqueia de 00:00 até 15:09
+                                    bloqueado = true;
+                                    horarioMensagem = "15:10";
+                                }
+                            } else if (nomeSalaAluno === '5° ANO') {
+                                if (totalMinutosAtual < 930) { // Bloqueia de 00:00 até 15:29
+                                    bloqueado = true;
+                                    horarioMensagem = "15:30";
+                                }
+                            }
+
+                            if (bloqueado) {
+                                // Exibe o aviso e aborta ANTES de qualquer tela de sucesso ou chamada API
+                                showStatusMessage(`Saída para o ${nomeSalaAluno} permitida apenas após as ${horarioMensagem}`, 'warning');
 
                                 resetSlideBtn(btn, thumb, fill, label, 'fast', false);
                                 isProcessing = false;
                                 isActionProcessing = false;
-                                return; // Bloqueia a execução aqui, antes de abrir qualquer tela
+                                return; // Mata a execução aqui
                             }
                         }
 
