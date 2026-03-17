@@ -837,14 +837,21 @@
                 this.filaDeChamadas = [];
                 this.alertaSoundBuffer = null;
                 this.isProcessandoFila = false;
+                this.contagemErrosSync = 0; // Nova variável para monitorar saúde
                 this.batchEntradaAlunos = new Map();
                 this.batchEntradaTimer = null;
 
                 // Sync Interval
-                const REFRESH_INTERVAL = 15000; // 15 seconds
-                this.syncInterval = setInterval(() => this.sincronizarSalaSilenciosamente(), REFRESH_INTERVAL);
+                const REFRESH_INTERVAL = 15000;
+                this.syncInterval = setInterval(() => {
+                    // Reset de segurança para destravar a fila se estiver vazia
+                    if (this.filaDeChamadas.length === 0) {
+                        this.isProcessandoFila = false;
+                    }
+                    this.sincronizarSalaSilenciosamente();
+                }, REFRESH_INTERVAL);
 
-                this.inicializar();
+                this.inicializar(); // MANTENHA ESTA LINHA SEMPRE NO FINAL
             }
 
             async inicializar() {
@@ -1361,49 +1368,30 @@
             }
 
             async sincronizarSalaSilenciosamente() {
-                if (this.isProcessandoFila) {
-                    console.log('🔄 [SYNC] Sincronização adiada: animação em andamento.');
-                    return;
-                }
                 try {
-                    const url = `${this.BACKEND_URL}/api/diretores/salas/${this.salaId}/alunos?presentes=true`;
-                    const response = await fetch(url, { headers: { 'Authorization': `Bearer ${this.token}` } });
-                    if (!response.ok) return;
-
-                    const data = await response.json();
-                    const backendAlunos = data.alunos || [];
-
-                    const localAlunosIds = new Set(this.alunos.map(a => a.id));
-                    const backendAlunosIds = new Set(backendAlunos.map(a => a.id));
-
-                    let mudancasDetectadas = false;
-
-                    // Adicionar novos
-                    for (const aluno of backendAlunos) {
-                        if (!localAlunosIds.has(aluno.id)) {
-                            console.log(`🔄 [SYNC] Aluno a ADICIONAR: ${aluno.nome}.`);
-                            this.alunos.push({ ...aluno, status: 'PRESENTE' });
-                            mudancasDetectadas = true;
-                        }
+                    if (this.isProcessandoFila && this.filaDeChamadas.length > 0) {
+                        console.log("🔄 [SYNC] Sincronização adiada: animação em andamento.");
+                        return;
                     }
 
-                    // Remover antigos
-                    const alunosParaRemover = this.alunos.filter(aluno => !backendAlunosIds.has(aluno.id));
-                    if (alunosParaRemover.length > 0) {
-                        const idsParaRemover = new Set(alunosParaRemover.map(a => a.id));
-                        this.alunos = this.alunos.filter(aluno => !idsParaRemover.has(aluno.id));
-                        mudancasDetectadas = true;
-                        alunosParaRemover.forEach(a => console.log(`🔄 [SYNC] Aluno a REMOVER: ${a.nome}.`));
-                    }
+                    // Busca dados com bypass de cache (?t=)
+                    const dados = await fetchWithAuth(`${this.BACKEND_URL}/api/presencas/sala/status?t=${Date.now()}`);
 
-                    if (mudancasDetectadas) {
-                        console.log("🔄 [SYNC] Mudanças detectadas. Renderizando a tela.");
-                        this.alunos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-                        this.renderizarAlunos();
-                    }
+                    if (dados) {
+                        this.contagemErrosSync = 0;
 
+                        // Aqui usamos a sua lógica de "Bisturi" que já existe no código
+                        // para comparar os alunos e só mexer no DOM se necessário
+                        this.sincronizarEstadoAlunos(dados.alunos || []);
+                    }
                 } catch (error) {
-                    console.error('🔄 [SYNC] Erro durante a sincronização:', error);
+                    this.contagemErrosSync++;
+                    console.error(`❌ [SYNC] Erro (${this.contagemErrosSync}/5):`, error);
+
+                    if (this.contagemErrosSync >= 5) {
+                        console.warn("🚨 [WATCHDOG] Falha persistente. Reiniciando...");
+                        window.location.reload();
+                    }
                 }
             }
 
@@ -1435,6 +1423,12 @@
                     heartbeatOutgoing: 4000,
                     onConnect: (frame) => {
                         this.atualizarStatusWebSocket('connected', 'Online');
+
+                        // --- SUGESTÃO IMPLEMENTADA AQUI ---
+                        this.contagemErrosSync = 0; // Reseta contador de erros ao conectar
+                        this.carregarDadosSala();    // Busca dados frescos da API imediatamente ao conectar/reconectar
+                        // ----------------------------------
+
                         this.inscreverNosTopicos();
                     },
                     onStompError: (frame) => {
@@ -1450,6 +1444,7 @@
                         this.atualizarStatusWebSocket('error', 'Falha na Conexão');
                     }
                 };
+
                 if (this.stompClient && this.stompClient.active) return;
                 this.stompClient = new StompJs.Client(stompConfig);
                 this.stompClient.activate();
