@@ -4944,49 +4944,63 @@
                     // --- PASSO 1: ENVIAR PARA A API ---
                     let response;
                     if (action === 'confirmar') {
-                        response = await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
+                        // 1. MANTER ESTICADO: Forçamos o slider a ficar no fim do curso para não voltar antes da tela
+                        const maxTravel = getMaxTravel();
+                        thumb.style.transition = 'transform 0.2s ease-out';
+                        fill.style.width = '100%';
+                        thumb.style.transform = slidesRight ? `translateX(${maxTravel}px)` : `translateX(${-maxTravel}px)`;
+
+                        // 2. ENVIA PARA A API
+                        await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
+
+                        // 3. MOSTRAR A TELA DE SUCESSO IMEDIATAMENTE (Amarela)
+                        // Chamamos aqui para ela cobrir o slider esticado
+                        mostrarTelaSucesso('confirmacao');
+
+                        // 4. ATUALIZAR DADOS E RESETAR POR BAIXO DA TELA
+                        await refreshStudentsData();
+                        resetSlideBtn(btn, thumb, fill, label, 'fast', true);
+
+                        isProcessing = false;
+                        isActionProcessing = false;
+
                     } else if (action === 'entrada' || action === 'saida') {
+                        // MANTEMOS TODA A SUA LÓGICA DE HORÁRIO QUE JÁ ESTÁ AQUI:
                         if (action === 'saida') {
                             const aluno = students.find(s => s.id == studentId);
                             const nomeSalaAluno = aluno.sala_nome || aluno.sala;
 
-                            // Obtém o horário exato de Florianópolis para comparação
                             const agora = new Date();
                             const floripa = new Date(agora.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
                             const horaAtual = floripa.getHours();
                             const minutoAtual = floripa.getMinutes();
                             const totalMinutosAtual = (horaAtual * 60) + minutoAtual;
 
-                            // Regras de Bloqueio (Convertendo horários para minutos totais do dia)
-                            // 15:10 = 910 minutos | 15:30 = 930 minutos
-
                             let bloqueado = false;
                             let horarioMensagem = "";
 
                             if (nomeSalaAluno === '2° ANO') {
-                                if (totalMinutosAtual < 910) { // Bloqueia de 00:00 até 15:09
+                                if (totalMinutosAtual < 910) {
                                     bloqueado = true;
                                     horarioMensagem = "15:10";
                                 }
                             } else if (nomeSalaAluno === '5° ANO') {
-                                if (totalMinutosAtual < 930) { // Bloqueia de 00:00 até 15:29
+                                if (totalMinutosAtual < 930) {
                                     bloqueado = true;
                                     horarioMensagem = "15:30";
                                 }
                             }
 
                             if (bloqueado) {
-                                // Exibe o aviso e aborta ANTES de qualquer tela de sucesso ou chamada API
                                 showStatusMessage(`Saída para o ${nomeSalaAluno} permitida apenas após as ${horarioMensagem}`, 'warning');
-
                                 resetSlideBtn(btn, thumb, fill, label, 'fast', false);
                                 isProcessing = false;
                                 isActionProcessing = false;
-                                return; // Mata a execução aqui
+                                return;
                             }
                         }
 
-                        // Se passou na validação ou for 'entrada', segue o fluxo original das suas telas
+                        // Segue o fluxo de ENTRADA e SAÍDA que você disse que já está 100%
                         await processarAcaoComModal(studentId, action, studentName);
                         resetSlideBtn(btn, thumb, fill, label, 'slow', true);
                         await refreshStudentsData();
