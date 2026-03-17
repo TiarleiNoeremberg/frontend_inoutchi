@@ -4925,10 +4925,11 @@
                     return;
                 }
 
+                // COMPLETOU O DESLIZE!
                 isProcessing = true;
                 isActionProcessing = true;
 
-                // Fixa o slider no final
+                // Fixa na posição final enquanto processa
                 thumb.style.transition = 'transform 0.2s ease-out';
                 fill.style.width = '100%';
                 thumb.style.transform = slidesRight ? `translateX(${maxTravel}px)` : `translateX(${-maxTravel}px)`;
@@ -4937,14 +4938,16 @@
 
                 const studentId = btn.dataset.studentId;
                 const studentName = btn.dataset.studentName;
-                const actionOriginal = btn.dataset.action;
+                const action = btn.dataset.action; // Pegando a ação atual
 
                 try {
-                    // 1. EXECUTA A API
-                    if (actionOriginal === 'confirmar') {
-                        await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
-                    } else {
-                        if (actionOriginal === 'saida') {
+                    // --- PASSO 1: ENVIAR PARA A API ---
+                    let response;
+                    if (action === 'confirmar') {
+                        response = await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
+                    } else if (action === 'entrada' || action === 'saida') {
+                        // Se for saída, valida o horário antes (como você já fazia)
+                        if (action === 'saida') {
                             const aluno = students.find(s => s.id == studentId);
                             const validacao = await validarSaidaPorHorario(aluno);
                             if (!validacao.permitido) {
@@ -4954,20 +4957,19 @@
                                 return;
                             }
                         }
-                        await processarAcaoComModal(studentId, actionOriginal, studentName);
+                        // Chama sua função existente que faz o POST de entrada/saída
+                        response = await processarAcaoComModal(studentId, action, studentName);
                     }
 
-                    // 2. RESET DO SLIDER (Visualmente volta a bolinha para o início enquanto a tela de sucesso carrega)
-                    resetSlideBtn(btn, thumb, fill, label, 'fast', true);
-
-                    // 3. ATUALIZA OS DADOS (O slider muda o "data-action" por baixo no HTML)
+                    // --- PASSO 2: ATUALIZAR OS DADOS (Muda o botão por baixo) ---
                     await refreshStudentsData();
 
-                    // 4. MOSTRA A TELA DE SUCESSO (Com design original e trava de 3s)
-                    const tipoSucesso = actionOriginal === 'confirmar' ? 'confirmacao' : actionOriginal;
-                    await mostrarTelaSucessoOriginalComTrava(tipoSucesso, studentId, actionOriginal);
+                    // --- PASSO 3: MOSTRAR TELA DE SUCESSO E SÓ FECHAR SE MUDOU ---
+                    // Aqui chamamos a nova função que criamos abaixo
+                    await abrirTelaSucessoConfirmada(action, studentName, studentId);
 
-                    // FINALIZA OS LOCKS
+                    // --- PASSO 4: FINALIZAR ---
+                    resetSlideBtn(btn, thumb, fill, label, 'slow', true);
                     isProcessing = false;
                     isActionProcessing = false;
 
@@ -4978,41 +4980,6 @@
                     isProcessing = false;
                     isActionProcessing = false;
                 }
-            }
-
-            async function mostrarTelaSucessoOriginalComTrava(tipo, alunoId, acaoOriginal) {
-                return new Promise((resolve) => {
-                    // 1. Chama a sua função original para exibir a tela (Verde, Vermelha ou Amarela)
-                    // Certifique-se que o nome da função abaixo é o que está no seu arquivo original
-                    mostrarTelaSucesso(tipo);
-
-                    // 2. Pega a div da tela que sua função acabou de mostrar/ativar
-                    const telaAtiva = document.querySelector('.tela-sucesso.active') || document.querySelector('.tela-sucesso');
-
-                    // 3. Inicia o "Vigilante" para garantir que o slider mudou
-                    let checagens = 0;
-                    const verificador = setInterval(() => {
-                        const btnNoDom = document.querySelector(`.slide-btn[data-student-id="${alunoId}"]`);
-                        const estadoMudou = !btnNoDom || btnNoDom.dataset.action !== acaoOriginal;
-
-                        checagens++;
-
-                        // Só permite fechar se o estado mudou ou se deu timeout de segurança
-                        if (estadoMudou || checagens > 50) {
-                            clearInterval(verificador);
-
-                            // Aguarda os 3 segundos que você deseja e então fecha a tela
-                            setTimeout(() => {
-                                if (telaAtiva) {
-                                    // Usa a lógica de fechar original do seu app
-                                    telaAtiva.classList.remove('active');
-                                    // Se sua tela original usa display ou opacity, o CSS original cuidará disso
-                                }
-                                resolve();
-                            }, 3000);
-                        }
-                    }, 100);
-                });
             }
 
             function resetSlideBtn(b, t, f, l, speed = 'normal', silent = false) {
