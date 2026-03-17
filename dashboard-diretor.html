@@ -2367,27 +2367,34 @@
          * @param {number} studentId - O ID do aluno a ser atualizado.
          * @param {string} eventType - O tipo de evento recebido (ex: 'ENTRADA_ALUNO').
          */
+        /**
+         * Atualiza o status de um aluno no cache local e reflete na interface 
+         * sem perder a página ou o filtro atual.
+         */
         function updateStudentStatusInCache(studentId, eventType) {
+            // 1. VERIFICAÇÃO DE CACHE VAZIO
             if (!detailedStudentsData || detailedStudentsData.length === 0) {
-                // Se o cache está vazio, um recarregamento completo é a única opção.
-                loadAllStudents(0);
+                console.log(" [WS] Cache vazio, recarregando mantendo a página atual.");
+                // CORREÇÃO: Mantém a página e o termo de busca
+                loadAllStudents(currentStudentsPage, document.getElementById('studentSearch')?.value || '');
                 refreshOverviewData();
                 return;
             }
 
             const student = detailedStudentsData.find(s => s.id === studentId);
 
-            // Se o aluno não está no cache, recarrega tudo para garantir consistência.
+            // 2. ALUNO NÃO ENCONTRADO NO CACHE
             if (!student) {
-                console.warn(`[WS] Aluno ${studentId} não encontrado no cache. Recarregando tudo.`);
-                loadAllStudents(0);
+                console.warn(` [WS] Aluno ${studentId} não encontrado no cache. Recarregando.`);
+                // CORREÇÃO: Mantém a página e o termo de busca
+                loadAllStudents(currentStudentsPage, document.getElementById('studentSearch')?.value || '');
                 refreshOverviewData();
                 return;
             }
 
-            console.log(`🔄 [WS] Atualizando status de ${student.nome} (ID: ${studentId}) para o evento ${eventType}.`);
+            console.log(`🔄 [WS] Atualizando status de ${student.nome} (ID: ${studentId}) para ${eventType}.`);
 
-            // 1. ATUALIZA O STATUS NA LISTA EM MEMÓRIA
+            // 3. ATUALIZA O STATUS NA LISTA EM MEMÓRIA
             switch (eventType) {
                 case 'ENTRADA_ALUNO': student.status = 'PRESENTE'; break;
                 case 'SAIDA_PENDENTE': student.status = 'AGUARDANDO_CONFIRMACAO'; break;
@@ -2396,26 +2403,41 @@
                 default: return;
             }
 
-            // 2. REORDENA A LISTA GLOBAL
+            // 4. REORDENA A LISTA GLOBAL (Mantendo a lógica de prioridade)
             const getStatusPriority = (status) => {
                 if (status === 'AGUARDANDO_CONFIRMACAO') return 0;
                 if (status === 'PRESENTE') return 1;
                 return 2;
             };
-            detailedStudentsData.sort((a, b) => getStatusPriority(a.status) - getStatusPriority(b.status) || a.nome.localeCompare(b.nome));
 
-            // 3. REDESENHA A PÁGINA ATUAL E ATUALIZA A VISÃO GERAL
+            detailedStudentsData.sort((a, b) =>
+                getStatusPriority(a.status) - getStatusPriority(b.status) ||
+                (a.nome || '').localeCompare(b.nome || '')
+            );
+
+            // 5. REDESENHA A PÁGINA ATUAL
             const totalPages = Math.ceil(detailedStudentsData.length / pageSize);
-            const currentPage = Math.min(currentStudentsPage, totalPages - 1); // Garante que a página atual seja válida
-            currentStudentsPage = currentPage < 0 ? 0 : currentPage;
-            const pageData = detailedStudentsData.slice(currentStudentsPage * pageSize, (currentStudentsPage + 1) * pageSize);
-            const paginatedData = { content: pageData, totalPages: totalPages, number: currentStudentsPage };
 
+            // Garante que a página atual ainda é válida após a atualização
+            const currentPage = Math.min(currentStudentsPage, totalPages - 1);
+            currentStudentsPage = currentPage < 0 ? 0 : currentPage;
+
+            // Calcula os dados da página específica para renderizar
+            const pageData = detailedStudentsData.slice(currentStudentsPage * pageSize, (currentStudentsPage + 1) * pageSize);
+            const paginatedData = {
+                content: pageData,
+                totalPages: totalPages,
+                number: currentStudentsPage,
+                totalElements: detailedStudentsData.length
+            };
+
+            // Atualiza apenas os componentes visuais sem fazer novo fetch ao servidor
             renderStudentsTable(paginatedData);
             setupStudentsPagination(paginatedData);
             refreshOverviewData();
 
-            showAlert(`Status de ${student.nome} foi atualizado.`, 'info');
+            // Notificação discreta
+            showAlert(`Status de ${student.nome} foi atualizado em tempo real.`, 'info');
         }
 
         /**
@@ -3564,64 +3586,67 @@
             const prevPageBtn = document.getElementById('studentsPrevPageBtn');
             const nextPageBtn = document.getElementById('studentsNextPageBtn');
             const lastPageBtn = document.getElementById('studentsLastPageBtn');
+            const searchInput = document.getElementById('studentSearch'); // Pegamos o input aqui
 
-            // A verificação agora é mais robusta: checa se data existe e se totalElements é um número.
+            // 1. Verificação de dados vazios
             if (!data || typeof data.totalElements !== 'number' || data.totalElements === 0) {
-                pagination.style.display = 'flex'; // Garante que o container da mensagem apareça
-                paginationInfo.textContent = 'Nenhum aluno encontrado'; // Mensagem clara
-                pageInfo.textContent = ''; // Limpa o contador de página
+                if (pagination) pagination.style.display = 'flex';
+                if (paginationInfo) paginationInfo.textContent = 'Nenhum aluno encontrado';
+                if (pageInfo) pageInfo.textContent = '';
 
-                // Esconde os botões, já que não há páginas para navegar
-                const paginationButtons = pagination.querySelector('.pagination-buttons');
+                const paginationButtons = pagination?.querySelector('.pagination-buttons');
                 if (paginationButtons) paginationButtons.style.display = 'none';
-
-                return; // Interrompe a função aqui
+                return;
             }
 
-            // Mostra os botões caso eles estivessem escondidos
-            const paginationButtons = pagination.querySelector('.pagination-buttons');
+            // 2. Mostra os botões
+            const paginationButtons = pagination?.querySelector('.pagination-buttons');
             if (paginationButtons) paginationButtons.style.display = 'flex';
+            if (pagination) pagination.style.display = 'flex';
 
-            pagination.style.display = 'flex';
-
-            // Calcular índices
-            const startRecord = (currentStudentsPage * pageSize) + 1;
-            const endRecord = Math.min((currentStudentsPage + 1) * pageSize, data.totalElements);
+            // 3. Calcular índices e Total de Páginas
+            // Usamos data.number (vindo da API) ou currentStudentsPage (nossa variável global)
+            const currentPage = (data.number !== undefined) ? data.number : currentStudentsPage;
             const totalPages = data.totalPages || 1;
 
-            // Atualizar informações
-            paginationInfo.textContent = `Mostrando ${startRecord}-${endRecord} de ${data.totalElements} registros`;
-            pageInfo.textContent = `Página ${currentStudentsPage + 1} de ${totalPages}`;
+            const startRecord = (currentPage * pageSize) + 1;
+            const endRecord = Math.min((currentPage + 1) * pageSize, data.totalElements);
 
-            // Atualizar estado dos botões
-            firstPageBtn.disabled = currentStudentsPage === 0;
-            prevPageBtn.disabled = currentStudentsPage === 0;
-            nextPageBtn.disabled = currentStudentsPage >= totalPages - 1;
-            lastPageBtn.disabled = currentStudentsPage >= totalPages - 1;
+            // 4. Atualizar informações textuais
+            if (paginationInfo) paginationInfo.textContent = `Mostrando ${startRecord}-${endRecord} de ${data.totalElements} registros`;
+            if (pageInfo) pageInfo.textContent = `Página ${currentPage + 1} de ${totalPages}`;
 
-            // Configurar eventos
+            // 5. Atualizar estado dos botões (Desabilitar se não houver para onde ir)
+            firstPageBtn.disabled = currentPage === 0;
+            prevPageBtn.disabled = currentPage === 0;
+            nextPageBtn.disabled = currentPage >= totalPages - 1;
+            lastPageBtn.disabled = currentPage >= totalPages - 1;
+
+            // 6. Configurar eventos de clique (Passando sempre o termo de busca atual)
+            const currentSearch = searchInput?.value || '';
+
             firstPageBtn.onclick = () => {
                 currentStudentsPage = 0;
-                loadAllStudents(currentStudentsPage, document.getElementById('studentSearch').value);
+                loadAllStudents(currentStudentsPage, currentSearch);
             };
 
             prevPageBtn.onclick = () => {
                 if (currentStudentsPage > 0) {
                     currentStudentsPage--;
-                    loadAllStudents(currentStudentsPage, document.getElementById('studentSearch').value);
+                    loadAllStudents(currentStudentsPage, currentSearch);
                 }
             };
 
             nextPageBtn.onclick = () => {
                 if (currentStudentsPage < totalPages - 1) {
                     currentStudentsPage++;
-                    loadAllStudents(currentStudentsPage, document.getElementById('studentSearch').value);
+                    loadAllStudents(currentStudentsPage, currentSearch);
                 }
             };
 
             lastPageBtn.onclick = () => {
                 currentStudentsPage = totalPages - 1;
-                loadAllStudents(currentStudentsPage, document.getElementById('studentSearch').value);
+                loadAllStudents(currentStudentsPage, currentSearch);
             };
         }
 
