@@ -4969,50 +4969,58 @@
                         if (action === 'saida') {
                             const aluno = students.find(s => s.id == studentId);
 
-                            // 1. Normalização do nome da sala (remove acentos e espaços extras para garantir a comparação)
-                            const nomeSalaRaw = (aluno.sala_nome || aluno.sala || "").toUpperCase().trim();
+                            // 1. Extraímos apenas os NÚMEROS do nome da sala para evitar erro de acentuação (° ou º)
+                            // Se a sala for "3° ANO", a variável 'numeroSala' será "3"
+                            const nomeSalaRaw = (aluno.sala_nome || aluno.sala || "").toUpperCase();
+                            const numeroSala = nomeSalaRaw.replace(/\D/g, ""); // Remove tudo que não for número
 
-                            // 2. Captura exata da hora de Florianópolis (independente do relógio do aparelho)
+                            // 2. Pegamos a hora real de Florianópolis
                             const agora = new Date();
-                            const opcoes = { timeZone: 'America/Sao_Paulo', hour: 'numeric', minute: 'numeric', hour12: false };
-                            const horaFloripaStr = agora.toLocaleString('pt-BR', opcoes);
-                            const [horaH, minH] = horaFloripaStr.split(':').map(Number);
-                            const minutosPassadosNoDia = (horaH * 60) + minH;
+                            const horaFloripa = new Intl.DateTimeFormat('pt-BR', {
+                                timeZone: 'America/Sao_Paulo',
+                                hour: 'numeric',
+                                minute: 'numeric',
+                                hour12: false
+                            }).format(agora);
+
+                            const [horaH, minH] = horaFloripa.split(':').map(Number);
+                            const minutosAtuais = (horaH * 60) + minH;
 
                             let bloqueado = false;
-                            let horarioLiberacao = "";
+                            let horarioLimite = "";
 
-                            // 3. Verificação por Minutos Totais (00:00 até o horário alvo)
-                            // 15:10 = (15 * 60) + 10 = 910 minutos
-                            // 15:30 = (15 * 60) + 30 = 930 minutos
+                            // 3. Regras ferozes de bloqueio por número da sala
+                            // 15:10 = 910 min | 15:30 = 930 min
 
-                            if (nomeSalaRaw.includes("2") && nomeSalaRaw.includes("ANO")) {
-                                if (minutosPassadosNoDia < 910) {
+                            if (numeroSala === "2") {
+                                if (minutosAtuais < 910) {
                                     bloqueado = true;
-                                    horarioLiberacao = "15:10";
+                                    horarioLimite = "15:10";
                                 }
-                            } else if (nomeSalaRaw.includes("3") && nomeSalaRaw.includes("ANO")) {
-                                if (minutosPassadosNoDia < 910) {
+                            } else if (numeroSala === "3") {
+                                if (minutosAtuais < 910) { // Coloquei 15:10 para o 3º também, ajuste se necessário
                                     bloqueado = true;
-                                    horarioLiberacao = "15:10";
+                                    horarioLimite = "15:10";
+                                }
+                            } else if (numeroSala === "5") {
+                                if (minutosAtuais < 930) {
+                                    bloqueado = true;
+                                    horarioLimite = "15:30";
                                 }
                             }
-                            else if (nomeSalaRaw.includes("5") && nomeSalaRaw.includes("ANO")) {
-                                if (minutosPassadosNoDia < 930) {
-                                    bloqueado = true;
-                                    horarioLiberacao = "15:30";
-                                }
-                            }
+
                             if (bloqueado) {
-                                // Mensagem visual usando sua função existente
-                                showStatusMessage(`Saída bloqueada para o ${nomeSalaRaw}. Permitida somente após às ${horarioLiberacao}`, 'warning');
+                                // Exibe o alerta visual
+                                showStatusMessage(`SAÍDA BLOQUEADA: Para o ${numeroSala}º ANO, somente após às ${horarioLimite}`, 'warning');
 
-                                // Reset do slider e interrupção imediata
+                                // Mata o processo imediatamente
                                 resetSlideBtn(btn, thumb, fill, label, 'fast', false);
                                 isProcessing = false;
                                 isActionProcessing = false;
-                                return; // CRÍTICO: Impede que o código siga para a API ou telas de sucesso
+                                return; // SAÍDA CRÍTICA: impede o envio para a API
                             }
+
+                            console.log(`Saída liberada para sala ${numeroSala} às ${horaFloripa}`);
                         }
 
                         // Segue o fluxo de ENTRADA e SAÍDA que você disse que já está 100%
