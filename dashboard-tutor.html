@@ -4928,7 +4928,7 @@
                 isProcessing = true;
                 isActionProcessing = true;
 
-                // Fixa o slider no final
+                // MANTER ESTICADO: Não chamamos resetSlideBtn aqui ainda!
                 thumb.style.transition = 'transform 0.2s ease-out';
                 fill.style.width = '100%';
                 thumb.style.transform = slidesRight ? `translateX(${maxTravel}px)` : `translateX(${-maxTravel}px)`;
@@ -4940,7 +4940,7 @@
                 const actionOriginal = btn.dataset.action;
 
                 try {
-                    // 1. EXECUTA A API
+                    // 1. Chamada API
                     if (actionOriginal === 'confirmar') {
                         await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
                     } else {
@@ -4949,66 +4949,72 @@
                             const validacao = await validarSaidaPorHorario(aluno);
                             if (!validacao.permitido) {
                                 resetSlideBtn(btn, thumb, fill, label, 'fast', false);
-                                isProcessing = false;
-                                isActionProcessing = false;
+                                isProcessing = false; isActionProcessing = false;
                                 return;
                             }
                         }
                         await processarAcaoComModal(studentId, actionOriginal, studentName);
                     }
 
-                    // 2. RESET DO SLIDER (Visualmente volta a bolinha para o início enquanto a tela de sucesso carrega)
-                    resetSlideBtn(btn, thumb, fill, label, 'fast', true);
-
-                    // 3. ATUALIZA OS DADOS (O slider muda o "data-action" por baixo no HTML)
-                    await refreshStudentsData();
-
-                    // 4. MOSTRA A TELA DE SUCESSO (Com design original e trava de 3s)
+                    // 2. MOSTRA A TELA DE SUCESSO PRIMEIRO (Com o slider ainda esticado lá no fundo)
                     const tipoSucesso = actionOriginal === 'confirmar' ? 'confirmacao' : actionOriginal;
-                    await mostrarTelaSucessoOriginalComTrava(tipoSucesso, studentId, actionOriginal);
 
-                    // FINALIZA OS LOCKS
-                    isProcessing = false;
-                    isActionProcessing = false;
+                    // Chamamos a função de trava e passamos o reset como callback
+                    await mostrarTelaSucessoOriginalComTrava(tipoSucesso, studentId, actionOriginal, () => {
+                        // Isso aqui roda "por baixo" da tela de sucesso
+                        resetSlideBtn(btn, thumb, fill, label, 'fast', true);
+                        refreshStudentsData();
+                    });
 
                 } catch (error) {
                     console.error('Erro:', error);
                     showStatusMessage(error.message, 'danger');
                     resetSlideBtn(btn, thumb, fill, label, 'slow', false);
+                } finally {
                     isProcessing = false;
                     isActionProcessing = false;
                 }
             }
 
-            async function mostrarTelaSucessoOriginalComTrava(tipo, alunoId, acaoOriginal) {
+            async function mostrarTelaSucessoOriginalComTrava(tipo, alunoId, acaoOriginal, callbackAtualizacao) {
                 return new Promise((resolve) => {
-                    // 1. Chama a sua função original para exibir a tela (Verde, Vermelha ou Amarela)
-                    // Certifique-se que o nome da função abaixo é o que está no seu arquivo original
+                    // Remove qualquer tela de sucesso que já possa estar aberta (evita cintilação/sobreposição)
+                    const telasAntigas = document.querySelectorAll('.tela-sucesso');
+                    telasAntigas.forEach(t => t.remove());
+
+                    // 1. Abre a tela de sucesso original
                     mostrarTelaSucesso(tipo);
+                    const tela = document.querySelector('.tela-sucesso');
 
-                    // 2. Pega a div da tela que sua função acabou de mostrar/ativar
-                    const telaAtiva = document.querySelector('.tela-sucesso.active') || document.querySelector('.tela-sucesso');
+                    // 2. Executa a atualização do slider "por baixo" da tela
+                    if (callbackAtualizacao) callbackAtualizacao();
 
-                    // 3. Inicia o "Vigilante" para garantir que o slider mudou
                     let checagens = 0;
                     const verificador = setInterval(() => {
+                        // Busca o botão novamente no DOM para ver se o status mudou
                         const btnNoDom = document.querySelector(`.slide-btn[data-student-id="${alunoId}"]`);
                         const estadoMudou = !btnNoDom || btnNoDom.dataset.action !== acaoOriginal;
 
                         checagens++;
 
-                        // Só permite fechar se o estado mudou ou se deu timeout de segurança
+                        // Se mudou ou deu timeout (5s)
                         if (estadoMudou || checagens > 50) {
                             clearInterval(verificador);
 
-                            // Aguarda os 3 segundos que você deseja e então fecha a tela
+                            // Mantém a tela por 3 segundos
                             setTimeout(() => {
-                                if (telaAtiva) {
-                                    // Usa a lógica de fechar original do seu app
-                                    telaAtiva.classList.remove('active');
-                                    // Se sua tela original usa display ou opacity, o CSS original cuidará disso
+                                if (tela) {
+                                    tela.style.transition = 'opacity 0.5s ease';
+                                    tela.style.opacity = '0';
+                                    setTimeout(() => {
+                                        tela.remove();
+                                        // Remove classes de cor para garantir que a próxima não venha "suja"
+                                        tela.classList.remove('verde', 'vermelho', 'amarelo', 'active');
+                                        resolve();
+                                    }, 500);
+                                } else {
+                                    resolve();
                                 }
-                                resolve();
                             }, 3000);
                         }
                     }, 100);
