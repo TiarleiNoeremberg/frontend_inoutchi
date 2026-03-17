@@ -2671,6 +2671,7 @@
         let isActionProcessing = false;
         let studentRefreshInterval = null;
         let isProcessingAction = false;
+        let currentProcessingId = null;
 
         document.body.classList.add('splash-active');
 
@@ -3278,7 +3279,11 @@
         }
 
         async function refreshStudentsData() {
-            if (isProcessingAction) return;
+            // SE ESTIVER PROCESSANDO UM SLIDER, ABORTA O REFRESH IMEDIATAMENTE
+            if (isActionProcessing) {
+                console.log("⏳ Refresh ignorado: ação em curso...");
+                return;
+            }
 
             try {
                 const tutorNomeEncoded = encodeURIComponent(currentUser.nome);
@@ -4981,68 +4986,60 @@
                     return;
                 }
 
-                // COMPLETOU O DESLIZE!
+                // --- ATIVAÇÃO DAS TRAVAS ---
                 isProcessing = true;
                 isActionProcessing = true;
+                window.isProcessingAction = true; // Trava o refreshStudentsData
+                const studentId = btn.dataset.studentId;
+                window.currentProcessingId = studentId; // Identifica o aluno no renderStudents
 
-                // 1. AQUI: Ativamos a trava global para o refreshStudentsData ignorar esta atualização
-                // Certifique-se de que a variável 'isProcessingAction' existe no escopo global
-                window.isProcessingAction = true;
-
+                // Efeito visual de "preso no final"
                 thumb.style.transition = 'transform 0.2s ease-out';
                 fill.style.width = '100%';
                 thumb.style.transform = slidesRight ? `translateX(${maxTravel}px)` : `translateX(${-maxTravel}px)`;
 
                 if (navigator.vibrate) navigator.vibrate(50);
 
-                const studentId = btn.dataset.studentId;
                 const studentName = btn.dataset.studentName;
                 const action = btn.dataset.action;
 
-                window.currentProcessingId = studentId; // GUARDA O ID DO ALUNO ATUAL
-                window.isProcessingAction = true;
-
                 try {
                     if (action === 'confirmar') {
-                        const maxTravel = getMaxTravel();
-                        thumb.style.transition = 'transform 0.2s ease-out';
-                        fill.style.width = '100%';
-                        thumb.style.transform = slidesRight ? `translateX(${maxTravel}px)` : `translateX(${-maxTravel}px)`;
-
                         await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
-
                         mostrarTelaSucesso('confirmacao');
-
                         await refreshStudentsData();
                         resetSlideBtn(btn, thumb, fill, label, 'fast', true);
 
-                        // MODIFICADO AQUI: Adicionamos um atraso para liberar a trava
+                        // Liberação com delay
                         setTimeout(() => {
                             isProcessing = false;
                             isActionProcessing = false;
-                            window.isProcessingAction = false; // Libera o auto-refresh
+                            window.isProcessingAction = false;
                         }, 2000);
 
                     } else if (action === 'entrada' || action === 'saida') {
 
                         if (action === 'saida') {
-                            const card = btn.closest('.student-card');
-                            const salaElement = card ? card.querySelector('.student-class, .student-info p') : null;
+                            // --- AJUSTE NO SELETOR DA SALA ---
+                            // No seu novo renderStudents, a sala está em um <span> com estilos específicos
+                            const card = btn.closest('.student-item');
+                            const salaElement = card ? card.querySelector('span[style*="background: var(--primary-light)"]') : null;
                             const nomeSala = salaElement ? salaElement.textContent.trim().toUpperCase() : "";
 
                             if (window.validarHorarioSaida) {
                                 const validacao = window.validarHorarioSaida(nomeSala);
 
                                 if (!validacao.permitido) {
-                                    const mensagensAntigas = document.querySelectorAll('.status-notification');
-                                    mensagensAntigas.forEach(m => m.remove());
+                                    // Limpa duplicados antes de mostrar
+                                    document.querySelectorAll('.status-notification').forEach(m => m.remove());
 
                                     mostrarNotificacaoHorario(validacao.mensagem);
-
                                     resetSlideBtn(btn, thumb, fill, label, 'fast', false);
+
+                                    // Libera as travas
                                     isProcessing = false;
                                     isActionProcessing = false;
-                                    window.isProcessingAction = false; // Libera se for bloqueado
+                                    window.isProcessingAction = false;
                                     return;
                                 }
                             }
@@ -5052,11 +5049,10 @@
                         resetSlideBtn(btn, thumb, fill, label, 'slow', true);
                         await refreshStudentsData();
 
-                        // MODIFICADO AQUI: Adicionamos um atraso para liberar a trava
                         setTimeout(() => {
                             isProcessing = false;
                             isActionProcessing = false;
-                            window.isProcessingAction = false; // Libera o auto-refresh
+                            window.isProcessingAction = false;
                         }, 2000);
                     }
 
@@ -5064,8 +5060,6 @@
                     console.error('Erro:', error);
                     showStatusMessage(error.message, 'danger');
                     resetSlideBtn(btn, thumb, fill, label, 'slow', false);
-
-                    // Em caso de erro, liberamos imediatamente
                     isProcessing = false;
                     isActionProcessing = false;
                     window.isProcessingAction = false;
