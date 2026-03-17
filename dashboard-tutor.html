@@ -2670,6 +2670,7 @@
         let actionLocationModalInstance, manualConfirmExitModalInstance, logoutConfirmModalInstance;
         let isActionProcessing = false;
         let studentRefreshInterval = null;
+        let isProcessingAction = false;
 
         document.body.classList.add('splash-active');
 
@@ -3277,6 +3278,8 @@
         }
 
         async function refreshStudentsData() {
+            if (isProcessingAction) return;
+
             try {
                 const tutorNomeEncoded = encodeURIComponent(currentUser.nome);
                 const response = await fetchWithAuth(`/api/tutores/${tutorNomeEncoded}/alunos`);
@@ -4976,7 +4979,10 @@
                 isProcessing = true;
                 isActionProcessing = true;
 
-                // Fixa na posição final enquanto processa
+                // 1. AQUI: Ativamos a trava global para o refreshStudentsData ignorar esta atualização
+                // Certifique-se de que a variável 'isProcessingAction' existe no escopo global
+                window.isProcessingAction = true;
+
                 thumb.style.transition = 'transform 0.2s ease-out';
                 fill.style.width = '100%';
                 thumb.style.transform = slidesRight ? `translateX(${maxTravel}px)` : `translateX(${-maxTravel}px)`;
@@ -4988,73 +4994,72 @@
                 const action = btn.dataset.action;
 
                 try {
-                    // --- PASSO 1: ENVIAR PARA A API ---
-                    let response;
                     if (action === 'confirmar') {
-                        // 1. MANTER ESTICADO
                         const maxTravel = getMaxTravel();
                         thumb.style.transition = 'transform 0.2s ease-out';
                         fill.style.width = '100%';
                         thumb.style.transform = slidesRight ? `translateX(${maxTravel}px)` : `translateX(${-maxTravel}px)`;
 
-                        // 2. ENVIA PARA A API
                         await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
 
-                        // 3. MOSTRAR A TELA DE SUCESSO IMEDIATAMENTE
                         mostrarTelaSucesso('confirmacao');
 
-                        // 4. ATUALIZAR DADOS E RESETAR
                         await refreshStudentsData();
                         resetSlideBtn(btn, thumb, fill, label, 'fast', true);
 
-                        isProcessing = false;
-                        isActionProcessing = false;
+                        // MODIFICADO AQUI: Adicionamos um atraso para liberar a trava
+                        setTimeout(() => {
+                            isProcessing = false;
+                            isActionProcessing = false;
+                            window.isProcessingAction = false; // Libera o auto-refresh
+                        }, 2000);
 
                     } else if (action === 'entrada' || action === 'saida') {
 
-                        // --- INÍCIO DA TRAVA DE SEGURANÇA INTEGRADA ---
                         if (action === 'saida') {
-                            // 1. BUSCA O NOME DA SALA NO CARD
                             const card = btn.closest('.student-card');
                             const salaElement = card ? card.querySelector('.student-class, .student-info p') : null;
                             const nomeSala = salaElement ? salaElement.textContent.trim().toUpperCase() : "";
 
-                            // 2. VALIDAÇÃO PELA FUNÇÃO GLOBAL (que injetamos no final do HTML)
                             if (window.validarHorarioSaida) {
                                 const validacao = window.validarHorarioSaida(nomeSala);
 
                                 if (!validacao.permitido) {
-                                    // --- 1. REMOVE MENSAGENS DUPLICADAS ANTES DE MOSTRAR ---
                                     const mensagensAntigas = document.querySelectorAll('.status-notification');
                                     mensagensAntigas.forEach(m => m.remove());
 
                                     mostrarNotificacaoHorario(validacao.mensagem);
 
-                                    // Reseta o botão
                                     resetSlideBtn(btn, thumb, fill, label, 'fast', false);
                                     isProcessing = false;
                                     isActionProcessing = false;
-                                    return; // Para a execução aqui
+                                    window.isProcessingAction = false; // Libera se for bloqueado
+                                    return;
                                 }
                             }
                         }
-                        // --- FIM DA TRAVA DE SEGURANÇA ---
 
-                        // Segue o fluxo normal caso passe pela trava ou seja 'entrada'
                         await processarAcaoComModal(studentId, action, studentName);
                         resetSlideBtn(btn, thumb, fill, label, 'slow', true);
                         await refreshStudentsData();
 
-                        isProcessing = false;
-                        isActionProcessing = false;
+                        // MODIFICADO AQUI: Adicionamos um atraso para liberar a trava
+                        setTimeout(() => {
+                            isProcessing = false;
+                            isActionProcessing = false;
+                            window.isProcessingAction = false; // Libera o auto-refresh
+                        }, 2000);
                     }
 
                 } catch (error) {
                     console.error('Erro:', error);
                     showStatusMessage(error.message, 'danger');
                     resetSlideBtn(btn, thumb, fill, label, 'slow', false);
+
+                    // Em caso de erro, liberamos imediatamente
                     isProcessing = false;
                     isActionProcessing = false;
+                    window.isProcessingAction = false;
                 }
             }
 
@@ -5504,7 +5509,7 @@
             if (agora < limite) {
                 return {
                     permitido: false,
-                    mensagem: `A saída para o ${nomeSala} só é permitida após às ${config.hora}:${config.minuto.toString().padStart(2, '0')}.`
+                    mensagem: `A solicitação desaída para o ${nomeSala} só é permitida após às ${config.hora}:${config.minuto.toString().padStart(2, '0')}.`
                 };
             }
 
