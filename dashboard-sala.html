@@ -6,6 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
     <title>Inoutchi - Dashboard Sala</title>
     <link rel="icon" href="assets/images/favicon.png" type="image/png">
+    <script src="utils.js"></script>
+
     <style>
         * {
             margin: 0;
@@ -898,6 +900,29 @@
                 }
             }
 
+            // ===== NOVO MÉTODO: Validar solicitação de saída por horário =====
+            validarSolicitacaoSaida(aluno) {
+                if (!aluno || !aluno.salaNome) {
+                    return { permitido: true };
+                }
+
+                const validacao = window.utils.validarHorarioSaida(aluno.salaNome);
+
+                if (!validacao.permitido) {
+                    console.log(`⏰ Solicitação de saída para ${aluno.nome} (${aluno.salaNome}) bloqueada: ${validacao.mensagem}`);
+
+                    this.mostrarNotificacao(
+                        '⏰ Horário não permitido',
+                        validacao.mensagem,
+                        'warning'
+                    );
+
+                    return { permitido: false, mensagem: validacao.mensagem };
+                }
+
+                return { permitido: true };
+            }
+
             //========================================================
             //  ██████╗ ███████╗███╗   ██╗██████╗ ███████╗██████╗ 
             // ██╔════╝ ██╔════╝████╗  ██║██╔══██╗██╔════╝██╔══██╗
@@ -1053,16 +1078,25 @@
             }
 
             processarSaidaPendente(mensagem) {
-                // 1. ATUALIZA O ESTADO
+                // 1. 🔴 NOVO: VALIDAÇÃO DE HORÁRIO
                 const aluno = this.alunos.find(a => a.id === mensagem.alunoId);
                 if (!aluno) {
                     console.warn(`[PENDENTE] Aluno com ID ${mensagem.alunoId} não foi encontrado.`);
                     return;
                 }
+
+                // Valida se a solicitação pode ser processada baseada no horário
+                const validacao = this.validarSolicitacaoSaida(aluno);
+                if (!validacao.permitido) {
+                    console.log(`⏰ Solicitação de saída para ${mensagem.alunoNome} bloqueada por horário`);
+                    return; // Ignora a solicitação completamente
+                }
+
+                // 2. ATUALIZA O ESTADO (só chega aqui se passou na validação)
                 aluno.status = 'AGUARDANDO_CONFIRMACAO';
                 aluno.tipoSolicitante = mensagem.tipoSolicitante;
 
-                // 2. ATUALIZA O CARD DIRETAMENTE
+                // 3. ATUALIZA O CARD DIRETAMENTE
                 let alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
 
                 // Se o card não existe (pode ter sido recriado), busca novamente após um pequeno delay
@@ -1081,7 +1115,7 @@
 
                 this.aplicarEstiloPendenteAoCard(alunoCard, mensagem);
 
-                // 3. LÓGICA DA FILA
+                // 4. LÓGICA DA FILA (só adiciona se passou na validação)
                 this.filaDeChamadas.push(mensagem);
                 if (!this.isProcessandoFila) {
                     this.isProcessandoFila = true;
@@ -1492,14 +1526,29 @@
                 if (!data.alunos || !Array.isArray(data.alunos)) return [];
                 const alunosComStatus = await this.verificarStatusDeSaida(data.alunos);
 
+                // 🔴 NOVO: Filtra solicitações pendentes que não são permitidas por horário
+                const alunosFiltrados = alunosComStatus.filter(aluno => {
+                    if (aluno.status === 'AGUARDANDO_CONFIRMACAO') {
+                        const validacao = window.utils.validarHorarioSaida(aluno.salaNome);
+                        if (!validacao.permitido) {
+                            console.log(`⏰ Solicitação pendente de ${aluno.nome} (${aluno.salaNome}) ignorada - fora do horário`);
+                            // Altera o status de volta para PRESENTE
+                            aluno.status = 'PRESENTE';
+                            delete aluno.tipoSolicitante;
+                            delete aluno.parentesco;
+                        }
+                    }
+                    return true;
+                });
+
                 // Log para debug
-                alunosComStatus.forEach(aluno => {
+                alunosFiltrados.forEach(aluno => {
                     if (aluno.status === 'AGUARDANDO_CONFIRMACAO') {
                         console.log(`[DEBUG] Aluno ${aluno.nome} - Status: ${aluno.status}, Tipo: ${aluno.tipoSolicitante}`);
                     }
                 });
 
-                return alunosComStatus.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+                return alunosFiltrados.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
             }
 
             async verificarStatusDeSaida(alunos) {
@@ -1814,6 +1863,42 @@
                     </div>`;
                 document.body.appendChild(notificacao);
                 setTimeout(() => notificacao.remove(), 5000);
+            }
+
+            mostrarNotificacaoHorario(mensagem) {
+                const notification = document.createElement('div');
+                notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 9999;
+        background: #fef3c7;
+        color: #92400e;
+        border: 1px solid #fbbf24;
+        border-radius: 12px;
+        padding: 16px 24px;
+        font-weight: 600;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        animation: slideDown 0.3s ease;
+        max-width: 90%;
+        text-align: center;
+        font-size: 1rem;
+        backdrop-filter: blur(10px);
+    `;
+                notification.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="font-size: 1.5rem;">⏰</span>
+            <span>${mensagem}</span>
+        </div>
+    `;
+                document.body.appendChild(notification);
+
+                setTimeout(() => {
+                    notification.style.opacity = '0';
+                    notification.style.transition = 'opacity 0.5s';
+                    setTimeout(() => notification.remove(), 500);
+                }, 5000);
             }
 
             atualizarStatusWebSocket(status, mensagem) {

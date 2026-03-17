@@ -8,7 +8,7 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="apple-mobile-web-app-title" content="InOutchi">
+    <meta name="apple-mobile-web-app-title" content="Inoutchi">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <title>Inoutchi - Dashboard Tutor</title>
     <link rel="icon" href="assets/images/favicon.png" type="image/png">
@@ -18,6 +18,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/assets/images/Logo_iOs.png">
+    <script src="utils.js"></script>
 
     <style>
         /* ===== FULL SCREEN STRUCTURE ===== */
@@ -4037,6 +4038,57 @@
             return response;
         }
 
+        async function validarSaidaPorHorario(aluno) {
+            if (!aluno || !aluno.salaNome) {
+                return { permitido: true }; // Se não tem sala, permite
+            }
+
+            const validacao = validarHorarioSaida(aluno.salaNome);
+
+            if (!validacao.permitido) {
+                // Mostra alerta amigável
+                showStatusMessage(validacao.mensagem, 'warning');
+
+                // Opcional: mostra toast mais elaborado
+                mostrarNotificacaoHorario(validacao.mensagem);
+
+                return { permitido: false, mensagem: validacao.mensagem };
+            }
+
+            return { permitido: true };
+        }
+
+        // Função para mostrar notificação visual
+        function mostrarNotificacaoHorario(mensagem) {
+            const notification = document.createElement('div');
+            notification.className = 'alert alert-warning';
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                z-index: 9999;
+                background: #fef3c7;
+                color: #92400e;
+                border: 1px solid #fbbf24;
+                border-radius: 8px;
+                padding: 12px 20px;
+                font-weight: 500;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                animation: slideDown 0.3s ease;
+                max-width: 90%;
+                text-align: center;
+            `;
+            notification.textContent = mensagem;
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                notification.style.transition = 'opacity 0.5s';
+                setTimeout(() => notification.remove(), 500);
+            }, 4000);
+        }
+
         function showAlert(message, type = 'success') {
             alertBox.textContent = message;
             alertBox.className = `alert alert-${type} alert-dismissible fade show`;
@@ -4529,6 +4581,15 @@
         function abrirModalComProcessamentoAutomatico(studentId, action, studentName) {
             if (isActionProcessing) return;
 
+            // 🔴 NOVO: Validação de horário para SAÍDA
+            if (action === 'saida') {
+                const aluno = students.find(s => s.id == studentId);
+                const validacao = validarSaidaPorHorario(aluno);
+                if (!validacao.permitido) {
+                    return; // Não prossegue
+                }
+            }
+
             const modal = document.getElementById('actionLocationModal');
             const modalTitle = modal.querySelector('#actionLocationModalLabel');
             const modalMessage = modal.querySelector('#modalMessage');
@@ -4735,7 +4796,6 @@
                 const progress = Math.abs(currentOffset) / maxTravel;
 
                 if (progress < 0.85) {
-                    // ✅ CORRIGIDO: thumb em vez de newThumb
                     resetSlideBtn(btn, thumb, fill, label, 'fast');
                     return;
                 }
@@ -4745,16 +4805,13 @@
                 isActionProcessing = true;
 
                 // Fixa na posição final
-                // ✅ CORRIGIDO: thumb em vez de newThumb
                 thumb.style.transition = 'transform 0.2s ease-out';
                 fill.style.transition = 'width 0.2s ease-out';
 
                 if (slidesRight) {
-                    // ✅ CORRIGIDO: thumb em vez de newThumb
                     thumb.style.transform = `translateX(${maxTravel}px)`;
                     fill.style.width = '100%';
                 } else {
-                    // ✅ CORRIGIDO: thumb em vez de newThumb
                     thumb.style.transform = `translateX(${-maxTravel}px)`;
                     fill.style.width = '100%';
                 }
@@ -4768,10 +4825,7 @@
                 try {
                     if (action === 'confirmar') {
                         await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
-
-                        // ✅ CORRIGIDO: thumb em vez de newThumb
                         resetSlideBtn(btn, thumb, fill, label, 'slow', true);
-
                         mostrarTelaSucesso('confirmacao', async () => {
                             await refreshStudentsData();
                             isProcessing = false;
@@ -4779,11 +4833,20 @@
                         });
 
                     } else if (action === 'entrada' || action === 'saida') {
+                        // 🔴 NOVO: Para SAÍDA, valida horário antes de processar
+                        if (action === 'saida') {
+                            const validacao = await validarSaidaPorHorario(aluno);
+                            if (!validacao.permitido) {
+                                // Reseta o slider e interrompe
+                                resetSlideBtn(btn, thumb, fill, label, 'fast', false);
+                                isProcessing = false;
+                                isActionProcessing = false;
+                                return;
+                            }
+                        }
+
                         await processarAcaoComModal(studentId, action, studentName);
-
-                        // ✅ CORRIGIDO: thumb em vez de newThumb
                         resetSlideBtn(btn, thumb, fill, label, 'slow', true);
-
                         await refreshStudentsData();
 
                         isProcessing = false;
@@ -4795,7 +4858,6 @@
                     showStatusMessage(error.message, 'danger');
 
                     setTimeout(() => {
-                        // ✅ CORRIGIDO: thumb em vez de newThumb
                         resetSlideBtn(btn, thumb, fill, label, 'slow', false);
                         isProcessing = false;
                         isActionProcessing = false;
@@ -4842,6 +4904,15 @@
         // ===== FUNÇÃO SIMPLIFICADA - SEM PROMISE COMPLEXA =====
         async function processarAcaoComModal(studentId, action, studentName) {
             try {
+                // 🔴 NOVO: Validação de horário para SAÍDA
+                if (action === 'saida') {
+                    const aluno = students.find(s => s.id == studentId);
+                    const validacao = await validarSaidaPorHorario(aluno);
+                    if (!validacao.permitido) {
+                        return false; // Não prossegue
+                    }
+                }
+
                 // Abre o modal
                 const modal = document.getElementById('actionLocationModal');
                 modal.querySelector('#actionLocationModalLabel').textContent =
