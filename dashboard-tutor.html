@@ -4967,61 +4967,59 @@
                     } else if (action === 'entrada' || action === 'saida') {
                         // MANTEMOS TODA A SUA LÓGICA DE HORÁRIO QUE JÁ ESTÁ AQUI:
                         if (action === 'saida') {
-                            const aluno = students.find(s => s.id == studentId);
+                            // 1. BUSCA AGRESSIVA: Pegamos o nome da sala direto da tela (DOM)
+                            // No seu HTML, a sala fica dentro de .student-class ou .student-info
+                            const card = btn.closest('.student-card');
+                            const salaElement = card ? card.querySelector('.student-class, .student-info p') : null;
+                            const textoSala = salaElement ? salaElement.textContent.toUpperCase() : "";
 
-                            // 1. Extraímos apenas os NÚMEROS do nome da sala para evitar erro de acentuação (° ou º)
-                            // Se a sala for "3° ANO", a variável 'numeroSala' será "3"
-                            const nomeSalaRaw = (aluno.sala_nome || aluno.sala || "").toUpperCase();
-                            const numeroSala = nomeSalaRaw.replace(/\D/g, ""); // Remove tudo que não for número
+                            // Se não achar no DOM, tenta no array (backup)
+                            const alunoData = students.find(s => String(s.id) === String(studentId)) || {};
+                            const salaBackup = (alunoData.sala_nome || alunoData.sala || "").toUpperCase();
 
-                            // 2. Pegamos a hora real de Florianópolis
+                            // Unificamos as fontes e extraímos apenas o número
+                            const salaFinal = (textoSala + salaBackup).replace(/\D/g, "");
+
+                            // 2. HORA REAL (Florianópolis)
                             const agora = new Date();
                             const horaFloripa = new Intl.DateTimeFormat('pt-BR', {
-                                timeZone: 'America/Sao_Paulo',
-                                hour: 'numeric',
-                                minute: 'numeric',
-                                hour12: false
+                                timeZone: 'America/Sao_Paulo', hour: 'numeric', minute: 'numeric', hour12: false
                             }).format(agora);
+                            const [h, m] = horaFloripa.split(':').map(Number);
+                            const minAtuais = (h * 60) + m;
 
-                            const [horaH, minH] = horaFloripa.split(':').map(Number);
-                            const minutosAtuais = (horaH * 60) + minH;
+                            console.log(`[DEBUG TRAVA] Sala identificada: ${salaFinal} | Minutos: ${minAtuais}`);
 
                             let bloqueado = false;
-                            let horarioLimite = "";
+                            let limite = "";
 
-                            // 3. Regras ferozes de bloqueio por número da sala
-                            // 15:10 = 910 min | 15:30 = 930 min
-
-                            if (numeroSala === "2") {
-                                if (minutosAtuais < 910) {
+                            // 3. REGRAS POR NÚMERO (Blindadas)
+                            if (salaFinal === "2" || salaFinal === "3") {
+                                if (minAtuais < 910) { // Antes das 15:10
                                     bloqueado = true;
-                                    horarioLimite = "15:10";
+                                    limite = "15:10";
                                 }
-                            } else if (numeroSala === "3") {
-                                if (minutosAtuais < 910) { // Coloquei 15:10 para o 3º também, ajuste se necessário
+                            } else if (salaFinal === "5") {
+                                if (minAtuais < 930) { // Antes das 15:30
                                     bloqueado = true;
-                                    horarioLimite = "15:10";
-                                }
-                            } else if (numeroSala === "5") {
-                                if (minutosAtuais < 930) {
-                                    bloqueado = true;
-                                    horarioLimite = "15:30";
+                                    limite = "15:30";
                                 }
                             }
 
                             if (bloqueado) {
-                                // Exibe o alerta visual
-                                showStatusMessage(`SAÍDA BLOQUEADA: Para o ${numeroSala}º ANO, somente após às ${horarioLimite}`, 'warning');
+                                // Para o slider IMEDIATAMENTE antes de qualquer fetch
+                                showStatusMessage(`BLOQUEADO: Saída para o ${salaFinal}º ANO liberada apenas às ${limite}`, 'warning');
 
-                                // Mata o processo imediatamente
                                 resetSlideBtn(btn, thumb, fill, label, 'fast', false);
                                 isProcessing = false;
                                 isActionProcessing = false;
-                                return; // SAÍDA CRÍTICA: impede o envio para a API
-                            }
 
-                            console.log(`Saída liberada para sala ${numeroSala} às ${horaFloripa}`);
+                                console.warn("🚫 Trava acionada. Requisição cancelada.");
+                                return; // AQUI É ONDE PARAMOS O BACKEND DE RECEBER O POST
+                            }
                         }
+
+
 
                         // Segue o fluxo de ENTRADA e SAÍDA que você disse que já está 100%
                         await processarAcaoComModal(studentId, action, studentName);
