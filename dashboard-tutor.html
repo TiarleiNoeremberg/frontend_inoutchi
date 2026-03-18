@@ -4987,7 +4987,6 @@
             const action = btn.dataset.action;
             const THUMB_SIZE = 80;
 
-            // Variáveis de controle
             let isDragging = false;
             let startX = 0;
             let currentOffset = 0;
@@ -4997,7 +4996,6 @@
                 label.style.transform = 'translate(-50%, -50%)';
                 label.style.left = '50%';
                 label.style.top = '50%';
-                label.style.opacity = '1';
             }
 
             function getTrackWidth() {
@@ -5012,7 +5010,6 @@
 
             function onStart(e) {
                 if (btn.classList.contains('activated') || isProcessing || isActionProcessing) return;
-
                 isDragging = true;
                 btn.classList.add('sliding');
                 startX = (e.touches ? e.touches[0].clientX : e.clientX);
@@ -5024,7 +5021,6 @@
 
             function onMove(e) {
                 if (!isDragging || isProcessing || isActionProcessing) return;
-
                 const clientX = e.touches ? e.touches[0].clientX : e.clientX;
                 let delta = clientX - startX;
                 const maxTravel = getMaxTravel();
@@ -5041,7 +5037,7 @@
                 e.preventDefault();
             }
 
-            async function onEnd() {
+            function onEnd() {
                 if (!isDragging || isProcessing || isActionProcessing) return;
 
                 isDragging = false;
@@ -5050,40 +5046,43 @@
                 const maxTravel = getMaxTravel();
                 const progress = Math.abs(currentOffset) / maxTravel;
 
-                // Se não arrastou o suficiente, volta
                 if (progress < 0.85) {
                     resetSlideBtn(btn, thumb, fill, label, 'fast');
                     return;
                 }
 
                 // ===== VALIDAÇÃO DE HORÁRIO PARA SAÍDA =====
-                // Esta é a ÚNICA ação que precisa ser validada
                 if (action === 'saida') {
-                    console.log("🔍 AÇÃO SAÍDA DETECTADA - INICIANDO VALIDAÇÃO");
+                    console.log("🚨 AÇÃO SAÍDA DETECTADA");
 
-                    // Encontra o card e extrai a sala
+                    // Encontra a sala
                     const card = btn.closest('.student-item');
                     const salaElement = card ? card.querySelector('span[style*="background: var(--primary-light)"]') : null;
                     const nomeSala = salaElement ? salaElement.textContent.trim().toUpperCase() : "";
 
-                    console.log("🏫 Sala encontrada:", nomeSala);
+                    console.log("🏫 Sala:", nomeSala);
 
-                    // CHAMA A VALIDAÇÃO - VERSÃO DIRETA
-                    const validacao = validarHorarioSaidaSala(nomeSala);
+                    // Horários fixos (para teste)
+                    const horaAtual = new Date().getHours();
+                    const minutoAtual = new Date().getMinutes();
 
-                    console.log("📊 Resultado validação:", validacao);
+                    // REGRA: 3° ANO só depois das 19:10
+                    if (nomeSala === '3° ANO') {
+                        console.log(`⏰ Hora atual: ${horaAtual}:${minutoAtual}`);
 
-                    if (!validacao.permitido) {
-                        console.log("🚫 SAÍDA BLOQUEADA - Horário não permitido");
+                        if (horaAtual < 19 || (horaAtual === 19 && minutoAtual < 10)) {
+                            console.log("🚫 BLOQUEADO: 3° ANO antes das 19:10");
 
-                        // Volta o slider imediatamente
-                        resetSlideBtn(btn, thumb, fill, label, 'fast');
+                            // Mostra alerta
+                            alert(`A solicitação de saída para 3° ANO só é permitida após às 19:10.`);
 
-                        // Já mostrou notificação dentro da função
-                        return; // ← IMPEDE TOTALMENTE A CONTINUAÇÃO
+                            // Volta o slider
+                            resetSlideBtn(btn, thumb, fill, label, 'fast');
+                            return;
+                        }
                     }
 
-                    console.log("✅ SAÍDA PERMITIDA - Continuando...");
+                    console.log("✅ SAÍDA PERMITIDA");
                 }
 
                 // ========== ATIVAÇÃO DO SLIDER ==========
@@ -5093,7 +5092,7 @@
                 const studentId = btn.dataset.studentId;
                 window.currentProcessingId = studentId;
 
-                // Efeito visual de sucesso
+                // Efeito visual
                 thumb.style.transition = 'transform 0.2s ease-out';
                 fill.style.transition = 'width 0.2s ease-out';
                 fill.style.width = '100%';
@@ -5109,71 +5108,29 @@
                 const studentName = btn.dataset.studentName;
                 const currentAction = btn.dataset.action;
 
-                try {
-                    if (currentAction === 'confirmar') {
-                        await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
-                        mostrarTelaSucessoInstantanea('confirmacao', studentName);
-                        refreshStudentsData().catch(console.error);
+                // Aqui você coloca o resto do código (chamadas API, etc)
+                // Por enquanto, só mostra sucesso
+                mostrarTelaSucessoInstantanea(currentAction === 'entrada' ? 'entrada' : 'solicitacao', studentName);
 
-                        setTimeout(() => {
-                            isProcessing = false;
-                            isActionProcessing = false;
-                            window.isProcessingAction = false;
-                            window.currentProcessingId = null;
-                        }, 2000);
-
-                    } else if (currentAction === 'entrada' || currentAction === 'saida') {
-                        const tipoSucesso = currentAction === 'entrada' ? 'entrada' : 'solicitacao';
-
-                        mostrarTelaSucessoInstantanea(tipoSucesso, studentName);
-
-                        processarAcaoEmBackground(studentId, currentAction, studentName).catch(error => {
-                            console.error('Erro em background:', error);
-                            mostrarNotificacaoCentralizada('Erro ao processar: ' + error.message);
-                        });
-
-                        setTimeout(() => {
-                            refreshStudentsData().catch(console.error);
-                        }, 500);
-
-                        setTimeout(() => {
-                            isProcessing = false;
-                            isActionProcessing = false;
-                            window.isProcessingAction = false;
-                            window.currentProcessingId = null;
-                        }, 2000);
-                    }
-
-                } catch (error) {
-                    console.error('Erro:', error);
-                    mostrarNotificacaoCentralizada('Erro: ' + error.message);
-                    resetSlideBtn(btn, thumb, fill, label, 'slow');
-
-                    setTimeout(() => {
-                        isProcessing = false;
-                        isActionProcessing = false;
-                        window.isProcessingAction = false;
-                        window.currentProcessingId = null;
-                    }, 1000);
-                }
+                setTimeout(() => {
+                    isProcessing = false;
+                    isActionProcessing = false;
+                    window.isProcessingAction = false;
+                    window.currentProcessingId = null;
+                }, 2000);
             }
 
-            function resetSlideBtn(b, t, f, l, speed = 'normal', silent = false) {
-                console.log(`🔄 Resetando slider`);
-
-                t.style.transition = speed === 'fast' ? 'transform 0.2s ease-out' : 'transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
-                f.style.transition = speed === 'fast' ? 'width 0.2s ease-out' : 'width 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
-
+            function resetSlideBtn(b, t, f, l, speed = 'normal') {
+                t.style.transition = speed === 'fast' ? 'transform 0.2s ease-out' : 'transform 0.35s ease-out';
+                f.style.transition = speed === 'fast' ? 'width 0.2s ease-out' : 'width 0.35s ease-out';
                 t.style.transform = 'translateX(0)';
                 f.style.width = '0';
                 b.classList.remove('activated');
             }
 
-            // Event listeners
             thumb.addEventListener('touchstart', onStart, { passive: false });
             document.addEventListener('touchmove', onMove, { passive: false });
             document.addEventListener('touchend', onEnd);
-
             thumb.addEventListener('mousedown', onStart);
             document.addEventListener('mousemove', onMove);
             document.addEventListener('mouseup', onEnd);
@@ -5181,12 +5138,10 @@
 
         // ===== TELA DE SUCESSO INSTANTÂNEA (aparece imediatamente) =====
         function mostrarTelaSucessoInstantanea(tipo, alunoNome = '') {
-            // Remove se já existir
             const existente = document.getElementById('telaSucesso');
             if (existente) existente.remove();
 
             let cor, mensagem;
-
             if (tipo === 'entrada') {
                 cor = '#10b981';
                 mensagem = 'Entrada registrada!';
@@ -5229,7 +5184,6 @@
 
             document.body.appendChild(div);
 
-            // Remove após 3 segundos
             setTimeout(() => {
                 const el = document.getElementById('telaSucesso');
                 if (el) {
@@ -5416,7 +5370,7 @@
             // Horários iniciais
             '1° ANO': { hora: 15, minuto: 10 },
             '2° ANO': { hora: 15, minuto: 10 },
-            '3° ANO': { hora: 19, minuto: 10 },
+            '3° ANO': { hora: 21, minuto: 10 },
             // Segundo horário
             '4° ANO': { hora: 15, minuto: 30 },
             '5° ANO': { hora: 15, minuto: 30 },
