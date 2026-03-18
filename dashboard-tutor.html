@@ -5158,35 +5158,20 @@
 
                     } else if (action === 'entrada' || action === 'saida') {
 
-                        if (action === 'saida') {
-                            // --- AJUSTE NO SELETOR DA SALA ---
-                            // No seu novo renderStudents, a sala está em um <span> com estilos específicos
-                            const card = btn.closest('.student-item');
-                            const salaElement = card ? card.querySelector('span[style*="background: var(--primary-light)"]') : null;
-                            const nomeSala = salaElement ? salaElement.textContent.trim().toUpperCase() : "";
+                        // A validação de SAÍDA agora está DENTRO de processarAcaoComModal
+                        // Processa a ação (entrada ou saída) e AGUARDA o resultado (true/false)
+                        const acaoConcluida = await processarAcaoComModal(studentId, action, studentName);
 
-                            if (window.validarHorarioSaida) {
-                                const validacao = window.validarHorarioSaida(nomeSala);
+                        // SÓ reseta o slider se a ação foi concluída com sucesso?
+                        // Na verdade, o slider deve ser resetado de qualquer forma, 
+                        // mas o importante é que o processamento só continua se a ação for bem-sucedida.
 
-                                if (!validacao.permitido) {
-                                    // Limpa duplicados antes de mostrar
-                                    document.querySelectorAll('.status-notification').forEach(m => m.remove());
-
-                                    mostrarNotificacaoHorario(validacao.mensagem);
-                                    resetSlideBtn(btn, thumb, fill, label, 'fast', false);
-
-                                    // Libera as travas
-                                    isProcessing = false;
-                                    isActionProcessing = false;
-                                    window.isProcessingAction = false;
-                                    return;
-                                }
-                            }
-                        }
-
-                        await processarAcaoComModal(studentId, action, studentName);
+                        // Resetamos o slider (sempre) depois de processar
                         resetSlideBtn(btn, thumb, fill, label, 'slow', true);
                         await refreshStudentsData();
+
+                        // Se a ação NÃO foi concluída (false), talvez queiramos manter uma trava por menos tempo?
+                        // Por simplicidade, vamos manter o mesmo tempo de liberação.
 
                         setTimeout(() => {
                             isProcessing = false;
@@ -5242,19 +5227,22 @@
         }
 
 
-        // ===== FUNÇÃO SIMPLIFICADA - SEM PROMISE COMPLEXA =====
+        // ===== FUNÇÃO CORRIGIDA: AGORA INTERROMPE SE A VALIDAÇÃO FALHAR =====
         async function processarAcaoComModal(studentId, action, studentName) {
             try {
-                // 🔴 NOVO: Validação de horário para SAÍDA
+                // 🔴 NOVO: Validação de horário para SAÍDA - AGORA COM RETORNO IMEDIATO
                 if (action === 'saida') {
                     const aluno = students.find(s => s.id == studentId);
                     const validacao = await validarSaidaPorHorario(aluno);
                     if (!validacao.permitido) {
-                        return false; // Não prossegue
+                        // A função `validarSaidaPorHorario` já deve mostrar a notificação.
+                        // Retornamos false para indicar que a ação foi bloqueada.
+                        // É IMPORTANTE retornar e não prosseguir.
+                        return false;
                     }
                 }
 
-                // Abre o modal
+                // Abre o modal (o código abaixo só executa se a validação passou)
                 const modal = document.getElementById('actionLocationModal');
                 modal.querySelector('#actionLocationModalLabel').textContent =
                     action === 'entrada' ? '📍 Registrar Entrada' : '📍 Solicitar Saída';
@@ -5324,17 +5312,13 @@
                 // ✅ SUCESSO! Fecha o modal
                 actionLocationModalInstance.hide();
 
-                // 🔴 AGORA IGUAL AO FLUXO DE SAÍDA:
-                // Mostra a tela de sucesso IMEDIATAMENTE
+                // 🔴 MOSTRA TELA DE SUCESSO
                 const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
-
-                return new Promise((resolve) => {
-                    mostrarTelaSucesso(tipoSucesso, async () => {
-                        // Só atualiza os dados DEPOIS que a tela de sucesso terminar
-                        await refreshStudentsData();
-                        resolve(true);
-                    });
+                await mostrarTelaSucesso(tipoSucesso, async () => {
+                    await refreshStudentsData();
                 });
+
+                return true; // Indica que a ação foi concluída com sucesso
 
             } catch (error) {
                 console.error('Erro no processo:', error);
@@ -5347,27 +5331,8 @@
                 // Habilita botões para tentativa manual
                 document.getElementById('getLocationBtn').disabled = false;
 
-                return new Promise((resolve) => {
-                    const tentarBtn = document.getElementById('getLocationBtn');
-                    const cancelBtn = modal.querySelector('.btn-secondary');
-
-                    const tentarHandler = async () => {
-                        tentarBtn.removeEventListener('click', tentarHandler);
-                        cancelBtn.removeEventListener('click', cancelarHandler);
-                        const resultado = await processarAcaoComModal(studentId, action, studentName);
-                        resolve(resultado);
-                    };
-
-                    const cancelarHandler = () => {
-                        tentarBtn.removeEventListener('click', tentarHandler);
-                        cancelBtn.removeEventListener('click', cancelarHandler);
-                        actionLocationModalInstance.hide();
-                        resolve(false);
-                    };
-
-                    tentarBtn.addEventListener('click', tentarHandler);
-                    cancelBtn.addEventListener('click', cancelarHandler);
-                });
+                // Retorna false para indicar falha
+                return false;
             }
         }
 
