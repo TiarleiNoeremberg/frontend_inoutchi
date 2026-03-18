@@ -2828,9 +2828,9 @@
 
         document.body.classList.add('splash-active');
 
-        // ===== VALIDAÇÃO DE HORÁRIO - VERSÃO ROBUSTA =====
+        // ===== VALIDAÇÃO DE HORÁRIO - VERSÃO SIMPLIFICADA =====
         function validarHorarioSaidaSala(nomeSala) {
-            console.log("🔍 Validando sala:", nomeSala);
+            console.log("🔍 validarHorarioSaidaSala:", nomeSala);
 
             // Mapeamento de salas para horários
             const horarios = {
@@ -2854,10 +2854,6 @@
             const agora = new Date();
             const config = horarios[nomeSala];
 
-            // Criar data de hoje com o horário limite
-            const limite = new Date();
-            limite.setHours(config.hora, config.minuto, 0, 0);
-
             const horaAtual = agora.getHours();
             const minutoAtual = agora.getMinutes();
             const horaLimite = config.hora;
@@ -2865,12 +2861,12 @@
 
             console.log(`🕒 Agora: ${horaAtual}:${minutoAtual} | Limite: ${horaLimite}:${minutoLimite}`);
 
-            // Comparação numérica simples (mais confiável)
+            // Se o horário atual for ANTES do limite, BLOQUEIA
             if (horaAtual < horaLimite || (horaAtual === horaLimite && minutoAtual < minutoLimite)) {
                 const mensagem = `A solicitação de saída para ${nomeSala} só é permitida após ${horaLimite}:${minutoLimite.toString().padStart(2, '0')}.`;
                 console.log("🚫 BLOQUEADO:", mensagem);
 
-                // Mostra notificação centralizada
+                // Mostra notificação
                 mostrarNotificacaoCentralizada(mensagem);
 
                 return { permitido: false, mensagem: mensagem };
@@ -5060,6 +5056,36 @@
                     return;
                 }
 
+                // ===== VALIDAÇÃO DE HORÁRIO PARA SAÍDA =====
+                // Esta é a ÚNICA ação que precisa ser validada
+                if (action === 'saida') {
+                    console.log("🔍 AÇÃO SAÍDA DETECTADA - INICIANDO VALIDAÇÃO");
+
+                    // Encontra o card e extrai a sala
+                    const card = btn.closest('.student-item');
+                    const salaElement = card ? card.querySelector('span[style*="background: var(--primary-light)"]') : null;
+                    const nomeSala = salaElement ? salaElement.textContent.trim().toUpperCase() : "";
+
+                    console.log("🏫 Sala encontrada:", nomeSala);
+
+                    // CHAMA A VALIDAÇÃO - VERSÃO DIRETA
+                    const validacao = validarHorarioSaidaSala(nomeSala);
+
+                    console.log("📊 Resultado validação:", validacao);
+
+                    if (!validacao.permitido) {
+                        console.log("🚫 SAÍDA BLOQUEADA - Horário não permitido");
+
+                        // Volta o slider imediatamente
+                        resetSlideBtn(btn, thumb, fill, label, 'fast');
+
+                        // Já mostrou notificação dentro da função
+                        return; // ← IMPEDE TOTALMENTE A CONTINUAÇÃO
+                    }
+
+                    console.log("✅ SAÍDA PERMITIDA - Continuando...");
+                }
+
                 // ========== ATIVAÇÃO DO SLIDER ==========
                 isProcessing = true;
                 isActionProcessing = true;
@@ -5067,7 +5093,7 @@
                 const studentId = btn.dataset.studentId;
                 window.currentProcessingId = studentId;
 
-                // Efeito visual de sucesso - JÁ MUDA O ESTADO VISUAL IMEDIATAMENTE
+                // Efeito visual de sucesso
                 thumb.style.transition = 'transform 0.2s ease-out';
                 fill.style.transition = 'width 0.2s ease-out';
                 fill.style.width = '100%';
@@ -5078,56 +5104,17 @@
                     thumb.style.transform = `translateX(${-maxTravel}px)`;
                 }
 
-                // Vibração (se suportado)
                 if (navigator.vibrate) navigator.vibrate(50);
 
                 const studentName = btn.dataset.studentName;
                 const currentAction = btn.dataset.action;
 
                 try {
-                    // ===== VALIDAÇÃO DE HORÁRIO PARA SAÍDA =====
-                    if (currentAction === 'saida') {
-                        // Encontra o card e extrai a sala
-                        const card = btn.closest('.student-item');
-                        const salaElement = card ? card.querySelector('span[style*="background: var(--primary-light)"]') : null;
-                        const nomeSala = salaElement ? salaElement.textContent.trim().toUpperCase() : "";
-
-                        console.log("🔍 Sala encontrada:", nomeSala);
-
-                        // Valida o horário
-                        const validacao = validarHorarioSaidaSala(nomeSala);
-
-                        if (!validacao.permitido) {
-                            console.log("🚫 Saída bloqueada por horário");
-
-                            // Reseta o slider imediatamente
-                            resetSlideBtn(btn, thumb, fill, label, 'fast');
-
-                            // Libera as travas
-                            setTimeout(() => {
-                                isProcessing = false;
-                                isActionProcessing = false;
-                                window.isProcessingAction = false;
-                                window.currentProcessingId = null;
-                            }, 100);
-
-                            return; // IMPEDE a continuação
-                        }
-                    }
-
-                    // ===== SE CHEGOU AQUI, A VALIDAÇÃO PASSOU =====
-
                     if (currentAction === 'confirmar') {
-                        // Ação de confirmar (já faz a chamada e mostra tela)
                         await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
-
-                        // Mostra tela de sucesso
                         mostrarTelaSucessoInstantanea('confirmacao', studentName);
-
-                        // Atualiza dados em background
                         refreshStudentsData().catch(console.error);
 
-                        // Libera travas depois de um tempo
                         setTimeout(() => {
                             isProcessing = false;
                             isActionProcessing = false;
@@ -5136,27 +5123,19 @@
                         }, 2000);
 
                     } else if (currentAction === 'entrada' || currentAction === 'saida') {
-                        // Para entrada ou saída, mostra tela de sucesso IMEDIATAMENTE
-                        // e faz a chamada da API em background
-
                         const tipoSucesso = currentAction === 'entrada' ? 'entrada' : 'solicitacao';
 
-                        // MOSTRA TELA DE SUCESSO AGORA (não espera API)
                         mostrarTelaSucessoInstantanea(tipoSucesso, studentName);
 
-                        // FAZ A CHAMADA DA API EM BACKGROUND (não bloqueia a UI)
                         processarAcaoEmBackground(studentId, currentAction, studentName).catch(error => {
                             console.error('Erro em background:', error);
-                            // Se der erro, mostra notificação
                             mostrarNotificacaoCentralizada('Erro ao processar: ' + error.message);
                         });
 
-                        // Atualiza dados em background (para mudar o slider depois)
                         setTimeout(() => {
                             refreshStudentsData().catch(console.error);
                         }, 500);
 
-                        // Libera travas depois de um tempo
                         setTimeout(() => {
                             isProcessing = false;
                             isActionProcessing = false;
