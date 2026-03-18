@@ -2186,10 +2186,12 @@
                     console.log(`[WS] Inscrevendo-se no tópico: ${topic}`);
 
                     stompClient.subscribe(topic, (message) => {
-                        const event = JSON.parse(message.body);
+                        const event = JSON.parse(message.body); // Transforma o texto em objeto
                         console.log('📡 [WS] Evento recebido:', event);
-                        //handleWebSocketEvent(event);
-                        updateStudentTableRow(message.body); // ATUALIZA a linha
+
+                        // Agora passamos o objeto 'event' completo. 
+                        // A função Merge vai detectar que é um objeto e atualizar a tela instantaneamente!
+                        updateStudentTableRow(event);
                     });
                 },
                 (error) => {
@@ -2474,77 +2476,6 @@
             }
 
             mostrarNotificacao(titulo, texto, tipoNotificacao);
-        }
-
-        /**
-         * NOVO: Atualiza dinamicamente o status de um aluno na tabela,
-         * sem precisar recarregar todos os dados.
-         * Esta função deve buscar os dados ATUALIZADOS do aluno no backend
-         * para garantir consistência.
-         */
-        async function updateStudentTableRow(studentId, newStatus) {
-            console.log(`🔄 Atualizando status do aluno ${studentId} para ${newStatus}...`);
-            const tr = document.getElementById(`aluno-${studentId}`);
-
-            // Se o aluno não está na página atual, não faz nada visualmente.
-            // A tabela será atualizada quando o usuário navegar para a página correta.
-            if (!tr) {
-                console.log(`[WS] Aluno ${studentId} não está visível na página atual. Nenhuma ação visual.`);
-                return;
-            }
-
-            // A melhor prática é buscar os dados completos do aluno para garantir que todas as infos
-            // (como botões de ação) estejam corretas com o novo status.
-            try {
-                const accessToken = localStorage.getItem('access_token');
-                const response = await fetch(`${BACKEND_URL}/api/alunos/${studentId}`, { // Supondo que você tenha este endpoint
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
-                });
-
-                if (!response.ok) throw new Error('Falha ao buscar dados atualizados do aluno.');
-
-                const student = await response.json();
-
-                let statusHtml = '';
-                let actionsHtml = '';
-                const safeStudentName = student.nome ? student.nome.replace(/'/g, "\\'") : 'Aluno';
-
-                // Regenera o HTML de status e ações com os dados mais recentes
-                switch (student.status) {
-                    case 'PRESENTE':
-                        statusHtml = `<span class="status-badge status-present">Presente</span>`;
-                        actionsHtml = `<button class="btn btn-danger" onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')"><i class="fas fa-sign-out-alt"></i> Saída</button>`;
-                        break;
-                    case 'AUSENTE':
-                        statusHtml = `<span class="status-badge status-absent">Ausente</span>`;
-                        actionsHtml = `<button class="btn btn-success" onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')"><i class="fas fa-sign-in-alt"></i> Entrada</button>`;
-                        break;
-                    case 'AGUARDANDO_CONFIRMACAO':
-                        statusHtml = `<span class="status-badge status-awaiting">Aguardando</span>`;
-                        actionsHtml = `<button class="btn btn-warning" onclick="openDirectorConfirmExitModal(${student.id}, '${safeStudentName}')"><i class="fas fa-check-circle"></i> Confirmar</button>`;
-                        break;
-                    default:
-                        statusHtml = `<span class="status-badge">${student.status || 'Indefinido'}</span>`;
-                        break;
-                }
-
-                // Atualiza apenas as células necessárias
-                tr.cells[2].innerHTML = statusHtml; // Célula de Status
-                tr.cells[4].querySelector('.action-buttons').innerHTML = `
-                    ${actionsHtml}
-                    <button class="btn btn-primary" onclick="viewStudentHistory(${student.id}, '${safeStudentName}', 0)"><i class="fas fa-history"></i> Histórico</button>
-                `;
-
-                // Aplica o destaque visual
-                tr.classList.remove('highlight-update'); // Remove caso já exista
-                void tr.offsetWidth; // Força o browser a "repintar" o elemento
-                tr.classList.add('highlight-update');
-
-            } catch (error) {
-                console.error(`Falha ao atualizar linha do aluno ${studentId}:`, error);
-                // Como fallback, recarrega a lista inteira
-                loadAllStudents();
-            }
         }
 
         // Logout
@@ -3286,60 +3217,94 @@
             }
         }
 
-        // =======================================================================
-        // NOVA LÓGICA PARA ATUALIZAÇÃO VIA WEBSOCKET
-        // (Esta parte entra no seu script principal)
-        // =======================================================================
-
         /**
-         * Função chamada pelo WebSocket para atualizar uma linha da tabela em tempo real.
-         * @param {object} studentData - Objeto do aluno enviado pelo WebSocket.
-         */
-        function updateStudentTableRow(studentData) {
-            const studentRow = document.getElementById(`aluno-${studentData.id}`);
+ * MERGE FINAL: Atualiza a linha do aluno na tabela.
+ * Suporta tanto o objeto completo (WebSocket) quanto apenas o ID (Fallback).
+ * @param {number|object} studentInput - ID do aluno ou objeto de dados completo.
+ * @param {string} [newStatus] - Opcional: novo status se for passado apenas o ID.
+ */
+        async function updateStudentTableRow(studentInput, newStatus) {
+            let studentId = typeof studentInput === 'object' ? studentInput.id : studentInput;
+            let studentData = typeof studentInput === 'object' ? studentInput : null;
 
-            // Se a linha do aluno não estiver na tela (ex: em outra página), não faz nada.
-            if (!studentRow) {
-                console.log(`[WS] Aluno ${studentData.id} não está na página atual. Nenhuma ação visual.`);
+            console.log(`🔄 [UpdateRow] Processando atualização para o aluno ID: ${studentId}`);
+
+            const tr = document.getElementById(`aluno-${studentId}`);
+            if (!tr) {
+                console.log(`[UpdateRow] Aluno ${studentId} não está na página atual. Ignorando atualização visual.`);
                 return;
             }
 
-            console.log(`[WS] Atualizando aluno: ${studentData.nome}, Novo Status: ${studentData.status}`);
+            try {
+                // Se não recebemos os dados completos (WebSocket), vamos buscar ao servidor (Funcionalidade da Função 1)
+                if (!studentData) {
+                    const accessToken = localStorage.getItem('access_token');
+                    const response = await fetch(`${BACKEND_URL}/api/alunos/${studentId}`, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                    });
+                    if (!response.ok) throw new Error('Falha ao buscar dados do servidor');
+                    studentData = await response.json();
+                }
 
-            // Reutilizamos a lógica de criação de HTML para o status e botões
-            let statusHtml = '';
-            let actionsHtml = '';
-            const safeStudentName = studentData.nome ? studentData.nome.replace(/'/g, "\\'") : 'Aluno';
+                // --- CONSTRUÇÃO DO HTML (Funcionalidade da Função 2) ---
+                let statusHtml = '';
+                let actionsHtml = '';
+                const safeStudentName = studentData.nome ? studentData.nome.replace(/'/g, "\\'") : 'Aluno';
 
-            switch (studentData.status) {
-                case 'PRESENTE':
-                    statusHtml = `<span class="status-badge status-present">Presente</span>`;
-                    actionsHtml = `<button class="btn btn-danger" onclick="openStudentActionModal(${studentData.id}, 'saida', '${safeStudentName}')"><i class="fas fa-sign-out-alt"></i> Saída</button>`;
-                    break;
-                case 'AUSENTE':
-                    statusHtml = `<span class="status-badge status-absent">Ausente</span>`;
-                    actionsHtml = `<button class="btn btn-success" onclick="openStudentActionModal(${studentData.id}, 'entrada', '${safeStudentName}')"><i class="fas fa-sign-in-alt"></i> Entrada</button>`;
-                    break;
-                case 'AGUARDANDO_CONFIRMACAO':
-                    statusHtml = `<span class="status-badge status-awaiting">Aguardando</span>`;
-                    actionsHtml = `<button class="btn btn-warning" onclick="openDirectorConfirmExitModal(${studentData.id}, '${safeStudentName}')"><i class="fas fa-check-circle"></i> Confirmar</button>`;
-                    break;
-                default:
-                    statusHtml = `<span class="status-badge">${studentData.status || 'Indefinido'}</span>`;
-                    break;
-            }
+                // Verifica se os botões devem estar desabilitados (Trava de segurança do Diretor)
+                const isDisabled = typeof directorStatus !== 'undefined' && directorStatus !== 'PRESENTE';
+                const disabledAttr = isDisabled ? 'disabled' : '';
+                const disabledTitle = isDisabled ? 'title="Você precisa registrar sua presença para realizar esta ação"' : '';
 
-            // Atualiza apenas as células necessárias (Status é a 3ª, Ações é a 5ª)
-            studentRow.cells[2].innerHTML = statusHtml;
-            studentRow.cells[4].innerHTML = `
+                switch (studentData.status) {
+                    case 'PRESENTE':
+                        statusHtml = `<span class="status-badge status-present">Presente</span>`;
+                        actionsHtml = `<button class="btn btn-danger" ${disabledAttr} ${disabledTitle} onclick="openStudentActionModal(${studentData.id}, 'saida', '${safeStudentName}')"><i class="fas fa-sign-out-alt"></i> Saída</button>`;
+                        break;
+                    case 'AUSENTE':
+                        statusHtml = `<span class="status-badge status-absent">Ausente</span>`;
+                        actionsHtml = `<button class="btn btn-success" ${disabledAttr} ${disabledTitle} onclick="openStudentActionModal(${studentData.id}, 'entrada', '${safeStudentName}')"><i class="fas fa-sign-in-alt"></i> Entrada</button>`;
+                        break;
+                    case 'AGUARDANDO_CONFIRMACAO':
+                        statusHtml = `<span class="status-badge status-awaiting">Aguardando</span>`;
+                        actionsHtml = `<button class="btn btn-warning" ${disabledAttr} ${disabledTitle} onclick="openDirectorConfirmExitModal(${studentData.id}, '${safeStudentName}')"><i class="fas fa-check-circle"></i> Confirmar</button>`;
+                        break;
+                    default:
+                        statusHtml = `<span class="status-badge">${studentData.status || 'Indefinido'}</span>`;
+                        break;
+                }
+
+                // Atualiza as células da linha existente
+                if (tr.cells[2]) tr.cells[2].innerHTML = statusHtml;
+                if (tr.cells[4]) {
+                    tr.cells[4].innerHTML = `
                 <div class="action-buttons">
                     ${actionsHtml}
                     <button class="btn btn-primary" onclick="window.viewStudentHistory(${studentData.id}, '${safeStudentName}', 0)"><i class="fas fa-history"></i> Histórico</button>
                 </div>
             `;
+                }
 
-            // Dispara a reordenação da tabela para mover o aluno para o topo, se necessário
-            sortTableByStatus();
+                // --- EFEITO VISUAL DE DESTAQUE (Funcionalidade da Função 1) ---
+                tr.style.transition = 'background-color 0.5s ease';
+                tr.style.backgroundColor = 'rgba(26, 111, 196, 0.15)'; // Azul suave
+                setTimeout(() => { tr.style.backgroundColor = ''; }, 3000);
+
+                // Reordena visualmente se a função existir
+                if (typeof sortTableByStatus === 'function') {
+                    sortTableByStatus();
+                }
+
+            } catch (error) {
+                console.error(`❌ Erro ao atualizar linha do aluno ${studentId}:`, error);
+
+                // --- CORREÇÃO CRÍTICA AQUI ---
+                // Em vez de loadAllStudents() (que voltaria para a página 1),
+                // chamamos mantendo a página atual se algo falhar feio.
+                setTimeout(() => {
+                    loadAllStudents(currentStudentsPage, document.getElementById('studentSearch')?.value || '');
+                }, 1000);
+            }
         }
 
         /**
@@ -4925,8 +4890,10 @@
                     const successMessage = type === 'entrada' ? 'Entrada registrada com sucesso!' : 'Solicitação de saída enviada com sucesso!';
                     showAlert(successMessage, 'success');
                     closeModal();
+
+                    // CORREÇÃO: Passamos a página e a busca atual para o recarregamento
                     setTimeout(() => {
-                        loadAllStudents();
+                        loadAllStudents(currentStudentsPage, document.getElementById('studentSearch')?.value || '');
                     }, 500);
                 } else {
                     const errorText = await response.text();
