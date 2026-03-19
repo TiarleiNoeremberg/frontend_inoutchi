@@ -4944,70 +4944,34 @@
                     // --- PASSO 1: ENVIAR PARA A API ---
                     let response;
                     if (action === 'confirmar') {
-                        // 1. MANTER ESTICADO: Forçamos o slider a ficar no fim do curso para não voltar antes da tela
-                        const maxTravel = getMaxTravel();
-                        thumb.style.transition = 'transform 0.2s ease-out';
-                        fill.style.width = '100%';
-                        thumb.style.transform = slidesRight ? `translateX(${maxTravel}px)` : `translateX(${-maxTravel}px)`;
-
-                        // 2. ENVIA PARA A API
-                        await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
-
-                        // 3. MOSTRAR A TELA DE SUCESSO IMEDIATAMENTE (Amarela)
-                        // Chamamos aqui para ela cobrir o slider esticado
-                        mostrarTelaSucesso('confirmacao');
-
-                        // 4. ATUALIZAR DADOS E RESETAR POR BAIXO DA TELA
-                        await refreshStudentsData();
-                        resetSlideBtn(btn, thumb, fill, label, 'fast', true);
-
-                        isProcessing = false;
-                        isActionProcessing = false;
-
+                        response = await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
                     } else if (action === 'entrada' || action === 'saida') {
-                        // MANTEMOS TODA A SUA LÓGICA DE HORÁRIO QUE JÁ ESTÁ AQUI:
+                        // Se for saída, valida o horário antes (como você já fazia)
                         if (action === 'saida') {
                             const aluno = students.find(s => s.id == studentId);
-                            const nomeSalaAluno = aluno.sala_nome || aluno.sala;
-
-                            const agora = new Date();
-                            const floripa = new Date(agora.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
-                            const horaAtual = floripa.getHours();
-                            const minutoAtual = floripa.getMinutes();
-                            const totalMinutosAtual = (horaAtual * 60) + minutoAtual;
-
-                            let bloqueado = false;
-                            let horarioMensagem = "";
-
-                            if (nomeSalaAluno === '2° ANO') {
-                                if (totalMinutosAtual < 910) {
-                                    bloqueado = true;
-                                    horarioMensagem = "15:10";
-                                }
-                            } else if (nomeSalaAluno === '5° ANO') {
-                                if (totalMinutosAtual < 930) {
-                                    bloqueado = true;
-                                    horarioMensagem = "15:30";
-                                }
-                            }
-
-                            if (bloqueado) {
-                                showStatusMessage(`Saída para o ${nomeSalaAluno} permitida apenas após as ${horarioMensagem}`, 'warning');
+                            const validacao = await validarSaidaPorHorario(aluno);
+                            if (!validacao.permitido) {
                                 resetSlideBtn(btn, thumb, fill, label, 'fast', false);
                                 isProcessing = false;
                                 isActionProcessing = false;
                                 return;
                             }
                         }
-
-                        // Segue o fluxo de ENTRADA e SAÍDA que você disse que já está 100%
-                        await processarAcaoComModal(studentId, action, studentName);
-                        resetSlideBtn(btn, thumb, fill, label, 'slow', true);
-                        await refreshStudentsData();
-
-                        isProcessing = false;
-                        isActionProcessing = false;
+                        // Chama sua função existente que faz o POST de entrada/saída
+                        response = await processarAcaoComModal(studentId, action, studentName);
                     }
+
+                    // --- PASSO 2: ATUALIZAR OS DADOS (Muda o botão por baixo) ---
+                    await refreshStudentsData();
+
+                    // --- PASSO 3: MOSTRAR TELA DE SUCESSO E SÓ FECHAR SE MUDOU ---
+                    // Aqui chamamos a nova função que criamos abaixo
+                    await abrirTelaSucessoConfirmada(action, studentName, studentId);
+
+                    // --- PASSO 4: FINALIZAR ---
+                    resetSlideBtn(btn, thumb, fill, label, 'slow', true);
+                    isProcessing = false;
+                    isActionProcessing = false;
 
                 } catch (error) {
                     console.error('Erro:', error);
