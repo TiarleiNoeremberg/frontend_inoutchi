@@ -3,7 +3,7 @@
 // ============================================================
 const HORARIOS_SAIDA = {
     '2° ANO': { hora: 15, minuto: 10 },
-    '3° ANO': { hora: 15, minuto: 10 },
+    '3° ANO': { hora: 23, minuto: 10 },
     '5° ANO': { hora: 15, minuto: 30 }
     // Adicione outras salas e horários aqui conforme necessário
     // Exemplo:

@@ -18,6 +18,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/assets/images/Logo_iOs.png">
+    <script src="utils.js"></script>
 
     <style>
         /* ===== FULL SCREEN STRUCTURE ===== */
@@ -2608,7 +2609,7 @@
         </div>
     </div>
     <!-- =========== FIM DO NOVO MODAL =========== -->
-
+    
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         window.onerror = function (message, source, lineno, colno, error) {
@@ -4937,13 +4938,13 @@
 
                 const studentId = btn.dataset.studentId;
                 const studentName = btn.dataset.studentName;
-                const action = btn.dataset.action;
+                const action = btn.dataset.action; // Pegando a ação atual
 
                 try {
                     // --- PASSO 1: ENVIAR PARA A API ---
                     let response;
                     if (action === 'confirmar') {
-                        // 1. MANTER ESTICADO
+                        // 1. MANTER ESTICADO: Forçamos o slider a ficar no fim do curso para não voltar antes da tela
                         const maxTravel = getMaxTravel();
                         thumb.style.transition = 'transform 0.2s ease-out';
                         fill.style.width = '100%';
@@ -4952,10 +4953,11 @@
                         // 2. ENVIA PARA A API
                         await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
 
-                        // 3. MOSTRAR A TELA DE SUCESSO IMEDIATAMENTE
+                        // 3. MOSTRAR A TELA DE SUCESSO IMEDIATAMENTE (Amarela)
+                        // Chamamos aqui para ela cobrir o slider esticado
                         mostrarTelaSucesso('confirmacao');
 
-                        // 4. ATUALIZAR DADOS E RESETAR
+                        // 4. ATUALIZAR DADOS E RESETAR POR BAIXO DA TELA
                         await refreshStudentsData();
                         resetSlideBtn(btn, thumb, fill, label, 'fast', true);
 
@@ -4963,36 +4965,63 @@
                         isActionProcessing = false;
 
                     } else if (action === 'entrada' || action === 'saida') {
-
-                        // --- INÍCIO DA TRAVA DE SEGURANÇA INTEGRADA ---
+                        // MANTEMOS TODA A SUA LÓGICA DE HORÁRIO QUE JÁ ESTÁ AQUI:
                         if (action === 'saida') {
-                            // 1. BUSCA O NOME DA SALA NO CARD
+                            // 1. BUSCA AGRESSIVA: Pegamos o nome da sala direto da tela (DOM)
+                            // No seu HTML, a sala fica dentro de .student-class ou .student-info
                             const card = btn.closest('.student-card');
                             const salaElement = card ? card.querySelector('.student-class, .student-info p') : null;
-                            const nomeSala = salaElement ? salaElement.textContent.trim().toUpperCase() : "";
+                            const textoSala = salaElement ? salaElement.textContent.toUpperCase() : "";
 
-                            // 2. VALIDAÇÃO PELA FUNÇÃO GLOBAL (que injetamos no final do HTML)
-                            if (window.validarHorarioSaida) {
-                                const validacao = window.validarHorarioSaida(nomeSala);
+                            // Se não achar no DOM, tenta no array (backup)
+                            const alunoData = students.find(s => String(s.id) === String(studentId)) || {};
+                            const salaBackup = (alunoData.sala_nome || alunoData.sala || "").toUpperCase();
 
-                                if (!validacao.permitido) {
-                                    // BLOQUEIO VISUAL E MENSAGEM
-                                    showStatusMessage(validacao.mensagem, 'warning');
-                                    console.warn("🚫 Trava acionada: " + validacao.mensagem);
+                            // Unificamos as fontes e extraímos apenas o número
+                            const salaFinal = (textoSala + salaBackup).replace(/\D/g, "");
 
-                                    // Reseta o slider para o início
-                                    resetSlideBtn(btn, thumb, fill, label, 'fast', false);
+                            // 2. HORA REAL (Florianópolis)
+                            const agora = new Date();
+                            const horaFloripa = new Intl.DateTimeFormat('pt-BR', {
+                                timeZone: 'America/Sao_Paulo', hour: 'numeric', minute: 'numeric', hour12: false
+                            }).format(agora);
+                            const [h, m] = horaFloripa.split(':').map(Number);
+                            const minAtuais = (h * 60) + m;
 
-                                    // Libera as travas de processamento para permitir nova tentativa
-                                    isProcessing = false;
-                                    isActionProcessing = false;
-                                    return; // Mata a execução aqui, antes de chamar a API
+                            console.log(`[DEBUG TRAVA] Sala identificada: ${salaFinal} | Minutos: ${minAtuais}`);
+
+                            let bloqueado = false;
+                            let limite = "";
+
+                            // 3. REGRAS POR NÚMERO (Blindadas)
+                            if (salaFinal === "2" || salaFinal === "3") {
+                                if (minAtuais < 910) { // Antes das 15:10
+                                    bloqueado = true;
+                                    limite = "15:10";
+                                }
+                            } else if (salaFinal === "5") {
+                                if (minAtuais < 930) { // Antes das 15:30
+                                    bloqueado = true;
+                                    limite = "15:30";
                                 }
                             }
-                        }
-                        // --- FIM DA TRAVA DE SEGURANÇA ---
 
-                        // Segue o fluxo normal caso passe pela trava ou seja 'entrada'
+                            if (bloqueado) {
+                                // Para o slider IMEDIATAMENTE antes de qualquer fetch
+                                showStatusMessage(`BLOQUEADO: Saída para o ${salaFinal}º ANO liberada apenas às ${limite}`, 'warning');
+
+                                resetSlideBtn(btn, thumb, fill, label, 'fast', false);
+                                isProcessing = false;
+                                isActionProcessing = false;
+
+                                console.warn("🚫 Trava acionada. Requisição cancelada.");
+                                return; // AQUI É ONDE PARAMOS O BACKEND DE RECEBER O POST
+                            }
+                        }
+
+
+
+                        // Segue o fluxo de ENTRADA e SAÍDA que você disse que já está 100%
                         await processarAcaoComModal(studentId, action, studentName);
                         resetSlideBtn(btn, thumb, fill, label, 'slow', true);
                         await refreshStudentsData();
@@ -5045,7 +5074,6 @@
             document.addEventListener('mousemove', onMove);
             document.addEventListener('mouseup', onEnd);
         }
-
 
         // ===== FUNÇÃO SIMPLIFICADA - SEM PROMISE COMPLEXA =====
         async function processarAcaoComModal(studentId, action, studentName) {
@@ -5417,59 +5445,6 @@
                 alert('Erro: função de histórico não disponível');
             };
         }
-
-        console.log("🚀 [INOUTCHI] Script de validação local carregado!");
-
-        // Definição direta para evitar erro de 'undefined'
-        window.HORARIOS_SAIDA = {
-            '2° ANO': { hora: 15, minuto: 10 },
-            '5° ANO': { hora: 15, minuto: 30 },
-            '3º ANO': { hora: 23, minuto: 59 } // Adicionei para teste baseada nos seus logs
-        };
-
-        window.validarHorarioSaida = function (nomeSala) {
-            console.log("🔍 [DEBUG] Validando sala:", nomeSala);
-
-            if (!nomeSala || !window.HORARIOS_SAIDA[nomeSala]) {
-                console.log("✅ [DEBUG] Sala sem restrição ou não identificada. Permitindo.");
-                return { permitido: true };
-            }
-
-            const agora = new Date();
-            const config = window.HORARIOS_SAIDA[nomeSala];
-
-            // Criar objeto de data para o limite de hoje
-            const limite = new Date();
-            limite.setHours(config.hora, config.minuto, 0);
-
-            console.log(`🕒 [DEBUG] Agora: ${agora.getHours()}:${agora.getMinutes()} | Limite: ${config.hora}:${config.minuto}`);
-
-            if (agora < limite) {
-                return {
-                    permitido: false,
-                    mensagem: `A saída para o ${nomeSala} só é permitida após às ${config.hora}:${config.minuto.toString().padStart(2, '0')}.`
-                };
-            }
-
-            return { permitido: true };
-        };
-
-        // FUNÇÃO QUE INTERCEPTA O SLIDER/BOTÃO
-        // Esta função deve ser chamada no local onde o tutor confirma a saída
-        window.processarSolicitacaoSaida = function (studentId, nomeSala) {
-            console.log(`🎯 [SAÍDA] Iniciando processo para Aluno ID: ${studentId}, Sala: ${nomeSala}`);
-
-            const validacao = window.validarHorarioSaida(nomeSala);
-
-            if (!validacao.permitido) {
-                console.error("🚫 [BLOQUEADO] Horário não permitido");
-                alert(validacao.mensagem);
-                return false;
-            }
-
-            console.log("🚀 [SUCESSO] Horário ok, disparando API...");
-            return true;
-        };
 
     </script>
 </body>
