@@ -4966,32 +4966,33 @@
 
                         // --- INÍCIO DA TRAVA DE SEGURANÇA INTEGRADA ---
                         if (action === 'saida') {
-                            // 1. BUSCA O NOME DA SALA NO ITEM (Corrigido de .student-card para .student-item)
+                            // 1. BUSCA O NOME DA SALA NO ITEM
                             const card = btn.closest('.student-item');
-                            const salaElement = card ? card.querySelector('.student-class') : null;
 
-                            // Captura o texto de forma limpa: INNERTEXT ignora tags HTML de ícones
-                            let nomeSala = salaElement ? salaElement.innerText.trim().toUpperCase() : "";
+                            // CORREÇÃO: No seu HTML, a sala está em um span com background: var(--primary-light)
+                            const salaElement = card ? card.querySelector('span[style*="background: var(--primary-light)"]') : null;
 
-                            // Limpeza para garantir que "3° ANO" seja comparado corretamente, removendo ruídos
-                            nomeSala = nomeSala.replace(/[^A-Z0-9° ]/g, "").trim();
+                            // Captura o texto de forma limpa
+                            let nomeSala = salaElement ? salaElement.textContent.trim().toUpperCase() : "";
+
+                            console.log("🏫 Sala encontrada (RAW):", nomeSala);
 
                             // 2. VALIDAÇÃO PELA FUNÇÃO GLOBAL
                             if (window.validarHorarioSaida) {
                                 const validacao = window.validarHorarioSaida(nomeSala);
+                                console.log("📊 Resultado validação:", validacao);
 
                                 if (!validacao.permitido) {
-                                    // BLOQUEIO VISUAL E MENSAGEM (Mantendo sua função showStatusMessage)
+                                    // Mostra mensagem
                                     showStatusMessage(validacao.mensagem, 'warning');
-                                    console.warn("🚫 Trava acionada para sala [" + nomeSala + "]: " + validacao.mensagem);
 
-                                    // Reseta o slider (Mantendo o nome exato da sua função: resetSlideBtn)
+                                    // Reseta o slider
                                     resetSlideBtn(btn, thumb, fill, label, 'fast', false);
 
-                                    // Libera as travas de processamento (MUITO IMPORTANTE para não travar o app)
+                                    // Libera as travas
                                     isProcessing = false;
                                     isActionProcessing = false;
-                                    return; // Interrompe antes de chamar a API
+                                    return;
                                 }
                             }
                         }
@@ -5432,30 +5433,43 @@
             '3° ANO': { hora: 23, minuto: 59 } // Adicionei para teste baseada nos seus logs
         };
 
-        window.validarHorarioSaida = function (nomeSala) {
-            console.log("🔍 [DEBUG] Validando sala:", nomeSala);
+        window.validarHorarioSaida = function (nomeSalaBruto) {
+            // Log do valor recebido
+            console.log("🔍 [DEBUG] Validando sala (bruto):", nomeSolaBruto);
+
+            // NORMALIZAÇÃO
+            const nomeSala = normalizarNomeSala(nomeSalaBruto);
+
+            console.log("🔍 [DEBUG] Validando sala (normalizado):", nomeSala);
+            console.log("📋 Horários disponíveis:", window.HORARIOS_SAIDA);
 
             if (!nomeSala || !window.HORARIOS_SAIDA[nomeSala]) {
-                console.log("✅ [DEBUG] Sala sem restrição ou não identificada. Permitindo.");
+                console.log("✅ Sala sem restrição:", nomeSala);
                 return { permitido: true };
             }
 
             const agora = new Date();
             const config = window.HORARIOS_SAIDA[nomeSala];
 
-            // Criar objeto de data para o limite de hoje
-            const limite = new Date();
-            limite.setHours(config.hora, config.minuto, 0);
+            const horaAtual = agora.getHours();
+            const minutoAtual = agora.getMinutes();
+            const horaLimite = config.hora;
+            const minutoLimite = config.minuto;
 
-            console.log(`🕒 [DEBUG] Agora: ${agora.getHours()}:${agora.getMinutes()} | Limite: ${config.hora}:${config.minuto}`);
+            console.log(`🕒 Agora: ${horaAtual}:${minutoAtual} | Limite: ${horaLimite}:${minutoLimite}`);
 
-            if (agora < limite) {
+            // Comparação numérica
+            if (horaAtual < horaLimite || (horaAtual === horaLimite && minutoAtual < minutoLimite)) {
+                const mensagem = `A solicitação de saída para ${nomeSala} só é permitida após ${horaLimite}:${minutoLimite.toString().padStart(2, '0')}.`;
+                console.log("🚫 BLOQUEADO:", mensagem);
+
                 return {
                     permitido: false,
-                    mensagem: `A saída para o ${nomeSala} só é permitida após às ${config.hora}:${config.minuto.toString().padStart(2, '0')}.`
+                    mensagem: mensagem
                 };
             }
 
+            console.log("✅ Horário permitido!");
             return { permitido: true };
         };
 
@@ -5475,6 +5489,30 @@
             console.log("🚀 [SUCESSO] Horário ok, disparando API...");
             return true;
         };
+
+        function normalizarNomeSala(nome) {
+            if (!nome) return "";
+
+            // Remove espaços extras e converte para maiúsculas
+            let nomeLimpo = nome.trim().toUpperCase();
+
+            // Log para debug
+            console.log("🔧 Normalizando:", nomeLimpo);
+
+            // Se começar com número e tiver "ANO" ou "ANOS"
+            if (nomeLimpo.match(/^\d/)) {
+                // Troca "º" por "°"
+                nomeLimpo = nomeLimpo.replace(/º/g, "°");
+
+                // Garante que tenha o formato "X° ANO"
+                const match = nomeLimpo.match(/(\d+)[°º]?\s*(ANO|ANOS)/i);
+                if (match) {
+                    return match[1] + "° ANO";
+                }
+            }
+
+            return nomeLimpo;
+        }
 
     </script>
 </body>
