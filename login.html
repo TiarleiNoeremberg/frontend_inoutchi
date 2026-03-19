@@ -1021,6 +1021,15 @@
                         </div>
                     </div>
 
+                    <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
+                        <input type="checkbox" id="rememberMe" name="rememberMe"
+                            style="width: 18px; height: 18px; margin: 0; accent-color: var(--cyan);">
+                        <label for="rememberMe"
+                            style="margin: 0; color: rgba(255,255,255,0.8); font-size: 0.9rem; cursor: pointer;">
+                            Manter-me conectado
+                        </label>
+                    </div>
+
                     <button type="submit" class="btn-login" id="loginBtn">
                         <span>
                             Entrar
@@ -1269,22 +1278,53 @@
 
                         if (response.ok) {
                             const data = await response.json();
-                            localStorage.setItem('access_token', data.access_token);
-                            localStorage.setItem('token_expiry', (new Date().getTime() + (data.expires_in * 1000)).toString());
-                            localStorage.setItem('refresh_token', data.refresh_token || 'no-refresh-token');
 
+                            // Verifica se o usuário marcou "Manter-me conectado"
+                            const rememberMe = document.getElementById('rememberMe')?.checked || false;
+
+                            // Dados do usuário (já existe sua chamada)
                             const userData = await getUserData(data.access_token);
                             const userRole = userData.roles || [];
 
-                            if (userRole.includes('ROLE_ESCOLA')) {
-                                if (!userData.escolaId) {
-                                    throw new Error("Login falhou: ID da escola não encontrado para este usuário.");
+                            if (rememberMe) {
+                                // MODO PERSISTENTE (Lembrar-me)
+                                localStorage.setItem('access_token', data.access_token);
+                                localStorage.setItem('refresh_token', data.refresh_token || 'no-refresh-token');
+                                localStorage.setItem('token_expiry', (new Date().getTime() + (data.expires_in * 1000)).toString());
+
+                                // Salva dados do usuário no localStorage
+                                if (userRole.includes('ROLE_ESCOLA')) {
+                                    if (!userData.escolaId) {
+                                        throw new Error("Login falhou: ID da escola não encontrado para este usuário.");
+                                    }
+                                    localStorage.setItem('escolaId', userData.escolaId);
                                 }
-                                localStorage.setItem('escolaId', userData.escolaId);
+
+                                console.log("✅ Login persistente (vai lembrar o usuário)");
+                            } else {
+                                // MODO SESSÃO (apenas enquanto o navegador estiver aberto)
+                                sessionStorage.setItem('access_token', data.access_token);
+
+                                // Para a role, usamos sessionStorage também
+                                if (userRole.includes('ROLE_ESCOLA')) {
+                                    if (!userData.escolaId) {
+                                        throw new Error("Login falhou: ID da escola não encontrado para este usuário.");
+                                    }
+                                    sessionStorage.setItem('escolaId', userData.escolaId);
+                                }
+
+                                // Limpa qualquer dado persistente anterior
+                                localStorage.removeItem('access_token');
+                                localStorage.removeItem('refresh_token');
+                                localStorage.removeItem('token_expiry');
+                                localStorage.removeItem('escolaId');
+
+                                console.log("✅ Login de sessão (expira ao fechar o navegador)");
                             }
 
                             showAlert('Login realizado com sucesso! Redirecionando...', 'success');
 
+                            // Redirecionamento baseado na role (igual ao seu código)
                             if (userRole.includes('ROLE_TUTOR')) setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
                             else if (userRole.includes('ROLE_DIRETOR')) setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
                             else if (userRole.includes('ROLE_ESCOLA')) setTimeout(() => { window.location.href = 'dashboard-escola.html'; }, 1500);
