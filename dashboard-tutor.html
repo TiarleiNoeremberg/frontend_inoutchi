@@ -18,7 +18,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/assets/images/Logo_iOs.png">
-    <script src="utils.js"></script>
 
     <style>
         /* ===== FULL SCREEN STRUCTURE ===== */
@@ -3868,34 +3867,36 @@
                     body.responsavelTipo = 'TUTOR';
                 } else { // SAÍDA
                     endpoint = '/api/presencas/saida/solicitar';
-                    // ⚠️ REMOVER esta linha que adiciona escolaId:
-                    // const student = students.find(s => s.id == studentId);
-                    // body.escolaId = student?.escolaId;  ← ISSO NÃO EXISTE MAIS!
                 }
 
                 const response = await fetchWithAuth(endpoint, { method: 'POST', body: JSON.stringify(body) });
                 await response.json();
+
                 showAlert(`Ação de ${actionType} registrada com sucesso!`, 'success');
                 actionLocationModalInstance.hide();
 
-                // MOSTRA A TELA DE SUCESSO
+                // 🔴 PRIMEIRO: Atualiza os dados para o slider mudar (por baixo dos panos)
+                await refreshStudentsData();
+
+                // 🔴 SEGUNDO: Mostra a tela de sucesso
                 if (actionType === 'entrada') {
-                    mostrarTelaSucesso('entrada', async function () {
-                        await refreshStudentsData();
-                        if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
-                            const student = students.find(s => s.id == studentId);
-                            await viewStudentHistory(studentId, student.nome);
-                        }
+                    await mostrarTelaSucesso('entrada', async () => {
+                        const alunoAtualizado = students.find(s => s.id == studentId);
+                        return alunoAtualizado && alunoAtualizado.status === 'PRESENTE';
                     });
-                } else { // solicitar saída
-                    mostrarTelaSucesso('solicitacao', async function () {
-                        await refreshStudentsData();
-                        if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
-                            const student = students.find(s => s.id == studentId);
-                            await viewStudentHistory(studentId, student.nome);
-                        }
+                } else {
+                    await mostrarTelaSucesso('solicitacao', async () => {
+                        const alunoAtualizado = students.find(s => s.id == studentId);
+                        return alunoAtualizado && alunoAtualizado.status === 'AGUARDANDO_CONFIRMACAO';
                     });
                 }
+
+                // SÓ DEPOIS faz outras ações
+                if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
+                    const student = students.find(s => s.id == studentId);
+                    await viewStudentHistory(studentId, student.nome);
+                }
+
             } catch (error) {
                 const statusEl = document.getElementById('locationStatus');
                 statusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${error.message}`;
@@ -3940,14 +3941,19 @@
                 showAlert('Saída confirmada com sucesso!', 'success');
                 manualConfirmExitModalInstance.hide();
 
-                // MOSTRA A TELA DE SUCESSO
-                mostrarTelaSucesso('confirmacao', async function () {
-                    await refreshStudentsData();
-                    if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
-                        const student = students.find(s => s.id == studentId);
-                        await viewStudentHistory(studentId, student.nome);
-                    }
+                // 🔴 PRIMEIRO: Atualiza os dados para o slider mudar (por baixo dos panos)
+                await refreshStudentsData();
+
+                // 🔴 SEGUNDO: Mostra a tela de sucesso
+                await mostrarTelaSucesso('confirmacao', async () => {
+                    const alunoAtualizado = students.find(s => s.id == studentId);
+                    return alunoAtualizado && alunoAtualizado.status !== 'AGUARDANDO_CONFIRMACAO';
                 });
+
+                if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
+                    const student = students.find(s => s.id == studentId);
+                    await viewStudentHistory(studentId, student.nome);
+                }
             } catch (error) {
                 showAlert(error.message, 'danger');
             } finally {
@@ -4449,60 +4455,164 @@
             }
         });
 
-        // Função para mostrar tela de sucesso - VERSÃO CORRIGIDA
-        function mostrarTelaSucesso(tipo, callback) {
-            // Remove se já existir com FORÇA TOTAL
-            const existente = document.getElementById('telaSucesso');
-            if (existente && existente.parentNode) {
-                existente.parentNode.removeChild(existente);
-            }
-
-            // Define configurações
-            let cor, mensagem;
-            if (tipo === 'entrada') {
-                cor = '#10b981';
-                mensagem = 'Entrada registrada<br>com sucesso!';
-            } else if (tipo === 'solicitacao') {
-                cor = '#f87171';
-                mensagem = 'Saída solicitada<br>com sucesso!';
-            } else {
-                cor = '#fbbf24';
-                mensagem = 'Saída confirmada<br>com sucesso!';
-            }
-
-            // Cria elemento com HTML direto
-            const div = document.createElement('div');
-            div.id = 'telaSucesso';
-            div.innerHTML = `
-        <div style="position:fixed; top:0; left:0; width:100%; height:100%; background:${cor}; z-index:9999999; display:table; text-align:center;">
-            <div style="display:table-cell; vertical-align:middle;">
-                <div style="width:120px; height:120px; background:white; border-radius:50%; margin:0 auto 30px auto; box-shadow:0 10px 25px rgba(0,0,0,0.15); display:flex; align-items:center; justify-content:center;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="${cor}" stroke-width="3" style="width:70px; height:70px;">
-                        <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
-                </div>
-                <div style="color:white; font-size:2.5rem; font-weight:700; font-family:'Inter',sans-serif; text-shadow:0 2px 10px rgba(0,0,0,0.1);">${mensagem}</div>
-            </div>
-        </div>
-    `;
-
-            document.body.appendChild(div);
-
-            // Remove após 3 segundos com GARANTIA ABSOLUTA
-            setTimeout(() => {
-                const el = document.getElementById('telaSucesso');
-                if (el && el.parentNode) {
-                    el.style.opacity = '0';
-                    el.style.transition = 'opacity 0.3s';
-
-                    setTimeout(() => {
-                        if (el.parentNode) {
-                            el.parentNode.removeChild(el);
-                        }
-                        if (typeof callback === 'function') callback();
-                    }, 300);
+        // Função para mostrar tela de sucesso - VERSÃO SIMPLIFICADA
+        function mostrarTelaSucesso(tipo, verificarCallback) {
+            return new Promise((resolve) => {
+                // Remove se já existir
+                const existente = document.getElementById('telaSucesso');
+                if (existente && existente.parentNode) {
+                    existente.parentNode.removeChild(existente);
                 }
-            }, 3000);
+
+                // Define configurações
+                let cor, mensagem;
+                if (tipo === 'entrada') {
+                    cor = '#10b981';
+                    mensagem = 'Entrada registrada<br>com sucesso!';
+                } else if (tipo === 'solicitacao') {
+                    cor = '#f87171';
+                    mensagem = 'Saída solicitada<br>com sucesso!';
+                } else {
+                    cor = '#fbbf24';
+                    mensagem = 'Saída confirmada<br>com sucesso!';
+                }
+
+                // Cria elemento
+                const div = document.createElement('div');
+                div.id = 'telaSucesso';
+                div.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: ${cor};
+            z-index: 9999999;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            animation: fadeIn 0.3s ease;
+        `;
+
+                div.innerHTML = `
+            <div style="width:120px; height:120px; background:white; border-radius:50%; margin-bottom:30px; display:flex; align-items:center; justify-content:center; box-shadow:0 10px 25px rgba(0,0,0,0.15);">
+                <svg viewBox="0 0 24 24" fill="none" stroke="${cor}" stroke-width="3" style="width:70px; height:70px;">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+            </div>
+            <div style="color:white; font-size:2.5rem; font-weight:700; font-family:'Inter',sans-serif; text-align:center; max-width:90%; text-shadow:0 2px 10px rgba(0,0,0,0.1);">
+                ${mensagem}
+            </div>
+        `;
+
+                document.body.appendChild(div);
+
+                // Se não tem callback, usa timer simples
+                if (!verificarCallback) {
+                    setTimeout(() => {
+                        const el = document.getElementById('telaSucesso');
+                        if (el && el.parentNode) {
+                            el.remove();
+                        }
+                        resolve();
+                    }, 3000);
+                    return;
+                }
+
+                // Verifica uma única vez após 500ms
+                setTimeout(async () => {
+                    try {
+                        const sliderPronto = await verificarCallback();
+                        if (sliderPronto) {
+                            const el = document.getElementById('telaSucesso');
+                            if (el && el.parentNode) {
+                                el.remove();
+                            }
+                            resolve();
+                        } else {
+                            // Se não está pronto, verifica novamente após mais 500ms
+                            setTimeout(async () => {
+                                const sliderPronto2 = await verificarCallback();
+                                const el = document.getElementById('telaSucesso');
+                                if (el && el.parentNode) {
+                                    el.remove();
+                                }
+                                resolve();
+                            }, 500);
+                        }
+                    } catch (error) {
+                        console.error('Erro na verificação:', error);
+                        const el = document.getElementById('telaSucesso');
+                        if (el && el.parentNode) {
+                            el.remove();
+                        }
+                        resolve();
+                    }
+                }, 500);
+            });
+        }
+
+        async function abrirTelaSucessoConfirmada(acaoOriginal, alunoNome, alunoId) {
+            return new Promise((resolve) => {
+                const mensagens = {
+                    'entrada': 'Entrada Registrada com Sucesso!',
+                    'saida': 'Saída Solicitada com Sucesso!',
+                    'confirmar': 'Saída Confirmada com Sucesso!'
+                };
+
+                const cores = {
+                    'entrada': '#10b981', // Verde
+                    'saida': '#ef4444',   // Vermelho
+                    'confirmar': '#f59e0b' // Amarelo
+                };
+
+                // Cria a tela de sucesso (Full Screen)
+                const tela = document.createElement('div');
+                tela.className = `tela-sucesso`;
+                tela.style.cssText = `
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: ${cores[acaoOriginal]};
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 9999; color: white; text-align: center;
+        `;
+
+                tela.innerHTML = `
+            <div class="circulo-check" style="font-size: 5rem; margin-bottom: 20px;">
+                <i class="fas fa-check-circle"></i>
+            </div>
+            <div style="font-size: 1.8rem; font-weight: bold; padding: 0 20px;">
+                ${mensagens[acaoOriginal]}<br>
+                <small style="font-size: 1.2rem; opacity: 0.9">${alunoNome}</small>
+            </div>
+        `;
+
+                document.body.appendChild(tela);
+
+                // --- VERIFICAÇÃO SE O BOTÃO MUDOU MESMO ---
+                let checagens = 0;
+                const verificador = setInterval(() => {
+                    const btnNoDom = document.querySelector(`.slide-btn[data-student-id="${alunoId}"]`);
+                    // Se o botão não existe mais ou o data-action dele mudou, o estado foi alterado com sucesso
+                    const estadoMudou = !btnNoDom || btnNoDom.dataset.action !== acaoOriginal;
+
+                    checagens++;
+
+                    if (estadoMudou || checagens > 50) { // 50 tentativas = 5 segundos de limite
+                        clearInterval(verificador);
+
+                        // Espera 3 segundos com a tela visível ANTES de fechar
+                        setTimeout(() => {
+                            tela.style.transition = 'opacity 0.5s ease';
+                            tela.style.opacity = '0';
+                            setTimeout(() => {
+                                tela.remove();
+                                resolve(); // Libera o fluxo da função onEnd
+                            }, 500);
+                        }, 3000);
+                    }
+                }, 100); // Checa a cada 100 milisegundos
+            });
         }
 
         function initSlideButtons() {
@@ -4619,6 +4729,7 @@
         }
 
         // ===== PROCESSAMENTO AUTOMÁTICO DA LOCALIZAÇÃO =====
+        // ===== PROCESSAMENTO AUTOMÁTICO DA LOCALIZAÇÃO =====
         async function processarLocalizacaoAutomatica(studentId, action, studentName) {
             const statusEl = document.getElementById('locationStatus');
             const confirmBtn = document.getElementById('confirmActionBtn');
@@ -4685,16 +4796,32 @@
                 // 7. ✅ SUCESSO! Fecha o modal automaticamente
                 statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Operação realizada com sucesso!';
 
-                // Fecha o modal após 500ms
-                setTimeout(() => {
-                    actionLocationModalInstance.hide();
+                // Fecha o modal
+                actionLocationModalInstance.hide();
 
-                    // Mostra tela de sucesso
-                    const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
-                    mostrarTelaSucesso(tipoSucesso, async () => {
-                        await refreshStudentsData();
-                    });
-                }, 500);
+                // 🔴 PRIMEIRO: Atualiza os dados para o slider mudar (por baixo dos panos)
+                await refreshStudentsData();
+
+                // 🔴 SEGUNDO: Mostra a tela de sucesso (slider ainda está esticado, mas já mudou internamente)
+                const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
+                await mostrarTelaSucesso(tipoSucesso, null); // Sem callback, usa timer simples de 3 segundos
+
+                await mostrarTelaSucesso(tipoSucesso, async () => {
+                    // Verifica se o slider já mudou para o estado correto
+                    const alunoAtualizado = students.find(s => s.id == studentId);
+
+                    if (action === 'entrada') {
+                        return alunoAtualizado && alunoAtualizado.status === 'PRESENTE';
+                    } else {
+                        return alunoAtualizado && alunoAtualizado.status === 'AGUARDANDO_CONFIRMACAO';
+                    }
+                });
+
+                // SÓ DEPOIS que a tela de sucesso fechar, faz outras ações se necessário
+                if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
+                    const student = students.find(s => s.id == studentId);
+                    await viewStudentHistory(studentId, student.nome);
+                }
 
             } catch (error) {
                 console.error('Erro no processamento automático:', error);
@@ -4705,9 +4832,6 @@
 
                 // Habilita os botões para o usuário tentar novamente manualmente
                 getLocationBtn.disabled = false;
-
-                // Se foi erro de geofence, o confirmBtn fica desabilitado (precisa tentar de novo)
-                // Se foi erro de permissão, também precisa tentar de novo
                 confirmBtn.disabled = true;
 
                 // Exibe as coordenadas se disponíveis (apenas para debug)
@@ -4804,47 +4928,71 @@
                 isProcessing = true;
                 isActionProcessing = true;
 
-                // Fixa na posição final
+                // Fixa na posição final enquanto processa
                 thumb.style.transition = 'transform 0.2s ease-out';
-                fill.style.transition = 'width 0.2s ease-out';
-
-                if (slidesRight) {
-                    thumb.style.transform = `translateX(${maxTravel}px)`;
-                    fill.style.width = '100%';
-                } else {
-                    thumb.style.transform = `translateX(${-maxTravel}px)`;
-                    fill.style.width = '100%';
-                }
+                fill.style.width = '100%';
+                thumb.style.transform = slidesRight ? `translateX(${maxTravel}px)` : `translateX(${-maxTravel}px)`;
 
                 if (navigator.vibrate) navigator.vibrate(50);
 
                 const studentId = btn.dataset.studentId;
                 const studentName = btn.dataset.studentName;
-                const aluno = students.find(s => s.id == studentId);
+                const action = btn.dataset.action;
 
                 try {
+                    // --- PASSO 1: ENVIAR PARA A API ---
+                    let response;
                     if (action === 'confirmar') {
+                        // 1. MANTER ESTICADO
+                        const maxTravel = getMaxTravel();
+                        thumb.style.transition = 'transform 0.2s ease-out';
+                        fill.style.width = '100%';
+                        thumb.style.transform = slidesRight ? `translateX(${maxTravel}px)` : `translateX(${-maxTravel}px)`;
+
+                        // 2. ENVIA PARA A API
                         await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
-                        resetSlideBtn(btn, thumb, fill, label, 'slow', true);
-                        mostrarTelaSucesso('confirmacao', async () => {
-                            await refreshStudentsData();
-                            isProcessing = false;
-                            isActionProcessing = false;
-                        });
+
+                        // 3. MOSTRAR A TELA DE SUCESSO IMEDIATAMENTE
+                        mostrarTelaSucesso('confirmacao');
+
+                        // 4. ATUALIZAR DADOS E RESETAR
+                        await refreshStudentsData();
+                        resetSlideBtn(btn, thumb, fill, label, 'fast', true);
+
+                        isProcessing = false;
+                        isActionProcessing = false;
 
                     } else if (action === 'entrada' || action === 'saida') {
-                        // 🔴 NOVO: Para SAÍDA, valida horário antes de processar
+
+                        // --- INÍCIO DA TRAVA DE SEGURANÇA INTEGRADA ---
                         if (action === 'saida') {
-                            const validacao = await validarSaidaPorHorario(aluno);
-                            if (!validacao.permitido) {
-                                // Reseta o slider e interrompe
-                                resetSlideBtn(btn, thumb, fill, label, 'fast', false);
-                                isProcessing = false;
-                                isActionProcessing = false;
-                                return;
+                            // 1. BUSCA O NOME DA SALA NO CARD
+                            const card = btn.closest('.student-card');
+                            const salaElement = card ? card.querySelector('.student-class, .student-info p') : null;
+                            const nomeSala = salaElement ? salaElement.textContent.trim().toUpperCase() : "";
+
+                            // 2. VALIDAÇÃO PELA FUNÇÃO GLOBAL (que injetamos no final do HTML)
+                            if (window.validarHorarioSaida) {
+                                const validacao = window.validarHorarioSaida(nomeSala);
+
+                                if (!validacao.permitido) {
+                                    // BLOQUEIO VISUAL E MENSAGEM
+                                    showStatusMessage(validacao.mensagem, 'warning');
+                                    console.warn("🚫 Trava acionada: " + validacao.mensagem);
+
+                                    // Reseta o slider para o início
+                                    resetSlideBtn(btn, thumb, fill, label, 'fast', false);
+
+                                    // Libera as travas de processamento para permitir nova tentativa
+                                    isProcessing = false;
+                                    isActionProcessing = false;
+                                    return; // Mata a execução aqui, antes de chamar a API
+                                }
                             }
                         }
+                        // --- FIM DA TRAVA DE SEGURANÇA ---
 
+                        // Segue o fluxo normal caso passe pela trava ou seja 'entrada'
                         await processarAcaoComModal(studentId, action, studentName);
                         resetSlideBtn(btn, thumb, fill, label, 'slow', true);
                         await refreshStudentsData();
@@ -4856,12 +5004,9 @@
                 } catch (error) {
                     console.error('Erro:', error);
                     showStatusMessage(error.message, 'danger');
-
-                    setTimeout(() => {
-                        resetSlideBtn(btn, thumb, fill, label, 'slow', false);
-                        isProcessing = false;
-                        isActionProcessing = false;
-                    }, 2500);
+                    resetSlideBtn(btn, thumb, fill, label, 'slow', false);
+                    isProcessing = false;
+                    isActionProcessing = false;
                 }
             }
 
@@ -4900,6 +5045,7 @@
             document.addEventListener('mousemove', onMove);
             document.addEventListener('mouseup', onEnd);
         }
+
 
         // ===== FUNÇÃO SIMPLIFICADA - SEM PROMISE COMPLEXA =====
         async function processarAcaoComModal(studentId, action, studentName) {
@@ -5271,6 +5417,59 @@
                 alert('Erro: função de histórico não disponível');
             };
         }
+
+        console.log("🚀 [INOUTCHI] Script de validação local carregado!");
+
+        // Definição direta para evitar erro de 'undefined'
+        window.HORARIOS_SAIDA = {
+            '2° ANO': { hora: 15, minuto: 10 },
+            '5° ANO': { hora: 15, minuto: 30 },
+            '3º ANO': { hora: 23, minuto: 59 } // Adicionei para teste baseada nos seus logs
+        };
+
+        window.validarHorarioSaida = function (nomeSala) {
+            console.log("🔍 [DEBUG] Validando sala:", nomeSala);
+
+            if (!nomeSala || !window.HORARIOS_SAIDA[nomeSala]) {
+                console.log("✅ [DEBUG] Sala sem restrição ou não identificada. Permitindo.");
+                return { permitido: true };
+            }
+
+            const agora = new Date();
+            const config = window.HORARIOS_SAIDA[nomeSala];
+
+            // Criar objeto de data para o limite de hoje
+            const limite = new Date();
+            limite.setHours(config.hora, config.minuto, 0);
+
+            console.log(`🕒 [DEBUG] Agora: ${agora.getHours()}:${agora.getMinutes()} | Limite: ${config.hora}:${config.minuto}`);
+
+            if (agora < limite) {
+                return {
+                    permitido: false,
+                    mensagem: `A saída para o ${nomeSala} só é permitida após às ${config.hora}:${config.minuto.toString().padStart(2, '0')}.`
+                };
+            }
+
+            return { permitido: true };
+        };
+
+        // FUNÇÃO QUE INTERCEPTA O SLIDER/BOTÃO
+        // Esta função deve ser chamada no local onde o tutor confirma a saída
+        window.processarSolicitacaoSaida = function (studentId, nomeSala) {
+            console.log(`🎯 [SAÍDA] Iniciando processo para Aluno ID: ${studentId}, Sala: ${nomeSala}`);
+
+            const validacao = window.validarHorarioSaida(nomeSala);
+
+            if (!validacao.permitido) {
+                console.error("🚫 [BLOQUEADO] Horário não permitido");
+                alert(validacao.mensagem);
+                return false;
+            }
+
+            console.log("🚀 [SUCESSO] Horário ok, disparando API...");
+            return true;
+        };
 
     </script>
 </body>
