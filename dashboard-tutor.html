@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 
@@ -3868,36 +3869,60 @@
                     body.responsavelTipo = 'TUTOR';
                 } else { // SAÍDA
                     endpoint = '/api/presencas/saida/solicitar';
+                    // ⚠️ REMOVER esta linha que adiciona escolaId:
+                    // const student = students.find(s => s.id == studentId);
+                    // body.escolaId = student?.escolaId;  ← ISSO NÃO EXISTE MAIS!
                 }
 
                 const response = await fetchWithAuth(endpoint, { method: 'POST', body: JSON.stringify(body) });
                 await response.json();
-
                 showAlert(`Ação de ${actionType} registrada com sucesso!`, 'success');
                 actionLocationModalInstance.hide();
 
-                // 🔴 PRIMEIRO: Atualiza os dados para o slider mudar (por baixo dos panos)
-                await refreshStudentsData();
-
-                // 🔴 SEGUNDO: Mostra a tela de sucesso
+                // MOSTRA A TELA DE SUCESSO
                 if (actionType === 'entrada') {
+                    const response = await fetchWithAuth(endpoint, { method: 'POST', body: JSON.stringify(body) });
+                    await response.json();
+
+                    showAlert(`Ação de ${actionType} registrada com sucesso!`, 'success');
+                    actionLocationModalInstance.hide();
+
+                    // MOSTRA A TELA DE SUCESSO - SÓ FECHA QUANDO O SLIDER MUDAR
                     await mostrarTelaSucesso('entrada', async () => {
+                        // Verifica se o slider do aluno mudou para o estado correto (SAIR/PRESENTE)
                         const alunoAtualizado = students.find(s => s.id == studentId);
                         return alunoAtualizado && alunoAtualizado.status === 'PRESENTE';
                     });
-                } else {
+
+                    // Atualiza os dados por baixo dos panos
+                    await refreshStudentsData();
+
+                    if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
+                        const student = students.find(s => s.id == studentId);
+                        await viewStudentHistory(studentId, student.nome);
+                    }
+                } else { // solicitar saída
+                    const response = await fetchWithAuth(endpoint, { method: 'POST', body: JSON.stringify(body) });
+                    await response.json();
+
+                    showAlert(`Ação de ${actionType} registrada com sucesso!`, 'success');
+                    actionLocationModalInstance.hide();
+
+                    // MOSTRA A TELA DE SUCESSO - SÓ FECHA QUANDO O SLIDER MUDAR
                     await mostrarTelaSucesso('solicitacao', async () => {
+                        // Verifica se o slider do aluno mudou para CONFIRMAR (AGUARDANDO_CONFIRMACAO)
                         const alunoAtualizado = students.find(s => s.id == studentId);
                         return alunoAtualizado && alunoAtualizado.status === 'AGUARDANDO_CONFIRMACAO';
                     });
-                }
 
-                // SÓ DEPOIS faz outras ações
-                if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
-                    const student = students.find(s => s.id == studentId);
-                    await viewStudentHistory(studentId, student.nome);
-                }
+                    // Atualiza os dados por baixo dos panos
+                    await refreshStudentsData();
 
+                    if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
+                        const student = students.find(s => s.id == studentId);
+                        await viewStudentHistory(studentId, student.nome);
+                    }
+                }
             } catch (error) {
                 const statusEl = document.getElementById('locationStatus');
                 statusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${error.message}`;
@@ -3942,14 +3967,15 @@
                 showAlert('Saída confirmada com sucesso!', 'success');
                 manualConfirmExitModalInstance.hide();
 
-                // 🔴 PRIMEIRO: Atualiza os dados para o slider mudar (por baixo dos panos)
-                await refreshStudentsData();
-
-                // 🔴 SEGUNDO: Mostra a tela de sucesso
+                // MOSTRA A TELA DE SUCESSO - SÓ FECHA QUANDO O SLIDER MUDAR
                 await mostrarTelaSucesso('confirmacao', async () => {
+                    // Verifica se o slider mudou para o estado correto (AUSENTE)
                     const alunoAtualizado = students.find(s => s.id == studentId);
                     return alunoAtualizado && alunoAtualizado.status !== 'AGUARDANDO_CONFIRMACAO';
                 });
+
+                // Atualiza os dados por baixo dos panos
+                await refreshStudentsData();
 
                 if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
                     const student = students.find(s => s.id == studentId);
@@ -4456,10 +4482,11 @@
             }
         });
 
-        // Função para mostrar tela de sucesso - VERSÃO SIMPLIFICADA
+        // Função para mostrar tela de sucesso - VERSÃO CORRIGIDA
+        // Função para mostrar tela de sucesso - VERSÃO CORRIGIDA E UNIFICADA
         function mostrarTelaSucesso(tipo, verificarCallback) {
             return new Promise((resolve) => {
-                // Remove se já existir
+                // Remove se já existir com FORÇA TOTAL
                 const existente = document.getElementById('telaSucesso');
                 if (existente && existente.parentNode) {
                     existente.parentNode.removeChild(existente);
@@ -4478,79 +4505,84 @@
                     mensagem = 'Saída confirmada<br>com sucesso!';
                 }
 
-                // Cria elemento
+                // Cria elemento com HTML direto
                 const div = document.createElement('div');
                 div.id = 'telaSucesso';
-                div.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: ${cor};
-            z-index: 9999999;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            animation: fadeIn 0.3s ease;
-        `;
-
                 div.innerHTML = `
-            <div style="width:120px; height:120px; background:white; border-radius:50%; margin-bottom:30px; display:flex; align-items:center; justify-content:center; box-shadow:0 10px 25px rgba(0,0,0,0.15);">
-                <svg viewBox="0 0 24 24" fill="none" stroke="${cor}" stroke-width="3" style="width:70px; height:70px;">
-                    <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
-            </div>
-            <div style="color:white; font-size:2.5rem; font-weight:700; font-family:'Inter',sans-serif; text-align:center; max-width:90%; text-shadow:0 2px 10px rgba(0,0,0,0.1);">
-                ${mensagem}
+            <div style="position:fixed; top:0; left:0; width:100%; height:100%; background:${cor}; z-index:9999999; display:table; text-align:center;">
+                <div style="display:table-cell; vertical-align:middle;">
+                    <div style="width:120px; height:120px; background:white; border-radius:50%; margin:0 auto 30px auto; box-shadow:0 10px 25px rgba(0,0,0,0.15); display:flex; align-items:center; justify-content:center;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="${cor}" stroke-width="3" style="width:70px; height:70px;">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    </div>
+                    <div style="color:white; font-size:2.5rem; font-weight:700; font-family:'Inter',sans-serif; text-shadow:0 2px 10px rgba(0,0,0,0.1);">${mensagem}</div>
+                </div>
             </div>
         `;
 
                 document.body.appendChild(div);
 
-                // Se não tem callback, usa timer simples
+                // Se não tem callback de verificação, usa o timer normal
                 if (!verificarCallback) {
                     setTimeout(() => {
                         const el = document.getElementById('telaSucesso');
                         if (el && el.parentNode) {
-                            el.remove();
+                            el.style.opacity = '0';
+                            el.style.transition = 'opacity 0.3s';
+                            setTimeout(() => {
+                                if (el.parentNode) {
+                                    el.parentNode.removeChild(el);
+                                }
+                                resolve();
+                            }, 300);
+                        } else {
+                            resolve();
                         }
-                        resolve();
                     }, 3000);
                     return;
                 }
 
-                // Verifica uma única vez após 500ms
-                setTimeout(async () => {
+                // 🔴 LOOP DE VERIFICAÇÃO - SÓ FECHA QUANDO O SLIDER ESTIVER PRONTO
+                const verificarInterval = setInterval(async () => {
                     try {
+                        // Verifica se o slider já mudou de estado
                         const sliderPronto = await verificarCallback();
+
                         if (sliderPronto) {
-                            const el = document.getElementById('telaSucesso');
-                            if (el && el.parentNode) {
-                                el.remove();
-                            }
-                            resolve();
-                        } else {
-                            // Se não está pronto, verifica novamente após mais 500ms
-                            setTimeout(async () => {
-                                const sliderPronto2 = await verificarCallback();
+                            clearInterval(verificarInterval);
+
+                            // Agora sim, fecha a tela de sucesso
+                            setTimeout(() => {
                                 const el = document.getElementById('telaSucesso');
                                 if (el && el.parentNode) {
-                                    el.remove();
+                                    el.style.opacity = '0';
+                                    el.style.transition = 'opacity 0.3s';
+
+                                    setTimeout(() => {
+                                        if (el.parentNode) {
+                                            el.parentNode.removeChild(el);
+                                        }
+                                        resolve();
+                                    }, 300);
+                                } else {
+                                    resolve();
                                 }
-                                resolve();
-                            }, 500);
+                            }, 500); // Pequeno delay para garantir que o usuário veja o sucesso
                         }
                     } catch (error) {
-                        console.error('Erro na verificação:', error);
-                        const el = document.getElementById('telaSucesso');
-                        if (el && el.parentNode) {
-                            el.remove();
-                        }
-                        resolve();
+                        console.error('Erro na verificação do slider:', error);
+                        // Em caso de erro, fecha a tela após 5 segundos (fallback)
+                        clearInterval(verificarInterval);
+                        setTimeout(() => {
+                            const el = document.getElementById('telaSucesso');
+                            if (el && el.parentNode) {
+                                el.parentNode.removeChild(el);
+                            }
+                            resolve();
+                        }, 5000);
                     }
-                }, 500);
+                }, 200); // Verifica a cada 200ms (menos frequente para não sobrecarregar)
             });
         }
 
@@ -4668,7 +4700,6 @@
         }
 
         // ===== PROCESSAMENTO AUTOMÁTICO DA LOCALIZAÇÃO =====
-        // ===== PROCESSAMENTO AUTOMÁTICO DA LOCALIZAÇÃO =====
         async function processarLocalizacaoAutomatica(studentId, action, studentName) {
             const statusEl = document.getElementById('locationStatus');
             const confirmBtn = document.getElementById('confirmActionBtn');
@@ -4738,29 +4769,24 @@
                 // Fecha o modal
                 actionLocationModalInstance.hide();
 
-                // 🔴 PRIMEIRO: Atualiza os dados para o slider mudar (por baixo dos panos)
-                await refreshStudentsData();
-
-                // 🔴 SEGUNDO: Mostra a tela de sucesso (slider ainda está esticado, mas já mudou internamente)
+                // 🔴 MOSTRA A TELA DE SUCESSO E AGUARDA ATÉ O SLIDER MUDAR
                 const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
-                await mostrarTelaSucesso(tipoSucesso, null); // Sem callback, usa timer simples de 3 segundos
 
                 await mostrarTelaSucesso(tipoSucesso, async () => {
                     // Verifica se o slider já mudou para o estado correto
                     const alunoAtualizado = students.find(s => s.id == studentId);
 
                     if (action === 'entrada') {
+                        // Para entrada, o slider deve ter mudado para SAIR (status PRESENTE)
                         return alunoAtualizado && alunoAtualizado.status === 'PRESENTE';
                     } else {
+                        // Para solicitação de saída, o slider deve ter mudado para CONFIRMAR (status AGUARDANDO_CONFIRMACAO)
                         return alunoAtualizado && alunoAtualizado.status === 'AGUARDANDO_CONFIRMACAO';
                     }
                 });
 
-                // SÓ DEPOIS que a tela de sucesso fechar, faz outras ações se necessário
-                if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
-                    const student = students.find(s => s.id == studentId);
-                    await viewStudentHistory(studentId, student.nome);
-                }
+                // SÓ DEPOIS que a tela de sucesso fechar, atualiza os dados
+                await refreshStudentsData();
 
             } catch (error) {
                 console.error('Erro no processamento automático:', error);
@@ -4889,17 +4915,18 @@
                     if (action === 'confirmar') {
                         await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
 
-                        // 🔴 PRIMEIRO: Atualiza os dados para o slider mudar (por baixo dos panos)
-                        await refreshStudentsData();
+                        // Primeiro: Reseta o slider (por baixo dos panos)
+                        resetSlideBtn(btn, thumb, fill, label, 'slow', true);
 
-                        // 🔴 SEGUNDO: Mostra a tela de sucesso
+                        // Segundo: Mostra a tela de sucesso e SÓ FECHA quando o slider estiver pronto
                         await mostrarTelaSucesso('confirmacao', async () => {
+                            // Verifica se o slider realmente mudou para o estado correto (AUSENTE)
                             const alunoAtualizado = students.find(s => s.id == studentId);
                             return alunoAtualizado && alunoAtualizado.status !== 'AGUARDANDO_CONFIRMACAO';
                         });
 
-                        // Agora sim, reseta o slider (volta à posição inicial com o novo estado)
-                        resetSlideBtn(btn, thumb, fill, label, 'slow', true);
+                        // Atualiza os dados por baixo dos panos
+                        await refreshStudentsData();
 
                         isProcessing = false;
                         isActionProcessing = false;
