@@ -907,11 +907,8 @@
 
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 
-    <div id="g_id_onload"
-        data-client_id="718982240178-nfvuhalss6835vjdu6nuuuq3g7586c8l.apps.googleusercontent.com"
-        data-callback="handleCredentialResponse"
-        data-auto_prompt="true"
-        data-itp_support="true">
+    <div id="g_id_onload" data-client_id="718982240178-nfvuhalss6835vjdu6nuuuq3g7586c8l.apps.googleusercontent.com"
+        data-callback="handleCredentialResponse" data-auto_prompt="true" data-itp_support="true">
     </div>
 
     <!-- ANIMATED BACKGROUND -->
@@ -1323,26 +1320,60 @@
                 });
             }
 
-            window.handleCredentialResponse = async function(response) {
+            window.handleCredentialResponse = async function (response) {
                 const loading = document.getElementById('loading');
                 loading.style.display = 'flex';
 
                 try {
-                    // Envia o token do Google para o seu endpoint de login social
-                    const res = await fetch('https://inoutchi-backend.onrender.com/api/v1/auth/google', {
+                    console.log("Token recebido do Google");
+
+                    const BACKEND_URL = 'https://inoutchi-backend.onrender.com';
+
+                    const res = await fetch(`${BACKEND_URL}/api/v1/auth/google`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ id_token: response.credential })
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            id_token: response.credential
+                        })
                     });
 
-                    const data = await res.json();
+                    console.log("Status da resposta:", res.status);
 
-                    if (res.ok && data.token) {
-                        // Reaproveita a sua lógica existente de armazenamento e redirecionamento
+                    // Verifica se a resposta está OK (200-299)
+                    if (!res.ok) {
+                        if (res.status === 401) {
+                            throw new Error('Token do Google não validado pelo servidor');
+                        } else if (res.status === 500) {
+                            throw new Error('Erro interno no servidor. Tente novamente mais tarde.');
+                        } else {
+                            throw new Error(`Erro ${res.status}: ${res.statusText}`);
+                        }
+                    }
+
+                    // Verifica se a resposta tem conteúdo
+                    const text = await res.text();
+                    console.log("Resposta bruta:", text);
+
+                    if (!text) {
+                        throw new Error('Resposta vazia do servidor');
+                    }
+
+                    // Tenta parsear o JSON
+                    let data;
+                    try {
+                        data = JSON.parse(text);
+                    } catch (e) {
+                        console.error('Resposta não é JSON válido:', text);
+                        throw new Error('Resposta inválida do servidor');
+                    }
+
+                    if (data.token) {
                         localStorage.setItem('access_token', data.token);
                         localStorage.setItem('user_role', data.role);
 
-                        // O seu backend deve informar a role (TUTOR, ESCOLA, etc)
                         const roleRoutes = {
                             'ROLE_DIRETOR': 'dashboard-diretor.html',
                             'ROLE_ESCOLA': 'dashboard-escola.html',
@@ -1351,17 +1382,21 @@
                             'ROLE_TRANSPORTE': 'dashboard-transporte.html'
                         };
 
-                        window.location.href = roleRoutes[data.role] || 'dashboard-tutor.html';
+                        showAlert('Login com Google realizado!', 'success');
+                        setTimeout(() => {
+                            window.location.href = roleRoutes[data.role] || 'dashboard-tutor.html';
+                        }, 1500);
                     } else {
-                        showAlert('Esta conta Google não está vinculada ao Inoutchi.', 'error');
+                        showAlert(data.mensagem || 'Esta conta Google não está vinculada ao Inoutchi.', 'error');
                     }
                 } catch (error) {
-                    console.error('Erro no login Google:', error);
-                    showAlert('Erro ao conectar com o Google. Tente novamente.', 'error');
+                    console.error('Erro detalhado:', error);
+                    showAlert(error.message, 'error');
                 } finally {
                     loading.style.display = 'none';
                 }
-            }
+            };
+
         });
 
     </script>
