@@ -2138,39 +2138,6 @@
         #historyLastBtn svg {
             color: white !important;
         }
-
-        /* Centralizar Notificação de Bloqueio */
-        .status-notification {
-            position: fixed !important;
-            top: 50% !important;
-            left: 50% !important;
-            transform: translate(-50%, -50%) !important;
-            z-index: 10000 !important;
-            width: 85% !important;
-            max-width: 350px !important;
-            text-align: center !important;
-            padding: 25px !important;
-            border-radius: 20px !important;
-            box-shadow: 0 15px 50px rgba(0, 0, 0, 0.4) !important;
-            font-size: 1.1rem !important;
-            font-weight: 600 !important;
-            border: 2px solid #f59e0b !important;
-            /* Cor de alerta */
-            background-color: white !important;
-            animation: zoomInAlert 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
-        }
-
-        @keyframes zoomInAlert {
-            from {
-                opacity: 0;
-                transform: translate(-50%, -50%) scale(0.5);
-            }
-
-            to {
-                opacity: 1;
-                transform: translate(-50%, -50%) scale(1);
-            }
-        }
     </style>
 </head>
 
@@ -2670,7 +2637,6 @@
         let actionLocationModalInstance, manualConfirmExitModalInstance, logoutConfirmModalInstance;
         let isActionProcessing = false;
         let studentRefreshInterval = null;
-        let isProcessingAction = false;
 
         document.body.classList.add('splash-active');
 
@@ -3278,8 +3244,6 @@
         }
 
         async function refreshStudentsData() {
-            if (isProcessingAction) return;
-
             try {
                 const tutorNomeEncoded = encodeURIComponent(currentUser.nome);
                 const response = await fetchWithAuth(`/api/tutores/${tutorNomeEncoded}/alunos`);
@@ -4100,49 +4064,34 @@
             return { permitido: true };
         }
 
+        // Função para mostrar notificação visual
         function mostrarNotificacaoHorario(mensagem) {
-            // Remove notificações antigas para não acumular
-            const antigas = document.querySelectorAll('.notificacao-centro');
-            antigas.forEach(el => el.remove());
-
             const notification = document.createElement('div');
-            notification.className = 'alert alert-warning notificacao-centro';
-
-            // CSS atualizado para centralizar no meio da tela (top: 50%, translate -50%, -50%)
+            notification.className = 'alert alert-warning';
             notification.style.cssText = `
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        z-index: 10000;
-        background: white;
-        color: #92400e;
-        border: 2px solid #fbbf24;
-        border-radius: 16px;
-        padding: 24px 20px;
-        font-weight: 600;
-        font-size: 1.1rem;
-        box-shadow: 0 15px 40px rgba(0,0,0,0.3);
-        animation: zoomInAlert 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        width: 85%;
-        max-width: 350px;
-        text-align: center;
-    `;
-
-            notification.innerHTML = `
-        <div style="font-size: 2.5rem; color: #f59e0b; margin-bottom: 10px;">
-            <i class="fas fa-exclamation-triangle"></i>
-        </div>
-        ${mensagem}
-    `;
-
+                position: fixed;
+                top: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                z-index: 9999;
+                background: #fef3c7;
+                color: #92400e;
+                border: 1px solid #fbbf24;
+                border-radius: 8px;
+                padding: 12px 20px;
+                font-weight: 500;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                animation: slideDown 0.3s ease;
+                max-width: 90%;
+                text-align: center;
+            `;
+            notification.textContent = mensagem;
             document.body.appendChild(notification);
 
-            // Faz a notificação sumir após 4 segundos
             setTimeout(() => {
                 notification.style.opacity = '0';
-                notification.style.transition = 'opacity 0.4s ease';
-                setTimeout(() => notification.remove(), 400);
+                notification.style.transition = 'opacity 0.5s';
+                setTimeout(() => notification.remove(), 500);
             }, 4000);
         }
 
@@ -4979,10 +4928,7 @@
                 isProcessing = true;
                 isActionProcessing = true;
 
-                // 1. AQUI: Ativamos a trava global para o refreshStudentsData ignorar esta atualização
-                // Certifique-se de que a variável 'isProcessingAction' existe no escopo global
-                window.isProcessingAction = true;
-
+                // Fixa na posição final enquanto processa
                 thumb.style.transition = 'transform 0.2s ease-out';
                 fill.style.width = '100%';
                 thumb.style.transform = slidesRight ? `translateX(${maxTravel}px)` : `translateX(${-maxTravel}px)`;
@@ -4994,72 +4940,73 @@
                 const action = btn.dataset.action;
 
                 try {
+                    // --- PASSO 1: ENVIAR PARA A API ---
+                    let response;
                     if (action === 'confirmar') {
+                        // 1. MANTER ESTICADO
                         const maxTravel = getMaxTravel();
                         thumb.style.transition = 'transform 0.2s ease-out';
                         fill.style.width = '100%';
                         thumb.style.transform = slidesRight ? `translateX(${maxTravel}px)` : `translateX(${-maxTravel}px)`;
 
+                        // 2. ENVIA PARA A API
                         await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
 
+                        // 3. MOSTRAR A TELA DE SUCESSO IMEDIATAMENTE
                         mostrarTelaSucesso('confirmacao');
 
+                        // 4. ATUALIZAR DADOS E RESETAR
                         await refreshStudentsData();
                         resetSlideBtn(btn, thumb, fill, label, 'fast', true);
 
-                        // MODIFICADO AQUI: Adicionamos um atraso para liberar a trava
-                        setTimeout(() => {
-                            isProcessing = false;
-                            isActionProcessing = false;
-                            window.isProcessingAction = false; // Libera o auto-refresh
-                        }, 2000);
+                        isProcessing = false;
+                        isActionProcessing = false;
 
                     } else if (action === 'entrada' || action === 'saida') {
 
+                        // --- INÍCIO DA TRAVA DE SEGURANÇA INTEGRADA ---
                         if (action === 'saida') {
+                            // 1. BUSCA O NOME DA SALA NO CARD
                             const card = btn.closest('.student-card');
                             const salaElement = card ? card.querySelector('.student-class, .student-info p') : null;
                             const nomeSala = salaElement ? salaElement.textContent.trim().toUpperCase() : "";
 
+                            // 2. VALIDAÇÃO PELA FUNÇÃO GLOBAL (que injetamos no final do HTML)
                             if (window.validarHorarioSaida) {
                                 const validacao = window.validarHorarioSaida(nomeSala);
 
                                 if (!validacao.permitido) {
-                                    const mensagensAntigas = document.querySelectorAll('.status-notification');
-                                    mensagensAntigas.forEach(m => m.remove());
+                                    // BLOQUEIO VISUAL E MENSAGEM
+                                    showStatusMessage(validacao.mensagem, 'warning');
+                                    console.warn("🚫 Trava acionada: " + validacao.mensagem);
 
-                                    mostrarNotificacaoHorario(validacao.mensagem);
-
+                                    // Reseta o slider para o início
                                     resetSlideBtn(btn, thumb, fill, label, 'fast', false);
+
+                                    // Libera as travas de processamento para permitir nova tentativa
                                     isProcessing = false;
                                     isActionProcessing = false;
-                                    window.isProcessingAction = false; // Libera se for bloqueado
-                                    return;
+                                    return; // Mata a execução aqui, antes de chamar a API
                                 }
                             }
                         }
+                        // --- FIM DA TRAVA DE SEGURANÇA ---
 
+                        // Segue o fluxo normal caso passe pela trava ou seja 'entrada'
                         await processarAcaoComModal(studentId, action, studentName);
                         resetSlideBtn(btn, thumb, fill, label, 'slow', true);
                         await refreshStudentsData();
 
-                        // MODIFICADO AQUI: Adicionamos um atraso para liberar a trava
-                        setTimeout(() => {
-                            isProcessing = false;
-                            isActionProcessing = false;
-                            window.isProcessingAction = false; // Libera o auto-refresh
-                        }, 2000);
+                        isProcessing = false;
+                        isActionProcessing = false;
                     }
 
                 } catch (error) {
                     console.error('Erro:', error);
                     showStatusMessage(error.message, 'danger');
                     resetSlideBtn(btn, thumb, fill, label, 'slow', false);
-
-                    // Em caso de erro, liberamos imediatamente
                     isProcessing = false;
                     isActionProcessing = false;
-                    window.isProcessingAction = false;
                 }
             }
 
@@ -5475,18 +5422,9 @@
 
         // Definição direta para evitar erro de 'undefined'
         window.HORARIOS_SAIDA = {
-            // Horários iniciais
-            '1° ANO': { hora: 15, minuto: 10 },
             '2° ANO': { hora: 15, minuto: 10 },
-            '3° ANO': { hora: 15, minuto: 10 },
-            // Segundo horário
-            '4° ANO': { hora: 15, minuto: 30 },
             '5° ANO': { hora: 15, minuto: 30 },
-            '6° ANO': { hora: 15, minuto: 30 },
-            '7° ANO': { hora: 15, minuto: 30 },
-            '8° ANO': { hora: 15, minuto: 30 },
-            '9° ANO': { hora: 15, minuto: 30 },
-            // Adicionei para teste baseada nos seus logs
+            '3º ANO': { hora: 23, minuto: 59 } // Adicionei para teste baseada nos seus logs
         };
 
         window.validarHorarioSaida = function (nomeSala) {
@@ -5509,7 +5447,7 @@
             if (agora < limite) {
                 return {
                     permitido: false,
-                    mensagem: `A solicitação desaída para o ${nomeSala} só é permitida após às ${config.hora}:${config.minuto.toString().padStart(2, '0')}.`
+                    mensagem: `A saída para o ${nomeSala} só é permitida após às ${config.hora}:${config.minuto.toString().padStart(2, '0')}.`
                 };
             }
 
