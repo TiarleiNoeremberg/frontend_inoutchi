@@ -3875,7 +3875,7 @@
                 const response = await fetchWithAuth(endpoint, { method: 'POST', body: JSON.stringify(body) });
                 await response.json();
 
-                showAlert(`Ação de ${actionType} registrada com sucesso!`, 'success');
+                // 🔴 MOVI O FECHAMENTO DO MODAL PARA ANTES DA TELA DE SUCESSO
                 actionLocationModalInstance.hide();
 
                 // 🔴 PRIMEIRO: Atualiza os dados para o slider mudar (por baixo dos panos)
@@ -4645,121 +4645,7 @@
             processarLocalizacaoAutomatica(studentId, action, studentName);
         }
 
-        // ===== PROCESSAMENTO AUTOMÁTICO DA LOCALIZAÇÃO =====
-        async function processarLocalizacaoAutomatica(studentId, action, studentName) {
-            const statusEl = document.getElementById('locationStatus');
-            const confirmBtn = document.getElementById('confirmActionBtn');
-            const getLocationBtn = document.getElementById('getLocationBtn');
-            const aluno = students.find(s => s.id == studentId);
 
-            try {
-                // 1. Mostra status de loading
-                statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo localização...';
-                statusEl.className = 'location-status location-loading';
-                statusEl.style.display = 'block';
-
-                // 2. Obtém localização
-                const position = await new Promise((resolve, reject) => {
-                    navigator.geolocation.getCurrentPosition(resolve, reject, {
-                        enableHighAccuracy: true,
-                        timeout: 10000,
-                        maximumAge: 0
-                    });
-                });
-
-                // 3. Mostra que obteve e está validando
-                statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida! Validando área...';
-                statusEl.className = 'location-status location-success';
-
-                // 4. Prepara dados da chamada
-                let endpoint, body;
-
-                if (action === 'entrada') {
-                    endpoint = '/api/presencas/entrada';
-                    body = {
-                        alunoId: parseInt(studentId),
-                        latitude: position.coords.latitude,
-                        longitude: position.coords.longitude,
-                        responsavelId: currentUser.id,
-                        responsavelNome: currentUser.nome,
-                        responsavelTipo: 'TUTOR'
-                    };
-                } else {
-                    endpoint = '/api/presencas/saida/solicitar';
-                    body = {
-                        alunoId: parseInt(studentId),
-                        latitude: position.coords.latitude,
-                        longitude: position.coords.longitude
-                    };
-                }
-
-                // 5. Executa a ação
-                const response = await fetchWithAuth(endpoint, {
-                    method: 'POST',
-                    body: JSON.stringify(body)
-                });
-
-                const result = await response.json();
-
-                // 6. Verifica se houve erro (fora da área)
-                if (!response.ok) {
-                    if (response.status === 403) {
-                        throw new Error(result.mensagem || `Fora da área permitida`);
-                    }
-                    throw new Error(result.mensagem || 'Erro ao processar solicitação');
-                }
-
-                // 7. ✅ SUCESSO! 
-                statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Operação realizada com sucesso!';
-
-                // 🔴 🔴 🔴 LINHA CRÍTICA - FECHA O MODAL ANTES DA TELA DE SUCESSO 🔴 🔴 🔴
-                actionLocationModalInstance.hide();
-
-                // 🔴 PRIMEIRO: Atualiza os dados para o slider mudar (por baixo dos panos)
-                await refreshStudentsData();
-
-                // 🔴 SEGUNDO: Mostra a tela de sucesso (slider ainda está esticado, mas já mudou internamente)
-                const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
-                await mostrarTelaSucesso(tipoSucesso, async () => {
-                    // Verifica se o slider já mudou para o estado correto
-                    const alunoAtualizado = students.find(s => s.id == studentId);
-
-                    if (action === 'entrada') {
-                        return alunoAtualizado && alunoAtualizado.status === 'PRESENTE';
-                    } else {
-                        return alunoAtualizado && alunoAtualizado.status === 'AGUARDANDO_CONFIRMACAO';
-                    }
-                });
-
-                // SÓ DEPOIS que a tela de sucesso fechar, faz outras ações se necessário
-                if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
-                    const student = students.find(s => s.id == studentId);
-                    await viewStudentHistory(studentId, student.nome);
-                }
-
-            } catch (error) {
-                console.error('Erro no processamento automático:', error);
-
-                // 8. ❌ ERRO (fora da área ou falha na localização)
-                statusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${error.message}`;
-                statusEl.className = 'location-status location-error';
-
-                // Habilita os botões para o usuário tentar novamente manualmente
-                getLocationBtn.disabled = false;
-                confirmBtn.disabled = true;
-
-                // Exibe as coordenadas se disponíveis (apenas para debug)
-                if (position) {
-                    displayLatitude.textContent = position.coords.latitude.toFixed(6);
-                    displayLongitude.textContent = position.coords.longitude.toFixed(6);
-                    coordinatesDisplay.style.display = 'flex';
-                }
-
-                // Mostra mensagem amigável
-                document.getElementById('modalMessage').textContent =
-                    `Não foi possível completar a ${action === 'entrada' ? 'entrada' : 'saída'} automaticamente. Use os botões abaixo para tentar novamente.`;
-            }
-        }
 
         function bindSlideButton(btn) {
             const thumb = btn.querySelector('.slide-btn-thumb');
@@ -4915,8 +4801,11 @@
                         }
                         // --- FIM DA TRAVA DE SEGURANÇA ---
 
-                        // Segue o fluxo normal caso passe pela trava ou seja 'entrada'
-                        await processarAcaoComModal(studentId, action, studentName);
+                        // 🔴 ÚNICA MUDANÇA: Substituir processarAcaoComModal pela nova função unificada
+                        // ANTES: await processarAcaoComModal(studentId, action, studentName);
+                        // DEPOIS:
+                        await processarAcaoComLocalizacao(studentId, action, studentName, 'auto');
+
                         resetSlideBtn(btn, thumb, fill, label, 'slow', true);
                         await refreshStudentsData();
 
@@ -4969,52 +4858,48 @@
             document.addEventListener('mouseup', onEnd);
         }
 
+        // ===== FUNÇÃO ÚNICA PARA PROCESSAR AÇÕES COM LOCALIZAÇÃO =====
+        async function processarAcaoComLocalizacao(studentId, action, studentName, modo = 'auto') {
+            console.log(`📍 Processando ${action} para ${studentName} (modo: ${modo})`);
 
-        // ===== FUNÇÃO SIMPLIFICADA - SEM PROMISE COMPLEXA =====
-        async function processarAcaoComModal(studentId, action, studentName) {
+            const statusEl = document.getElementById('locationStatus');
+            const confirmBtn = document.getElementById('confirmActionBtn');
+            const getLocationBtn = document.getElementById('getLocationBtn');
+
             try {
-                // 🔴 NOVO: Validação de horário para SAÍDA
-                if (action === 'saida') {
-                    const aluno = students.find(s => s.id == studentId);
-                    const validacao = await validarSaidaPorHorario(aluno);
-                    if (!validacao.permitido) {
-                        return false; // Não prossegue
-                    }
+                // Se for modo manual, mostra o modal primeiro
+                if (modo === 'manual') {
+                    const modal = document.getElementById('actionLocationModal');
+                    modal.querySelector('#actionLocationModalLabel').textContent =
+                        action === 'entrada' ? '📍 Registrar Entrada' : '📍 Solicitar Saída';
+                    modal.querySelector('#modalMessage').textContent =
+                        `Obtendo localização para ${action === 'entrada' ? 'entrada' : 'saída'} de ${studentName}...`;
+
+                    confirmBtn.dataset.studentId = studentId;
+                    confirmBtn.dataset.actionType = action;
+
+                    resetLocationState();
+                    actionLocationModalInstance.show();
                 }
 
-                // Abre o modal
-                const modal = document.getElementById('actionLocationModal');
-                modal.querySelector('#actionLocationModalLabel').textContent =
-                    action === 'entrada' ? '📍 Registrar Entrada' : '📍 Solicitar Saída';
-
-                const confirmBtn = modal.querySelector('#confirmActionBtn');
-                confirmBtn.dataset.studentId = studentId;
-                confirmBtn.dataset.actionType = action;
-
-                resetLocationState();
-                actionLocationModalInstance.show();
-
-                // Obtém localização automaticamente
-                const statusEl = document.getElementById('locationStatus');
+                // Mostra status de loading
                 statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo localização...';
                 statusEl.className = 'location-status location-loading';
                 statusEl.style.display = 'block';
 
+                // Obtém localização
                 const position = await new Promise((resolve, reject) => {
                     navigator.geolocation.getCurrentPosition(resolve, reject, {
                         enableHighAccuracy: true,
-                        timeout: 10000
+                        timeout: 10000,
+                        maximumAge: 0
                     });
                 });
-
-                displayLatitude.textContent = position.coords.latitude.toFixed(6);
-                displayLongitude.textContent = position.coords.longitude.toFixed(6);
-                coordinatesDisplay.style.display = 'flex';
 
                 statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida! Validando...';
                 statusEl.className = 'location-status location-success';
 
-                // Executa a ação
+                // Prepara dados
                 let endpoint, body;
                 if (action === 'entrada') {
                     endpoint = '/api/presencas/entrada';
@@ -5026,7 +4911,7 @@
                         responsavelNome: currentUser.nome,
                         responsavelTipo: 'TUTOR'
                     };
-                } else {
+                } else if (action === 'saida') {
                     endpoint = '/api/presencas/saida/solicitar';
                     body = {
                         alunoId: parseInt(studentId),
@@ -5035,6 +4920,7 @@
                     };
                 }
 
+                // Executa ação
                 const response = await fetchWithAuth(endpoint, {
                     method: 'POST',
                     body: JSON.stringify(body)
@@ -5049,55 +4935,48 @@
                     throw new Error(result.mensagem || 'Erro na operação');
                 }
 
-                // ✅ SUCESSO! Fecha o modal
-                actionLocationModalInstance.hide();
+                // ✅ SUCESSO! Fecha o modal (se estiver aberto)
+                if (actionLocationModalInstance) {
+                    actionLocationModalInstance.hide();
+                }
 
-                // 🔴 AGORA IGUAL AO FLUXO DE SAÍDA:
-                // Mostra a tela de sucesso IMEDIATAMENTE
+                // Atualiza dados
+                await refreshStudentsData();
+
+                // Mostra tela de sucesso
                 const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
-
-                return new Promise((resolve) => {
-                    mostrarTelaSucesso(tipoSucesso, async () => {
-                        // Só atualiza os dados DEPOIS que a tela de sucesso terminar
-                        await refreshStudentsData();
-                        resolve(true);
-                    });
+                await mostrarTelaSucesso(tipoSucesso, async () => {
+                    const alunoAtualizado = students.find(s => s.id == studentId);
+                    if (action === 'entrada') {
+                        return alunoAtualizado && alunoAtualizado.status === 'PRESENTE';
+                    } else {
+                        return alunoAtualizado && alunoAtualizado.status === 'AGUARDANDO_CONFIRMACAO';
+                    }
                 });
+
+                return true;
 
             } catch (error) {
-                console.error('Erro no processo:', error);
+                console.error('Erro:', error);
 
-                // Mostra erro no modal
-                const statusEl = document.getElementById('locationStatus');
-                statusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${error.message}`;
-                statusEl.className = 'location-status location-error';
+                if (modo === 'auto') {
+                    // Em modo automático, mostra erro e habilita modo manual
+                    statusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${error.message}`;
+                    statusEl.className = 'location-status location-error';
+                    getLocationBtn.disabled = false;
+                    confirmBtn.disabled = true;
 
-                // Habilita botões para tentativa manual
-                document.getElementById('getLocationBtn').disabled = false;
+                    document.getElementById('modalMessage').textContent =
+                        `Não foi possível completar a ${action === 'entrada' ? 'entrada' : 'saída'} automaticamente. Use os botões abaixo para tentar novamente.`;
+                } else {
+                    // Em modo manual, apenas mostra erro
+                    showStatusMessage(error.message, 'danger');
+                }
 
-                return new Promise((resolve) => {
-                    const tentarBtn = document.getElementById('getLocationBtn');
-                    const cancelBtn = modal.querySelector('.btn-secondary');
-
-                    const tentarHandler = async () => {
-                        tentarBtn.removeEventListener('click', tentarHandler);
-                        cancelBtn.removeEventListener('click', cancelarHandler);
-                        const resultado = await processarAcaoComModal(studentId, action, studentName);
-                        resolve(resultado);
-                    };
-
-                    const cancelarHandler = () => {
-                        tentarBtn.removeEventListener('click', tentarHandler);
-                        cancelBtn.removeEventListener('click', cancelarHandler);
-                        actionLocationModalInstance.hide();
-                        resolve(false);
-                    };
-
-                    tentarBtn.addEventListener('click', tentarHandler);
-                    cancelBtn.addEventListener('click', cancelarHandler);
-                });
+                return false;
             }
         }
+
 
         // ===== NOVA FUNÇÃO QUE CONTROLA O MODAL E RETORNA PROMISE =====
         async function processarComModalAutomatico(studentId, action, studentName) {
