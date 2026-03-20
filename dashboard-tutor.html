@@ -4517,7 +4517,7 @@
         });
 
         // Função para mostrar tela de sucesso - MÍNIMO 3 SEGUNDOS + AGUARDAR SLIDER
-        function mostrarTelaSucesso(tipo, verificarCallback) {
+        function mostrarTelaSucesso(tipo, studentId, action) {
             return new Promise((resolve) => {
                 // Remove se já existir
                 const existente = document.getElementById('telaSucesso');
@@ -4569,17 +4569,16 @@
 
                 document.body.appendChild(div);
 
-                // Se não tem callback (modo simples), usa timer de 3 segundos e fecha
-                if (!verificarCallback) {
-                    setTimeout(() => {
-                        const el = document.getElementById('telaSucesso');
-                        if (el && el.parentNode) {
-                            el.remove();
-                        }
-                        resolve();
-                    }, 3000);
-                    return;
-                }
+                // Define o callback de verificação baseado na ação
+                const verificarCallback = async () => {
+                    const alunoAtualizado = students.find(s => s.id == studentId);
+                    if (action === 'entrada') {
+                        return alunoAtualizado && alunoAtualizado.status === 'PRESENTE';
+                    } else if (action === 'saida' || action === 'solicitacao') {
+                        return alunoAtualizado && alunoAtualizado.status === 'AGUARDANDO_CONFIRMACAO';
+                    }
+                    return true;
+                };
 
                 // 🔴 FASE 1: AGUARDAR MÍNIMO 3 SEGUNDOS
                 setTimeout(() => {
@@ -4619,17 +4618,14 @@
                             }
                         } catch (error) {
                             console.error('Erro na verificação:', error);
-                            // Em caso de erro, fecha após 1 segundo
-                            setTimeout(() => {
-                                clearInterval(intervalo);
-                                const el = document.getElementById('telaSucesso');
-                                if (el && el.parentNode) {
-                                    el.remove();
-                                }
-                                resolve();
-                            }, 1000);
+                            clearInterval(intervalo);
+                            const el = document.getElementById('telaSucesso');
+                            if (el && el.parentNode) {
+                                el.remove();
+                            }
+                            resolve();
                         }
-                    }, 100); // Verifica a cada 100ms
+                    }, 100);
 
                 }, 3000); // 🔴 MÍNIMO 3 SEGUNDOS
             });
@@ -4769,14 +4765,16 @@
             }, 5000);
         }
 
-        // ===== NOVA FUNÇÃO: Abre modal e já inicia processo automático =====
-        function abrirModalComProcessamentoAutomatico(studentId, action, studentName) {
+        // ===== FUNÇÃO QUE ABRE O MODAL E INICIA PROCESSAMENTO =====
+        async function abrirModalComProcessamentoAutomatico(studentId, action, studentName) {
             if (isActionProcessing) return;
+
+            console.log(`📍 Abrindo modal para ${action} de ${studentName}`);
 
             // 🔴 NOVO: Validação de horário para SAÍDA
             if (action === 'saida') {
                 const aluno = students.find(s => s.id == studentId);
-                const validacao = validarSaidaPorHorario(aluno);
+                const validacao = await validarSaidaPorHorario(aluno);
                 if (!validacao.permitido) {
                     return; // Não prossegue
                 }
@@ -4803,11 +4801,11 @@
             // Limpa estados anteriores
             resetLocationState();
 
-            // Mostra o modal
+            // MOSTRA O MODAL
             actionLocationModalInstance.show();
 
             // INICIA PROCESSAMENTO AUTOMÁTICO
-            processarLocalizacaoAutomatica(studentId, action, studentName);
+            await processarLocalizacaoAutomatica(studentId, action, studentName);
         }
 
         // ===== PROCESSAMENTO AUTOMÁTICO DA LOCALIZAÇÃO =====
@@ -4877,20 +4875,12 @@
                 // 7. ✅ SUCESSO! Fecha o modal
                 actionLocationModalInstance.hide();
 
-                // 8. Mostra a tela de sucesso
-                const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
-                await mostrarTelaSucesso(tipoSucesso, async () => {
-                    const alunoAtualizado = students.find(s => s.id == studentId);
-
-                    if (action === 'entrada') {
-                        return alunoAtualizado && alunoAtualizado.status === 'PRESENTE';
-                    } else {
-                        return alunoAtualizado && alunoAtualizado.status === 'AGUARDANDO_CONFIRMACAO';
-                    }
-                });
-
-                // 9. Atualiza dados
+                // 8. Atualiza os dados (isso vai mudar o estado do slider)
                 await refreshStudentsData();
+
+                // 9. Mostra a tela de sucesso com o novo fluxo
+                const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
+                await mostrarTelaSucesso(tipoSucesso, studentId, action);
 
                 // 10. Se o histórico estiver aberto, atualiza
                 if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
@@ -4901,7 +4891,7 @@
             } catch (error) {
                 console.error('Erro no processamento automático:', error);
 
-                // ❌ ERRO
+                // ❌ ERRO - mantém modal aberto para tentativa manual
                 statusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${error.message}`;
                 statusEl.className = 'location-status location-error';
 
@@ -5069,10 +5059,10 @@
                         }
                         // --- FIM DA TRAVA DE SEGURANÇA ---
 
-                        // 🔴 CHAMA A FUNÇÃO CORRETA (processarLocalizacaoAutomatica)
-                        await processarLocalizacaoAutomatica(studentId, action, studentName);
+                        // 🔴 CHAMA A FUNÇÃO QUE ABRE O MODAL
+                        await abrirModalComProcessamentoAutomatico(studentId, action, studentName);
 
-                        // Reset do slider após o processamento
+                        // Reset do slider após o processamento (AGORA VEM DEPOIS)
                         resetSlideBtn(btn, thumb, fill, label, 'slow', true);
 
                         isProcessing = false;
