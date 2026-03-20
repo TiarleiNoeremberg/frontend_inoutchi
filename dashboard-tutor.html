@@ -2610,6 +2610,7 @@
     <!-- =========== FIM DO NOVO MODAL =========== -->
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="auth.js"></script>
     <script>
         window.onerror = function (message, source, lineno, colno, error) {
             if (message.includes("Unexpected token 'export'") && source.includes("webpage_content_reporter")) {
@@ -2708,6 +2709,15 @@
         // Inicialização no DOMContentLoaded (dentro do seu listener principal)
         document.addEventListener('DOMContentLoaded', function () {
             console.log('DOM carregado, inicializando dashboard...');
+
+            // Inicia a renovação automática de token (do auth.js)
+            if (typeof iniciarRenovacaoAutomatica === 'function') {
+                iniciarRenovacaoAutomatica();
+            }
+
+            // Verifica token usando o auth.js
+            const token = getValidToken();
+            if (!token) return; // getValidToken já redireciona se não tiver token
 
             // Inicializa as funções existentes do dashboard
             initializeDOMElements();
@@ -2971,7 +2981,7 @@
             errorEl.style.display = 'none';
             containerEl.style.display = 'none';
             try {
-                const accessToken = await garantirAutenticacao();
+                const accessToken = await getValidToken();
                 if (!accessToken) return;
                 const response = await fetch(`${BACKEND_URL}/api/tokens/meus-tokens`, {
                     headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -3030,7 +3040,7 @@
         async function handleRevokeToken(tokenValue) {
             if (!confirm('Tem certeza que deseja revogar este token? Esta ação não pode ser desfeita.')) return;
             try {
-                const accessToken = await garantirAutenticacao();
+                const accessToken = await getValidToken();
                 if (!accessToken) return;
                 const response = await fetch(`${BACKEND_URL}/api/tokens/revogar/${tokenValue}`, {
                     method: 'DELETE',
@@ -3961,88 +3971,7 @@
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fas fa-check-circle"></i> Sim, Confirmar';
             }
-        }
-
-        async function garantirAutenticacao() {
-            console.log('🔐 Verificando a necessidade de autenticação...');
-            let accessToken = localStorage.getItem('access_token');
-            const refreshToken = localStorage.getItem('refresh_token');
-
-            if (!accessToken && !refreshToken) {
-                console.log('❌ Nenhum token de acesso ou de renovação encontrado. Desconectando.');
-                showAlert('Sessão inválida. Por favor, faça login novamente.', 'danger');
-                logout();
-                return null;
-            }
-
-            if (accessToken) {
-                try {
-                    const response = await fetch(`${BACKEND_URL}/api/users/me`, {
-                        headers: { 'Authorization': `Bearer ${accessToken}` }
-                    });
-                    if (response.ok) {
-                        console.log('✅ Token de acesso ainda é válido. Usando o existente.');
-                        return accessToken;
-                    }
-                    console.log('⚠️ Token de acesso expirado ou inválido. Tentando renovar...');
-                } catch (error) {
-                    console.error('Erro ao testar o token de acesso. Tentando renovar...', error);
-                }
-            }
-
-            if (!refreshToken) {
-                console.log('❌ Não há refresh token disponível para renovar a sessão.');
-                showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
-                logout();
-                return null;
-            }
-
-            try {
-                console.log('🔄 Executando a renovação do token de acesso...');
-                const response = await fetch(`${BACKEND_URL}/api/auth/refresh-token`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ refreshToken: refreshToken })
-                });
-
-                if (response.ok) {
-                    const tokenData = await response.json();
-                    localStorage.setItem('access_token', tokenData.access_token);
-                    if (tokenData.refresh_token) {
-                        localStorage.setItem('refresh_token', tokenData.refresh_token);
-                    }
-                    console.log('✅ Token de acesso renovado com sucesso!');
-                    return tokenData.access_token;
-                } else {
-                    throw new Error(`Falha ao renovar a sessão (status: ${response.status}).`);
-                }
-            } catch (error) {
-                console.error('❌ Erro crítico na renovação do token:', error);
-                showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
-                logout();
-                return null;
-            }
-        }
-
-        async function fetchWithAuth(endpoint, options = {}) {
-            const accessToken = await garantirAutenticacao();
-            if (!accessToken) throw new Error('Não foi possível obter um token de acesso válido.');
-
-            const headers = {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-                ...options.headers
-            };
-
-            const response = await fetch(BACKEND_URL + endpoint, { ...options, headers });
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.mensagem || `Erro ${response.status}: ${response.statusText}`);
-            }
-
-            return response;
-        }
+        }      
 
         async function validarSaidaPorHorario(aluno) {
             if (!aluno || !aluno.salaNome) {
@@ -4252,7 +4181,7 @@
 
             (async () => {
                 try {
-                    const accessToken = await garantirAutenticacao();
+                    const accessToken = await getValidToken();
                     const response = await fetch(`${BACKEND_URL}/api/users/me/profile`, {
                         headers: { 'Authorization': `Bearer ${accessToken}` }
                     });
@@ -4325,7 +4254,7 @@
                 console.log(`Email do usuário: ${userEmail}`);
                 console.log(`ID do usuário na tabela usuario: ${currentUser.id}`); // Será 72
 
-                const accessToken = await garantirAutenticacao();
+                const accessToken = await getValidToken();
 
                 // === SOLUÇÃO DEFINITIVA ===
                 // 1. Buscar o tutor pelo email para obter o ID correto (40)
@@ -4437,7 +4366,7 @@
             saveButton.disabled = true;
             saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
             try {
-                const accessToken = await garantirAutenticacao();
+                const accessToken = await getValidToken();
                 const response = await fetch(`${BACKEND_URL}/api/users/me/password`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
@@ -5591,7 +5520,7 @@
 
         // Definição direta para evitar erro de 'undefined'
         window.HORARIOS_SAIDA = {
-            '2° ANO': { hora: 15, minuto: 10 },
+            '2° ANO': { hora: 10, minuto: 10 },
             '5° ANO': { hora: 15, minuto: 30 },
             '3° ANO': { hora: 12, minuto: 59 } // Adicionei para teste baseada nos seus logs
         };
