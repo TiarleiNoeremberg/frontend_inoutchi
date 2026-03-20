@@ -1021,6 +1021,14 @@
                         </div>
                     </div>
 
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 20px; padding: 0 5px;">
+                        <input type="checkbox" id="rememberMe" style="width: 18px; height: 18px; cursor: pointer;">
+                        <label for="rememberMe"
+                            style="color: white; font-size: 0.9rem; cursor: pointer; user-select: none;">
+                            Permanecer conectado
+                        </label>
+                    </div>
+
                     <button type="submit" class="btn-login" id="loginBtn">
                         <span>
                             Entrar
@@ -1269,28 +1277,39 @@
 
                         if (response.ok) {
                             const data = await response.json();
-                            localStorage.setItem('access_token', data.access_token);
-                            localStorage.setItem('token_expiry', (new Date().getTime() + (data.expires_in * 1000)).toString());
-                            localStorage.setItem('refresh_token', data.refresh_token || 'no-refresh-token');
 
-                            const userData = await getUserData(data.access_token);
-                            const userRole = userData.roles || [];
+                            // --- INÍCIO DA IMPLEMENTAÇÃO DA PERSISTÊNCIA ---
+                            const rememberMe = document.getElementById('rememberMe').checked;
+                            // Se marcado, usa localStorage (permanente). Se não, sessionStorage (morre ao fechar aba).
+                            const storage = rememberMe ? localStorage : sessionStorage;
 
-                            if (userRole.includes('ROLE_ESCOLA')) {
-                                if (!userData.escolaId) {
-                                    throw new Error("Login falhou: ID da escola não encontrado para este usuário.");
-                                }
-                                localStorage.setItem('escolaId', userData.escolaId);
+                            storage.setItem('access_token', data.access_token);
+                            storage.setItem('user_role', data.role);
+
+                            if (rememberMe) {
+                                // Guardamos o refresh e a expiração apenas no localStorage para o auth.js usar depois
+                                localStorage.setItem('refresh_token', data.refresh_token);
+                                const expiryTime = new Date().getTime() + (data.expires_in * 1000);
+                                localStorage.setItem('token_expiry', expiryTime.toString());
+                            } else {
+                                // Garante que não existam resquícios de logins anteriores "lembrados"
+                                localStorage.removeItem('refresh_token');
+                                localStorage.removeItem('token_expiry');
                             }
+                            // --- FIM DA IMPLEMENTAÇÃO DA PERSISTÊNCIA ---
 
-                            showAlert('Login realizado com sucesso! Redirecionando...', 'success');
+                            const roleRoutes = {
+                                'ROLE_DIRETOR': 'dashboard-diretor.html',
+                                'ROLE_ESCOLA': 'dashboard-escola.html',
+                                'ROLE_SALA': 'dashboard-sala.html',
+                                'ROLE_TUTOR': 'dashboard-tutor.html',
+                                'ROLE_TRANSPORTE': 'dashboard-transporte.html'
+                            };
 
-                            if (userRole.includes('ROLE_TUTOR')) setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
-                            else if (userRole.includes('ROLE_DIRETOR')) setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
-                            else if (userRole.includes('ROLE_ESCOLA')) setTimeout(() => { window.location.href = 'dashboard-escola.html'; }, 1500);
-                            else if (userRole.includes('ROLE_SALA')) setTimeout(() => { window.location.href = 'dashboard-sala.html'; }, 1500);
-                            else if (userRole.includes('ROLE_TRANSPORTE')) setTimeout(() => { window.location.href = 'dashboard-transporte.html'; }, 1500);
-                            else setTimeout(() => { window.location.href = 'index.html'; }, 1500);
+                            showAlert('Login realizado com sucesso!', 'success');
+                            setTimeout(() => {
+                                window.location.href = roleRoutes[data.role] || 'dashboard-tutor.html';
+                            }, 1500);
 
                         } else {
                             let errorMessage = '';
@@ -1359,8 +1378,24 @@
                     }
 
                     if (res.ok && data?.token) {
-                        localStorage.setItem('access_token', data.token);
-                        localStorage.setItem('user_role', data.role);
+
+                        // --- INÍCIO DA IMPLEMENTAÇÃO DA PERSISTÊNCIA ---
+                        const rememberMe = document.getElementById('rememberMe').checked;
+                        const storage = rememberMe ? localStorage : sessionStorage;
+
+                        storage.setItem('access_token', data.token);
+                        storage.setItem('user_role', data.role);
+
+                        if (rememberMe) {
+                            localStorage.setItem('refresh_token', data.refresh_token || 'google-session');
+                            // Se o backend não enviar expires_in, usamos 1 hora (3600s) como padrão
+                            const expiry = data.expires_in ? (data.expires_in * 1000) : (3600 * 1000);
+                            localStorage.setItem('token_expiry', (new Date().getTime() + expiry).toString());
+                        } else {
+                            localStorage.removeItem('refresh_token');
+                            localStorage.removeItem('token_expiry');
+                        }
+                        // --- FIM DA IMPLEMENTAÇÃO DA PERSISTÊNCIA ---
 
                         const roleRoutes = {
                             'ROLE_DIRETOR': 'dashboard-diretor.html',
