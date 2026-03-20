@@ -75,6 +75,15 @@ async function fetchWithAuth(url, options = {}) {
     const token = await getValidToken();
     if (!token) return null;
 
+    // 🔴 IMPORTANTE: Verifica se a URL já tem o domínio completo
+    const fullUrl = url.startsWith('http') ? url : BACKEND_URL + url;
+
+    console.log('🔍 fetchWithAuth:', {
+        urlRecebida: url,
+        fullUrl: fullUrl,
+        token: token.substring(0, 20) + '...'
+    });
+
     const defaultOptions = {
         headers: {
             'Authorization': `Bearer ${token}`,
@@ -91,21 +100,27 @@ async function fetchWithAuth(url, options = {}) {
         }
     };
 
-    const response = await fetch(url, mergedOptions);
+    try {
+        const response = await fetch(fullUrl, mergedOptions);
 
-    if (response.status === 401) {
-        const refreshToken = localStorage.getItem('refresh_token');
-        if (refreshToken) {
-            const newToken = await renovarToken(refreshToken);
-            if (newToken) {
-                mergedOptions.headers['Authorization'] = `Bearer ${newToken}`;
-                return fetch(url, mergedOptions);
+        if (response.status === 401) {
+            console.log('🔑 Token 401, tentando renovar...');
+            const refreshToken = localStorage.getItem('refresh_token');
+            if (refreshToken) {
+                const newToken = await renovarToken(refreshToken);
+                if (newToken) {
+                    mergedOptions.headers['Authorization'] = `Bearer ${newToken}`;
+                    return fetch(fullUrl, mergedOptions);
+                }
             }
+            logout();
         }
-        logout();
-    }
 
-    return response;
+        return response;
+    } catch (error) {
+        console.error('❌ Erro no fetchWithAuth:', error);
+        throw error;
+    }
 }
 
 // Função de renovação automática (separada)
