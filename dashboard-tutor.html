@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 
@@ -2610,7 +2611,6 @@
     <!-- =========== FIM DO NOVO MODAL =========== -->
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="auth.js"></script>
     <script>
         window.onerror = function (message, source, lineno, colno, error) {
             if (message.includes("Unexpected token 'export'") && source.includes("webpage_content_reporter")) {
@@ -2706,42 +2706,62 @@
             });
         }
 
-        document.addEventListener('DOMContentLoaded', async function () {
+        // Inicialização no DOMContentLoaded (dentro do seu listener principal)
+        document.addEventListener('DOMContentLoaded', function () {
             console.log('DOM carregado, inicializando dashboard...');
 
-            if (typeof iniciarRenovacaoAutomatica === 'function') {
-                iniciarRenovacaoAutomatica();
-            }
-
-            const token = await getValidToken();
-            if (!token) return;
-
+            // Inicializa as funções existentes do dashboard
             initializeDOMElements();
             initializeTokenModals();
             initializeModals();
             initializeEventListeners();
 
+            // ===== INICIALIZA O MODAL LGPD (IGUAL AOS OUTROS) =====
             const lgpdModalEl = document.getElementById('lgpdModal');
             if (lgpdModalEl) {
                 lgpdModal = new bootstrap.Modal(lgpdModalEl);
                 ajustarAlturaModalLGPD();
             }
 
+            // Verifica autenticação
+            if (!localStorage.getItem('access_token')) {
+                alert("Sessão expirada. Faça login novamente.");
+                window.location.href = "login.html";
+                return;
+            }
+
+            // Mostra loading e carrega dados
             document.getElementById('loading').style.display = 'block';
             document.getElementById('content').style.display = 'none';
 
-            // 🔴 AGUARDA O DASHBOARD CARREGAR
-            await initializeDashboard();
+            initializeDashboard();
 
+            // Evento do botão LGPD
             const shieldBtn = document.querySelector('.lgpd-shield-btn');
             if (shieldBtn) {
                 shieldBtn.addEventListener('click', openLGPDModal);
             }
 
-            // 🔴 REMOVA ESTAS LINHAS (causam duplicação):
-            // ajustarSplashParaWebView();
-            // if (localStorage.getItem('access_token')) { ... setTimeout ... }
+            // ===== CÓDIGO MOVIDO DO SEGUNDO LISTENER =====
+            // Aplica ajustes para WebView
+            ajustarSplashParaWebView();
 
+            // Se os dados estiverem em cache, esconde mais rápido
+            if (localStorage.getItem('access_token')) {
+                setTimeout(() => {
+                    const splashScreen = document.getElementById('splash-screen');
+                    if (splashScreen) {
+                        splashScreen.classList.add('fade-out');
+                        document.body.classList.remove('splash-active');
+                        document.getElementById('content').style.opacity = '1';
+                        setTimeout(() => {
+                            splashScreen.style.display = 'none';
+                        }, 500);
+                    }
+                }, 800);
+            }
+
+            // Adiciona o listener para o novo botão de confirmação de exclusão
             const confirmDeleteAccountBtn = document.getElementById('confirmDeleteAccountBtn');
             if (confirmDeleteAccountBtn) {
                 confirmDeleteAccountBtn.addEventListener('click', executeDeleteAccount);
@@ -2952,7 +2972,7 @@
             errorEl.style.display = 'none';
             containerEl.style.display = 'none';
             try {
-                const accessToken = await getValidToken();
+                const accessToken = await garantirAutenticacao();
                 if (!accessToken) return;
                 const response = await fetch(`${BACKEND_URL}/api/tokens/meus-tokens`, {
                     headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -3011,7 +3031,7 @@
         async function handleRevokeToken(tokenValue) {
             if (!confirm('Tem certeza que deseja revogar este token? Esta ação não pode ser desfeita.')) return;
             try {
-                const accessToken = await getValidToken();
+                const accessToken = await garantirAutenticacao();
                 if (!accessToken) return;
                 const response = await fetch(`${BACKEND_URL}/api/tokens/revogar/${tokenValue}`, {
                     method: 'DELETE',
@@ -3126,6 +3146,7 @@
                     if (fullscreenBtn) fullscreenBtn.style.display = 'none';
                 }
 
+                // NOVO: Ajusta altura no celular quando a barra de endereço some
                 const adjustHeight = () => {
                     const vh = window.innerHeight * 0.01;
                     document.documentElement.style.setProperty('--vh', `${vh}px`);
@@ -3133,26 +3154,25 @@
 
                 window.addEventListener('resize', adjustHeight);
                 window.addEventListener('orientationchange', adjustHeight);
+
                 adjustHeight();
 
             } catch (error) {
-                console.error('Erro no initializeDashboard:', error);
                 showAlert(error.message || 'Ocorreu um erro grave ao iniciar.', 'danger');
-            } finally {
-                // Esconde loading principal
+            } finally {// Esconde loading principal
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'block';
+
+                // Garante que o conteúdo fique visível
                 document.getElementById('content').style.opacity = '1';
 
-                // 🔴 GARANTE QUE O SPLASH SEJA REMOVIDO MESMO COM ERRO
+                // Garante que o splash screen suma (por segurança)
                 const splashScreen = document.getElementById('splash-screen');
                 if (splashScreen) {
                     splashScreen.classList.add('fade-out');
                     document.body.classList.remove('splash-active');
                     setTimeout(() => {
-                        if (splashScreen.parentNode) {
-                            splashScreen.parentNode.removeChild(splashScreen);
-                        }
+                        splashScreen.style.display = 'none';
                     }, 500);
                 }
             }
@@ -3944,6 +3964,87 @@
             }
         }
 
+        async function garantirAutenticacao() {
+            console.log('🔐 Verificando a necessidade de autenticação...');
+            let accessToken = localStorage.getItem('access_token');
+            const refreshToken = localStorage.getItem('refresh_token');
+
+            if (!accessToken && !refreshToken) {
+                console.log('❌ Nenhum token de acesso ou de renovação encontrado. Desconectando.');
+                showAlert('Sessão inválida. Por favor, faça login novamente.', 'danger');
+                logout();
+                return null;
+            }
+
+            if (accessToken) {
+                try {
+                    const response = await fetch(`${BACKEND_URL}/api/users/me`, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                    });
+                    if (response.ok) {
+                        console.log('✅ Token de acesso ainda é válido. Usando o existente.');
+                        return accessToken;
+                    }
+                    console.log('⚠️ Token de acesso expirado ou inválido. Tentando renovar...');
+                } catch (error) {
+                    console.error('Erro ao testar o token de acesso. Tentando renovar...', error);
+                }
+            }
+
+            if (!refreshToken) {
+                console.log('❌ Não há refresh token disponível para renovar a sessão.');
+                showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
+                logout();
+                return null;
+            }
+
+            try {
+                console.log('🔄 Executando a renovação do token de acesso...');
+                const response = await fetch(`${BACKEND_URL}/api/auth/refresh-token`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refreshToken: refreshToken })
+                });
+
+                if (response.ok) {
+                    const tokenData = await response.json();
+                    localStorage.setItem('access_token', tokenData.access_token);
+                    if (tokenData.refresh_token) {
+                        localStorage.setItem('refresh_token', tokenData.refresh_token);
+                    }
+                    console.log('✅ Token de acesso renovado com sucesso!');
+                    return tokenData.access_token;
+                } else {
+                    throw new Error(`Falha ao renovar a sessão (status: ${response.status}).`);
+                }
+            } catch (error) {
+                console.error('❌ Erro crítico na renovação do token:', error);
+                showAlert('Sua sessão expirou. Por favor, faça login novamente.', 'danger');
+                logout();
+                return null;
+            }
+        }
+
+        async function fetchWithAuth(endpoint, options = {}) {
+            const accessToken = await garantirAutenticacao();
+            if (!accessToken) throw new Error('Não foi possível obter um token de acesso válido.');
+
+            const headers = {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                ...options.headers
+            };
+
+            const response = await fetch(BACKEND_URL + endpoint, { ...options, headers });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.mensagem || `Erro ${response.status}: ${response.statusText}`);
+            }
+
+            return response;
+        }
+
         async function validarSaidaPorHorario(aluno) {
             if (!aluno || !aluno.salaNome) {
                 return { permitido: true }; // Se não tem sala, permite
@@ -4152,7 +4253,7 @@
 
             (async () => {
                 try {
-                    const accessToken = await getValidToken();
+                    const accessToken = await garantirAutenticacao();
                     const response = await fetch(`${BACKEND_URL}/api/users/me/profile`, {
                         headers: { 'Authorization': `Bearer ${accessToken}` }
                     });
@@ -4225,7 +4326,7 @@
                 console.log(`Email do usuário: ${userEmail}`);
                 console.log(`ID do usuário na tabela usuario: ${currentUser.id}`); // Será 72
 
-                const accessToken = await getValidToken();
+                const accessToken = await garantirAutenticacao();
 
                 // === SOLUÇÃO DEFINITIVA ===
                 // 1. Buscar o tutor pelo email para obter o ID correto (40)
@@ -4337,7 +4438,7 @@
             saveButton.disabled = true;
             saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
             try {
-                const accessToken = await getValidToken();
+                const accessToken = await garantirAutenticacao();
                 const response = await fetch(`${BACKEND_URL}/api/users/me/password`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
@@ -4629,6 +4730,7 @@
         }
 
         // ===== PROCESSAMENTO AUTOMÁTICO DA LOCALIZAÇÃO =====
+        // ===== PROCESSAMENTO AUTOMÁTICO DA LOCALIZAÇÃO =====
         async function processarLocalizacaoAutomatica(studentId, action, studentName) {
             const statusEl = document.getElementById('locationStatus');
             const confirmBtn = document.getElementById('confirmActionBtn');
@@ -4692,18 +4794,23 @@
                     throw new Error(result.mensagem || 'Erro ao processar solicitação');
                 }
 
-                // 7. ✅ SUCESSO! Fecha o modal
+                // 7. ✅ SUCESSO! Fecha o modal automaticamente
+                statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Operação realizada com sucesso!';
+
+                // Fecha o modal
                 actionLocationModalInstance.hide();
 
-                // 8. Atualiza os dados (slider muda internamente)
+                // 🔴 PRIMEIRO: Atualiza os dados para o slider mudar (por baixo dos panos)
                 await refreshStudentsData();
 
-                // 9. 🔴 MOSTRA APENAS UMA TELA DE SUCESSO com callback
+                // 🔴 SEGUNDO: Mostra a tela de sucesso (slider ainda está esticado, mas já mudou internamente)
                 const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
+                await mostrarTelaSucesso(tipoSucesso, null); // Sem callback, usa timer simples de 3 segundos
 
-                // 🔴 CORREÇÃO: APENAS UMA CHAMADA
                 await mostrarTelaSucesso(tipoSucesso, async () => {
+                    // Verifica se o slider já mudou para o estado correto
                     const alunoAtualizado = students.find(s => s.id == studentId);
+
                     if (action === 'entrada') {
                         return alunoAtualizado && alunoAtualizado.status === 'PRESENTE';
                     } else {
@@ -4711,7 +4818,7 @@
                     }
                 });
 
-                // 10. Se o histórico estiver aberto, atualiza
+                // SÓ DEPOIS que a tela de sucesso fechar, faz outras ações se necessário
                 if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
                     const student = students.find(s => s.id == studentId);
                     await viewStudentHistory(studentId, student.nome);
@@ -4720,21 +4827,22 @@
             } catch (error) {
                 console.error('Erro no processamento automático:', error);
 
-                // ❌ ERRO
+                // 8. ❌ ERRO (fora da área ou falha na localização)
                 statusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${error.message}`;
                 statusEl.className = 'location-status location-error';
 
-                // Habilita os botões para tentativa manual
+                // Habilita os botões para o usuário tentar novamente manualmente
                 getLocationBtn.disabled = false;
                 confirmBtn.disabled = true;
 
-                // Exibe as coordenadas se disponíveis
+                // Exibe as coordenadas se disponíveis (apenas para debug)
                 if (position) {
                     displayLatitude.textContent = position.coords.latitude.toFixed(6);
                     displayLongitude.textContent = position.coords.longitude.toFixed(6);
                     coordinatesDisplay.style.display = 'flex';
                 }
 
+                // Mostra mensagem amigável
                 document.getElementById('modalMessage').textContent =
                     `Não foi possível completar a ${action === 'entrada' ? 'entrada' : 'saída'} automaticamente. Use os botões abaixo para tentar novamente.`;
             }
@@ -5484,7 +5592,7 @@
 
         // Definição direta para evitar erro de 'undefined'
         window.HORARIOS_SAIDA = {
-            '2° ANO': { hora: 10, minuto: 10 },
+            '2° ANO': { hora: 15, minuto: 10 },
             '5° ANO': { hora: 15, minuto: 30 },
             '3° ANO': { hora: 12, minuto: 59 } // Adicionei para teste baseada nos seus logs
         };
