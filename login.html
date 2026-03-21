@@ -1368,41 +1368,33 @@
                     const BACKEND_URL = 'https://inoutchi-backend.onrender.com';
                     const res = await fetch(`${BACKEND_URL}/api/v1/auth/google`, {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json'
-                        },
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ id_token: response.credential })
                     });
 
                     const data = await res.json();
 
-                    // --- DENTRO DA FUNÇÃO handleCredentialResponse, APÓS O JSON.parse ---
                     if (res.ok && data?.token) {
                         const isTutor = data.role === 'ROLE_TUTOR';
                         const checkbox = document.getElementById('stayLoggedIn');
-                        const permanecer = checkbox ? checkbox.checked : false;
+                        const devePermanecer = checkbox ? checkbox.checked : false;
 
-                        // REGRA DE OURO PARA INVISIBILIDADE:
-                        // Se NÃO for tutor, forçamos sempre o localStorage (regra antiga).
-                        // Se FOR tutor, respeitamos o checkbox (regra nova).
-                        const storage = (isTutor && !permanecer) ? sessionStorage : localStorage;
-
-                        // Limpeza de segurança: evita que um token antigo de outra sessão atrapalhe
+                        // LIMPEZA TOTAL antes de gravar (evita conflitos)
                         localStorage.removeItem('access_token');
                         sessionStorage.removeItem('access_token');
 
-                        // Grava o token exatamente onde cada dashboard espera
-                        storage.setItem('access_token', data.token);
-                        storage.setItem('user_role', data.role);
-
-                        // O auth.js (usado só pelo tutor) precisa destes dados extras
-                        if (isTutor) {
-                            if (data.refresh_token) storage.setItem('refresh_token', data.refresh_token);
-                            if (data.expires_at) storage.setItem('token_expiry', data.expires_at);
+                        // --- REGRA DE OURO PARA INVISIBILIDADE ---
+                        // Se for Tutor e NÃO marcou o box -> Grava na SESSÃO (Regra Nova)
+                        // Para SALA, ESCOLA e os demais -> Grava sempre no LOCAL (Regra Antiga)
+                        if (isTutor && !devePermanecer) {
+                            sessionStorage.setItem('access_token', data.token);
+                            sessionStorage.setItem('user_role', data.role);
+                            if (data.refresh_token) sessionStorage.setItem('refresh_token', data.refresh_token);
+                        } else {
+                            // A SALA SEMPRE CAIRÁ AQUI
+                            localStorage.setItem('access_token', data.token);
+                            localStorage.setItem('user_role', data.role);
                         }
-
-                        console.log(`✅ Login ${data.role} gravado em: ${storage === localStorage ? 'LocalStorage (Fixo)' : 'SessionStorage (Temporário)'}`);
 
                         const roleRoutes = {
                             'ROLE_DIRETOR': 'dashboard-diretor.html',
@@ -1415,13 +1407,14 @@
                         showAlert('Login realizado!', 'success');
                         setTimeout(() => {
                             window.location.href = roleRoutes[data.role] || 'dashboard-tutor.html';
-                        }, 1200);
+                        }, 1000);
+
                     } else {
-                        showAlert(`Erro: ${data?.message || 'Falha na autenticação'}`, 'error');
+                        showAlert(`Erro: ${data?.message || 'Falha no login'}`, 'error');
                     }
                 } catch (error) {
-                    console.error('Erro no login:', error);
-                    showAlert('Erro ao conectar com o servidor', 'error');
+                    console.error('Erro:', error);
+                    showAlert('Erro de conexão', 'error');
                 } finally {
                     loading.style.display = 'none';
                 }
