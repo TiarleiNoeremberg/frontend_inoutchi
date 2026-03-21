@@ -10,7 +10,7 @@ async function getValidToken() {
     const tokenExpiry = localStorage.getItem('token_expiry');
 
     if (!token) {
-        window.location.href = 'login.html';
+        //window.location.href = 'login.html';
         return null;
     }
 
