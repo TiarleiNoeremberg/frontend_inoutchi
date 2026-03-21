@@ -4384,7 +4384,7 @@
             }
         });
 
-        // Função para mostrar tela de sucesso - VERSÃO SIMPLIFICADA
+        // Função para mostrar tela de sucesso - GARANTE 3 SEGUNDOS MÍNIMO
         function mostrarTelaSucesso(tipo, verificarCallback) {
             return new Promise((resolve) => {
                 // Remove se já existir
@@ -4437,48 +4437,68 @@
 
                 document.body.appendChild(div);
 
-                // Se não tem callback, usa timer simples
+                // Se não tem callback, usa timer simples de 3 segundos
                 if (!verificarCallback) {
                     setTimeout(() => {
                         const el = document.getElementById('telaSucesso');
                         if (el && el.parentNode) {
-                            el.remove();
-                        }
-                        resolve();
-                    }, 3000);
-                    return;
-                }
-
-                // Verifica uma única vez após 500ms
-                setTimeout(async () => {
-                    try {
-                        const sliderPronto = await verificarCallback();
-                        if (sliderPronto) {
-                            const el = document.getElementById('telaSucesso');
-                            if (el && el.parentNode) {
-                                el.remove();
-                            }
-                            resolve();
-                        } else {
-                            // Se não está pronto, verifica novamente após mais 500ms
-                            setTimeout(async () => {
-                                const sliderPronto2 = await verificarCallback();
-                                const el = document.getElementById('telaSucesso');
-                                if (el && el.parentNode) {
+                            el.style.transition = 'opacity 0.3s ease';
+                            el.style.opacity = '0';
+                            setTimeout(() => {
+                                if (el.parentNode) {
                                     el.remove();
                                 }
                                 resolve();
-                            }, 500);
+                            }, 300);
+                        } else {
+                            resolve();
+                        }
+                    }, 3000); // 🔴 3 SEGUNDOS GARANTIDOS
+                    return;
+                }
+
+                // 🔴 COM CALLBACK: GARANTE NO MÍNIMO 3 SEGUNDOS
+                const tempoMinimo = Date.now() + 3000; // 3 segundos a partir de agora
+
+                // Função para fechar a tela
+                const fecharTela = () => {
+                    const el = document.getElementById('telaSucesso');
+                    if (el && el.parentNode) {
+                        el.style.transition = 'opacity 0.3s ease';
+                        el.style.opacity = '0';
+                        setTimeout(() => {
+                            if (el.parentNode) {
+                                el.remove();
+                            }
+                            resolve();
+                        }, 300);
+                    } else {
+                        resolve();
+                    }
+                };
+
+                // Verifica o callback repetidamente
+                const intervalo = setInterval(async () => {
+                    try {
+                        const sliderPronto = await verificarCallback();
+                        const tempoAgora = Date.now();
+
+                        // Só fecha se o slider estiver pronto E já passaram 3 segundos
+                        if (sliderPronto && tempoAgora >= tempoMinimo) {
+                            clearInterval(intervalo);
+                            fecharTela();
+                        } else if (tempoAgora >= tempoMinimo + 5000) {
+                            // Timeout máximo de segurança (8 segundos)
+                            console.log('⏰ Timeout máximo atingido, fechando tela');
+                            clearInterval(intervalo);
+                            fecharTela();
                         }
                     } catch (error) {
                         console.error('Erro na verificação:', error);
-                        const el = document.getElementById('telaSucesso');
-                        if (el && el.parentNode) {
-                            el.remove();
-                        }
-                        resolve();
+                        clearInterval(intervalo);
+                        fecharTela();
                     }
-                }, 500);
+                }, 100); // Verifica a cada 100ms
             });
         }
 
