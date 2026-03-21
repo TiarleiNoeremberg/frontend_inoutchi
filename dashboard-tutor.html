@@ -3884,15 +3884,6 @@
                 //showAlert(`Ação de ${actionType} registrada com sucesso!`, 'success');
                 actionLocationModalInstance.hide();
 
-                // Remove o backdrop escuro se ele ainda existir
-                const backdrop = document.querySelector('.modal-backdrop');
-                if (backdrop) backdrop.remove();
-
-                // Remove a classe que trava o scroll da página
-                document.body.classList.remove('modal-open');
-                document.body.style.overflow = '';
-                document.body.style.paddingRight = '';
-
                 // PRIMEIRO: Atualiza os dados para o slider mudar (por baixo dos panos)
                 await refreshStudentsData();
 
@@ -4665,8 +4656,6 @@
             processarLocalizacaoAutomatica(studentId, action, studentName);
         }
 
-        // ===== PROCESSAMENTO AUTOMÁTICO DA LOCALIZAÇÃO =====
-        // ===== PROCESSAMENTO AUTOMÁTICO DA LOCALIZAÇÃO =====
         async function processarLocalizacaoAutomatica(studentId, action, studentName) {
             const statusEl = document.getElementById('locationStatus');
             const confirmBtn = document.getElementById('confirmActionBtn');
@@ -4730,21 +4719,49 @@
                     throw new Error(result.mensagem || 'Erro ao processar solicitação');
                 }
 
-                // 7. ✅ SUCESSO! Fecha o modal automaticamente
-                statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Operação realizada com sucesso!';
+                // ============================================================
+                // 🔴 CORREÇÃO: FECHA O MODAL E REMOVE COMPLETAMENTE QUALQUER RESQUÍCIO
+                // ============================================================
 
-                // Fecha o modal
+                console.log('✅ Sucesso na API, fechando modal...');
+
+                // 7. Fecha o modal
                 actionLocationModalInstance.hide();
 
-                // 🔴 PRIMEIRO: Atualiza os dados para o slider mudar (por baixo dos panos)
-                await refreshStudentsData();
+                // 8. Aguarda um pequeno delay para a animação de fechamento
+                await new Promise(resolve => setTimeout(resolve, 200));
 
-                // 🔴 SEGUNDO: Mostra a tela de sucesso (slider ainda está esticado, mas já mudou internamente)
+                // 9. Remove qualquer backdrop residual (força bruta)
+                const existingBackdrop = document.querySelector('.modal-backdrop');
+                if (existingBackdrop && existingBackdrop.parentNode) {
+                    existingBackdrop.parentNode.removeChild(existingBackdrop);
+                }
+
+                // 10. Remove a classe que trava o scroll da página
+                document.body.classList.remove('modal-open');
+                document.body.style.overflow = '';
+                document.body.style.paddingRight = '';
+
+                // 11. Recria a instância do modal para garantir que não haja event listeners pendurados
+                const modalElement = document.getElementById('actionLocationModal');
+                if (modalElement && actionLocationModalInstance && typeof actionLocationModalInstance.dispose === 'function') {
+                    actionLocationModalInstance.dispose();
+                    actionLocationModalInstance = new bootstrap.Modal(modalElement);
+                }
+
+                console.log('✅ Modal completamente removido');
+
+                // ============================================================
+
+                // 12. Atualiza os dados em background (sem travar a UI)
+                refreshStudentsData().catch(err => console.warn('Erro ao atualizar dados:', err));
+
+                // 13. Mostra a tela de sucesso COM callback que verifica o slider
                 const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
-                await mostrarTelaSucesso(tipoSucesso, null); // Sem callback, usa timer simples de 3 segundos
 
                 await mostrarTelaSucesso(tipoSucesso, async () => {
-                    // Verifica se o slider já mudou para o estado correto
+                    // Aguarda a atualização dos dados e verifica se o slider mudou
+                    await refreshStudentsData();
                     const alunoAtualizado = students.find(s => s.id == studentId);
 
                     if (action === 'entrada') {
@@ -4754,7 +4771,7 @@
                     }
                 });
 
-                // SÓ DEPOIS que a tela de sucesso fechar, faz outras ações se necessário
+                // 14. Se o histórico estiver aberto, atualiza
                 if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
                     const student = students.find(s => s.id == studentId);
                     await viewStudentHistory(studentId, student.nome);
@@ -4763,22 +4780,21 @@
             } catch (error) {
                 console.error('Erro no processamento automático:', error);
 
-                // 8. ❌ ERRO (fora da área ou falha na localização)
+                // 15. ❌ ERRO - mantém modal aberto para tentativa manual
                 statusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${error.message}`;
                 statusEl.className = 'location-status location-error';
 
-                // Habilita os botões para o usuário tentar novamente manualmente
+                // Habilita os botões para tentativa manual
                 getLocationBtn.disabled = false;
                 confirmBtn.disabled = true;
 
-                // Exibe as coordenadas se disponíveis (apenas para debug)
+                // Exibe as coordenadas se disponíveis
                 if (position) {
                     displayLatitude.textContent = position.coords.latitude.toFixed(6);
                     displayLongitude.textContent = position.coords.longitude.toFixed(6);
                     coordinatesDisplay.style.display = 'flex';
                 }
 
-                // Mostra mensagem amigável
                 document.getElementById('modalMessage').textContent =
                     `Não foi possível completar a ${action === 'entrada' ? 'entrada' : 'saída'} automaticamente. Use os botões abaixo para tentar novamente.`;
             }
