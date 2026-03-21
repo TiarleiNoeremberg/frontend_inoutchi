@@ -4618,10 +4618,11 @@
 
         // ===== NOVA FUNÇÃO: Abre modal e já inicia processo automático =====
         function abrirModalComProcessamentoAutomatico(studentId, action, studentName) {
-            console.log('🚪 abrirModalComProcessamentoAutomatico chamada', { studentId, action });
+            console.log('🚪 abrirModalComProcessamentoAutomatico chamada - MODAL NÃO SERÁ ABERTO', { studentId, action });
+
             if (isActionProcessing) return;
 
-            // 🔴 NOVO: Validação de horário para SAÍDA
+            // Validação de horário para SAÍDA
             if (action === 'saida') {
                 const aluno = students.find(s => s.id == studentId);
                 const validacao = validarSaidaPorHorario(aluno);
@@ -4630,32 +4631,99 @@
                 }
             }
 
-            const modal = document.getElementById('actionLocationModal');
-            const modalTitle = modal.querySelector('#actionLocationModalLabel');
-            const modalMessage = modal.querySelector('#modalMessage');
-            const confirmBtn = modal.querySelector('#confirmActionBtn');
-            const getLocationBtn = document.getElementById('getLocationBtn');
+            // 🔴 NÃO ABRE O MODAL - VAI DIRETO PARA O PROCESSAMENTO
+            processarLocalizacaoAutomaticaSemModal(studentId, action, studentName);
+        }
 
-            // Configura o modal
-            modalTitle.textContent = action === 'entrada' ? '📍 Registrar Entrada' : '📍 Solicitar Saída';
-            modalMessage.textContent = `Obtendo localização para ${action === 'entrada' ? 'entrada' : 'saída'} de ${studentName}...`;
+        async function processarLocalizacaoAutomaticaSemModal(studentId, action, studentName) {
+            // IMPEDE execução simultânea
+            if (window.isProcessingLocation) {
+                console.log('⚠️ Já processando, ignorando');
+                return;
+            }
+            window.isProcessingLocation = true;
 
-            // Desabilita botões enquanto processa automaticamente
-            confirmBtn.disabled = true;
-            getLocationBtn.disabled = true;
+            try {
+                // Mostra mensagem de status (sem modal)
+                showStatusMessage(`Obtendo localização para ${action === 'entrada' ? 'entrada' : 'saída'}...`, 'info');
 
-            // Configura os datasets
-            confirmBtn.dataset.studentId = studentId;
-            confirmBtn.dataset.actionType = action;
+                // Obtém localização
+                const position = await new Promise((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(resolve, reject, {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 0
+                    });
+                });
 
-            // Limpa estados anteriores
-            resetLocationState();
+                console.log(`📍 Localização obtida: ${position.coords.latitude}, ${position.coords.longitude}`);
 
-            // Mostra o modal
-            actionLocationModalInstance.show();
+                // Prepara dados da chamada
+                let endpoint, body;
 
-            // INICIA PROCESSAMENTO AUTOMÁTICO
-            processarLocalizacaoAutomatica(studentId, action, studentName);
+                if (action === 'entrada') {
+                    endpoint = '/api/presencas/entrada';
+                    body = {
+                        alunoId: parseInt(studentId),
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude,
+                        responsavelId: currentUser.id,
+                        responsavelNome: currentUser.nome,
+                        responsavelTipo: 'TUTOR'
+                    };
+                } else {
+                    endpoint = '/api/presencas/saida/solicitar';
+                    body = {
+                        alunoId: parseInt(studentId),
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude
+                    };
+                }
+
+                // Executa a ação
+                const response = await fetchWithAuth(endpoint, {
+                    method: 'POST',
+                    body: JSON.stringify(body)
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    if (response.status === 403) {
+                        throw new Error(result.mensagem || `Fora da área permitida`);
+                    }
+                    throw new Error(result.mensagem || 'Erro ao processar solicitação');
+                }
+
+                console.log('✅ Ação realizada com sucesso!');
+
+                // Atualiza os dados
+                await refreshStudentsData();
+
+                // Mostra tela de sucesso
+                const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
+                await mostrarTelaSucesso(tipoSucesso, async () => {
+                    await refreshStudentsData();
+                    const alunoAtualizado = students.find(s => s.id == studentId);
+                    if (action === 'entrada') {
+                        return alunoAtualizado && alunoAtualizado.status === 'PRESENTE';
+                    } else {
+                        return alunoAtualizado && alunoAtualizado.status === 'AGUARDANDO_CONFIRMACAO';
+                    }
+                });
+
+                // Se o histórico estiver aberto, atualiza
+                if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
+                    const student = students.find(s => s.id == studentId);
+                    await viewStudentHistory(studentId, student.nome);
+                }
+
+            } catch (error) {
+                console.error('Erro no processamento:', error);
+                showStatusMessage(error.message, 'danger');
+            } finally {
+                window.isProcessingLocation = false;
+            }
         }
 
         async function processarLocalizacaoAutomatica(studentId, action, studentName) {
