@@ -1365,36 +1365,42 @@
                 loading.style.display = 'flex';
 
                 try {
+                    console.log("Token recebido do Google");
+
                     const BACKEND_URL = 'https://inoutchi-backend.onrender.com';
+
                     const res = await fetch(`${BACKEND_URL}/api/v1/auth/google`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ id_token: response.credential })
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            id_token: response.credential
+                        })
                     });
 
-                    const data = await res.json();
+                    console.log("Status da resposta:", res.status);
+
+                    // Tenta ler a resposta como texto primeiro
+                    const responseText = await res.text();
+                    console.log("Resposta bruta do servidor:", responseText);
+
+                    if (!responseText) {
+                        throw new Error("Servidor retornou resposta vazia (status " + res.status + ")");
+                    }
+
+                    let data;
+                    try {
+                        data = JSON.parse(responseText);
+                    } catch (e) {
+                        console.error("Resposta não é JSON válido:", responseText);
+                        throw new Error("Resposta inválida do servidor: " + responseText.substring(0, 100));
+                    }
 
                     if (res.ok && data?.token) {
-                        const isTutor = data.role === 'ROLE_TUTOR';
-                        const checkbox = document.getElementById('stayLoggedIn');
-                        const devePermanecer = checkbox ? checkbox.checked : false;
-
-                        // LIMPEZA TOTAL antes de gravar (evita conflitos)
-                        localStorage.removeItem('access_token');
-                        sessionStorage.removeItem('access_token');
-
-                        // --- REGRA DE OURO PARA INVISIBILIDADE ---
-                        // Se for Tutor e NÃO marcou o box -> Grava na SESSÃO (Regra Nova)
-                        // Para SALA, ESCOLA e os demais -> Grava sempre no LOCAL (Regra Antiga)
-                        if (isTutor && !devePermanecer) {
-                            sessionStorage.setItem('access_token', data.token);
-                            sessionStorage.setItem('user_role', data.role);
-                            if (data.refresh_token) sessionStorage.setItem('refresh_token', data.refresh_token);
-                        } else {
-                            // A SALA SEMPRE CAIRÁ AQUI
-                            localStorage.setItem('access_token', data.token);
-                            localStorage.setItem('user_role', data.role);
-                        }
+                        localStorage.setItem('access_token', data.token);
+                        localStorage.setItem('user_role', data.role);
 
                         const roleRoutes = {
                             'ROLE_DIRETOR': 'dashboard-diretor.html',
@@ -1404,17 +1410,19 @@
                             'ROLE_TRANSPORTE': 'dashboard-transporte.html'
                         };
 
-                        showAlert('Login realizado!', 'success');
+                        showAlert('Login com Google realizado!', 'success');
                         setTimeout(() => {
                             window.location.href = roleRoutes[data.role] || 'dashboard-tutor.html';
-                        }, 1000);
-
+                        }, 1500);
                     } else {
-                        showAlert(`Erro: ${data?.message || 'Falha no login'}`, 'error');
+                        // Mostra a mensagem de erro do backend se existir
+                        const errorMsg = data?.message || data?.error || 'Erro desconhecido';
+                        showAlert(`Erro: ${errorMsg}`, 'error');
+                        console.error("Erro do backend:", data);
                     }
                 } catch (error) {
-                    console.error('Erro:', error);
-                    showAlert('Erro de conexão', 'error');
+                    console.error('Erro detalhado:', error);
+                    showAlert(error.message, 'error');
                 } finally {
                     loading.style.display = 'none';
                 }
