@@ -5426,7 +5426,7 @@
          */
         async function checkAllStudentsStatus(alunos) {
             try {
-                const accessToken = localStorage.getItem('access_token');
+                const accessToken = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
 
                 // ETAPA 1: Define o status base (PRESENTE ou AUSENTE)
                 const response = await fetch(`${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?size=1000`, {
@@ -5435,7 +5435,7 @@
 
                 if (!response.ok) {
                     console.error('Erro ao buscar alunos presentes, retornando status original.');
-                    return alunos.map(a => ({ ...a, status: 'AUSENTE' })); // Retorna como ausente em caso de falha
+                    return alunos.map(a => ({ ...a, status: 'AUSENTE' }));
                 }
 
                 const data = await response.json();
@@ -5446,33 +5446,26 @@
                     status: alunosPresentesIds.has(aluno.id) ? 'PRESENTE' : 'AUSENTE'
                 }));
 
-                // ETAPA 2: Verifica o status 'AGUARDANDO_CONFIRMACAO' para os alunos marcados como PRESENTES
-                console.log("Verificando saídas pendentes para alunos presentes...");
-                console.log(`🔍 Alunos com saída pendente:`, Array.from(alunosComStatusPendente.entries()));
+                // ETAPA 2: Verifica o status 'AGUARDANDO_CONFIRMACAO' para TODOS os alunos
+                // 🔴 CORREÇÃO: Verificar TODOS os alunos, não apenas os presentes
+                console.log("Verificando saídas pendentes para todos os alunos...");
 
-                const alunosPresentes = alunosComStatusBase.filter(aluno => aluno.status === 'PRESENTE');
-                if (alunosPresentes.length === 0) {
-                    return alunosComStatusBase; // Se não há ninguém presente, não há o que checar.
-                }
-
-                const statusPromises = alunosPresentes.map(aluno =>
+                const statusPromises = alunosComStatusBase.map(aluno =>
                     fetch(`${BACKEND_URL}/api/presencas/aluno/${aluno.id}/saida-ativa`, {
                         headers: { 'Authorization': `Bearer ${accessToken}` }
                     }).then(async (res) => {
                         if (res.ok) {
                             try {
-                                // Primeiro, pegamos a resposta completa da API.
                                 const responseData = await res.json();
-
-                                // Agora, acessamos o objeto de dados que está 'dentro' da resposta.
-                                // Usei 'dados', mas pode ser 'data', 'content' ou outro nome.
                                 const saidaAtiva = responseData.dados;
 
+                                // 🔴 CORREÇÃO: Verificar se a saída ativa existe e está pendente
                                 if (saidaAtiva && saidaAtiva.status === 'AGUARDANDO_CONFIRMACAO') {
+                                    console.log(`🔍 Aluno ${aluno.nome} tem saída pendente!`);
                                     return { alunoId: aluno.id, novoStatus: 'AGUARDANDO_CONFIRMACAO' };
                                 }
                             } catch (e) {
-                                // Se o corpo não for JSON ou a resposta estiver vazia (sem saída ativa), ignora.
+                                console.warn(`Erro ao processar resposta para aluno ${aluno.id}:`, e);
                             }
                         }
                         return null;
@@ -5487,6 +5480,7 @@
                 });
 
                 if (alunosComStatusPendente.size > 0) {
+                    console.log(`🔍 Alunos com status pendente:`, Array.from(alunosComStatusPendente.keys()));
                     alunosComStatusBase = alunosComStatusBase.map(aluno => {
                         if (alunosComStatusPendente.has(aluno.id)) {
                             return { ...aluno, status: alunosComStatusPendente.get(aluno.id) };
@@ -5500,7 +5494,7 @@
 
             } catch (error) {
                 console.error('Erro crítico ao verificar status dos alunos:', error);
-                return alunos.map(a => ({ ...a, status: 'AUSENTE' })); // Fallback seguro
+                return alunos.map(a => ({ ...a, status: 'AUSENTE' }));
             }
         }
 
@@ -5514,8 +5508,7 @@
                 return;
             }
             // 🔴 FIM DAS LINHAS ADICIONADAS
-            try {
-                const accessToken = localStorage.getItem('access_token');
+            try {                
                 const response = await fetch(`${BACKEND_URL}/api/tutores/${encodeURIComponent(tutorName)}/alunos`, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
@@ -5565,7 +5558,6 @@
             }
             // 🔴 FIM DAS LINHAS ADICIONADAS
             try {
-                const accessToken = localStorage.getItem('access_token');
                 const response = await fetch(`${BACKEND_URL}/api/diretores/salas/${classroomId}/alunos?presentes=${onlyPresent}`, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
