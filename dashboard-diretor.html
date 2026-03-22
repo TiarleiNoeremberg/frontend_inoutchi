@@ -2214,7 +2214,7 @@
             const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
             console.log('🔑 [WebSocket] Token usado:', token ? token.substring(0, 30) + '...' : 'NÃO');
             console.log('🔑 [WebSocket] Token completo (primeiros 100):', token ? token.substring(0, 100) : 'NÃO');
-            
+
             // Guarda para evitar múltiplas conexões
             if (window.webSocketConnectionEstablished) {
                 console.log("✅ [WS] Conexão já estabelecida. Ignorando nova chamada.");
@@ -2871,35 +2871,51 @@
         async function loadOverviewData() {
             console.log('📊 Carregando dados da visão geral diretamente da API...');
             try {
-                const accessToken = localStorage.getItem('access_token');
+                // 🔴 USAR garantirAutenticacao() PARA OBTER TOKEN VÁLIDO
+                const accessToken = await garantirAutenticacao();
+                if (!accessToken) {
+                    console.error('❌ Não foi possível obter token válido para loadOverviewData');
+                    return;
+                }
 
                 // 1. Obter o TOTAL de alunos da escola.
                 const totalResponse = await fetch(`${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?size=1`, {
                     headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
-                if (!totalResponse.ok) throw new Error(`Falha ao buscar total de alunos: ${totalResponse.status}`);
+
+                if (!totalResponse.ok) {
+                    if (totalResponse.status === 401) {
+                        console.log('🔴 Token expirado, tentando renovar...');
+                        const newToken = await garantirAutenticacao();
+                        if (newToken) {
+                            return loadOverviewData();
+                        }
+                    }
+                    throw new Error(`Falha ao buscar total de alunos: ${totalResponse.status}`);
+                }
+
                 const totalData = await totalResponse.json();
                 const totalCount = totalData.totalElements || 0;
                 document.getElementById('totalStudents').textContent = totalCount;
 
-                // 2. Obter TODOS os alunos PRESENTES (incluindo os que estão aguardando).
+                // 2. Obter TODOS os alunos PRESENTES
                 const presentResponse = await fetch(`${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?size=10000`, {
                     headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
-                if (!presentResponse.ok) throw new Error(`Falha ao buscar alunos presentes: ${presentResponse.status}`);
-                const presentData = await presentResponse.json();
-                const presentCount = presentData.content ? presentData.content.length : 0;
-                document.getElementById('presentStudents').textContent = presentCount;
 
-                // 3. Calcular os ausentes.
-                const absentCount = totalCount - presentCount;
-                document.getElementById('absentStudents').textContent = absentCount;
+                if (presentResponse.ok) {
+                    const presentData = await presentResponse.json();
+                    const presentCount = presentData.content ? presentData.content.length : 0;
+                    document.getElementById('presentStudents').textContent = presentCount;
 
-                console.log(`✅ Visão Geral atualizada: Total=${totalCount}, Presentes=${presentCount}, Ausentes=${absentCount}`);
+                    const absentCount = totalCount - presentCount;
+                    document.getElementById('absentStudents').textContent = absentCount;
+
+                    console.log(`✅ Visão Geral atualizada: Total=${totalCount}, Presentes=${presentCount}, Ausentes=${absentCount}`);
+                }
 
             } catch (error) {
                 console.error('❌ Erro ao carregar dados da visão geral:', error);
-                // Em caso de erro, zera os contadores para evitar exibir dados incorretos.
                 document.getElementById('totalStudents').textContent = '0';
                 document.getElementById('presentStudents').textContent = '0';
                 document.getElementById('absentStudents').textContent = '0';
@@ -3681,18 +3697,20 @@
         // Carregar todos os tutores
         async function loadAllTutors(page = 0, searchTerm = '') {
             try {
-                const accessToken = localStorage.getItem('access_token');
+                // 🔴 USAR garantirAutenticacao() PARA OBTER TOKEN VÁLIDO
+                const accessToken = await garantirAutenticacao();
+                if (!accessToken) {
+                    console.error('❌ Não foi possível obter token válido para loadAllTutors');
+                    return;
+                }
 
-                // =========================================================================
-                // ==== CORREÇÃO APLICADA AQUI ====
-                // Adicionamos o "&sort=nome,asc" para que o servidor já envie a lista 
-                // paginada corretamente em ordem alfabética global.
-                // =========================================================================
                 let url = `${BACKEND_URL}/api/escolas/${currentSchoolId}/tutores?page=${page}&size=${pageSize}&sort=nome,asc`;
 
                 if (searchTerm) {
                     url += `&nome=${encodeURIComponent(searchTerm)}`;
                 }
+
+                console.log('🔗 [TUTORES] URL:', url);
 
                 const response = await fetch(url, {
                     headers: {
@@ -3703,15 +3721,17 @@
 
                 if (response.ok) {
                     const data = await response.json();
-
-                    // === GARANTIA EXTRA NO FRONTEND ===
-                    // Ordena a página atual em ordem alfabética caso a API não suporte o parâmetro sort
                     if (data.content && data.content.length > 0) {
                         data.content.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
                     }
-
                     renderTutorsTable(data);
                     setupTutorsPagination(data);
+                } else if (response.status === 401) {
+                    console.log('🔴 Token expirado ao carregar tutores, tentando renovar...');
+                    const newToken = await garantirAutenticacao();
+                    if (newToken) {
+                        return loadAllTutors(page, searchTerm);
+                    }
                 } else {
                     throw new Error(`Erro ${response.status}: ${response.statusText}`);
                 }
@@ -3823,7 +3843,13 @@
         // Carregar salas
         async function loadClassrooms() {
             try {
-                const accessToken = localStorage.getItem('access_token');
+                // 🔴 USAR garantirAutenticacao() PARA OBTER TOKEN VÁLIDO
+                const accessToken = await garantirAutenticacao();
+                if (!accessToken) {
+                    console.error('❌ Não foi possível obter token válido para loadClassrooms');
+                    return;
+                }
+
                 const response = await fetch(`${BACKEND_URL}/api/diretores/${currentSchoolId}/salas`, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
@@ -3834,6 +3860,12 @@
                 if (response.ok) {
                     const classrooms = await response.json();
                     renderClassrooms(classrooms);
+                } else if (response.status === 401) {
+                    console.log('🔴 Token expirado ao carregar salas, tentando renovar...');
+                    const newToken = await garantirAutenticacao();
+                    if (newToken) {
+                        return loadClassrooms();
+                    }
                 } else {
                     throw new Error(`Erro ${response.status}: ${response.statusText}`);
                 }
@@ -4144,51 +4176,59 @@
             });
         }
 
-        // Carregar dados do diretor
         async function loadDirectorData() {
             try {
                 console.log('🔍 Verificando status atual do diretor no banco de dados...');
 
-                const accessToken = localStorage.getItem('access_token');
+                // 🔴 USAR garantirAutenticacao() PARA OBTER TOKEN VÁLIDO
+                const accessToken = await garantirAutenticacao();
+                if (!accessToken) {
+                    console.error('❌ Não foi possível obter token válido para loadDirectorData');
+                    return;
+                }
 
-                // 1. Verificar status do diretor via endpoint específico
+                // 1. Verificar status do diretor
                 const statusResponse = await fetch(`${BACKEND_URL}/api/presencas/diretores/meu-status`, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
                 });
-
 
                 directorStatus = 'AUSENTE';
                 let hasActiveSession = false;
 
                 if (statusResponse.ok) {
                     const responseData = await statusResponse.json();
-                    console.log('ð Status do diretor (raw):', JSON.stringify(responseData));
+                    console.log('📊 Status do diretor (raw):', JSON.stringify(responseData));
 
-                    // O endpoint pode retornar PRESENTE ou AUSENTE como texto simples
                     if (responseData.dados === 'PRESENTE') {
                         directorStatus = 'PRESENTE';
                         hasActiveSession = true;
-                        console.log(' Diretor está PRESENTE - sessão ativa encontrada no banco');
+                        console.log('✅ Diretor está PRESENTE');
                     } else {
                         directorStatus = 'AUSENTE';
                         hasActiveSession = false;
-                        console.log('ℹ️ Diretor está AUSENTE - nenhuma sessão ativa no banco');
+                        console.log('ℹ️ Diretor está AUSENTE');
+                    }
+                } else if (statusResponse.status === 401) {
+                    console.warn('⚠️ Token expirado ao verificar status, tentando renovar...');
+                    const newToken = await garantirAutenticacao();
+                    if (newToken) {
+                        // Tentar novamente com o novo token
+                        return loadDirectorData();
                     }
                 } else {
                     console.warn('⚠️ Erro ao verificar status do diretor:', statusResponse.status);
-                    // Em caso de erro, tentar buscar do histórico
+                    // Tentar buscar do histórico como fallback
                     const historyResponse = await fetch(`${BACKEND_URL}/api/presencas/diretores/${currentDirectorId}/historico?size=1`, {
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json'
-                        }
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
                     });
 
                     if (historyResponse.ok) {
                         const historyData = await historyResponse.json();
                         if (historyData.sucesso && historyData.dados && historyData.dados.registros && historyData.dados.registros.length > 0) {
                             const lastRecord = historyData.dados.registros[0];
-                            // Se o último registro não tem saída, está presente
                             if (!lastRecord.saidaAt && !lastRecord.dataSaida) {
                                 directorStatus = 'PRESENTE';
                                 hasActiveSession = true;
@@ -4198,18 +4238,13 @@
                     }
                 }
 
-                // ==========================================================
-                // Inicia a conexão WebSocket com o ID da escola obtido
-                //setupWebSocket(currentSchoolId);
-                // ==========================================================
-
                 // 2. Atualizar a UI com o status correto
                 updateDirectorUI(directorStatus, hasActiveSession);
                 console.log('🎯 Status do diretor sincronizado com o banco:', directorStatus);
 
             } catch (error) {
                 console.error('❌ Erro ao carregar dados do diretor:', error);
-                directorStatus = 'AUSENTE'; // Garante que em caso de erro, o status global seja 'AUSENTE'
+                directorStatus = 'AUSENTE';
                 updateDirectorUI('AUSENTE', false);
                 showAlert('Erro ao verificar seu status de presença', 'error');
             }
