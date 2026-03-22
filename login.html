@@ -1148,6 +1148,53 @@
                 return await response.json();
             }
 
+            const saveAuthData = (token, role, refreshToken = null) => {
+                const isRemembered = document.getElementById('rememberMe')?.checked || false;
+
+                // Definição de quais papéis seguem o padrão MODERNO e quais seguem o LEGADO
+                // MODERNO: Tutor e Sala (já adaptados para ler de ambos storages)
+                // LEGADO: Escola, Diretor, Transporte (esperam apenas localStorage com token_expiry)
+                const isModernRole = ['ROLE_TUTOR', 'ROLE_SALA'].includes(role);
+                const isLegacyRole = ['ROLE_ESCOLA', 'ROLE_DIRETOR', 'ROLE_TRANSPORTE'].includes(role);
+
+                // Limpa resquícios de logins anteriores para evitar conflitos
+                localStorage.clear();
+                sessionStorage.clear();
+
+                if (isModernRole) {
+                    // PADRÃO MODERNO (Tutor, Sala)
+                    // Se "Permanecer Conectado" estiver marcado, usa localStorage. Caso contrário, sessionStorage.
+                    const storage = isRemembered ? localStorage : sessionStorage;
+
+                    storage.setItem('access_token', token);
+                    storage.setItem('user_role', role);
+                    if (refreshToken) storage.setItem('refresh_token', refreshToken);
+
+                    console.log(`✅ Login MODERNO (${role}) - armazenado em ${isRemembered ? 'localStorage' : 'sessionStorage'}`);
+
+                } else if (isLegacyRole) {
+                    // PADRÃO LEGADO (Escola, Diretor, Transporte)
+                    // Dashboards antigos exigem localStorage e o campo token_expiry
+                    localStorage.setItem('access_token', token);
+                    localStorage.setItem('user_role', role);
+                    if (refreshToken) localStorage.setItem('refresh_token', refreshToken);
+
+                    // CRÍTICO: Gera o timestamp de expiração que os dashboards legados exigem (24 horas)
+                    const expiryTime = new Date().getTime() + (24 * 60 * 60 * 1000);
+                    localStorage.setItem('token_expiry', expiryTime.toString());
+
+                    console.log(`✅ Login LEGADO (${role}) - armazenado em localStorage com token_expiry`);
+                } else {
+                    // Fallback para qualquer outra role não mapeada (segurança)
+                    console.warn(`⚠️ Role não mapeada: ${role}. Usando padrão LEGADO por segurança.`);
+                    localStorage.setItem('access_token', token);
+                    localStorage.setItem('user_role', role);
+                    if (refreshToken) localStorage.setItem('refresh_token', refreshToken);
+                    const expiryTime = new Date().getTime() + (24 * 60 * 60 * 1000);
+                    localStorage.setItem('token_expiry', expiryTime.toString());
+                }
+            };
+
             function showAlert(message, type, element = alertBox) {
                 // Adiciona ícone baseado no tipo
                 const icon = type === 'error' ? '⚠️' : '✅';
@@ -1255,12 +1302,15 @@
                     e.preventDefault();
                     const email = document.getElementById('email').value.trim().toLowerCase();
                     const password = passwordInput.value;
+
                     if (!email || !password) {
                         showAlert('Por favor, preencha todos os campos.', 'error');
                         return;
                     }
+
                     loading.style.display = 'block';
                     loginBtn.disabled = true;
+
                     try {
                         const response = await fetch(`${BACKEND_URL}/oauth2/token`, {
                             method: 'POST',
@@ -1279,83 +1329,31 @@
                         if (response.ok) {
                             const data = await response.json();
 
-                            // Verifica se o usuário marcou "Manter-me conectado"
-                            const rememberMe = document.getElementById('rememberMe')?.checked || false;
-
-                            // Dados do usuário (já existe sua chamada)
+                            // Buscar dados do usuário para obter a role
                             const userData = await getUserData(data.access_token);
-                            const userRole = userData.roles || [];
+                            const userRole = userData.roles[0]; // Pega a primeira role
 
-                            // Salva dados completos do usuário
-                            const userDataToStore = {
-                                id: userData.id,
-                                nome: userData.nome,
-                                email: userData.email,
-                                roles: userData.roles,
-                                salaId: userData.salaId,      // CRÍTICO para dashboard sala
-                                escolaId: userData.escolaId    // Para outros dashboards
+                            // USAR A NOVA FUNÇÃO saveAuthData
+                            saveAuthData(data.access_token, userRole, data.refresh_token);
+
+                            showAlert('Login realizado com sucesso!', 'success');
+
+                            const roleRoutes = {
+                                'ROLE_TUTOR': 'dashboard-tutor.html',
+                                'ROLE_DIRETOR': 'dashboard-diretor.html',
+                                'ROLE_ESCOLA': 'dashboard-escola.html',
+                                'ROLE_SALA': 'dashboard-sala.html',
+                                'ROLE_TRANSPORTE': 'dashboard-transporte.html'
                             };
 
-                            if (rememberMe) {
-                                // MODO PERSISTENTE (Lembrar-me)
-                                localStorage.setItem('access_token', data.access_token);
-                                localStorage.setItem('refresh_token', data.refresh_token || 'no-refresh-token');
-                                localStorage.setItem('token_expiry', (new Date().getTime() + (data.expires_in * 1000)).toString());
-
-                                // Salva user_data no localStorage
-                                localStorage.setItem('user_data', JSON.stringify(userDataToStore));
-
-
-                                // Salva dados do usuário no localStorage
-                                if (userRole.includes('ROLE_ESCOLA')) {
-                                    if (!userData.escolaId) {
-                                        throw new Error("Login falhou: ID da escola não encontrado para este usuário.");
-                                    }
-                                    localStorage.setItem('escolaId', userData.escolaId);
-                                }
-
-                                console.log("✅ Login persistente (vai lembrar o usuário)");
-                            } else {
-                                // MODO SESSÃO (apenas enquanto o navegador estiver aberto)
-                                sessionStorage.setItem('access_token', data.access_token);
-
-                                // Salva user_data no sessionStorage
-                                sessionStorage.setItem('user_data', JSON.stringify(userDataToStore));
-
-                                // Para a role, usamos sessionStorage também
-                                if (userRole.includes('ROLE_ESCOLA')) {
-                                    if (!userData.escolaId) {
-                                        throw new Error("Login falhou: ID da escola não encontrado para este usuário.");
-                                    }
-                                    sessionStorage.setItem('escolaId', userData.escolaId);
-                                }
-
-                                // Limpa qualquer dado persistente anterior
-                                localStorage.removeItem('access_token');
-                                localStorage.removeItem('refresh_token');
-                                localStorage.removeItem('token_expiry');
-                                localStorage.removeItem('escolaId');
-                                localStorage.removeItem('user_data');
-
-                                console.log("✅ Login de sessão (expira ao fechar o navegador)");
-                            }
-
-                            showAlert('Login realizado com sucesso! Redirecionando...', 'success');
-
-                            // Redirecionamento baseado na role (igual ao seu código)
-                            if (userRole.includes('ROLE_TUTOR')) setTimeout(() => { window.location.href = 'dashboard-tutor.html'; }, 1500);
-                            else if (userRole.includes('ROLE_DIRETOR')) setTimeout(() => { window.location.href = 'dashboard-diretor.html'; }, 1500);
-                            else if (userRole.includes('ROLE_ESCOLA')) setTimeout(() => { window.location.href = 'dashboard-escola.html'; }, 1500);
-                            else if (userRole.includes('ROLE_SALA')) setTimeout(() => { window.location.href = 'dashboard-sala.html'; }, 1500);
-                            else if (userRole.includes('ROLE_TRANSPORTE')) setTimeout(() => { window.location.href = 'dashboard-transporte.html'; }, 1500);
-                            else setTimeout(() => { window.location.href = 'index.html'; }, 1500);
+                            setTimeout(() => {
+                                window.location.href = roleRoutes[userRole] || 'index.html';
+                            }, 1500);
 
                         } else {
                             let errorMessage = '';
 
-                            if (response.status === 401) {
-                                errorMessage = 'E-mail ou senha incorretos. Por favor, verifique e tente novamente.';
-                            } else if (response.status === 400) {
+                            if (response.status === 401 || response.status === 400) {
                                 errorMessage = 'E-mail ou senha incorretos. Por favor, verifique e tente novamente.';
                             } else if (response.status === 403) {
                                 errorMessage = 'Seu usuário não tem permissão para acessar o sistema.';
@@ -1370,7 +1368,6 @@
                     } catch (error) {
                         console.error('Erro de conexão ou script:', error);
                         showAlert('Não foi possível conectar ao servidor. Tente novamente mais tarde.', 'error');
-                        localStorage.clear();
                     } finally {
                         loading.style.display = 'none';
                         loginBtn.disabled = false;
@@ -1393,26 +1390,8 @@
                     const data = await res.json();
 
                     if (res.ok && data?.token) {
-                        const isTutor = data.role === 'ROLE_TUTOR';
-                        const checkbox = document.getElementById('stayLoggedIn');
-                        const devePermanecer = checkbox ? checkbox.checked : false;
-
-                        // LIMPEZA TOTAL antes de gravar (evita conflitos)
-                        localStorage.removeItem('access_token');
-                        sessionStorage.removeItem('access_token');
-
-                        // --- REGRA DE OURO PARA INVISIBILIDADE ---
-                        // Se for Tutor e NÃO marcou o box -> Grava na SESSÃO (Regra Nova)
-                        // Para SALA, ESCOLA e os demais -> Grava sempre no LOCAL (Regra Antiga)
-                        if (isTutor && !devePermanecer) {
-                            sessionStorage.setItem('access_token', data.token);
-                            sessionStorage.setItem('user_role', data.role);
-                            if (data.refresh_token) sessionStorage.setItem('refresh_token', data.refresh_token);
-                        } else {
-                            // A SALA SEMPRE CAIRÁ AQUI
-                            localStorage.setItem('access_token', data.token);
-                            localStorage.setItem('user_role', data.role);
-                        }
+                        // 🔴 USAR A NOVA FUNÇÃO saveAuthData
+                        saveAuthData(data.token, data.role, data.refresh_token);
 
                         const roleRoutes = {
                             'ROLE_DIRETOR': 'dashboard-diretor.html',
