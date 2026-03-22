@@ -2659,8 +2659,27 @@
 
             // 2. Configura a interatividade da UI (abas, botões, etc.)
             //setupTabNavigation();
-            const accessToken = localStorage.getItem('access_token');
-            const expiry = localStorage.getItem('token_expiry');
+            const accessToken = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+            const expiry = localStorage.getItem('token_expiry') || sessionStorage.getItem('token_expiry');
+
+            // Carregar user_data de ambos storages
+            const userDataStr = localStorage.getItem('user_data') || sessionStorage.getItem('user_data');
+            if (userDataStr) {
+                try {
+                    const userData = JSON.parse(userDataStr);
+                    currentSchoolId = userData.escolaId;
+                    currentDirectorId = userData.id;
+                    currentUser = {
+                        id: currentDirectorId,
+                        nome: userData.nome,
+                        email: userData.email,
+                        escolaId: currentSchoolId
+                    };
+                    console.log('✅ Dados do usuário carregados do storage:', currentUser);
+                } catch (e) {
+                    console.error('Erro ao parsear user_data:', e);
+                }
+            }
 
             // Verificar autenticação
             if (!accessToken || !expiry || new Date().getTime() > parseInt(expiry)) {
@@ -2739,7 +2758,13 @@
         // Carregar informações do usuário
         async function loadUserInfo() {
             try {
-                const accessToken = localStorage.getItem('access_token');
+                // JÁ TEM DADOS DO STORAGE, NÃO PRECISA BUSCAR DA API
+                if (currentSchoolId && currentDirectorId && currentUser) {
+                    console.log('✅ Usando dados do usuário já carregados do storage');
+                    return;
+                }
+
+                const accessToken = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
                 const response = await fetch(`${BACKEND_URL}/api/users/me`, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
@@ -2750,25 +2775,16 @@
                 if (response.ok) {
                     const userData = await response.json();
 
-                    // ===== INÍCIO DA ALTERAÇÃO =====
-
-                    // Atribuição direta dos dados da API
                     currentSchoolId = userData.escolaId;
                     currentDirectorId = userData.id;
 
-                    // Validação crítica: se os IDs não existirem, a operação não pode continuar
                     if (!currentSchoolId || !currentDirectorId) {
-                        // Lança um erro que será capturado e exibido ao usuário
-                        throw new Error('ERRO CRÍTICO: ID da escola ou do diretor não foi retornado pela API. A aplicação será interrompida.');
+                        throw new Error('ERRO CRÍTICO: ID da escola ou do diretor não foi retornado pela API.');
                     }
 
-                    // ===== FIM DA ALTERAÇÃO =====
-
-                    // Atualizar UI
                     userFullName.textContent = userData.nome || 'Nome do Usuário';
                     userName.textContent = userData.email;
 
-                    // Salvar informações globais
                     currentUser = {
                         id: currentDirectorId,
                         nome: userData.nome,
@@ -2776,16 +2792,24 @@
                         escolaId: currentSchoolId
                     };
 
-                    console.log('👨‍💼 Informações do usuário carregadas:', currentUser);
+                    // SALVAR NO STORAGE PARA USO FUTURO
+                    const userDataToStore = {
+                        id: currentDirectorId,
+                        nome: userData.nome,
+                        email: userData.email,
+                        roles: userData.roles,
+                        escolaId: currentSchoolId
+                    };
 
+                    const storage = localStorage.getItem('access_token') ? localStorage : sessionStorage;
+                    storage.setItem('user_data', JSON.stringify(userDataToStore));
+
+                    console.log('👨‍💼 Informações do usuário carregadas:', currentUser);
                 } else {
-                    // Se falhar, lança um erro para ser pego pelo catch
                     throw new Error('Falha ao buscar informações do usuário');
                 }
             } catch (error) {
                 console.error('Erro ao carregar informações do usuário:', error);
-
-                // Propagar o erro para ser tratado no initializeDashboard
                 throw error;
             }
         }
@@ -5689,10 +5713,39 @@
             if (contentElement) contentElement.style.display = 'block';
         }
 
+        // Função para redirecionar para login com limpeza adequada
+        function redirecionarParaLogin() {
+            console.log('🔴 redirecionarParaLogin() CHAMADO!');
+
+            // Limpar localStorage
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
+            localStorage.removeItem('token_expiry');
+            localStorage.removeItem('user_data');
+            localStorage.removeItem('escolaId');
+
+            // Limpar sessionStorage
+            sessionStorage.removeItem('access_token');
+            sessionStorage.removeItem('token_expiry');
+            sessionStorage.removeItem('user_data');
+            sessionStorage.removeItem('escolaId');
+
+            window.location.href = 'login.html';
+        }
+
         /**
          * Listener UNIFICADO que inicializa o dashboard e configura os botões dos modais
          */
         document.addEventListener('DOMContentLoaded', async function () {
+            // VERIFICAR TOKEN EM AMBOS STORAGES
+            const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+
+            if (!token) {
+                console.warn("Acesso negado: Token não encontrado.");
+                window.location.href = 'login.html';
+                return;
+            }
+
             // 1. Inicializa o dashboard (sua função original)
             await initializeDashboard();
 
