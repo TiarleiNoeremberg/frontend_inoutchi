@@ -2210,6 +2210,11 @@
          * @param {number} schoolId - O ID da escola para a qual a conexão será estabelecida.
          */
         function setupWebSocket(currentSchoolId) {
+            // VERIFICAR TOKEN USADO NO WEBSOCKET
+            const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+            console.log('🔑 [WebSocket] Token usado:', token ? token.substring(0, 30) + '...' : 'NÃO');
+            console.log('🔑 [WebSocket] Token completo (primeiros 100):', token ? token.substring(0, 100) : 'NÃO');
+            
             // Guarda para evitar múltiplas conexões
             if (window.webSocketConnectionEstablished) {
                 console.log("✅ [WS] Conexão já estabelecida. Ignorando nova chamada.");
@@ -3180,64 +3185,53 @@
          * e então gerencia a paginação no lado do cliente para garantir a consistência.
          */
         async function loadAllStudents(page = 0, searchTerm = '') {
-            currentStudentsPage = page; // Atualiza a página atual globalmente
+            currentStudentsPage = page;
             try {
                 console.log(`Buscando TODOS os alunos... Termo: "${searchTerm}"`);
 
-                const accessToken = localStorage.getItem('access_token');
+                // 🔴 GARANTIR TOKEN VÁLIDO ANTES DA REQUISIÇÃO
+                const accessToken = await garantirAutenticacao();
+                if (!accessToken) {
+                    console.error('❌ Não foi possível obter token válido');
+                    return;
+                }
 
-
-                // Pede um número muito grande de alunos para garantir que todos venham.
                 let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=${page}&size=${pageSize}`;
 
                 if (searchTerm) {
                     url += `&nome=${encodeURIComponent(searchTerm)}`;
                 }
 
+                console.log('🔗 URL:', url);
+                console.log('🔑 Token usado:', accessToken.substring(0, 30) + '...');
+
                 const response = await fetch(url, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
                 });
 
+                console.log('📊 Response status:', response.status);
+
                 if (response.ok) {
-                    // A variável 'paginatedData' já contém o objeto de paginação da API
-                    // com 'content', 'totalPages', 'totalElements', etc.
-                    paginatedData = await response.json();
-
-                    // Opcional, mas recomendado:
-                    // Se a verificação de status em tempo real for crucial, podemos mantê-la
-                    // para a página atual de alunos.
-                    if (paginatedData.content && paginatedData.content.length > 0) {
-                        paginatedData.content = await checkAllStudentsStatus(paginatedData.content);
-
-                        // Ordena apenas a lista da página atual para manter a consistência visual.
-                        const getStatusPriority = (status) => {
-                            if (status === 'AGUARDANDO' || status === 'AGUARDANDO_CONFIRMACAO') return 0;
-                            if (status === 'PRESENTE') return 1;
-                            return 2;
-                        };
-                        paginatedData.content.sort((a, b) => {
-                            const priorityA = getStatusPriority(a.status);
-                            const priorityB = getStatusPriority(b.status);
-                            if (priorityA !== priorityB) return priorityA - priorityB;
-                            return (a.nome || '').localeCompare(b.nome || '');
-                        });
+                    const paginatedData = await response.json();
+                    // ... resto do código
+                } else if (response.status === 401) {
+                    console.log('🔴 Token expirado, tentando renovar...');
+                    const newToken = await garantirAutenticacao();
+                    if (newToken) {
+                        // Tentar novamente com o novo token
+                        return loadAllStudents(page, searchTerm);
+                    } else {
+                        throw new Error('Falha na autenticação após renovação');
                     }
-
-                    // As funções de renderização recebem diretamente a resposta paginada da API.
-                    // Não é mais necessário fatiar (slice) ou calcular páginas no cliente.
-                    renderStudentsTable(paginatedData);
-                    setupStudentsPagination(paginatedData);
                 } else {
                     throw new Error(`Erro ${response.status}: ${response.statusText}`);
                 }
             } catch (error) {
                 console.error('Erro ao carregar a lista de alunos:', error);
                 showAlert('Erro grave ao carregar lista de alunos.', 'error');
-
-                // Em caso de erro, limpa a tabela para evitar exibir dados desatualizados.
-                const tbody = document.getElementById('studentsTableBody');
-                tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px;">Falha ao carregar alunos. Tente novamente.</td></tr>`;
-
             }
         }
 
@@ -4938,7 +4932,15 @@
 
         // Função para garantir autenticação - ADICIONAR ESTA FUNÇÃO
         async function garantirAutenticacao() {
-            const accessToken = localStorage.getItem('access_token');
+            console.log('🔐 [garantirAutenticacao] Iniciando...');
+
+            // BUSCAR DE AMBOS STORAGES
+            let accessToken = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+            let expiry = localStorage.getItem('token_expiry') || sessionStorage.getItem('token_expiry');
+
+            console.log('🔐 Token encontrado:', accessToken ? accessToken.substring(0, 30) + '...' : 'NÃO');
+            console.log('🔐 Expiry:', expiry);
+            console.log('🔐 Agora:', new Date().getTime());
 
             // Testar se o token atual funciona
             const authOk = await testarAutenticacao();
@@ -4971,7 +4973,7 @@
 
                 // Se não conseguiu renovar, redirecionar para login
                 console.log('🔐 Redirecionando para login...');
-                window.location.href = 'login.html';
+                redirecionarParaLogin();
                 return null;
             }
 
@@ -5076,12 +5078,16 @@
         // Testar se a autenticação está funcionando
         async function testarAutenticacao() {
             try {
-                const accessToken = localStorage.getItem('access_token');
+                // BUSCAR DE AMBOS STORAGES
+                const accessToken = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
 
-                console.log('🔐 Testando autenticação...');
-                console.log('📝 Token:', accessToken ? accessToken.substring(0, 20) + '...' : 'AUSENTE');
+                console.log('🔐 [testarAutenticacao] Token:', accessToken ? accessToken.substring(0, 30) + '...' : 'NÃO');
 
-                // Testar endpoint que requer autenticação
+                if (!accessToken) {
+                    console.log('❌ Nenhum token encontrado');
+                    return false;
+                }
+
                 const testResponse = await fetch(`${BACKEND_URL}/api/users/me`, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
@@ -5089,7 +5095,7 @@
                     }
                 });
 
-                console.log('🔐 Status do teste:', testResponse.status);
+                console.log('🔐 [testarAutenticacao] Status:', testResponse.status);
 
                 if (testResponse.ok) {
                     const userData = await testResponse.json();
@@ -5097,14 +5103,6 @@
                     return true;
                 } else {
                     console.log('❌ Autenticação FALHOU! Status:', testResponse.status);
-
-                    // Tentar renovar o token se for 401
-                    if (testResponse.status === 401) {
-                        console.log('🔄 Tentando renovar token...');
-                        const renewed = await renovarToken();
-                        return renewed;
-                    }
-
                     return false;
                 }
 
