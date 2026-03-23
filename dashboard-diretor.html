@@ -5645,13 +5645,15 @@
             };
 
             try {
-                // 🔴 AGORA BUSCA TODOS OS ALUNOS DA SALA DIRETAMENTE DA API
                 console.log(`📚 Buscando alunos da sala: ${classroomName} (ID: ${classroomId})`);
 
                 const accessToken = localStorage.getItem('access_token');
 
-                // Busca TODOS os alunos da sala (sem paginação)
-                const response = await fetch(`${BACKEND_URL}/api/salas/${classroomId}/alunos`, {
+                // 🔴 CORREÇÃO: Buscar TODOS os alunos da escola (sem limite de página)
+                // Aumentamos o size para 1000 para garantir que todos os alunos sejam carregados
+                let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?size=1000`;
+
+                const response = await fetch(url, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
@@ -5663,9 +5665,19 @@
                 }
 
                 const data = await response.json();
-                let alunosDaSala = data.alunos || [];
+                let todosAlunos = data.content || [];
 
-                console.log(`✅ Encontrados ${alunosDaSala.length} alunos na sala ${classroomName}`);
+                console.log(`✅ Total de alunos na escola: ${todosAlunos.length}`);
+
+                // 🔴 FILTRA OS ALUNOS PELA SALA ESPECÍFICA
+                let alunosDaSala = todosAlunos.filter(student => student.salaId === classroomId);
+
+                console.log(`✅ Alunos na sala ${classroomName}: ${alunosDaSala.length}`);
+
+                if (alunosDaSala.length === 0) {
+                    console.warn(`⚠️ Nenhum aluno encontrado para a sala ${classroomName}. Verificando salaId...`);
+                    console.log(`IDs das salas disponíveis:`, [...new Set(todosAlunos.map(a => a.salaId))]);
+                }
 
                 // Busca o status atual de cada aluno (presente/ausente/aguardando)
                 if (alunosDaSala.length > 0) {
@@ -5694,7 +5706,6 @@
             <thead style="position: sticky; top: 0; background: var(--bg-card); border-bottom: 2px solid var(--border);">
                 <tr>
                     <th style="padding: 12px; text-align: left;">Nome do Aluno</th>
-                    <th style="padding: 12px; text-align: left;">Sala</th>
                     <th style="padding: 12px; text-align: center; width: 140px;">Ação</th>
                 </tr>
             </thead>
@@ -5704,7 +5715,6 @@
                 if (alunosDaSala.length > 0) {
                     alunosDaSala.forEach(student => {
                         const safeStudentName = student.nome ? student.nome.replace(/'/g, "\\'") : 'Aluno';
-                        const salaNome = student.salaNome || classroomName;
                         let actionsHtml = '';
                         let statusText = '';
                         let statusClass = '';
@@ -5744,9 +5754,6 @@
                             <strong>${student.nome}</strong>
                             <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 2px;">Status: ${statusText}</div>
                         </td>
-                        <td style="padding: 12px;">
-                            <span class="status-badge ${statusClass}" style="font-size: 0.7rem; padding: 2px 8px;">${statusText}</span>
-                        </td>
                         <td style="padding: 12px; text-align: center;">
                             ${actionsHtml}
                         </td>
@@ -5756,7 +5763,8 @@
                 } else {
                     studentsHtml += `
                 <tr>
-                    <td colspan="3" style="padding: 40px; text-align: center; color: var(--text-muted);">
+                    <td colspan="2" style="padding: 40px; text-align: center; color: var(--text-muted);">
+                        <i class="fas fa-users-slash" style="font-size: 48px; margin-bottom: 16px; display: block;"></i>
                         Nenhum aluno encontrado nesta sala.
                     </td>
                 </tr>
@@ -5773,11 +5781,14 @@
                 const totalAusentes = totalAlunos - totalPresentes;
 
                 const title = onlyPresent ? 'Presentes' : 'Todos os Alunos';
-                document.getElementById('detailsModalTitle').textContent = `${title} - ${classroomName}`;
+                document.getElementById('detailsModalTitle').textContent = `${title} - ${classroomName} (${totalAlunos} alunos)`;
                 document.getElementById('detailsModalBody').innerHTML = `
             <div style="margin-bottom: 16px; padding: 12px; background: var(--primary-light); border-radius: var(--radius-sm);">
                 <strong>Total:</strong> ${totalAlunos} aluno(s)
-                ${onlyPresent ? `<span style="margin-left: 16px;"><strong>Presentes/Aguardando:</strong> ${totalPresentes}</span>` : `<span style="margin-left: 16px;"><strong>Ausentes:</strong> ${totalAusentes}</span>`}
+                ${!onlyPresent ? `<span style="margin-left: 16px;"><strong>Presentes:</strong> ${presentes}</span>
+                <span style="margin-left: 16px;"><strong>Aguardando:</strong> ${pendentes}</span>
+                <span style="margin-left: 16px;"><strong>Ausentes:</strong> ${totalAusentes}</span>` :
+                        `<span style="margin-left: 16px;"><strong>Presentes/Aguardando:</strong> ${totalPresentes}</span>`}
             </div>
             ${studentsHtml}
         `;
@@ -5794,7 +5805,7 @@
             <div style="text-align: center; padding: 40px; color: var(--danger);">
                 <i class="fas fa-exclamation-triangle" style="font-size: 48px; margin-bottom: 16px;"></i>
                 <p>Erro ao carregar alunos da sala.</p>
-                <p style="font-size: 12px;">${error.message}</p>
+                <p style="font-size: 12px; color: var(--text-secondary);">${error.message}</p>
                 <button class="btn btn-primary mt-3" onclick="loadClassrooms()">Tentar Novamente</button>
             </div>
         `;
