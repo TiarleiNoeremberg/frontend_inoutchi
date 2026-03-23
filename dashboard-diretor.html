@@ -5980,7 +5980,7 @@
 
         /**
          * Função que REALMENTE executa a confirmação no backend.
-         * Chamada apenas quando o usuário clica no botão "Sim, Confirmar" do modal bonito.
+         * Chamada apenas quando o usuário clica no botão "Sim, Confirmar" do modal.
          */
         async function handleConfirmarSaida(alunoId, alunoNome) {
             console.log(`✅ Processo de confirmação via modal iniciado para: ${alunoNome} (ID: ${alunoId})`);
@@ -6006,19 +6006,58 @@
                 });
 
                 const result = await response.json().catch(() => ({}));
-                if (!response.ok) throw new Error(result.mensagem || `Erro ${response.status} do servidor.`);
 
+                if (!response.ok) {
+                    throw new Error(result.mensagem || `Erro ${response.status} do servidor.`);
+                }
+
+                console.log('✅ Saída confirmada com sucesso:', result);
                 showAlert(`Saída de ${alunoNome} confirmada com sucesso!`, 'success');
 
-                // Aguarda o WebSocket processar e atualiza as telas
-                setTimeout(() => {
-                    loadAllStudents(currentStudentsPage, document.getElementById('studentSearch')?.value || '');
+                // 🔴 CORREÇÃO: ATUALIZAR O CACHE MANUALMENTE
+                // Em vez de esperar o WebSocket (que pode não chegar), atualizamos o cache imediatamente
 
-                    const detailsModal = document.getElementById('detailsModal');
-                    if (detailsModal && detailsModal.style.display === 'flex') {
-                        refreshClassroomModal();
-                    }
-                }, 1000);
+                // 1. Atualiza o status no cache
+                const alunoNoCache = detailedStudentsData.find(a => a.id === alunoId);
+                if (alunoNoCache) {
+                    alunoNoCache.status = 'AUSENTE';
+                    console.log(`✅ Status do aluno ${alunoNome} atualizado no cache para: AUSENTE`);
+                }
+
+                // 2. Reordena a lista
+                detailedStudentsData.sort((a, b) => {
+                    const getStatusPriority = (status) => {
+                        if (status === 'AGUARDANDO_CONFIRMACAO') return 0;
+                        if (status === 'PRESENTE') return 1;
+                        return 2;
+                    };
+                    const priorityA = getStatusPriority(a.status);
+                    const priorityB = getStatusPriority(b.status);
+                    if (priorityA !== priorityB) return priorityA - priorityB;
+                    return (a.nome || '').localeCompare(b.nome || '');
+                });
+
+                // 3. Renderiza a página atual da tabela
+                const pageData = detailedStudentsData.slice(currentStudentsPage * pageSize, (currentStudentsPage + 1) * pageSize);
+                const paginatedData = {
+                    content: pageData,
+                    totalPages: Math.ceil(detailedStudentsData.length / pageSize),
+                    number: currentStudentsPage,
+                    totalElements: detailedStudentsData.length
+                };
+
+                renderStudentsTable(paginatedData);
+                setupStudentsPagination(paginatedData);
+                refreshOverviewData();
+
+                // 4. Se o modal da sala estiver aberto, atualiza ele também
+                if (currentClassroomModal.classroomId) {
+                    await viewClassroomStudents(
+                        currentClassroomModal.classroomId,
+                        currentClassroomModal.classroomName,
+                        currentClassroomModal.onlyPresent
+                    );
+                }
 
             } catch (error) {
                 console.error('❌ Erro ao confirmar saída:', error);
@@ -6050,7 +6089,7 @@
             );
         }
 
-        
+
     </script>
 </body>
 
