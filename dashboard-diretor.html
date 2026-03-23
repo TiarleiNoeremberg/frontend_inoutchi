@@ -2130,35 +2130,47 @@
 
             processarMensagem(msg) {
                 console.log('[WS] Mensagem recebida:', msg);
-                let titulo, texto, tipoNotificacao, novoStatus, statusClass;
+                let titulo, texto, tipoNotificacao;
+                let novoStatus, acaoBotao, classeBotao, textoBotao;
 
                 switch (msg.tipo) {
                     case 'ENTRADA_ALUNO':
                         titulo = 'Entrada Registrada';
                         texto = `<b>${msg.alunoNome}</b> teve a entrada registrada.`;
                         tipoNotificacao = 'success';
-                        novoStatus = { texto: 'Presente', classe: 'status-present' };
+                        novoStatus = { texto: 'PRESENTE', classe: 'status-present' };
+                        acaoBotao = 'saida';
+                        classeBotao = 'btn-danger';
+                        textoBotao = 'SAÍDA';
                         break;
 
                     case 'SAIDA_PENDENTE':
-                        titulo = 'Solicitação de Saí­da';
-                        texto = `Saí­da solicitada para <b>${msg.alunoNome}</b>.`;
+                        titulo = 'Solicitação de Saída';
+                        texto = `Saída solicitada para <b>${msg.alunoNome}</b>.`;
                         tipoNotificacao = 'warning';
-                        novoStatus = { texto: 'Aguardando', classe: 'status-awaiting' };
+                        novoStatus = { texto: 'AGUARDANDO', classe: 'status-warning' };
+                        acaoBotao = 'confirmar';
+                        classeBotao = 'btn-warning';
+                        textoBotao = 'CONFIRMAR';
                         break;
 
                     case 'SAIDA_CONFIRMADA':
-                        titulo = 'Saí­da Confirmada';
-                        texto = `A saí­da de <b>${msg.alunoNome}</b> foi confirmada.`;
+                        titulo = 'Saída Confirmada';
+                        texto = `A saída de <b>${msg.alunoNome}</b> foi confirmada.`;
                         tipoNotificacao = 'info';
-                        novoStatus = { texto: 'Ausente', classe: 'status-absent' };
-                        // ApÃ³s a saÃ­da, o ideal Ã© recarregar a lista para reordenar
-                        setTimeout(() => loadAllStudents(currentStudentsPage, document.getElementById('studentSearch')?.value || ''), 1000);
+                        novoStatus = { texto: 'AUSENTE', classe: 'status-absent' };
+                        acaoBotao = 'entrada';
+                        classeBotao = 'btn-success';
+                        textoBotao = 'ENTRADA';
                         break;
                 }
 
                 if (titulo) this.mostrarNotificacao(titulo, texto, tipoNotificacao);
-                if (novoStatus) this.atualizarStatusNaTabela(msg.alunoId, novoStatus.texto, novoStatus.classe);
+
+                // 🔴 CHAMA A FUNÇÃO QUE ATUALIZA A TABELA
+                if (novoStatus) {
+                    this.atualizarBotaoAlunoDireto(msg.alunoId, msg.alunoNome, novoStatus, acaoBotao, classeBotao, textoBotao);
+                }
             }
 
             atualizarStatusNaTabela(alunoId, textoStatus, classeStatus) {
@@ -2189,6 +2201,41 @@
                     toast.classList.remove('show');
                     toast.addEventListener('transitionend', () => toast.remove());
                 }, 7000); // A notificação some após 7 segundos
+            }
+
+            atualizarBotaoAlunoDireto(alunoId, alunoNome, novoStatus, acaoBotao, classeBotao, textoBotao) {
+                // Encontra a linha na tabela
+                const row = document.querySelector(`#student-row-${alunoId}`);
+                if (!row) {
+                    console.warn(`[WS] Linha do aluno ${alunoId} não encontrada na tabela atual`);
+                    return;
+                }
+
+                // 1. Atualiza o status badge
+                const statusBadge = row.querySelector('.status-badge');
+                if (statusBadge) {
+                    statusBadge.textContent = novoStatus.texto;
+                    statusBadge.className = `status-badge ${novoStatus.classe}`;
+                }
+
+                // 2. Atualiza o botão de ação
+                const actionButton = row.querySelector('.btn-action');
+                if (actionButton) {
+                    actionButton.textContent = textoBotao;
+                    actionButton.className = `btn-action ${classeBotao}`;
+                    actionButton.dataset.action = acaoBotao;
+
+                    // Atualiza a função onclick baseada na nova ação
+                    if (acaoBotao === 'saida') {
+                        actionButton.onclick = () => openGeofenceModal(alunoId, 'saida', alunoNome);
+                    } else if (acaoBotao === 'confirmar') {
+                        actionButton.onclick = () => openManualConfirmModal(alunoId, alunoNome);
+                    } else if (acaoBotao === 'entrada') {
+                        actionButton.onclick = () => openGeofenceModal(alunoId, 'entrada', alunoNome);
+                    }
+                }
+
+                console.log(`✅ [WS] Aluno ${alunoNome} atualizado para: ${novoStatus.texto}`);
             }
         }
 
@@ -6011,7 +6058,6 @@
                 currentClassroomModal.onlyPresent
             );
         }
-
 
     </script>
 </body>
