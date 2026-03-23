@@ -5596,113 +5596,120 @@
                 onlyPresent: onlyPresent
             };
 
-            // 🔴 ADICIONAR ESTAS 4 LINHAS (garantir token válido)
-            const accessToken = await garantirAutenticacao();
-            if (!accessToken) {
-                console.error('❌ Não foi possível obter token válido');
-                showAlert('Erro de autenticação. Recarregue a página.', 'error');
-                return;
-            }
-            // 🔴 FIM DAS LINHAS ADICIONADAS
-
+            // 🔴 AGORA USA O CACHE EM VEZ DA API
             try {
-                const response = await fetch(`${BACKEND_URL}/api/diretores/salas/${classroomId}/alunos?presentes=${onlyPresent}`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
+                // Filtra os alunos do cache pela sala
+                let alunosDaSala = detailedStudentsData.filter(student => student.salaId === classroomId);
 
-                if (response.ok) {
-                    const classroomData = await response.json();
+                // Se não houver alunos no cache, recarrega a lista completa primeiro
+                if (alunosDaSala.length === 0) {
+                    console.log('🔄 Cache vazio, recarregando alunos primeiro...');
+                    await loadAllStudents(currentStudentsPage, document.getElementById('studentSearch')?.value || '');
+                    alunosDaSala = detailedStudentsData.filter(student => student.salaId === classroomId);
+                }
 
-                    // Verifica se os botões devem estar desabilitados (Trava de segurança do Diretor)
-                    const isDisabled = directorStatus !== 'PRESENTE';
-                    const disabledAttr = isDisabled ? 'disabled' : '';
-                    const disabledTitle = isDisabled ? 'title="Você precisa registrar sua presença para realizar esta ação"' : '';
+                // Filtra por "presentes" se necessário
+                if (onlyPresent) {
+                    alunosDaSala = alunosDaSala.filter(student =>
+                        student.status === 'PRESENTE' || student.status === 'AGUARDANDO_CONFIRMACAO'
+                    );
+                }
 
-                    let studentsHtml = '<div style="max-height: 400px; overflow-y: auto;">';
-                    studentsHtml += '<table style="width: 100%; border-collapse: collapse;">';
-                    studentsHtml += `
-                <thead style="position: sticky; top: 0; background: var(--bg-card); border-bottom: 2px solid var(--border);">
-                    <tr>
-                        <th style="padding: 12px; text-align: left;">Nome do Aluno</th>
-                        <th style="padding: 12px; text-align: center; width: 140px;">Ação</th>
-                    </tr>
-                </thead>
-                <tbody>
-            `;
+                // Ordena por nome
+                alunosDaSala.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
 
-                    if (classroomData.alunos && classroomData.alunos.length > 0) {
-                        classroomData.alunos.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+                // Verifica se os botões devem estar desabilitados (Trava de segurança do Diretor)
+                const isDisabled = directorStatus !== 'PRESENTE';
+                const disabledAttr = isDisabled ? 'disabled' : '';
+                const disabledTitle = isDisabled ? 'title="Você precisa registrar sua presença para realizar esta ação"' : '';
 
-                        classroomData.alunos.forEach(student => {
-                            const safeStudentName = student.nome ? student.nome.replace(/'/g, "\\'") : 'Aluno';
-                            let actionsHtml = '';
-                            let statusText = '';
+                let studentsHtml = '<div style="max-height: 400px; overflow-y: auto;">';
+                studentsHtml += '<table style="width: 100%; border-collapse: collapse;">';
+                studentsHtml += `
+            <thead style="position: sticky; top: 0; background: var(--bg-card); border-bottom: 2px solid var(--border);">
+                <tr>
+                    <th style="padding: 12px; text-align: left;">Nome do Aluno</th>
+                    <th style="padding: 12px; text-align: center; width: 140px;">Ação</th>
+                </tr>
+            </thead>
+            <tbody>
+        `;
 
-                            switch (student.status) {
-                                case 'PRESENTE':
-                                    statusText = 'Presente';
-                                    actionsHtml = `<button class="btn btn-danger btn-sm" ${disabledAttr} ${disabledTitle} onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')" style="padding: 6px 12px; font-size: 0.75rem;">
-                                <i class="fas fa-sign-out-alt"></i> Saída
-                            </button>`;
-                                    break;
-                                case 'AUSENTE':
-                                    statusText = 'Ausente';
-                                    actionsHtml = `<button class="btn btn-success btn-sm" ${disabledAttr} ${disabledTitle} onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')" style="padding: 6px 12px; font-size: 0.75rem;">
-                                <i class="fas fa-sign-in-alt"></i> Entrada
-                            </button>`;
-                                    break;
-                                case 'AGUARDANDO_CONFIRMACAO':
-                                    statusText = 'Aguardando';
-                                    actionsHtml = `<button class="btn btn-warning btn-sm" ${disabledAttr} ${disabledTitle} onclick="openDirectorConfirmExitModal(${student.id}, '${safeStudentName}')" style="padding: 6px 12px; font-size: 0.75rem;">
-                                <i class="fas fa-check-circle"></i> Confirmar
-                            </button>`;
-                                    break;
-                                default:
-                                    statusText = student.status || 'Indefinido';
-                                    actionsHtml = `<span style="color: var(--text-muted);">${statusText}</span>`;
-                                    break;
-                            }
+                if (alunosDaSala.length > 0) {
+                    alunosDaSala.forEach(student => {
+                        const safeStudentName = student.nome ? student.nome.replace(/'/g, "\\'") : 'Aluno';
+                        let actionsHtml = '';
+                        let statusText = '';
 
-                            studentsHtml += `
-                        <tr style="border-bottom: 1px solid var(--border);">
-                            <td style="padding: 12px;">
-                                <strong>${student.nome}</strong>
-                                ${!actionsHtml.includes('btn') ? `<div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 2px;">Status: ${statusText}</div>` : ''}
-                            </td>
-                            <td style="padding: 12px; text-align: center;">
-                                ${actionsHtml}
-                            </td>
-                        </tr>
-                    `;
-                        });
-                    } else {
+                        switch (student.status) {
+                            case 'PRESENTE':
+                                statusText = 'Presente';
+                                actionsHtml = `<button class="btn btn-danger btn-sm" ${disabledAttr} ${disabledTitle} onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')" style="padding: 6px 12px; font-size: 0.75rem;">
+                            <i class="fas fa-sign-out-alt"></i> Saída
+                        </button>`;
+                                break;
+                            case 'AUSENTE':
+                                statusText = 'Ausente';
+                                actionsHtml = `<button class="btn btn-success btn-sm" ${disabledAttr} ${disabledTitle} onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')" style="padding: 6px 12px; font-size: 0.75rem;">
+                            <i class="fas fa-sign-in-alt"></i> Entrada
+                        </button>`;
+                                break;
+                            case 'AGUARDANDO_CONFIRMACAO':
+                                statusText = 'Aguardando';
+                                actionsHtml = `<button class="btn btn-warning btn-sm" ${disabledAttr} ${disabledTitle} onclick="openDirectorConfirmExitModal(${student.id}, '${safeStudentName}')" style="padding: 6px 12px; font-size: 0.75rem;">
+                            <i class="fas fa-check-circle"></i> Confirmar
+                        </button>`;
+                                break;
+                            default:
+                                statusText = student.status || 'Indefinido';
+                                actionsHtml = `<span style="color: var(--text-muted);">${statusText}</span>`;
+                                break;
+                        }
+
                         studentsHtml += `
-                    <tr>
-                        <td colspan="2" style="padding: 40px; text-align: center; color: var(--text-muted);">
-                            Nenhum aluno encontrado nesta sala.
+                    <tr style="border-bottom: 1px solid var(--border);">
+                        <td style="padding: 12px;">
+                            <strong>${student.nome}</strong>
+                            ${!actionsHtml.includes('btn') ? `<div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 2px;">Status: ${statusText}</div>` : ''}
+                        </td>
+                        <td style="padding: 12px; text-align: center;">
+                            ${actionsHtml}
                         </td>
                     </tr>
                 `;
-                    }
-
-                    studentsHtml += '</tbody></table></div>';
-
-                    const title = onlyPresent ? 'Presentes' : 'Todos os Alunos';
-                    document.getElementById('detailsModalTitle').textContent = `${title} - ${classroomName}`;
-                    document.getElementById('detailsModalBody').innerHTML = `
-                <div style="margin-bottom: 16px; padding: 12px; background: var(--primary-light); border-radius: var(--radius-sm);">
-                    <strong>Total:</strong> ${classroomData.alunos ? classroomData.alunos.length : 0} aluno(s)
-                    ${onlyPresent ? `<span style="margin-left: 16px;"><strong>Presentes:</strong> ${classroomData.totalPresentes || 0}</span>` : ''}
-                    ${!onlyPresent ? `<span style="margin-left: 16px;"><strong>Ausentes:</strong> ${classroomData.totalAusentes || 0}</span>` : ''}
-                </div>
-                ${studentsHtml}
+                    });
+                } else {
+                    studentsHtml += `
+                <tr>
+                    <td colspan="2" style="padding: 40px; text-align: center; color: var(--text-muted);">
+                        Nenhum aluno encontrado nesta sala.
+                    </td>
+                </tr>
             `;
-
-                    detailsModal.style.display = 'flex';
                 }
+
+                studentsHtml += '</tbody></table></div>';
+
+                // Calcula totais
+                const totalAlunos = alunosDaSala.length;
+                const presentes = alunosDaSala.filter(s => s.status === 'PRESENTE').length;
+                const pendentes = alunosDaSala.filter(s => s.status === 'AGUARDANDO_CONFIRMACAO').length;
+                const totalPresentes = presentes + pendentes;
+                const totalAusentes = totalAlunos - totalPresentes;
+
+                const title = onlyPresent ? 'Presentes' : 'Todos os Alunos';
+                document.getElementById('detailsModalTitle').textContent = `${title} - ${classroomName}`;
+                document.getElementById('detailsModalBody').innerHTML = `
+            <div style="margin-bottom: 16px; padding: 12px; background: var(--primary-light); border-radius: var(--radius-sm);">
+                <strong>Total:</strong> ${totalAlunos} aluno(s)
+                ${onlyPresent ? `<span style="margin-left: 16px;"><strong>Presentes/Aguardando:</strong> ${totalPresentes}</span>` : ''}
+                ${!onlyPresent ? `<span style="margin-left: 16px;"><strong>Ausentes:</strong> ${totalAusentes}</span>` : ''}
+            </div>
+            ${studentsHtml}
+        `;
+
+                detailsModal.style.display = 'flex';
+
             } catch (error) {
                 console.error('Erro ao carregar alunos da sala:', error);
                 showAlert('Erro ao carregar alunos da sala.', 'error');
