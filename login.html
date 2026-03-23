@@ -1177,6 +1177,10 @@
                     localStorage.setItem('user_role', role);
                     if (refreshToken) localStorage.setItem('refresh_token', refreshToken);
 
+                    if (userDataToStore && userDataToStore.escolaId) {
+                        localStorage.setItem('escolaId', userDataToStore.escolaId);
+                    }
+
                     // CRÍTICO: Gera o timestamp de expiração que os dashboards legados exigem (24 horas)
                     const expiryTime = new Date().getTime() + (24 * 60 * 60 * 1000);
                     localStorage.setItem('token_expiry', expiryTime.toString());
@@ -1380,8 +1384,57 @@
                     const data = await res.json();
 
                     if (res.ok && data?.token) {
-                        // 🔴 USAR A NOVA FUNÇÃO saveAuthData
-                        saveAuthData(data.token, data.role, data.refresh_token);
+                        // 🔴 BUSCAR DADOS COMPLETOS DO USUÁRIO (para pegar escolaId)
+                        const userDataResponse = await fetch(`${BACKEND_URL}/api/users/me`, {
+                            headers: { 'Authorization': `Bearer ${data.token}` }
+                        });
+                        const userData = await userDataResponse.json();
+
+                        const userDataToStore = {
+                            id: userData.id,
+                            nome: userData.nome,
+                            email: userData.email,
+                            roles: userData.roles,
+                            salaId: userData.salaId,
+                            escolaId: userData.escolaId
+                        };
+
+                        const isModernRole = data.role === 'ROLE_TUTOR';
+                        const isLegacyRole = ['ROLE_ESCOLA', 'ROLE_DIRETOR', 'ROLE_SALA', 'ROLE_TRANSPORTE'].includes(data.role);
+
+                        const checkbox = document.getElementById('rememberMe');
+                        const devePermanecer = checkbox ? checkbox.checked : false;
+
+                        // Limpa resquícios
+                        localStorage.clear();
+                        sessionStorage.clear();
+
+                        if (isModernRole) {
+                            // TUTOR moderno
+                            const storage = devePermanecer ? localStorage : sessionStorage;
+                            storage.setItem('access_token', data.token);
+                            storage.setItem('user_role', data.role);
+                            storage.setItem('user_data', JSON.stringify(userDataToStore));
+                            if (data.refresh_token) storage.setItem('refresh_token', data.refresh_token);
+                            console.log(`✅ Login TUTOR (${data.role}) - armazenado em ${devePermanecer ? 'localStorage' : 'sessionStorage'}`);
+                        } else {
+                            // LEGADO (Escola, Diretor, Sala, Transporte)
+                            localStorage.setItem('access_token', data.token);
+                            localStorage.setItem('user_role', data.role);
+                            localStorage.setItem('user_data', JSON.stringify(userDataToStore));
+                            if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
+
+                            // 🔴 CRÍTICO: Salvar escolaId separadamente (o dashboard escola espera isso)
+                            if (userDataToStore.escolaId) {
+                                localStorage.setItem('escolaId', userDataToStore.escolaId);
+                            }
+
+                            // Salvar token_expiry (dashboards legados esperam isso)
+                            const expiryTime = new Date().getTime() + (24 * 60 * 60 * 1000);
+                            localStorage.setItem('token_expiry', expiryTime.toString());
+
+                            console.log(`✅ Login LEGADO (${data.role}) - armazenado em localStorage com escolaId=${userDataToStore.escolaId}`);
+                        }
 
                         const roleRoutes = {
                             'ROLE_DIRETOR': 'dashboard-diretor.html',
