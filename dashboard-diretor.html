@@ -5644,24 +5644,32 @@
                 onlyPresent: onlyPresent
             };
 
-            // 🔴 AGORA USA O CACHE EM VEZ DA API
             try {
-                // 🔴 ESPERAR O CACHE SER PREENCHIDO SE ESTIVER VAZIO
-                if (!detailedStudentsData || detailedStudentsData.length === 0) {
-                    console.log('🔄 Cache vazio, recarregando alunos primeiro...');
-                    await loadAllStudents(currentStudentsPage, document.getElementById('studentSearch')?.value || '');
+                // 🔴 AGORA BUSCA TODOS OS ALUNOS DA SALA DIRETAMENTE DA API
+                console.log(`📚 Buscando alunos da sala: ${classroomName} (ID: ${classroomId})`);
 
-                    // Aguarda um pouco para garantir que o cache foi atualizado
-                    await new Promise(resolve => setTimeout(resolve, 500));
+                const accessToken = localStorage.getItem('access_token');
+
+                // Busca TODOS os alunos da sala (sem paginação)
+                const response = await fetch(`${BACKEND_URL}/api/salas/${classroomId}/alunos`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Erro ${response.status}: ${response.statusText}`);
                 }
-                // Filtra os alunos do cache pela sala
-                let alunosDaSala = detailedStudentsData.filter(student => student.salaId === classroomId);
 
-                // Se não houver alunos no cache, recarrega a lista completa primeiro
-                if (alunosDaSala.length === 0) {
-                    console.log('🔄 Cache vazio, recarregando alunos primeiro...');
-                    await loadAllStudents(currentStudentsPage, document.getElementById('studentSearch')?.value || '');
-                    alunosDaSala = detailedStudentsData.filter(student => student.salaId === classroomId);
+                const data = await response.json();
+                let alunosDaSala = data.alunos || [];
+
+                console.log(`✅ Encontrados ${alunosDaSala.length} alunos na sala ${classroomName}`);
+
+                // Busca o status atual de cada aluno (presente/ausente/aguardando)
+                if (alunosDaSala.length > 0) {
+                    alunosDaSala = await checkAllStudentsStatus(alunosDaSala);
                 }
 
                 // Filtra por "presentes" se necessário
@@ -5669,6 +5677,7 @@
                     alunosDaSala = alunosDaSala.filter(student =>
                         student.status === 'PRESENTE' || student.status === 'AGUARDANDO_CONFIRMACAO'
                     );
+                    console.log(`📊 Filtrado para apenas presentes: ${alunosDaSala.length} alunos`);
                 }
 
                 // Ordena por nome
@@ -5685,6 +5694,7 @@
             <thead style="position: sticky; top: 0; background: var(--bg-card); border-bottom: 2px solid var(--border);">
                 <tr>
                     <th style="padding: 12px; text-align: left;">Nome do Aluno</th>
+                    <th style="padding: 12px; text-align: left;">Sala</th>
                     <th style="padding: 12px; text-align: center; width: 140px;">Ação</th>
                 </tr>
             </thead>
@@ -5694,30 +5704,36 @@
                 if (alunosDaSala.length > 0) {
                     alunosDaSala.forEach(student => {
                         const safeStudentName = student.nome ? student.nome.replace(/'/g, "\\'") : 'Aluno';
+                        const salaNome = student.salaNome || classroomName;
                         let actionsHtml = '';
                         let statusText = '';
+                        let statusClass = '';
 
                         switch (student.status) {
                             case 'PRESENTE':
                                 statusText = 'Presente';
+                                statusClass = 'status-present';
                                 actionsHtml = `<button class="btn btn-danger btn-sm" ${disabledAttr} ${disabledTitle} onclick="openStudentActionModal(${student.id}, 'saida', '${safeStudentName}')" style="padding: 6px 12px; font-size: 0.75rem;">
                             <i class="fas fa-sign-out-alt"></i> Saída
                         </button>`;
                                 break;
                             case 'AUSENTE':
                                 statusText = 'Ausente';
+                                statusClass = 'status-absent';
                                 actionsHtml = `<button class="btn btn-success btn-sm" ${disabledAttr} ${disabledTitle} onclick="openStudentActionModal(${student.id}, 'entrada', '${safeStudentName}')" style="padding: 6px 12px; font-size: 0.75rem;">
                             <i class="fas fa-sign-in-alt"></i> Entrada
                         </button>`;
                                 break;
                             case 'AGUARDANDO_CONFIRMACAO':
                                 statusText = 'Aguardando';
+                                statusClass = 'status-awaiting';
                                 actionsHtml = `<button class="btn btn-warning btn-sm" ${disabledAttr} ${disabledTitle} onclick="openDirectorConfirmExitModal(${student.id}, '${safeStudentName}')" style="padding: 6px 12px; font-size: 0.75rem;">
                             <i class="fas fa-check-circle"></i> Confirmar
                         </button>`;
                                 break;
                             default:
                                 statusText = student.status || 'Indefinido';
+                                statusClass = 'status-absent';
                                 actionsHtml = `<span style="color: var(--text-muted);">${statusText}</span>`;
                                 break;
                         }
@@ -5726,7 +5742,10 @@
                     <tr style="border-bottom: 1px solid var(--border);">
                         <td style="padding: 12px;">
                             <strong>${student.nome}</strong>
-                            ${!actionsHtml.includes('btn') ? `<div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 2px;">Status: ${statusText}</div>` : ''}
+                            <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 2px;">Status: ${statusText}</div>
+                        </td>
+                        <td style="padding: 12px;">
+                            <span class="status-badge ${statusClass}" style="font-size: 0.7rem; padding: 2px 8px;">${statusText}</span>
                         </td>
                         <td style="padding: 12px; text-align: center;">
                             ${actionsHtml}
@@ -5737,7 +5756,7 @@
                 } else {
                     studentsHtml += `
                 <tr>
-                    <td colspan="2" style="padding: 40px; text-align: center; color: var(--text-muted);">
+                    <td colspan="3" style="padding: 40px; text-align: center; color: var(--text-muted);">
                         Nenhum aluno encontrado nesta sala.
                     </td>
                 </tr>
@@ -5758,8 +5777,7 @@
                 document.getElementById('detailsModalBody').innerHTML = `
             <div style="margin-bottom: 16px; padding: 12px; background: var(--primary-light); border-radius: var(--radius-sm);">
                 <strong>Total:</strong> ${totalAlunos} aluno(s)
-                ${onlyPresent ? `<span style="margin-left: 16px;"><strong>Presentes/Aguardando:</strong> ${totalPresentes}</span>` : ''}
-                ${!onlyPresent ? `<span style="margin-left: 16px;"><strong>Ausentes:</strong> ${totalAusentes}</span>` : ''}
+                ${onlyPresent ? `<span style="margin-left: 16px;"><strong>Presentes/Aguardando:</strong> ${totalPresentes}</span>` : `<span style="margin-left: 16px;"><strong>Ausentes:</strong> ${totalAusentes}</span>`}
             </div>
             ${studentsHtml}
         `;
@@ -5767,8 +5785,20 @@
                 detailsModal.style.display = 'flex';
 
             } catch (error) {
-                console.error('Erro ao carregar alunos da sala:', error);
-                showAlert('Erro ao carregar alunos da sala.', 'error');
+                console.error('❌ Erro ao carregar alunos da sala:', error);
+                showAlert('Erro ao carregar alunos da sala. Tente novamente.', 'error');
+
+                // Mostrar mensagem de erro no modal
+                document.getElementById('detailsModalTitle').textContent = `Erro - ${classroomName}`;
+                document.getElementById('detailsModalBody').innerHTML = `
+            <div style="text-align: center; padding: 40px; color: var(--danger);">
+                <i class="fas fa-exclamation-triangle" style="font-size: 48px; margin-bottom: 16px;"></i>
+                <p>Erro ao carregar alunos da sala.</p>
+                <p style="font-size: 12px;">${error.message}</p>
+                <button class="btn btn-primary mt-3" onclick="loadClassrooms()">Tentar Novamente</button>
+            </div>
+        `;
+                detailsModal.style.display = 'flex';
             }
         };
 
