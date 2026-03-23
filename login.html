@@ -1148,12 +1148,11 @@
                 return await response.json();
             }
 
-            const saveAuthData = (token, role, refreshToken = null) => {
+            const saveAuthData = (token, role, refreshToken = null, userDataToStore = null) => {
                 const isRemembered = document.getElementById('rememberMe')?.checked || false;
 
                 // Definição: APENAS TUTOR é moderno. TODOS OS DEMAIS são legados
                 const isModernRole = role === 'ROLE_TUTOR';
-                const isLegacyRole = !isModernRole; // Sala, Escola, Diretor, Transporte
 
                 // Limpa resquícios de logins anteriores para evitar conflitos
                 localStorage.clear();
@@ -1161,24 +1160,27 @@
 
                 if (isModernRole) {
                     // PADRÃO MODERNO (APENAS TUTOR)
-                    // Se "Permanecer Conectado" estiver marcado, usa localStorage. Caso contrário, sessionStorage.
                     const storage = isRemembered ? localStorage : sessionStorage;
 
                     storage.setItem('access_token', token);
                     storage.setItem('user_role', role);
                     if (refreshToken) storage.setItem('refresh_token', refreshToken);
+                    if (userDataToStore) storage.setItem('user_data', JSON.stringify(userDataToStore));
 
                     console.log(`✅ Login MODERNO (${role}) - armazenado em ${isRemembered ? 'localStorage' : 'sessionStorage'}`);
 
                 } else {
                     // PADRÃO LEGADO (Sala, Escola, Diretor, Transporte)
-                    // TODOS os dashboards legados exigem localStorage e o campo token_expiry
                     localStorage.setItem('access_token', token);
                     localStorage.setItem('user_role', role);
                     if (refreshToken) localStorage.setItem('refresh_token', refreshToken);
+                    if (userDataToStore) {
+                        localStorage.setItem('user_data', JSON.stringify(userDataToStore));
 
-                    if (userDataToStore && userDataToStore.escolaId) {
-                        localStorage.setItem('escolaId', userDataToStore.escolaId);
+                        // 🔴 CRÍTICO: Salvar escolaId separadamente (dashboards legados esperam isso)
+                        if (userDataToStore.escolaId) {
+                            localStorage.setItem('escolaId', userDataToStore.escolaId);
+                        }
                     }
 
                     // CRÍTICO: Gera o timestamp de expiração que os dashboards legados exigem (24 horas)
@@ -1323,12 +1325,51 @@
                         if (response.ok) {
                             const data = await response.json();
 
-                            // Buscar dados do usuário para obter a role
+                            // Buscar dados do usuário para obter a role, escolaId, salaId
                             const userData = await getUserData(data.access_token);
-                            const userRole = userData.roles[0]; // Pega a primeira role
+                            const userRole = userData.roles[0];
 
-                            // USAR A NOVA FUNÇÃO saveAuthData
-                            saveAuthData(data.access_token, userRole, data.refresh_token);
+                            const userDataToStore = {
+                                id: userData.id,
+                                nome: userData.nome,
+                                email: userData.email,
+                                roles: userData.roles,
+                                salaId: userData.salaId,
+                                escolaId: userData.escolaId
+                            };
+
+                            const isTutor = userRole === 'ROLE_TUTOR';
+                            const rememberMe = document.getElementById('rememberMe')?.checked || false;
+
+                            // Limpa resquícios
+                            localStorage.clear();
+                            sessionStorage.clear();
+
+                            if (isTutor && !rememberMe) {
+                                // Tutor moderno - modo sessão
+                                sessionStorage.setItem('access_token', data.access_token);
+                                sessionStorage.setItem('user_role', userRole);
+                                sessionStorage.setItem('user_data', JSON.stringify(userDataToStore));
+                                if (data.refresh_token) sessionStorage.setItem('refresh_token', data.refresh_token);
+                                console.log(`✅ Login TUTOR - modo sessão (sessionStorage)`);
+                            } else {
+                                // TODOS OS OUTROS (Sala, Escola, Diretor, Transporte, Tutor com "lembrar")
+                                localStorage.setItem('access_token', data.access_token);
+                                localStorage.setItem('user_role', userRole);
+                                localStorage.setItem('user_data', JSON.stringify(userDataToStore));
+                                if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
+
+                                // 🔴 CRÍTICO: Salvar escolaId separadamente
+                                if (userDataToStore.escolaId) {
+                                    localStorage.setItem('escolaId', userDataToStore.escolaId);
+                                }
+
+                                // Salvar token_expiry
+                                const expiryTime = new Date().getTime() + (24 * 60 * 60 * 1000);
+                                localStorage.setItem('token_expiry', expiryTime.toString());
+
+                                console.log(`✅ Login LEGADO (${userRole}) - armazenado em localStorage com escolaId=${userDataToStore.escolaId}`);
+                            }
 
                             showAlert('Login realizado com sucesso!', 'success');
 
@@ -1346,17 +1387,15 @@
 
                         } else {
                             let errorMessage = '';
-
                             if (response.status === 401 || response.status === 400) {
-                                errorMessage = 'E-mail ou senha incorretos. Por favor, verifique e tente novamente.';
+                                errorMessage = 'E-mail ou senha incorretos.';
                             } else if (response.status === 403) {
                                 errorMessage = 'Seu usuário não tem permissão para acessar o sistema.';
                             } else if (response.status >= 500) {
-                                errorMessage = 'Serviço temporariamente indisponível. Tente novamente mais tarde.';
+                                errorMessage = 'Serviço temporariamente indisponível.';
                             } else {
-                                errorMessage = 'Erro ao realizar login. Verifique suas credenciais.';
+                                errorMessage = 'Erro ao realizar login.';
                             }
-
                             showAlert(errorMessage, 'error');
                         }
                     } catch (error) {
@@ -1384,7 +1423,7 @@
                     const data = await res.json();
 
                     if (res.ok && data?.token) {
-                        // 🔴 BUSCAR DADOS COMPLETOS DO USUÁRIO (para pegar escolaId)
+                        // 🔴 BUSCAR DADOS COMPLETOS DO USUÁRIO (para pegar escolaId e salaId)
                         const userDataResponse = await fetch(`${BACKEND_URL}/api/users/me`, {
                             headers: { 'Authorization': `Bearer ${data.token}` }
                         });
@@ -1399,32 +1438,29 @@
                             escolaId: userData.escolaId
                         };
 
-                        const isModernRole = data.role === 'ROLE_TUTOR';
-                        const isLegacyRole = ['ROLE_ESCOLA', 'ROLE_DIRETOR', 'ROLE_SALA', 'ROLE_TRANSPORTE'].includes(data.role);
-
+                        const isTutor = data.role === 'ROLE_TUTOR';
                         const checkbox = document.getElementById('rememberMe');
                         const devePermanecer = checkbox ? checkbox.checked : false;
 
-                        // Limpa resquícios
+                        // LIMPEZA TOTAL
                         localStorage.clear();
                         sessionStorage.clear();
 
-                        if (isModernRole) {
-                            // TUTOR moderno
-                            const storage = devePermanecer ? localStorage : sessionStorage;
-                            storage.setItem('access_token', data.token);
-                            storage.setItem('user_role', data.role);
-                            storage.setItem('user_data', JSON.stringify(userDataToStore));
-                            if (data.refresh_token) storage.setItem('refresh_token', data.refresh_token);
-                            console.log(`✅ Login TUTOR (${data.role}) - armazenado em ${devePermanecer ? 'localStorage' : 'sessionStorage'}`);
+                        if (isTutor && !devePermanecer) {
+                            // Tutor moderno - modo sessão
+                            sessionStorage.setItem('access_token', data.token);
+                            sessionStorage.setItem('user_role', data.role);
+                            sessionStorage.setItem('user_data', JSON.stringify(userDataToStore));
+                            if (data.refresh_token) sessionStorage.setItem('refresh_token', data.refresh_token);
+                            console.log(`✅ Login TUTOR - modo sessão (sessionStorage)`);
                         } else {
-                            // LEGADO (Escola, Diretor, Sala, Transporte)
+                            // TODOS OS OUTROS (incluindo Tutor com "lembrar", Sala, Diretor, Escola, Transporte)
                             localStorage.setItem('access_token', data.token);
                             localStorage.setItem('user_role', data.role);
                             localStorage.setItem('user_data', JSON.stringify(userDataToStore));
                             if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
 
-                            // 🔴 CRÍTICO: Salvar escolaId separadamente (o dashboard escola espera isso)
+                            // 🔴 CRÍTICO: Salvar escolaId separadamente (dashboards legados esperam isso)
                             if (userDataToStore.escolaId) {
                                 localStorage.setItem('escolaId', userDataToStore.escolaId);
                             }
