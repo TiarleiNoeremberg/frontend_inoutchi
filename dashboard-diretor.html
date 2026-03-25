@@ -4736,7 +4736,7 @@
         };
 
         // ============================================================
-        // 🔴 VERSÃO CORRIGIDA - COM FORMATO DE DADOS AJUSTADO
+        // 🔴 VERSÃO COM GEOLOCALIZAÇÃO EM BACKGROUND (SEM MODAL)
         // ============================================================
         async function processarAcaoDiretor(studentId, action, studentName) {
             try {
@@ -4758,39 +4758,43 @@
                         responsavelTipo: 'DIRETOR'
                     };
                 } else { // SAÍDA
+                    // 🔴 OBTÉM LOCALIZAÇÃO DO DIRETOR EM BACKGROUND
+                    let latitude = null, longitude = null;
+
+                    try {
+                        showAlert('Obtendo localização do diretor...', 'info');
+
+                        const position = await new Promise((resolve, reject) => {
+                            navigator.geolocation.getCurrentPosition(resolve, reject, {
+                                enableHighAccuracy: true,
+                                timeout: 10000,
+                                maximumAge: 0
+                            });
+                        });
+
+                        latitude = position.coords.latitude;
+                        longitude = position.coords.longitude;
+
+                        console.log(`📍 Localização obtida: ${latitude}, ${longitude}`);
+
+                    } catch (geoError) {
+                        console.error('❌ Erro ao obter localização:', geoError);
+                        let errorMsg = 'Não foi possível obter sua localização.';
+                        if (geoError.code === 1) errorMsg = 'Permissão de localização negada.';
+                        if (geoError.code === 2) errorMsg = 'Localização indisponível. Verifique o GPS.';
+                        if (geoError.code === 3) errorMsg = 'Tempo esgotado. Tente novamente.';
+                        throw new Error(errorMsg);
+                    }
+
                     endpoint = `${BACKEND_URL}/api/presencas/saida/solicitar`;
-
-                    // 🔴 CORREÇÃO: Verificar o formato correto que o backend espera
-                    // Algumas opções para testar:
-
-                    // Opção 1: Apenas alunoId (mais simples)
-                    body = {
-                        alunoId: parseInt(studentId)
-                    };
-
-                    // Opção 2: Com dados do solicitante (descomente se a opção 1 não funcionar)
-                    /*
                     body = {
                         alunoId: parseInt(studentId),
-                        solicitanteId: currentDirectorId,
-                        solicitanteNome: currentUser?.nome || 'Diretor',
-                        solicitanteTipo: 'DIRETOR',
-                        escolaId: currentSchoolId
+                        latitude: latitude,
+                        longitude: longitude
                     };
-                    */
-
-                    // Opção 3: Formato esperado pelo endpoint do diretor (descomente se as anteriores falharem)
-                    /*
-                    body = {
-                        alunoId: parseInt(studentId),
-                        diretorId: currentDirectorId,
-                        diretorNome: currentUser?.nome || 'Diretor',
-                        escolaId: currentSchoolId
-                    };
-                    */
                 }
 
-                console.log('📤 Enviando dados:', JSON.stringify(body, null, 2));
+                console.log('📤 Enviando requisição:', { endpoint, body });
 
                 const response = await fetch(endpoint, {
                     method: 'POST',
@@ -4801,12 +4805,12 @@
                     body: JSON.stringify(body)
                 });
 
-                // 🔴 ADICIONAR LOG DA RESPOSTA PARA DEPURAÇÃO
                 console.log('📥 Status da resposta:', response.status);
+
+                let result;
                 const responseText = await response.text();
                 console.log('📥 Corpo da resposta:', responseText);
 
-                let result;
                 try {
                     result = JSON.parse(responseText);
                 } catch (e) {
@@ -4814,7 +4818,7 @@
                 }
 
                 if (!response.ok) {
-                    throw new Error(result.mensagem || result.erro || `Erro ${response.status}: ${response.statusText}`);
+                    throw new Error(result.mensagem || result.erro || `Erro ${response.status}`);
                 }
 
                 console.log('✅ Ação registrada com sucesso:', result);
