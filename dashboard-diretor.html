@@ -4719,96 +4719,96 @@
 
         // ========== FUNÇÕES DE AÇÃO ==========
 
-        // Abrir modal para ação do aluno
+        // ============================================================
+        // 🔴 VERSÃO MODIFICADA - DIRETOR NÃO USA MODAL
+        // ============================================================
         window.openStudentActionModal = function (studentId, type, studentName) {
-            console.log('Abrindo modal para:', studentName, 'Ação:', type);
+            console.log('🎯 Diretor - Ação direta sem modal:', { studentId, type, studentName });
 
+            // Verifica se o diretor está presente na escola
+            if (directorStatus !== 'PRESENTE') {
+                showAlert('Ação não permitida. Você precisa registrar sua entrada na escola para gerenciar os alunos.', 'error');
+                return;
+            }
+
+            // Processa diretamente, sem abrir modal
+            processarAcaoDiretor(studentId, type, studentName);
+        };
+
+        // ============================================================
+        // 🔴 NOVA FUNÇÃO: PROCESSAMENTO DIRETO SEM MODAL
+        // ============================================================
+        async function processarAcaoDiretor(studentId, action, studentName) {
             try {
-                // Obter elementos DOM
-                const actionModal = document.getElementById('actionModal');
-                const modalTitle = document.getElementById('modalTitle');
-                const modalMessage = document.getElementById('modalMessage');
-                const modalStudentName = document.getElementById('modalStudentName');
-                const confirmBtn = document.getElementById('confirmActionBtn');
-                const getLocationBtn = document.getElementById('getLocationBtn');
+                console.log(`🚀 Processando ${action} de ${studentName} (diretor)`);
 
-                // Verificar elementos críticos
-                if (!actionModal || !modalTitle || !modalMessage || !confirmBtn) {
-                    throw new Error('Elementos do modal não encontrados');
+                const accessToken = localStorage.getItem('access_token');
+
+                // Mostra mensagem de status
+                showAlert(`Processando ${action === 'entrada' ? 'entrada' : 'saída'} de ${studentName}...`, 'info');
+
+                let endpoint, body;
+
+                if (action === 'entrada') {
+                    endpoint = `${BACKEND_URL}/api/presencas/entrada`;
+                    body = {
+                        alunoId: parseInt(studentId),
+                        responsavelId: currentDirectorId,
+                        responsavelNome: currentUser?.nome || 'Diretor',
+                        responsavelTipo: 'DIRETOR',
+                        origem: 'DIRETOR'  // flag para indicar que veio do diretor
+                    };
+                } else { // SAÍDA
+                    endpoint = `${BACKEND_URL}/api/presencas/saida/solicitar`;
+                    body = {
+                        alunoId: parseInt(studentId),
+                        solicitanteId: currentDirectorId,
+                        solicitanteNome: currentUser?.nome || 'Diretor',
+                        solicitanteTipo: 'DIRETOR',
+                        escolaId: currentSchoolId,
+                        origem: 'DIRETOR'
+                    };
                 }
 
-                // Configurar conteúdo do modal
-                modalTitle.textContent = type === 'entrada' ? 'Registrar Entrada do Aluno' : 'Registrar Saída do Aluno';
-
-                if (modalStudentName) {
-                    modalStudentName.textContent = studentName;
-                    modalMessage.innerHTML = `Deseja registrar ${type === 'entrada' ? 'a entrada' : 'a saída'} do aluno <span id="modalStudentName">${studentName}</span>?`;
-                } else {
-                    modalMessage.textContent = `Deseja registrar ${type === 'entrada' ? 'a entrada' : 'a saída'} do aluno ${studentName}?`;
-                }
-
-                // Resetar estado do modal
-                const locationStatus = document.getElementById('locationStatus');
-                const coordinatesDisplay = document.getElementById('coordinatesDisplay');
-                const displayLatitude = document.getElementById('displayLatitude');
-                const displayLongitude = document.getElementById('displayLongitude');
-
-                if (locationStatus) locationStatus.style.display = 'none';
-                if (coordinatesDisplay) coordinatesDisplay.style.display = 'none';
-                if (displayLatitude) displayLatitude.textContent = '-';
-                if (displayLongitude) displayLongitude.textContent = '-';
-
-                // IMPORTANTE: Desabilitar botão confirmar inicialmente
-                confirmBtn.disabled = true;
-
-                // Configurar botão de localização
-                if (getLocationBtn) {
-                    getLocationBtn.disabled = false;
-                    getLocationBtn.innerHTML = '<i class="fas fa-location-arrow"></i> Obter Localização Atual';
-
-                    // Remover listeners antigos e adicionar novo
-                    const newGetLocationBtn = getLocationBtn.cloneNode(true);
-                    getLocationBtn.parentNode.replaceChild(newGetLocationBtn, getLocationBtn);
-
-                    newGetLocationBtn.addEventListener('click', async function () {
-                        await obterLocalizacaoParaModal();
-                    });
-                }
-
-                // Configurar botão de confirmação
-                const newConfirmBtn = confirmBtn.cloneNode(true);
-                confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
-
-                newConfirmBtn.addEventListener('click', async function () {
-                    await confirmStudentAction(studentId, type, studentName);
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(body)
                 });
 
-                // Mostrar modal
-                actionModal.style.display = 'flex';
-
-                // ADICIONAR ESTAS LINHAS - GARANTIR QUE O MODAL DE AÇÃO FIQUE VISÍVEL SOBRE O MODAL DE DETALHES
-                const detailsModal = document.getElementById('detailsModal');
-                if (detailsModal && detailsModal.style.display === 'flex') {
-                    // Mantém o modal de detalhes visível mas com z-index menor
-                    detailsModal.style.zIndex = '1000';
-                    actionModal.style.zIndex = '1200';
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.mensagem || errorData.erro || `Erro ${response.status}`);
                 }
 
-                const staticLocationSection = actionModal.querySelector('.modal-body > .form-group');
-                if (staticLocationSection) {
-                    staticLocationSection.style.display = 'block';
-                }
+                const result = await response.json();
+                console.log('✅ Ação registrada com sucesso:', result);
 
-                // Obter localização automaticamente ao abrir o modal
-                setTimeout(async () => {
-                    await obterLocalizacaoParaModal();
-                }, 500);
+                const successMessage = action === 'entrada' ?
+                    `✅ Entrada de ${studentName} registrada!` :
+                    `✅ Saída de ${studentName} solicitada!`;
+                showAlert(successMessage, 'success');
+
+                // Atualiza os dados
+                await loadAllStudents(currentStudentsPage, document.getElementById('studentSearch')?.value || '');
+
+                // Se o modal da sala estiver aberto, atualiza
+                if (currentClassroomModal.classroomId) {
+                    await viewClassroomStudents(
+                        currentClassroomModal.classroomId,
+                        currentClassroomModal.classroomName,
+                        currentClassroomModal.onlyPresent
+                    );
+                }
 
             } catch (error) {
-                console.error('Erro ao abrir modal:', error);
-                showAlert('Erro ao abrir modal de ação', 'error');
+                console.error('❌ Erro:', error);
+                showAlert(`Erro: ${error.message}`, 'error');
             }
-        };
+        }
 
         // Função auxiliar para obter localização - ADICIONAR ESTA FUNÇÃO
         async function obterLocalizacaoParaModal() {
