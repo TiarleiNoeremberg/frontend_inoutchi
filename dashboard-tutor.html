@@ -4708,15 +4708,15 @@
                 console.log(`📍 Localização obtida: ${lat}, ${lng}`);
 
                 // SE skipApiCall = true, apenas armazena a localização e retorna sucesso
-                // A validação será feita pelo backend quando chamarmos confirmar-saida
+                // NÃO chama nenhum endpoint de validação que não existe!
                 if (skipApiCall) {
-                    // Armazena a localização temporariamente para ser usada depois se necessário
+                    // Armazena a localização temporariamente para uso futuro se necessário
                     window.ultimaLocalizacao = {
                         latitude: position.coords.latitude,
                         longitude: position.coords.longitude,
                         timestamp: Date.now()
                     };
-                    console.log('✅ Localização obtida (validação será feita pelo backend)');
+                    console.log('✅ Localização obtida (validação será feita pelo backend no confirmar-saida)');
                     window.isProcessingLocation = false;
                     return true;
                 }
@@ -4734,31 +4734,49 @@
                         responsavelNome: currentUser.nome,
                         responsavelTipo: 'TUTOR'
                     };
+
+                    const response = await fetchWithAuth(endpoint, {
+                        method: 'POST',
+                        body: JSON.stringify(body)
+                    });
+
+                    const result = await response.json();
+
+                    if (!response.ok) {
+                        if (response.status === 403) {
+                            throw new Error(result.mensagem || `Fora da área permitida`);
+                        }
+                        throw new Error(result.mensagem || 'Erro ao processar solicitação');
+                    }
+
+                    console.log('✅ Entrada registrada com sucesso!');
                 } else {
                     // SAÍDA (quando não skipApiCall) - mantido para compatibilidade
+                    // Este bloco dificilmente será usado agora, mas mantido por segurança
                     endpoint = '/api/presencas/saida/solicitar';
                     body = {
                         alunoId: parseInt(studentId),
                         latitude: position.coords.latitude,
                         longitude: position.coords.longitude
                     };
-                }
 
-                const response = await fetchWithAuth(endpoint, {
-                    method: 'POST',
-                    body: JSON.stringify(body)
-                });
+                    const response = await fetchWithAuth(endpoint, {
+                        method: 'POST',
+                        body: JSON.stringify(body)
+                    });
 
-                const result = await response.json();
+                    const result = await response.json();
 
-                if (!response.ok) {
-                    if (response.status === 403) {
-                        throw new Error(result.mensagem || `Fora da área permitida`);
+                    if (!response.ok) {
+                        if (response.status === 403) {
+                            throw new Error(result.mensagem || `Fora da área permitida`);
+                        }
+                        throw new Error(result.mensagem || 'Erro ao processar solicitação');
                     }
-                    throw new Error(result.mensagem || 'Erro ao processar solicitação');
+
+                    console.log('✅ Saída solicitada com sucesso!');
                 }
 
-                console.log('✅ Ação realizada com sucesso!');
                 window.isProcessingLocation = false;
 
             } catch (error) {
@@ -5498,11 +5516,9 @@
 
         // ===== MODAL DE BLOQUEIO DE HORÁRIO =====
         function mostrarModalBloqueio(mensagem) {
-            // Remove modal anterior se existir
             const modalAnterior = document.getElementById('modalBloqueioHorario');
             if (modalAnterior) modalAnterior.remove();
 
-            // Cria o backdrop
             const backdrop = document.createElement('div');
             backdrop.id = 'modalBloqueioHorario';
             backdrop.style.cssText = `
@@ -5520,11 +5536,9 @@
         animation: fadeInModal 0.3s ease;
     `;
 
-            // Extrai o horário da mensagem para mostrar de forma destacada
             const horarioMatch = mensagem.match(/(\d{1,2}):(\d{2})/);
             const horario = horarioMatch ? horarioMatch[0] : '';
 
-            // Cria o modal
             const modal = document.createElement('div');
             modal.style.cssText = `
         background: white;
@@ -5539,7 +5553,6 @@
         border: 1px solid rgba(255, 255, 255, 0.2);
     `;
 
-            // Ícone de relógio animado
             modal.innerHTML = `
         <div style="margin-bottom: 20px;">
             <div style="
@@ -5560,39 +5573,11 @@
                 </svg>
             </div>
         </div>
-        
-        <h3 style="
-            font-size: 1.4rem;
-            font-weight: 800;
-            color: #1e293b;
-            margin: 0 0 8px 0;
-            font-family: 'Inter', sans-serif;
-        ">⏰ Horário Não Permitido</h3>
-        
-        <div style="
-            background: #fef3c7;
-            border-radius: 40px;
-            padding: 12px 16px;
-            margin: 20px 0;
-            border: 2px solid #fbbf24;
-        ">
-            <span style="
-                font-size: 2rem;
-                font-weight: 800;
-                color: #92400e;
-                font-family: monospace;
-                letter-spacing: 2px;
-            ">${horario}</span>
+        <h3 style="font-size: 1.4rem; font-weight: 800; color: #1e293b; margin: 0 0 8px 0;">⏰ Horário Não Permitido</h3>
+        <div style="background: #fef3c7; border-radius: 40px; padding: 12px 16px; margin: 20px 0; border: 2px solid #fbbf24;">
+            <span style="font-size: 2rem; font-weight: 800; color: #92400e; font-family: monospace; letter-spacing: 2px;">${horario}</span>
         </div>
-        
-        <p style="
-            color: #64748b;
-            font-size: 1rem;
-            line-height: 1.5;
-            margin: 0 0 24px 0;
-            font-weight: 500;
-        ">${mensagem}</p>
-        
+        <p style="color: #64748b; font-size: 1rem; line-height: 1.5; margin: 0 0 24px 0; font-weight: 500;">${mensagem}</p>
         <button onclick="this.closest('#modalBloqueioHorario').remove()" style="
             background: linear-gradient(135deg, #f59e0b, #fbbf24);
             color: white;
@@ -5605,50 +5590,14 @@
             width: 100%;
             transition: all 0.3s;
             box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
-            font-family: 'Inter', sans-serif;
-            letter-spacing: 0.5px;
-        " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(245, 158, 11, 0.4)'" 
-           onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(245, 158, 11, 0.3)'">
+        ">
             Entendi
         </button>
     `;
 
-            // Adiciona animações CSS
-            const style = document.createElement('style');
-            style.textContent = `
-        @keyframes fadeInModal {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-        
-        @keyframes slideUpModal {
-            from {
-                opacity: 0;
-                transform: translateY(30px) scale(0.9);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0) scale(1);
-            }
-        }
-        
-        @keyframes pulseIcon {
-            0%, 100% {
-                transform: scale(1);
-                box-shadow: 0 10px 25px rgba(245, 158, 11, 0.3);
-            }
-            50% {
-                transform: scale(1.05);
-                box-shadow: 0 15px 35px rgba(245, 158, 11, 0.5);
-            }
-        }
-    `;
-
-            document.head.appendChild(style);
             backdrop.appendChild(modal);
             document.body.appendChild(backdrop);
 
-            // Fecha ao clicar no backdrop (opcional)
             backdrop.addEventListener('click', function (e) {
                 if (e.target === backdrop) {
                     backdrop.remove();
@@ -5664,10 +5613,8 @@
         };
 
         window.validarHorarioSaida = function (nomeSalaBruto) {
-            // Log do valor recebido
             console.log("🔍 [DEBUG] Validando sala (bruto):", nomeSalaBruto);
 
-            // NORMALIZAÇÃO
             const nomeSala = normalizarNomeSala(nomeSalaBruto);
 
             console.log("🔍 [DEBUG] Validando sala (normalizado):", nomeSala);
@@ -5688,14 +5635,10 @@
 
             console.log(`🕒 Agora: ${horaAtual}:${minutoAtual} | Limite: ${horaLimite}:${minutoLimite}`);
 
-            // Comparação numérica
             if (horaAtual < horaLimite || (horaAtual === horaLimite && minutoAtual < minutoLimite)) {
                 const mensagem = `A solicitação de saída para ${nomeSala} só é permitida após ${horaLimite}:${minutoLimite.toString().padStart(2, '0')}.`;
                 console.log("🚫 BLOQUEADO:", mensagem);
-
-                // Mostra o modal bonitinho em vez da notificação antiga
                 mostrarModalBloqueio(mensagem);
-
                 return {
                     permitido: false,
                     mensagem: mensagem
@@ -5726,18 +5669,12 @@
         function normalizarNomeSala(nome) {
             if (!nome) return "";
 
-            // Remove espaços extras e converte para maiúsculas
             let nomeLimpo = nome.trim().toUpperCase();
-
-            // Log para debug
             console.log("🔧 Normalizando:", nomeLimpo);
 
             // Se começar com número e tiver "ANO" ou "ANOS"
             if (nomeLimpo.match(/^\d/)) {
-                // Troca "º" por "°"
                 nomeLimpo = nomeLimpo.replace(/º/g, "°");
-
-                // Garante que tenha o formato "X° ANO"
                 const match = nomeLimpo.match(/(\d+)[°º]?\s*(ANO|ANOS)/i);
                 if (match) {
                     return match[1] + "° ANO";
