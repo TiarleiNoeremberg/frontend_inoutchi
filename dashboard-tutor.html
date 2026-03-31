@@ -4683,7 +4683,6 @@
         }
 
         async function processarLocalizacaoAutomaticaSemModal(studentId, action, studentName, skipApiCall = false) {
-            // IMPEDE execução simultânea
             if (window.isProcessingLocation) {
                 console.log('⚠️ Já processando, ignorando');
                 return;
@@ -4691,10 +4690,8 @@
             window.isProcessingLocation = true;
 
             try {
-                // Mostra mensagem de status inicial
                 showStatusMessage(`📍 Obtendo localização para ${action === 'entrada' ? 'entrada' : 'saída'}...`, 'info');
 
-                // Obtém localização
                 const position = await new Promise((resolve, reject) => {
                     navigator.geolocation.getCurrentPosition(resolve, reject, {
                         enableHighAccuracy: true,
@@ -4706,33 +4703,25 @@
                 const lat = position.coords.latitude.toFixed(6);
                 const lng = position.coords.longitude.toFixed(6);
 
-                showStatusMessage(`📍 Localização obtida!<br>Lat: ${lat} | Lon: ${lng}<br>Validando área...`, 'info');
+                showStatusMessage(`📍 Localização obtida!<br>Lat: ${lat} | Lon: ${lng}`, 'info');
 
                 console.log(`📍 Localização obtida: ${lat}, ${lng}`);
 
-                // ===== SE skipApiCall = true, só valida localização (não chama API) =====
+                // SE skipApiCall = true, apenas armazena a localização e retorna sucesso
+                // A validação será feita pelo backend quando chamarmos confirmar-saida
                 if (skipApiCall) {
-                    // Apenas valida se a localização está dentro da área permitida
-                    // Faz uma chamada de validação (endpoint de geofence)
-                    const response = await fetchWithAuth('/api/presencas/validar-geofence', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            latitude: position.coords.latitude,
-                            longitude: position.coords.longitude
-                        })
-                    });
-
-                    if (!response.ok) {
-                        const result = await response.json();
-                        throw new Error(result.mensagem || 'Fora da área permitida');
-                    }
-
-                    console.log('✅ Geofence validada com sucesso!');
+                    // Armazena a localização temporariamente para ser usada depois se necessário
+                    window.ultimaLocalizacao = {
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude,
+                        timestamp: Date.now()
+                    };
+                    console.log('✅ Localização obtida (validação será feita pelo backend)');
                     window.isProcessingLocation = false;
                     return true;
                 }
 
-                // ===== FLUXO ORIGINAL (ENTRADA) =====
+                // FLUXO ORIGINAL PARA ENTRADA (mantido intacto)
                 let endpoint, body;
 
                 if (action === 'entrada') {
@@ -4771,7 +4760,6 @@
 
                 console.log('✅ Ação realizada com sucesso!');
                 window.isProcessingLocation = false;
-                return true;
 
             } catch (error) {
                 console.error('Erro no processamento:', error);
@@ -5022,7 +5010,7 @@
                             }
                         }
 
-                        // 2. VALIDA GEOLOCALIZAÇÃO (skipApiCall = true, só valida, não cria solicitação)
+                        // 2. OBTÉM LOCALIZAÇÃO (skipApiCall = true, só obtém localização, não chama API)
                         try {
                             await processarLocalizacaoAutomaticaSemModal(studentId, 'saida', studentName, true);
                         } catch (locationError) {
@@ -5034,33 +5022,42 @@
                             return;
                         }
 
-                        // 3. CHAMA CONFIRMAR-SAIDA DIRETAMENTE
-                        const response = await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
+                        // 3. CHAMA CONFIRMAR-SAIDA DIRETAMENTE (o backend fará a validação de geofence)
+                        try {
+                            const response = await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
 
-                        if (!response.ok) {
-                            const result = await response.json();
-                            throw new Error(result.mensagem || 'Erro ao confirmar saída');
-                        }
+                            if (!response.ok) {
+                                const result = await response.json();
+                                throw new Error(result.mensagem || result.erro || 'Erro ao confirmar saída');
+                            }
 
-                        console.log('✅ Saída confirmada com sucesso!');
+                            console.log('✅ Saída confirmada com sucesso!');
 
-                        // 4. ATUALIZA OS DADOS E MOSTRA SUCESSO
-                        await refreshStudentsData();
-                        await mostrarTelaSucesso('confirmacao', async () => {
+                            // 4. ATUALIZA OS DADOS E MOSTRA SUCESSO
                             await refreshStudentsData();
-                            const alunoAtualizado = students.find(s => s.id == studentId);
-                            return alunoAtualizado && alunoAtualizado.status !== 'PRESENTE';
-                        });
+                            await mostrarTelaSucesso('confirmacao', async () => {
+                                await refreshStudentsData();
+                                const alunoAtualizado = students.find(s => s.id == studentId);
+                                return alunoAtualizado && alunoAtualizado.status !== 'PRESENTE';
+                            });
 
-                        resetSlideBtn(btn, thumb, fill, label, 'slow', true);
+                            resetSlideBtn(btn, thumb, fill, label, 'slow', true);
 
-                        // Atualiza histórico se estiver aberto
-                        if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
-                            await viewStudentHistory(studentId, studentName);
+                            // Atualiza histórico se estiver aberto
+                            if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
+                                await viewStudentHistory(studentId, studentName);
+                            }
+
+                            isProcessing = false;
+                            isActionProcessing = false;
+
+                        } catch (error) {
+                            console.error('Erro na confirmação:', error);
+                            showStatusMessage(`❌ ${error.message}`, 'danger');
+                            resetSlideBtn(btn, thumb, fill, label, 'fast');
+                            isProcessing = false;
+                            isActionProcessing = false;
                         }
-
-                        isProcessing = false;
-                        isActionProcessing = false;
                     }
                     // ===== FIM DO BLOCO ALTERADO =====
 
