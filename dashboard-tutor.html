@@ -4707,21 +4707,19 @@
 
                 console.log(`📍 Localização obtida: ${lat}, ${lng}`);
 
-                // SE skipApiCall = true, apenas armazena a localização e retorna sucesso
-                // NÃO chama nenhum endpoint de validação que não existe!
+                // SE skipApiCall = true, apenas armazena a localização e retorna
                 if (skipApiCall) {
-                    // Armazena a localização temporariamente para uso futuro se necessário
                     window.ultimaLocalizacao = {
                         latitude: position.coords.latitude,
                         longitude: position.coords.longitude,
                         timestamp: Date.now()
                     };
-                    console.log('✅ Localização obtida (validação será feita pelo backend no confirmar-saida)');
+                    console.log('✅ Localização obtida (modo skip)');
                     window.isProcessingLocation = false;
                     return true;
                 }
 
-                // FLUXO ORIGINAL PARA ENTRADA (mantido intacto)
+                // FLUXO NORMAL - USANDO OS MESMOS ENDPOINTS DO SISTEMA ORIGINAL
                 let endpoint, body;
 
                 if (action === 'entrada') {
@@ -4734,49 +4732,31 @@
                         responsavelNome: currentUser.nome,
                         responsavelTipo: 'TUTOR'
                     };
-
-                    const response = await fetchWithAuth(endpoint, {
-                        method: 'POST',
-                        body: JSON.stringify(body)
-                    });
-
-                    const result = await response.json();
-
-                    if (!response.ok) {
-                        if (response.status === 403) {
-                            throw new Error(result.mensagem || `Fora da área permitida`);
-                        }
-                        throw new Error(result.mensagem || 'Erro ao processar solicitação');
-                    }
-
-                    console.log('✅ Entrada registrada com sucesso!');
                 } else {
-                    // SAÍDA (quando não skipApiCall) - mantido para compatibilidade
-                    // Este bloco dificilmente será usado agora, mas mantido por segurança
+                    // SAÍDA - usa o mesmo endpoint que sempre funcionou no sistema original
                     endpoint = '/api/presencas/saida/solicitar';
                     body = {
                         alunoId: parseInt(studentId),
                         latitude: position.coords.latitude,
                         longitude: position.coords.longitude
                     };
-
-                    const response = await fetchWithAuth(endpoint, {
-                        method: 'POST',
-                        body: JSON.stringify(body)
-                    });
-
-                    const result = await response.json();
-
-                    if (!response.ok) {
-                        if (response.status === 403) {
-                            throw new Error(result.mensagem || `Fora da área permitida`);
-                        }
-                        throw new Error(result.mensagem || 'Erro ao processar solicitação');
-                    }
-
-                    console.log('✅ Saída solicitada com sucesso!');
                 }
 
+                const response = await fetchWithAuth(endpoint, {
+                    method: 'POST',
+                    body: JSON.stringify(body)
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    if (response.status === 403) {
+                        throw new Error(result.mensagem || `Fora da área permitida`);
+                    }
+                    throw new Error(result.mensagem || result.erro || 'Erro ao processar solicitação');
+                }
+
+                console.log(`✅ ${action === 'entrada' ? 'Entrada' : 'Solicitação de saída'} realizada com sucesso!`);
                 window.isProcessingLocation = false;
 
             } catch (error) {
@@ -5016,7 +4996,7 @@
                 try {
                     // ===== BLOCO ALTERADO: AGORA SAÍDA VAI DIRETO PARA CONFIRMAÇÃO =====
                     if (action === 'saida') {
-                        // 1. VALIDAÇÃO DE HORÁRIO (PRESERVADA)
+                        // 1. VALIDAÇÃO DE HORÁRIO
                         const aluno = students.find(s => s.id == studentId);
                         if (aluno && aluno.salaNome) {
                             const validacao = validarHorarioSaida(aluno.salaNome);
@@ -5028,24 +5008,22 @@
                             }
                         }
 
-                        // 2. OBTÉM LOCALIZAÇÃO (skipApiCall = true, só obtém localização, não chama API)
+                        // 2. OBTÉM LOCALIZAÇÃO E SOLICITA SAÍDA (MESMO ENDPOINT ORIGINAL)
                         try {
-                            await processarLocalizacaoAutomaticaSemModal(studentId, 'saida', studentName, true);
-                        } catch (locationError) {
-                            console.error('Erro na geolocalização:', locationError);
-                            showStatusMessage(`❌ ${locationError.message}`, 'danger');
-                            resetSlideBtn(btn, thumb, fill, label, 'fast');
-                            isProcessing = false;
-                            isActionProcessing = false;
-                            return;
-                        }
+                            // Usa a função existente que já funciona para solicitar saída
+                            // Esta função chama /api/presencas/saida/solicitar
+                            await processarLocalizacaoAutomaticaSemModal(studentId, 'saida', studentName);
 
-                        // 3. CHAMA CONFIRMAR-SAIDA DIRETAMENTE (o backend fará a validação de geofence)
-                        try {
-                            const response = await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
+                            console.log('✅ Saída solicitada com sucesso!');
 
-                            if (!response.ok) {
-                                const result = await response.json();
+                            // 3. AGORA CONFIRMA A SAÍDA (MESMO ENDPOINT DO MANUAL)
+                            // Este é o mesmo endpoint usado em handleManualConfirmExit
+                            const confirmResponse = await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, {
+                                method: 'POST'
+                            });
+
+                            if (!confirmResponse.ok) {
+                                const result = await confirmResponse.json();
                                 throw new Error(result.mensagem || result.erro || 'Erro ao confirmar saída');
                             }
 
@@ -5070,7 +5048,7 @@
                             isActionProcessing = false;
 
                         } catch (error) {
-                            console.error('Erro na confirmação:', error);
+                            console.error('Erro no processo de saída:', error);
                             showStatusMessage(`❌ ${error.message}`, 'danger');
                             resetSlideBtn(btn, thumb, fill, label, 'fast');
                             isProcessing = false;
