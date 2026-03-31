@@ -3296,19 +3296,31 @@
                     throw new Error("Dados de alunos inválidos.");
                 }
 
-                // BUSCA TODOS OS STATUS DE UMA SÓ VEZ (se o backend tiver endpoint)
-                // Por enquanto, mantemos como está, mas podemos otimizar depois
+                // Busca status de saída ativa para cada aluno
+                const novosAlunos = await Promise.all(data.alunos.map(async (student) => {
+                    try {
+                        const saidaResponse = await fetchWithAuth(`/api/presencas/aluno/${student.id}/saida-ativa`);
+                        const saidaAtiva = await saidaResponse.json();
 
-                // ATUALIZAÇÃO INTELIGENTE: só atualiza o que mudou
+                        if (saidaAtiva.sucesso) {
+                            student.status = saidaAtiva.dados?.status === 'AGUARDANDO_CONFIRMACAO' ? 'AGUARDANDO_CONFIRMACAO' : student.status;
+                        }
+                    } catch (error) {
+                        console.warn(`Erro ao buscar saída ativa para aluno ${student.id}:`, error);
+                    }
+                    return student;
+                }));
+
+                // Se não tem alunos ainda, renderiza tudo
                 if (!students || students.length === 0) {
-                    students = data.alunos;
+                    students = novosAlunos;
                     renderStudents(students);
                     window.isRefreshing = false;
                     return;
                 }
 
+                // ATUALIZAÇÃO INTELIGENTE: só atualiza o que mudou
                 let precisaRenderizar = false;
-                const novosAlunos = data.alunos;
 
                 for (let i = 0; i < novosAlunos.length; i++) {
                     const alunoNovo = novosAlunos[i];
@@ -3319,7 +3331,7 @@
                         break;
                     }
 
-                    // Verifica se o STATUS mudou
+                    // Verifica se o STATUS mudou (é a ÚNICA coisa que muda!)
                     if (alunoAntigo.status !== alunoNovo.status) {
                         console.log(`Status do aluno ${alunoNovo.nome} mudou: ${alunoAntigo.status} -> ${alunoNovo.status}`);
 
@@ -3327,14 +3339,80 @@
                         const cardAluno = document.querySelector(`.student-item .student-name[data-student-id="${alunoNovo.id}"]`)?.closest('.student-item');
 
                         if (cardAluno) {
-                            updateStudentCard(cardAluno, alunoNovo, alunoAntigo);
+                            // Atualiza o status badge
+                            const statusBadge = cardAluno.querySelector('.status-badge');
+                            const slideContainer = cardAluno.querySelector('.student-slide-container');
+
+                            let statusClass, statusText, slideAction, slideLabel, arrowDir;
+                            const safeStudentName = alunoNovo.nome.replace(/'/g, "\\'");
+
+                            const arrowSvgRight = `<svg class="arrow-icon" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>`;
+                            const arrowSvgLeft = `<svg class="arrow-icon" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>`;
+                            const hintChevronRight = `<svg viewBox="0 0 24 24"><polyline points="9 6 15 12 9 18"/></svg>`;
+                            const hintChevronLeft = `<svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>`;
+
+                            switch (alunoNovo.status) {
+                                case 'PRESENTE':
+                                    statusClass = 'presente';
+                                    statusText = 'PRESENTE';
+                                    slideAction = 'saida';
+                                    slideLabel = 'SAIR';
+                                    arrowDir = 'left';
+                                    break;
+                                case 'AGUARDANDO_CONFIRMACAO':
+                                    statusClass = 'aguardando';
+                                    statusText = 'AGUARDANDO';
+                                    slideAction = 'confirmar';
+                                    slideLabel = 'CONFIRMAR';
+                                    arrowDir = 'right';
+                                    break;
+                                default:
+                                    statusClass = 'ausente';
+                                    statusText = 'AUSENTE';
+                                    slideAction = 'entrada';
+                                    slideLabel = 'ENTRAR';
+                                    arrowDir = 'right';
+                                    break;
+                            }
+
+                            // Atualiza o badge
+                            if (statusBadge) {
+                                statusBadge.className = `status-badge ${statusClass}`;
+                                statusBadge.textContent = statusText;
+                            }
+
+                            // Recria o botão deslizante
+                            if (slideContainer) {
+                                const newSlideBtn = document.createElement('div');
+                                newSlideBtn.className = 'slide-btn';
+                                newSlideBtn.dataset.action = slideAction;
+                                newSlideBtn.dataset.studentId = alunoNovo.id;
+                                newSlideBtn.dataset.studentName = safeStudentName;
+                                newSlideBtn.innerHTML = `
+                            <div class="slide-btn-track">
+                                <span class="slide-btn-label">${slideLabel}</span>
+                                <div class="slide-btn-fill"></div>
+                                <div class="slide-btn-thumb">${arrowDir === 'right' ? arrowSvgRight : arrowSvgLeft}</div>
+                                <div class="slide-hint">${arrowDir === 'right' ? hintChevronRight : hintChevronLeft}</div>
+                            </div>
+                        `;
+
+                                slideContainer.innerHTML = '';
+                                slideContainer.appendChild(newSlideBtn);
+                                bindSlideButton(newSlideBtn);
+                            }
+
+                            // Destaque suave
+                            cardAluno.classList.add('atualizado');
+                            setTimeout(() => cardAluno.classList.remove('atualizado'), 500);
                         }
 
-                        // Atualiza o objeto
+                        // Atualiza o objeto students
                         alunoAntigo.status = alunoNovo.status;
                     }
                 }
 
+                // Se precisou renderizar tudo por algum motivo
                 if (precisaRenderizar) {
                     students = novosAlunos;
                     renderStudents(students);
