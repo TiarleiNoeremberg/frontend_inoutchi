@@ -1158,12 +1158,13 @@
                     return;
                 }
 
-                // 2. MARCA QUE TEM SOLICITAÇÃO PENDENTE
+                // 2. MARCA QUE TEM SOLICITAÇÃO PENDENTE E ESTÁ EM ANIMAÇÃO
                 aluno.temSolicitacaoPendente = true;
+                aluno.emAnimacao = true; // 🔴 NOVO: impede renderização durante animação
                 aluno.tipoSolicitante = mensagem.tipoSolicitante;
                 aluno.parentesco = mensagem.parentesco;
 
-                // 3. ADICIONA À FILA PARA ANIMAÇÃO (com os dados completos)
+                // 3. ADICIONA À FILA PARA ANIMAÇÃO
                 this.filaDeChamadas.push({
                     alunoId: mensagem.alunoId,
                     alunoNome: mensagem.alunoNome,
@@ -1562,17 +1563,24 @@
 
             async sincronizarSalaSilenciosamente() {
                 try {
+                    // Não sincroniza se tiver animação em andamento
                     if (this.isProcessandoFila && this.filaDeChamadas.length > 0) {
                         console.log("🔄 [SYNC] Sincronização adiada: animação em andamento.");
                         return;
                     }
 
-                    // Alterado de fetchWithAuth para this.fetchDadosSala que já existe no seu código
+                    // 🔴 VERIFICA SE ALGUM ALUNO ESTÁ EM ANIMAÇÃO
+                    const temAlunoEmAnimacao = this.alunos.some(a => a.emAnimacao === true);
+                    if (temAlunoEmAnimacao) {
+                        console.log("🔄 [SYNC] Sincronização adiada: aluno em animação.");
+                        return;
+                    }
+
                     const dados = await this.fetchDadosSala();
 
                     if (dados && dados.alunos) {
                         this.contagemErrosSync = 0;
-                        this.processarDadosAlunos(dados.alunos);
+                        await this.processarDadosAlunos(dados.alunos);
                     }
                 } catch (error) {
                     this.contagemErrosSync++;
@@ -1687,12 +1695,8 @@
             async carregarDadosSala() {
                 console.log("[DEBUG] 1. Entrando em carregarDadosSala.");
                 try {
-                    console.log("[DEBUG] 2. Chamando carregarInfoSala...");
                     await this.carregarInfoSala();
-                    console.log("[DEBUG] 3. carregarInfoSala CONCLUÍDO. Chamando atualizarHeader...");
-
                     this.atualizarHeader();
-                    console.log("[DEBUG] 4. atualizarHeader CONCLUÍDO. Chamando fetchDadosSala...");
 
                     const data = await this.fetchDadosSala();
                     console.log("[DEBUG] 5. fetchDadosSala CONCLUÍDO. Dados recebidos:", JSON.stringify(data));
@@ -1700,12 +1704,16 @@
                     const alunosProcessados = await this.processarDadosAlunos(data);
                     console.log("[DEBUG] 6. processarDadosAlunos CONCLUÍDO.");
 
+                    // 🔴 MARCA QUE NENHUM ALUNO ESTÁ EM ANIMAÇÃO INICIALMENTE
+                    alunosProcessados.forEach(aluno => {
+                        aluno.emAnimacao = false;
+                    });
+
                     this.alunos = alunosProcessados;
                     this.renderizarAlunos();
                     console.log("[DEBUG] 7. Renderização finalizada. SUCESSO TOTAL.");
 
                 } catch (error) {
-                    // Agora vamos garantir que o objeto de erro completo seja logado
                     console.error('❌ Erro no carregamento da sala:', error.message, error.stack);
                     this.mostrarNotificacao('Falha na Conexão', 'Não foi possível atualizar a lista de alunos.', 'error');
                 }
@@ -1731,17 +1739,51 @@
             }
 
             async processarDadosAlunos(data) {
-                if (!data.alunos || !Array.isArray(data.alunos)) return [];
-                const alunosComStatus = await this.verificarStatusDeSaida(data.alunos);
+                if (!data.alunos || !Array.isArray(data.alunos)) return this.alunos || [];
 
-                // 🔴 NOVO: Filtra solicitações pendentes que não são permitidas por horário
-                const alunosFiltrados = alunosComStatus.filter(aluno => {
-                    if (aluno.status === 'AGUARDANDO_CONFIRMACAO') {
+                const alunosDaApi = data.alunos;
+
+                // 🔴 MESCLA OS DADOS: preserva alunos em animação
+                const alunosProcessados = await Promise.all(alunosDaApi.map(async (alunoApi) => {
+                    const alunoExistente = this.alunos.find(a => a.id === alunoApi.id);
+
+                    // Se o aluno existe localmente e está em animação, PRESERVA o estado atual
+                    if (alunoExistente && alunoExistente.emAnimacao === true) {
+                        console.log(`[SYNC] Preservando estado de animação para ${alunoApi.nome}`);
+                        return { ...alunoExistente }; // Retorna o estado local, não o da API
+                    }
+
+                    // Caso contrário, processa normalmente
+                    const url = `${this.BACKEND_URL}/api/presencas/aluno/${alunoApi.id}/saida-ativa?timestamp=${new Date().getTime()}`;
+                    try {
+                        const response = await fetch(url, { headers: { 'Authorization': `Bearer ${this.token}` } });
+                        if (response.status === 200) {
+                            const apiResponse = await response.json();
+                            if (apiResponse.codigo === 'SAIDA_ATIVA' && apiResponse.dados) {
+                                return {
+                                    ...alunoApi,
+                                    status: 'PRESENTE', // Mantém como PRESENTE para não sumir da tela
+                                    temSolicitacaoPendente: true,
+                                    emAnimacao: false,
+                                    tipoSolicitante: apiResponse.dados.tipoSolicitante,
+                                    parentesco: apiResponse.dados.parentesco
+                                };
+                            }
+                        }
+                        return { ...alunoApi, status: 'PRESENTE', temSolicitacaoPendente: false, emAnimacao: false };
+                    } catch (error) {
+                        console.error(`❌ Erro ao verificar status para aluno ${alunoApi.id}:`, error);
+                        return { ...alunoApi, status: 'PRESENTE', temSolicitacaoPendente: false, emAnimacao: false };
+                    }
+                }));
+
+                // 🔴 FILTRA solicitações pendentes fora de horário
+                const alunosFiltrados = alunosProcessados.filter(aluno => {
+                    if (aluno.temSolicitacaoPendente) {
                         const validacao = window.utils.validarHorarioSaida(aluno.salaNome);
                         if (!validacao.permitido) {
-                            console.log(`⏰ Solicitação pendente de ${aluno.nome} (${aluno.salaNome}) ignorada - fora do horário`);
-                            // Altera o status de volta para PRESENTE
-                            aluno.status = 'PRESENTE';
+                            console.log(`⏰ Solicitação pendente de ${aluno.nome} ignorada - fora do horário`);
+                            aluno.temSolicitacaoPendente = false;
                             delete aluno.tipoSolicitante;
                             delete aluno.parentesco;
                         }
@@ -1749,14 +1791,16 @@
                     return true;
                 });
 
-                // Log para debug
-                alunosFiltrados.forEach(aluno => {
-                    if (aluno.status === 'AGUARDANDO_CONFIRMACAO') {
-                        console.log(`[DEBUG] Aluno ${aluno.nome} - Status: ${aluno.status}, Tipo: ${aluno.tipoSolicitante}`);
-                    }
-                });
+                // Atualiza this.alunos com os dados mesclados
+                this.alunos = alunosFiltrados.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 
-                return alunosFiltrados.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+                // Renderiza apenas se não tiver animação em andamento
+                const temAlunoEmAnimacao = this.alunos.some(a => a.emAnimacao === true);
+                if (!temAlunoEmAnimacao) {
+                    this.renderizarAlunos();
+                }
+
+                return this.alunos;
             }
 
             async verificarStatusDeSaida(alunos) {
@@ -1901,6 +1945,12 @@
 
                         // 🔴 APLICA O ESTILO PENDENTE COM A COR CORRETA
                         this.aplicarEstiloPendenteAoCard(alunoCard, chamada, corClasse);
+
+                        // 🔴 MARCA QUE A ANIMAÇÃO TERMINOU
+                        const aluno = this.alunos.find(a => a.id === alunoId);
+                        if (aluno) {
+                            aluno.emAnimacao = false;
+                        }
 
                         // 🔴 INICIA O TIMER DE 3 MINUTOS AGORA
                         this.iniciarTimerSaida(alunoId, chamada.alunoNome);
