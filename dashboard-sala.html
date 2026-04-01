@@ -765,6 +765,59 @@
                 min-height: 55px;
             }
         }
+
+        /* Cores específicas para cada tipo de solicitante */
+        .aluno-card.tutor {
+            background: #ecfdf5 !important;
+            border-color: #10b981 !important;
+            color: #047857 !important;
+        }
+
+        .aluno-card.diretor {
+            background: #fef2f2 !important;
+            border-color: #ef4444 !important;
+            color: #dc2626 !important;
+        }
+
+        .aluno-card.token {
+            background: #fffbeb !important;
+            border-color: #f59e0b !important;
+            color: #b45309 !important;
+        }
+
+        .aluno-card.transporte {
+            background: #eef2ff !important;
+            border-color: #655df6 !important;
+            color: #3b34c6 !important;
+        }
+
+        .aluno-card.sistema {
+            background: #f1f5f9 !important;
+            border-color: #64748b !important;
+            color: #334155 !important;
+        }
+
+        /* Indicador de saída pendente */
+        .saida-pendente-indicador {
+            font-size: 0.6rem;
+            color: #f59e0b;
+            margin-top: 4px;
+            font-weight: 500;
+            animation: pulse-text 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse-text {
+
+            0%,
+            100% {
+                opacity: 0.7;
+            }
+
+            50% {
+                opacity: 1;
+                transform: scale(1.05);
+            }
+        }
     </style>
 
 </head>
@@ -1105,13 +1158,19 @@
                     return;
                 }
 
-                // 2. MARCA QUE TEM SOLICITAÇÃO PENDENTE (mas não altera o card ainda)
+                // 2. MARCA QUE TEM SOLICITAÇÃO PENDENTE
                 aluno.temSolicitacaoPendente = true;
                 aluno.tipoSolicitante = mensagem.tipoSolicitante;
                 aluno.parentesco = mensagem.parentesco;
 
-                // 3. ADICIONA À FILA PARA ANIMAÇÃO
-                this.filaDeChamadas.push(mensagem);
+                // 3. ADICIONA À FILA PARA ANIMAÇÃO (com os dados completos)
+                this.filaDeChamadas.push({
+                    alunoId: mensagem.alunoId,
+                    alunoNome: mensagem.alunoNome,
+                    tipoSolicitante: mensagem.tipoSolicitante,
+                    parentesco: mensagem.parentesco
+                });
+
                 if (!this.isProcessandoFila) {
                     this.isProcessandoFila = true;
                     this.processarProximoDaFila();
@@ -1218,18 +1277,25 @@
                 }
             }
 
-            aplicarEstiloPendenteAoCard(alunoCard, mensagem) {
-                console.log(`[ESTILO] Aplicando estilo pendente ao card do aluno ${mensagem.alunoNome}`);
+            aplicarEstiloPendenteAoCard(alunoCard, mensagem, corClasse) {
+                console.log(`[ESTILO] Aplicando estilo pendente ao card do aluno ${mensagem.alunoNome} com cor: ${corClasse}`);
 
-                // Limpa classes de cor antigas
-                alunoCard.classList.remove('tutor', 'diretor', 'token', 'sistema', 'transporte', 'pendente');
+                // 🔴 LIMPA TODAS AS CLASSES DE COR E PENDENTE
+                alunoCard.classList.remove('pendente', 'tutor', 'diretor', 'token', 'transporte', 'sistema');
 
-                // Determina e aplica a nova classe de cor
-                let tipo = (mensagem.tipoSolicitante || 'diretor').toLowerCase();
-                if (['parente', 'amigo', 'irmao'].includes(tipo)) {
-                    tipo = 'token';
+                // 🔴 APLICA A CLASSE DE COR CORRETA
+                alunoCard.classList.add('pendente', corClasse);
+
+                // ADICIONA TAMBÉM A CLASSE ESPECÍFICA PARA GARANTIR O ESTILO CSS
+                if (corClasse === 'tutor') {
+                    alunoCard.classList.add('tutor');
+                } else if (corClasse === 'diretor') {
+                    alunoCard.classList.add('diretor');
+                } else if (corClasse === 'token') {
+                    alunoCard.classList.add('token');
+                } else if (corClasse === 'transporte') {
+                    alunoCard.classList.add('transporte');
                 }
-                alunoCard.classList.add('pendente', tipo);
 
                 // Mantém o texto como "Presente"
                 const horarioElement = alunoCard.querySelector('.aluno-horario');
@@ -1243,12 +1309,12 @@
                     indicador = document.createElement('div');
                     indicador.className = 'saida-pendente-indicador';
                     indicador.style.cssText = `
-            font-size: 0.6rem;
-            color: #f59e0b;
-            margin-top: 4px;
-            font-weight: 500;
-            animation: pulse-text 1.5s ease-in-out infinite;
-        `;
+                        font-size: 0.6rem;
+                        color: #f59e0b;
+                        margin-top: 4px;
+                        font-weight: 500;
+                        animation: pulse-text 1.5s ease-in-out infinite;
+                    `;
                     alunoCard.appendChild(indicador);
                 }
                 indicador.textContent = '🚪 Saída solicitada';
@@ -1774,27 +1840,26 @@
                     return;
                 }
 
-                // 🔴 GUARDA AS CLASSES ORIGINAIS
-                const classesOriginais = alunoCard.className;
-
-                // 🔴 SALVA O ALUNO NO ESTADO PARA REFERÊNCIA
-                const aluno = this.alunos.find(a => a.id === alunoId);
-                if (aluno) {
-                    aluno.tipoSolicitante = tipoSolicitante;
-                    aluno.parentesco = parentesco;
+                // 🔴 SALVA O TIPO DE SOLICITANTE PARA USAR DEPOIS
+                const tipoParaCor = (tipoSolicitante || 'diretor').toLowerCase();
+                let corClasse = '';
+                if (['parente', 'amigo', 'irmao'].includes(tipoParaCor)) {
+                    corClasse = 'token';
+                } else {
+                    corClasse = tipoParaCor;
                 }
+
+                // 🔴 NÃO APLICA NENHUMA CLASE DE COR ANTES DA ANIMAÇÃO
+                // Remove qualquer classe pendente existente para garantir
+                alunoCard.classList.remove('pendente', 'tutor', 'diretor', 'token', 'transporte');
 
                 // A promessa que gerencia a animação
                 const promessaDeAnimacao = new Promise(resolve => {
-                    // Força reflow
                     const _ = alunoCard.offsetHeight;
-
                     requestAnimationFrame(() => {
                         const transformacao = this.calcularExpansaoCentralizada(alunoCard);
                         alunoCard.style.transform = transformacao;
                         alunoCard.classList.add('expandindo');
-
-                        // Resolve a promessa após 3 segundos (duração da animação)
                         setTimeout(resolve, 3000);
                     });
                 });
@@ -1813,17 +1878,16 @@
                 })();
 
                 try {
-                    // Espera por AMBAS as promessas (animação e áudio)
                     await Promise.all([promessaDeAnimacao, promessaSequenciaAudio]);
                 } catch (error) {
                     console.error("Erro durante a sincronização de áudio/animação:", error);
                 } finally {
-                    // 🔴 APÓS A ANIMAÇÃO: Finaliza a expansão e APLICA O ESTILO PENDENTE
-                    this.finalizarExpansaoEaplicarEstiloPendente(alunoCard, alunoId, chamada);
+                    // 🔴 APÓS A ANIMAÇÃO: Finaliza a expansão e APLICA O ESTILO PENDENTE COM A COR
+                    this.finalizarExpansaoEaplicarEstiloPendente(alunoCard, alunoId, chamada, corClasse);
                 }
             }
 
-            finalizarExpansaoEaplicarEstiloPendente(alunoCard, alunoId, chamada) {
+            finalizarExpansaoEaplicarEstiloPendente(alunoCard, alunoId, chamada, corClasse) {
                 if (!alunoCard) return;
 
                 // Remove as classes de animação
@@ -1835,8 +1899,8 @@
                     if (alunoCard) {
                         alunoCard.classList.remove('recolhendo');
 
-                        // 🔴 APLICA O ESTILO PENDENTE NO CARD
-                        this.aplicarEstiloPendenteAoCard(alunoCard, chamada);
+                        // 🔴 APLICA O ESTILO PENDENTE COM A COR CORRETA
+                        this.aplicarEstiloPendenteAoCard(alunoCard, chamada, corClasse);
 
                         // 🔴 INICIA O TIMER DE 3 MINUTOS AGORA
                         this.iniciarTimerSaida(alunoId, chamada.alunoNome);
