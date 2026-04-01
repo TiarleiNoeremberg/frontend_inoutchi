@@ -818,6 +818,19 @@
                 transform: scale(1.05);
             }
         }
+
+        /* Garantir que cards em animação fiquem sobrepostos */
+        .aluno-card.expandindo,
+        .aluno-card.recolhendo {
+            z-index: 10000 !important;
+            position: relative !important;
+            will-change: transform;
+        }
+
+        /* Garantir que o container não corte os cards expandidos */
+        .alunos-grid {
+            overflow: visible !important;
+        }
     </style>
 
 </head>
@@ -1028,7 +1041,13 @@
             renderizarAlunos() {
                 const grid = document.getElementById('alunosGrid');
 
-                // 1. Limpa a grade
+                // 🔴 NÃO RECRIA SE HOUVER ANIMAÇÃO EM ANDAMENTO
+                const temAnimacao = this.alunos.some(a => a.emAnimacao === true);
+                if (temAnimacao) {
+                    console.log('[RENDER] Animação em andamento, renderização adiada');
+                    return;
+                }
+
                 grid.innerHTML = '';
 
                 if (!this.alunos || this.alunos.length === 0) {
@@ -1036,7 +1055,6 @@
                     return;
                 }
 
-                // 2. CRIA OS CARDS EM MEMÓRIA
                 const fragment = document.createDocumentFragment();
 
                 this.alunos.forEach(aluno => {
@@ -1044,7 +1062,6 @@
                     card.className = 'aluno-card';
                     card.setAttribute('data-aluno-id', aluno.id);
 
-                    // Aplica a classe de cor baseada no status
                     if (aluno.temSolicitacaoPendente && aluno.status === 'PRESENTE') {
                         card.classList.add('pendente');
 
@@ -1058,11 +1075,10 @@
                     const nomeParaExibir = this.formatarNomeAluno(aluno);
 
                     let html = `
-                        <div class="aluno-nome">${nomeParaExibir}</div>
-                        <div class="aluno-horario">Presente</div>
-                    `;
+            <div class="aluno-nome">${nomeParaExibir}</div>
+            <div class="aluno-horario">Presente</div>
+        `;
 
-                    // Adiciona indicador se houver solicitação pendente
                     if (aluno.temSolicitacaoPendente) {
                         html += `<div class="saida-pendente-indicador" style="font-size: 0.6rem; color: #f59e0b; margin-top: 2px; font-weight: 500;">🚪 Saída solicitada</div>`;
                     }
@@ -1157,17 +1173,14 @@
                     return;
                 }
 
-                // Marca solicitação pendente
+                // Marca solicitação pendente e em animação
                 aluno.temSolicitacaoPendente = true;
-                aluno.confirmado = false; // 🔴 NOVO: ainda não confirmado
+                aluno.emAnimacao = true; // 🔴 IMPEDE RENDERIZAÇÃO DURANTE ANIMAÇÃO
+                aluno.confirmado = false;
                 aluno.tipoSolicitante = mensagem.tipoSolicitante;
                 aluno.parentesco = mensagem.parentesco;
 
-                // Remove flag emAnimacao se existir
-                aluno.emAnimacao = false;
-
-                // Renderiza imediatamente para mostrar a cor e indicador
-                this.renderizarAlunos();
+                // 🔴 NÃO RENDERIZA AQUI - a animação vai mostrar o card com a cor
 
                 // Adiciona à fila para animação
                 this.filaDeChamadas.push({
@@ -1851,7 +1864,7 @@
                     return;
                 }
 
-                // 🔴 SALVA O TIPO DE SOLICITANTE PARA USAR DEPOIS
+                // 🔴 DETERMINA A COR ANTES DA ANIMAÇÃO
                 const tipoParaCor = (tipoSolicitante || 'diretor').toLowerCase();
                 let corClasse = '';
                 if (['parente', 'amigo', 'irmao'].includes(tipoParaCor)) {
@@ -1860,9 +1873,38 @@
                     corClasse = tipoParaCor;
                 }
 
-                // 🔴 NÃO APLICA NENHUMA CLASE DE COR ANTES DA ANIMAÇÃO
-                // Remove qualquer classe pendente existente para garantir
-                alunoCard.classList.remove('pendente', 'tutor', 'diretor', 'token', 'transporte');
+                // 🔴 APLICA A COR IMEDIATAMENTE ANTES DA ANIMAÇÃO
+                alunoCard.classList.add('pendente', corClasse);
+                if (corClasse === 'tutor') {
+                    alunoCard.classList.add('tutor');
+                } else if (corClasse === 'diretor') {
+                    alunoCard.classList.add('diretor');
+                } else if (corClasse === 'token') {
+                    alunoCard.classList.add('token');
+                } else if (corClasse === 'transporte') {
+                    alunoCard.classList.add('transporte');
+                }
+
+                // Adiciona indicador visual
+                let indicador = alunoCard.querySelector('.saida-pendente-indicador');
+                if (!indicador) {
+                    indicador = document.createElement('div');
+                    indicador.className = 'saida-pendente-indicador';
+                    indicador.style.cssText = `
+            font-size: 0.6rem;
+            color: #f59e0b;
+            margin-top: 4px;
+            font-weight: 500;
+            animation: pulse-text 1.5s ease-in-out infinite;
+        `;
+                    alunoCard.appendChild(indicador);
+                }
+                indicador.textContent = '🚪 Saída solicitada';
+
+                // 🔴 GARANTE Z-INDEX ALTO DURANTE TODO O PROCESSO
+                alunoCard.style.position = 'relative';
+                alunoCard.style.zIndex = '1000';
+                alunoCard.style.transition = 'all 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
 
                 // A promessa que gerencia a animação
                 const promessaDeAnimacao = new Promise(resolve => {
@@ -1893,9 +1935,46 @@
                 } catch (error) {
                     console.error("Erro durante a sincronização de áudio/animação:", error);
                 } finally {
-                    // 🔴 APÓS A ANIMAÇÃO: Finaliza a expansão e APLICA O ESTILO PENDENTE COM A COR
-                    this.finalizarExpansaoEaplicarEstiloPendente(alunoCard, alunoId, chamada, corClasse);
+                    // 🔴 FINALIZA A EXPANSÃO (mantendo a cor e z-index alto)
+                    this.finalizarExpansaoComZIndexAlto(alunoCard, alunoId, chamada);
                 }
+            }
+
+            finalizarExpansaoComZIndexAlto(alunoCard, alunoId, chamada) {
+                if (!alunoCard) return;
+
+                // 🔴 REMOVE A CLASSE DE EXPANSÃO, MAS MANTÉM Z-INDEX ALTO
+                alunoCard.classList.remove('expandindo');
+                alunoCard.classList.add('recolhendo');
+
+                // 🔴 CALCULA A POSIÇÃO DE RETORNO
+                alunoCard.style.transform = '';
+                alunoCard.style.transition = 'transform 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94), box-shadow 0.8s ease';
+
+                setTimeout(() => {
+                    if (alunoCard) {
+                        alunoCard.classList.remove('recolhendo');
+
+                        // 🔴 MANTÉM Z-INDEX ALTO POR MAIS UM MOMENTO PARA GARANTIR SOBREPOSIÇÃO
+                        setTimeout(() => {
+                            if (alunoCard) {
+                                // Só remove o z-index alto após garantir que o card já recolheu
+                                alunoCard.style.zIndex = '';
+                                alunoCard.style.position = '';
+                                alunoCard.style.transition = '';
+                            }
+                        }, 100);
+
+                        // 🔴 MARCA QUE A ANIMAÇÃO TERMINOU
+                        const aluno = this.alunos.find(a => a.id === alunoId);
+                        if (aluno) {
+                            aluno.emAnimacao = false;
+                        }
+
+                        // 🔴 INICIA O TIMER DE 3 MINUTOS
+                        this.iniciarTimerSaida(alunoId, chamada.alunoNome);
+                    }
+                }, 800);
             }
 
             finalizarExpansaoEaplicarEstiloPendente(alunoCard, alunoId, chamada, corClasse) {
