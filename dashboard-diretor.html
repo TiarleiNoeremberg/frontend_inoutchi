@@ -4735,93 +4735,24 @@
             processarAcaoDiretor(studentId, type, studentName);
         };
 
-        // Substitua a função processarAcaoDiretor por esta versão
         async function processarAcaoDiretor(studentId, action, studentName) {
             try {
                 console.log(`🚀 Processando ${action} de ${studentName} (diretor)`);
 
-                // Verifica se o diretor está presente
                 if (directorStatus !== 'PRESENTE') {
                     showAlert('Ação não permitida. Você precisa registrar sua entrada na escola para gerenciar os alunos.', 'error');
                     return;
                 }
 
                 const accessToken = localStorage.getItem('access_token');
-
-                // Salva o estado atual ANTES da ação
                 const currentPage = currentStudentsPage;
                 const currentSearch = document.getElementById('studentSearch')?.value || '';
 
-                // Mostra mensagem de status
                 showAlert(`Processando ${action === 'entrada' ? 'entrada' : 'saída'} de ${studentName}...`, 'info');
 
                 if (action === 'entrada') {
-                    // ENTRADA - fluxo direto
-                    const body = {
-                        alunoId: parseInt(studentId),
-                        responsavelId: currentDirectorId,
-                        responsavelNome: currentUser?.nome || 'Diretor',
-                        responsavelTipo: 'DIRETOR'
-                    };
-
+                    // ENTRADA - fluxo direto (igual ao original)
                     const response = await fetch(`${BACKEND_URL}/api/presencas/entrada`, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify(body)
-                    });
-
-                    const responseText = await response.text();
-                    let result;
-                    try {
-                        result = JSON.parse(responseText);
-                    } catch (e) {
-                        result = { mensagem: responseText || 'Resposta inválida do servidor' };
-                    }
-
-                    if (!response.ok) {
-                        throw new Error(result.mensagem || result.erro || `Erro ${response.status}`);
-                    }
-
-                    console.log('✅ Entrada registrada com sucesso:', result);
-                    showAlert(`✅ Entrada de ${studentName} registrada!`, 'success');
-
-                } else {
-                    // SAÍDA - FLUXO EM DUAS ETAPAS (solicitar + confirmar)
-
-                    // 1. OBTÉM LOCALIZAÇÃO
-                    let latitude = null, longitude = null;
-
-                    try {
-                        showAlert('Obtendo localização do diretor...', 'info');
-
-                        const position = await new Promise((resolve, reject) => {
-                            navigator.geolocation.getCurrentPosition(resolve, reject, {
-                                enableHighAccuracy: true,
-                                timeout: 10000,
-                                maximumAge: 0
-                            });
-                        });
-
-                        latitude = position.coords.latitude;
-                        longitude = position.coords.longitude;
-
-                        console.log(`📍 Localização obtida: ${latitude}, ${longitude}`);
-
-                    } catch (geoError) {
-                        console.error('❌ Erro ao obter localização:', geoError);
-                        let errorMsg = 'Não foi possível obter sua localização.';
-                        if (geoError.code === 1) errorMsg = 'Permissão de localização negada.';
-                        if (geoError.code === 2) errorMsg = 'Localização indisponível. Verifique o GPS.';
-                        if (geoError.code === 3) errorMsg = 'Tempo esgotado. Tente novamente.';
-                        throw new Error(errorMsg);
-                    }
-
-                    // 2. SOLICITA A SAÍDA (cria estado AGUARDANDO_CONFIRMACAO)
-                    console.log('📤 Solicitando saída...');
-                    const solicitarResponse = await fetch(`${BACKEND_URL}/api/presencas/saida/solicitar`, {
                         method: 'POST',
                         headers: {
                             'Authorization': `Bearer ${accessToken}`,
@@ -4829,69 +4760,70 @@
                         },
                         body: JSON.stringify({
                             alunoId: parseInt(studentId),
-                            latitude: latitude,
-                            longitude: longitude
+                            responsavelId: currentDirectorId,
+                            responsavelNome: currentUser?.nome || 'Diretor',
+                            responsavelTipo: 'DIRETOR'
                         })
                     });
 
-                    const solicitarText = await solicitarResponse.text();
-                    let solicitarResult;
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.mensagem || 'Erro na entrada');
+                    showAlert(`✅ Entrada de ${studentName} registrada!`, 'success');
+
+                } else {
+                    // SAÍDA - FLUXO AUTOMATIZADO (igual ao tutor)
+
+                    // 1. Obtém localização
+                    let latitude = null, longitude = null;
                     try {
-                        solicitarResult = JSON.parse(solicitarText);
-                    } catch (e) {
-                        solicitarResult = { mensagem: solicitarText || 'Resposta inválida do servidor' };
+                        const position = await new Promise((resolve, reject) => {
+                            navigator.geolocation.getCurrentPosition(resolve, reject, {
+                                enableHighAccuracy: true,
+                                timeout: 10000
+                            });
+                        });
+                        latitude = position.coords.latitude;
+                        longitude = position.coords.longitude;
+                    } catch (geoError) {
+                        throw new Error('Não foi possível obter sua localização. Verifique as permissões.');
                     }
 
-                    if (!solicitarResponse.ok) {
-                        throw new Error(solicitarResult.mensagem || solicitarResult.erro || `Erro ao solicitar saída: ${solicitarResponse.status}`);
-                    }
-
-                    console.log('✅ Saída solicitada com sucesso:', solicitarResult);
-
-                    // 3. CONFIRMA A SAÍDA IMEDIATAMENTE
-                    console.log('📤 Confirmando saída...');
-                    const confirmarResponse = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${studentId}`, {
+                    // 2. SOLICITA a saída (cria AGUARDANDO_CONFIRMACAO)
+                    const solicitarResponse = await fetch(`${BACKEND_URL}/api/presencas/saida/solicitar`, {
                         method: 'POST',
                         headers: {
                             'Authorization': `Bearer ${accessToken}`,
                             'Content-Type': 'application/json'
-                        }
+                        },
+                        body: JSON.stringify({ alunoId: parseInt(studentId), latitude, longitude })
                     });
 
-                    const confirmarText = await confirmarResponse.text();
-                    let confirmarResult;
-                    try {
-                        confirmarResult = JSON.parse(confirmarText);
-                    } catch (e) {
-                        confirmarResult = { mensagem: confirmarText || 'Resposta inválida do servidor' };
+                    if (!solicitarResponse.ok) {
+                        const error = await solicitarResponse.json();
+                        throw new Error(error.mensagem || 'Erro ao solicitar saída');
                     }
+
+                    // 3. CONFIRMA a saída IMEDIATAMENTE (remove AGUARDANDO_CONFIRMACAO)
+                    const confirmarResponse = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${studentId}`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                    });
 
                     if (!confirmarResponse.ok) {
-                        throw new Error(confirmarResult.mensagem || confirmarResult.erro || `Erro ao confirmar saída: ${confirmarResponse.status}`);
+                        const error = await confirmarResponse.json();
+                        throw new Error(error.mensagem || 'Erro ao confirmar saída');
                     }
 
-                    console.log('✅ Saída confirmada com sucesso:', confirmarResult);
                     showAlert(`✅ Saída de ${studentName} confirmada!`, 'success');
                 }
 
-                // Atualiza os dados MANTENDO a página e busca atuais
+                // Atualiza a lista mantendo a página
                 await loadAllStudents(currentPage, currentSearch);
-
-                // Reatribui a página global
                 currentStudentsPage = currentPage;
 
-                // Atualiza o campo de busca visualmente
-                const searchInput = document.getElementById('studentSearch');
-                if (searchInput && searchInput.value !== currentSearch) {
-                    searchInput.value = currentSearch;
-                }
-
-                // Atualiza o modal da sala SE ele estiver VISÍVEL
+                // Atualiza o modal da sala se estiver aberto
                 const detailsModal = document.getElementById('detailsModal');
-                const isClassroomModalOpen = detailsModal && detailsModal.style.display === 'flex';
-
-                if (isClassroomModalOpen && currentClassroomModal.classroomId) {
-                    console.log('🔄 Modal da sala está aberto, atualizando...');
+                if (detailsModal && detailsModal.style.display === 'flex' && currentClassroomModal.classroomId) {
                     await viewClassroomStudents(
                         currentClassroomModal.classroomId,
                         currentClassroomModal.classroomName,
@@ -5841,9 +5773,8 @@
                                 statusText = 'Aguardando';
                                 statusClass = 'status-awaiting';
                                 actionsHtml = `<button class="btn btn-warning btn-sm" ${disabledAttr} ${disabledTitle} onclick="openDirectorConfirmExitModal(${student.id}, '${safeStudentName}')" style="padding: 6px 12px; font-size: 0.75rem;">
-                                                    <i class="fas fa-check-circle"></i> Confirmar
-                                                </button>
-                                              `;
+                    <i class="fas fa-check-circle"></i> Confirmar
+                </button>`;
                                 break;
                             default:
                                 statusText = student.status || 'Indefinido';
@@ -6142,113 +6073,61 @@
                     return;
                 }
 
-                // Salva o estado atual ANTES da ação
                 const currentPage = currentStudentsPage;
                 const currentSearch = document.getElementById('studentSearch')?.value || '';
-
                 const accessToken = await garantirAutenticacao();
                 if (!accessToken) throw new Error("Falha na autenticação.");
 
-                // 1. OBTÉM LOCALIZAÇÃO
+                // 1. Obtém localização
                 let latitude = null, longitude = null;
-
                 try {
-                    showAlert('Obtendo localização do diretor...', 'info');
-
                     const position = await new Promise((resolve, reject) => {
                         navigator.geolocation.getCurrentPosition(resolve, reject, {
                             enableHighAccuracy: true,
-                            timeout: 10000,
-                            maximumAge: 0
+                            timeout: 10000
                         });
                     });
-
                     latitude = position.coords.latitude;
                     longitude = position.coords.longitude;
-
-                    console.log(`📍 Localização obtida: ${latitude}, ${longitude}`);
-
                 } catch (geoError) {
-                    console.error('❌ Erro ao obter localização:', geoError);
-                    let errorMsg = 'Não foi possível obter sua localização.';
-                    if (geoError.code === 1) errorMsg = 'Permissão de localização negada.';
-                    if (geoError.code === 2) errorMsg = 'Localização indisponível. Verifique o GPS.';
-                    if (geoError.code === 3) errorMsg = 'Tempo esgotado. Tente novamente.';
-                    throw new Error(errorMsg);
+                    throw new Error('Não foi possível obter sua localização. Verifique as permissões.');
                 }
 
-                // 2. SOLICITA A SAÍDA (cria estado AGUARDANDO_CONFIRMACAO)
-                console.log('📤 Solicitando saída...');
+                // 2. SOLICITA a saída
                 const solicitarResponse = await fetch(`${BACKEND_URL}/api/presencas/saida/solicitar`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({
-                        alunoId: parseInt(alunoId),
-                        latitude: latitude,
-                        longitude: longitude
-                    })
+                    body: JSON.stringify({ alunoId: parseInt(alunoId), latitude, longitude })
                 });
-
-                const solicitarText = await solicitarResponse.text();
-                let solicitarResult;
-                try {
-                    solicitarResult = JSON.parse(solicitarText);
-                } catch (e) {
-                    solicitarResult = { mensagem: solicitarText || 'Resposta inválida do servidor' };
-                }
 
                 if (!solicitarResponse.ok) {
-                    throw new Error(solicitarResult.mensagem || solicitarResult.erro || `Erro ao solicitar saída: ${solicitarResponse.status}`);
+                    const error = await solicitarResponse.json();
+                    throw new Error(error.mensagem || 'Erro ao solicitar saída');
                 }
 
-                console.log('✅ Saída solicitada com sucesso:', solicitarResult);
-
-                // 3. CONFIRMA A SAÍDA IMEDIATAMENTE
-                console.log('📤 Confirmando saída...');
+                // 3. CONFIRMA a saída imediatamente
                 const confirmarResponse = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`, {
                     method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
 
-                const confirmarText = await confirmarResponse.text();
-                let confirmarResult;
-                try {
-                    confirmarResult = JSON.parse(confirmarText);
-                } catch (e) {
-                    confirmarResult = { mensagem: confirmarText || 'Resposta inválida do servidor' };
-                }
-
                 if (!confirmarResponse.ok) {
-                    throw new Error(confirmarResult.mensagem || confirmarResult.erro || `Erro ao confirmar saída: ${confirmarResponse.status}`);
+                    const error = await confirmarResponse.json();
+                    throw new Error(error.mensagem || 'Erro ao confirmar saída');
                 }
 
-                console.log('✅ Saída confirmada com sucesso:', confirmarResult);
                 showAlert(`✅ Saída de ${alunoNome} confirmada!`, 'success');
 
-                // Atualiza os dados MANTENDO a página e busca atuais
+                // Atualiza os dados mantendo a página
                 await loadAllStudents(currentPage, currentSearch);
-
-                // Reatribui a página global
                 currentStudentsPage = currentPage;
 
-                // Atualiza o campo de busca visualmente
-                const searchInput = document.getElementById('studentSearch');
-                if (searchInput && searchInput.value !== currentSearch) {
-                    searchInput.value = currentSearch;
-                }
-
-                // Atualiza o modal da sala SE ele estiver VISÍVEL
+                // Atualiza o modal da sala se estiver aberto
                 const detailsModal = document.getElementById('detailsModal');
-                const isClassroomModalOpen = detailsModal && detailsModal.style.display === 'flex';
-
-                if (isClassroomModalOpen && currentClassroomModal.classroomId) {
-                    console.log('🔄 Modal da sala está aberto, atualizando...');
+                if (detailsModal && detailsModal.style.display === 'flex' && currentClassroomModal.classroomId) {
                     await viewClassroomStudents(
                         currentClassroomModal.classroomId,
                         currentClassroomModal.classroomName,
