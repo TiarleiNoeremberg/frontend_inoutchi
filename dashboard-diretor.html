@@ -4736,9 +4736,16 @@
         };
 
         // Substitua a função processarAcaoDiretor por esta versão corrigida
+        // Substitua a função processarAcaoDiretor por esta versão
         async function processarAcaoDiretor(studentId, action, studentName) {
             try {
                 console.log(`🚀 Processando ${action} de ${studentName} (diretor)`);
+
+                // Verifica se o diretor está presente
+                if (directorStatus !== 'PRESENTE') {
+                    showAlert('Ação não permitida. Você precisa registrar sua entrada na escola para gerenciar os alunos.', 'error');
+                    return;
+                }
 
                 const accessToken = localStorage.getItem('access_token');
 
@@ -4759,8 +4766,8 @@
                         responsavelNome: currentUser?.nome || 'Diretor',
                         responsavelTipo: 'DIRETOR'
                     };
-                } else { // SAÍDA
-                    // Obtém localização do diretor em background
+                } else { // SAÍDA - AGORA DIRETA, SEM SOLICITAÇÃO
+                    // Obtém localização do diretor
                     let latitude = null, longitude = null;
 
                     try {
@@ -4788,24 +4795,32 @@
                         throw new Error(errorMsg);
                     }
 
-                    endpoint = `${BACKEND_URL}/api/presencas/saida/solicitar`;
-                    body = {
-                        alunoId: parseInt(studentId),
-                        latitude: latitude,
-                        longitude: longitude
-                    };
+                    // 🔴 NOVO FLUXO: Chamar confirmar-saida DIRETAMENTE
+                    endpoint = `${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${studentId}`;
+                    body = null; // GET com query param
                 }
 
-                console.log('📤 Enviando requisição:', { endpoint, body });
+                let response;
 
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(body)
-                });
+                if (action === 'entrada') {
+                    response = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(body)
+                    });
+                } else {
+                    // SAÍDA - POST sem body
+                    response = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                }
 
                 console.log('📥 Status da resposta:', response.status);
 
@@ -4827,14 +4842,13 @@
 
                 const successMessage = action === 'entrada' ?
                     `✅ Entrada de ${studentName} registrada!` :
-                    `✅ Saída de ${studentName} solicitada!`;
+                    `✅ Saída de ${studentName} confirmada!`;
                 showAlert(successMessage, 'success');
 
-                // ===== CORREÇÃO CRÍTICA =====
-                // Atualiza os dados da tabela de alunos MANTENDO a página e busca atuais
+                // Atualiza os dados MANTENDO a página e busca atuais
                 await loadAllStudents(currentPage, currentSearch);
 
-                // Reatribui a página global para garantir consistência
+                // Reatribui a página global
                 currentStudentsPage = currentPage;
 
                 // Atualiza o campo de busca visualmente
@@ -4842,7 +4856,6 @@
                 if (searchInput && searchInput.value !== currentSearch) {
                     searchInput.value = currentSearch;
                 }
-                // ============================
 
                 // Atualiza o modal da sala SE ele estiver VISÍVEL
                 const detailsModal = document.getElementById('detailsModal');
@@ -4855,8 +4868,6 @@
                         currentClassroomModal.classroomName,
                         currentClassroomModal.onlyPresent
                     );
-                } else {
-                    console.log('✅ Modal da sala NÃO está aberto, pulando atualização');
                 }
 
             } catch (error) {
@@ -5801,8 +5812,9 @@
                                 statusText = 'Aguardando';
                                 statusClass = 'status-awaiting';
                                 actionsHtml = `<button class="btn btn-warning btn-sm" ${disabledAttr} ${disabledTitle} onclick="openDirectorConfirmExitModal(${student.id}, '${safeStudentName}')" style="padding: 6px 12px; font-size: 0.75rem;">
-                    <i class="fas fa-check-circle"></i> Confirmar
-                </button>`;
+                                                    <i class="fas fa-check-circle"></i> Confirmar
+                                                </button>
+                                              `;
                                 break;
                             default:
                                 statusText = student.status || 'Indefinido';
@@ -6086,6 +6098,7 @@
          * Função que REALMENTE executa a confirmação no backend.
          * Chamada apenas quando o usuário clica no botão "Sim, Confirmar" do modal.
          */
+        // Substitua a função handleConfirmarSaida por esta versão
         async function handleConfirmarSaida(alunoId, alunoNome) {
             console.log(`✅ Processo de confirmação via modal iniciado para: ${alunoNome} (ID: ${alunoId})`);
 
@@ -6108,6 +6121,7 @@
                 const accessToken = await garantirAutenticacao();
                 if (!accessToken) throw new Error("Falha na autenticação.");
 
+                // 🔴 AGORA CHAMA DIRETAMENTE O CONFIRMAR-SAIDA
                 const response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`, {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -6155,7 +6169,7 @@
                 setupStudentsPagination(paginatedData);
                 refreshOverviewData();
 
-                // ===== CORREÇÃO: Mantém a página global =====
+                // Mantém a página global
                 currentStudentsPage = currentPage;
 
                 // Atualiza o campo de busca visualmente
@@ -6163,7 +6177,6 @@
                 if (searchInput && searchInput.value !== currentSearch) {
                     searchInput.value = currentSearch;
                 }
-                // ============================================
 
                 // Atualiza o modal da sala SE ele estiver VISÍVEL
                 const detailsModal = document.getElementById('detailsModal');
@@ -6176,8 +6189,6 @@
                         currentClassroomModal.classroomName,
                         currentClassroomModal.onlyPresent
                     );
-                } else {
-                    console.log('✅ Modal da sala NÃO está aberto, pulando atualização');
                 }
 
             } catch (error) {
