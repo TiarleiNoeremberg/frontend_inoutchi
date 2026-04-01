@@ -1157,18 +1157,19 @@
                     return;
                 }
 
-                // Só marca que tem solicitação pendente
+                // Marca solicitação pendente
                 aluno.temSolicitacaoPendente = true;
+                aluno.confirmado = false; // 🔴 NOVO: ainda não confirmado
                 aluno.tipoSolicitante = mensagem.tipoSolicitante;
                 aluno.parentesco = mensagem.parentesco;
 
-                // 🔴 IMPORTANTE: Remove a flag emAnimacao se existir
+                // Remove flag emAnimacao se existir
                 aluno.emAnimacao = false;
 
                 // Renderiza imediatamente para mostrar a cor e indicador
                 this.renderizarAlunos();
 
-                // Adiciona à fila para animação (se quiser manter a animação)
+                // Adiciona à fila para animação
                 this.filaDeChamadas.push({
                     alunoId: mensagem.alunoId,
                     alunoNome: mensagem.alunoNome,
@@ -1183,7 +1184,6 @@
             }
 
             iniciarTimerSaida(alunoId, alunoNome) {
-                // Remove timer existente se houver
                 if (this.timersSaida.has(alunoId)) {
                     clearTimeout(this.timersSaida.get(alunoId));
                 }
@@ -1193,7 +1193,6 @@
                 const timer = setTimeout(async () => {
                     console.log(`⏰ Timer expirado! Removendo aluno ${alunoNome} da sala...`);
 
-                    // Verifica se o aluno ainda está na lista
                     const aluno = this.alunos.find(a => a.id === alunoId);
                     if (!aluno) {
                         console.log(`⚠️ Aluno ${alunoNome} já foi removido. Ignorando.`);
@@ -1201,52 +1200,45 @@
                         return;
                     }
 
-                    // Verifica se ainda tem solicitação pendente (não foi confirmado antes)
-                    if (!aluno.temSolicitacaoPendente) {
-                        console.log(`⚠️ Solicitação de ${alunoNome} já foi processada. Ignorando.`);
-                        this.timersSaida.delete(alunoId);
-                        return;
-                    }
-
-                    // 🔴 CONFIRMA A SAÍDA AUTOMATICAMENTE
-                    try {
-                        await this.confirmarSaidaAutomatica(alunoId, alunoNome);
-
-                        // Remove a marcação de pendente
-                        aluno.temSolicitacaoPendente = false;
-
-                        // Remove o aluno da lista de alunos
-                        this.alunos = this.alunos.filter(a => a.id !== alunoId);
-
-                        // Remove o card do DOM com animação
-                        const alunoCard = document.querySelector(`[data-aluno-id="${alunoId}"]`);
-                        if (alunoCard) {
-                            alunoCard.classList.add('removendo');
+                    // 🔴 VERIFICA SE A SAÍDA JÁ FOI CONFIRMADA NO BACKEND
+                    // Se já foi confirmada, não precisa chamar a API novamente
+                    if (!aluno.confirmado) {
+                        try {
+                            await this.confirmarSaidaAutomatica(alunoId, alunoNome);
+                        } catch (error) {
+                            console.error(`❌ Erro ao confirmar saída automática de ${alunoNome}:`, error);
+                            // Em caso de erro, tenta novamente após 30 segundos
                             setTimeout(() => {
-                                if (alunoCard.parentNode) {
-                                    alunoCard.remove();
+                                if (aluno.temSolicitacaoPendente) {
+                                    this.iniciarTimerSaida(alunoId, alunoNome);
                                 }
-                                // Se não houver mais alunos, mostra mensagem vazia
-                                if (this.alunos.length === 0) {
-                                    const grid = document.getElementById('alunosGrid');
-                                    grid.innerHTML = '<div class="empty-state">Nenhum aluno presente na sala</div>';
-                                }
-                            }, 450);
-                        } else {
-                            this.renderizarAlunos();
+                            }, 30000);
+                            return;
                         }
-
-                    } catch (error) {
-                        console.error(`❌ Erro ao confirmar saída automática de ${alunoNome}:`, error);
-                        // Em caso de erro, mantém o aluno na lista e tenta novamente após 30 segundos
-                        setTimeout(() => {
-                            if (aluno.temSolicitacaoPendente) {
-                                this.iniciarTimerSaida(alunoId, alunoNome);
-                            }
-                        }, 30000);
-                    } finally {
-                        this.timersSaida.delete(alunoId);
                     }
+
+                    // Remove o aluno da lista
+                    aluno.temSolicitacaoPendente = false;
+                    this.alunos = this.alunos.filter(a => a.id !== alunoId);
+
+                    // Remove o card do DOM com animação
+                    const alunoCard = document.querySelector(`[data-aluno-id="${alunoId}"]`);
+                    if (alunoCard) {
+                        alunoCard.classList.add('removendo');
+                        setTimeout(() => {
+                            if (alunoCard.parentNode) {
+                                alunoCard.remove();
+                            }
+                            if (this.alunos.length === 0) {
+                                const grid = document.getElementById('alunosGrid');
+                                grid.innerHTML = '<div class="empty-state">Nenhum aluno presente na sala</div>';
+                            }
+                        }, 450);
+                    } else {
+                        this.renderizarAlunos();
+                    }
+
+                    this.timersSaida.delete(alunoId);
                 }, 3 * 60 * 1000); // 3 minutos
 
                 this.timersSaida.set(alunoId, timer);
@@ -1361,39 +1353,26 @@
             processarSaidaConfirmada(mensagem) {
                 console.log(`[SAÍDA] Processando confirmação para ${mensagem.alunoNome}`);
 
-                // Cancela o timer se existir
-                if (this.timersSaida.has(mensagem.alunoId)) {
-                    clearTimeout(this.timersSaida.get(mensagem.alunoId));
-                    this.timersSaida.delete(mensagem.alunoId);
-                }
+                // 🔴 NÃO CANCELA O TIMER - Deixa o timer de 3 minutos rodar
+                // if (this.timersSaida.has(mensagem.alunoId)) {
+                //     clearTimeout(this.timersSaida.get(mensagem.alunoId));
+                //     this.timersSaida.delete(mensagem.alunoId);
+                // }
 
-                // Atualiza o aluno no estado
+                // Atualiza o aluno no estado - marca que foi confirmado mas mantém na tela
                 const aluno = this.alunos.find(a => a.id === mensagem.alunoId);
                 if (aluno) {
-                    aluno.temSolicitacaoPendente = false;
+                    aluno.temSolicitacaoPendente = true; // Mantém pendente até o timer expirar
+                    aluno.confirmado = true; // Marca que já foi confirmado no backend
                 }
 
+                // 🔴 NÃO REMOVE O CARD - Apenas atualiza visualmente se necessário
                 const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
-
-                // ANIMAÇÃO DE SAÍDA
                 if (alunoCard) {
-                    alunoCard.classList.add('removendo');
+                    // Mantém o card com a cor e indicador
+                    // Não adiciona a classe 'removendo'
+                    console.log(`[SAÍDA] Aluno ${mensagem.alunoNome} confirmado, mas permanecerá na tela por 3 minutos.`);
                 }
-
-                setTimeout(() => {
-                    this.alunos = this.alunos.filter(aluno => aluno.id !== mensagem.alunoId);
-
-                    if (alunoCard && alunoCard.parentNode) {
-                        alunoCard.remove();
-                    } else {
-                        this.renderizarAlunos();
-                    }
-
-                    if (this.alunos.length === 0) {
-                        const grid = document.getElementById('alunosGrid');
-                        grid.innerHTML = '<div class="empty-state">Nenhum aluno presente na sala</div>';
-                    }
-                }, 450);
             }
 
             //========================================================
