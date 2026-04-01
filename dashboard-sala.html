@@ -1092,48 +1092,25 @@
             }
 
             processarSaidaPendente(mensagem) {
-                // 1. 🔴 VALIDAÇÃO DE HORÁRIO
+                // 1. VALIDAÇÃO DE HORÁRIO
                 const aluno = this.alunos.find(a => a.id === mensagem.alunoId);
                 if (!aluno) {
                     console.warn(`[PENDENTE] Aluno com ID ${mensagem.alunoId} não foi encontrado.`);
                     return;
                 }
 
-                // Valida se a solicitação pode ser processada baseada no horário
                 const validacao = this.validarSolicitacaoSaida(aluno);
                 if (!validacao.permitido) {
                     console.log(`⏰ Solicitação de saída para ${mensagem.alunoNome} bloqueada por horário`);
-                    return; // Ignora a solicitação completamente
+                    return;
                 }
 
-                // 2. ATUALIZA O ESTADO (só chega aqui se passou na validação)
-                // 🔴 IMPORTANTE: Mantém o status como 'PRESENTE' para não perder o card
-                // Mas armazena que tem uma solicitação pendente
+                // 2. MARCA QUE TEM SOLICITAÇÃO PENDENTE (mas não altera o card ainda)
                 aluno.temSolicitacaoPendente = true;
                 aluno.tipoSolicitante = mensagem.tipoSolicitante;
                 aluno.parentesco = mensagem.parentesco;
 
-                // 3. ATUALIZA O CARD DIRETAMENTE (apenas estilo visual, sem remover)
-                let alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
-
-                if (!alunoCard) {
-                    setTimeout(() => {
-                        alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
-                        if (alunoCard) {
-                            this.aplicarEstiloPendenteAoCard(alunoCard, mensagem);
-                        } else {
-                            this.renderizarAlunos();
-                        }
-                    }, 100);
-                    return;
-                }
-
-                this.aplicarEstiloPendenteAoCard(alunoCard, mensagem);
-
-                // 4. 🔴 INICIA O TIMER DE 3 MINUTOS PARA REMOVER O CARD
-                this.iniciarTimerSaida(mensagem.alunoId, mensagem.alunoNome);
-
-                // 5. LÓGICA DA FILA (animação + áudio)
+                // 3. ADICIONA À FILA PARA ANIMAÇÃO
                 this.filaDeChamadas.push(mensagem);
                 if (!this.isProcessandoFila) {
                     this.isProcessandoFila = true;
@@ -1152,7 +1129,7 @@
                 const timer = setTimeout(async () => {
                     console.log(`⏰ Timer expirado! Removendo aluno ${alunoNome} da sala...`);
 
-                    // Verifica se o aluno ainda está na lista (não foi removido antes)
+                    // Verifica se o aluno ainda está na lista
                     const aluno = this.alunos.find(a => a.id === alunoId);
                     if (!aluno) {
                         console.log(`⚠️ Aluno ${alunoNome} já foi removido. Ignorando.`);
@@ -1160,9 +1137,19 @@
                         return;
                     }
 
+                    // Verifica se ainda tem solicitação pendente (não foi confirmado antes)
+                    if (!aluno.temSolicitacaoPendente) {
+                        console.log(`⚠️ Solicitação de ${alunoNome} já foi processada. Ignorando.`);
+                        this.timersSaida.delete(alunoId);
+                        return;
+                    }
+
                     // 🔴 CONFIRMA A SAÍDA AUTOMATICAMENTE
                     try {
                         await this.confirmarSaidaAutomatica(alunoId, alunoNome);
+
+                        // Remove a marcação de pendente
+                        aluno.temSolicitacaoPendente = false;
 
                         // Remove o aluno da lista de alunos
                         this.alunos = this.alunos.filter(a => a.id !== alunoId);
@@ -1172,7 +1159,9 @@
                         if (alunoCard) {
                             alunoCard.classList.add('removendo');
                             setTimeout(() => {
-                                alunoCard.remove();
+                                if (alunoCard.parentNode) {
+                                    alunoCard.remove();
+                                }
                                 // Se não houver mais alunos, mostra mensagem vazia
                                 if (this.alunos.length === 0) {
                                     const grid = document.getElementById('alunosGrid');
@@ -1180,12 +1169,17 @@
                                 }
                             }, 450);
                         } else {
-                            // Fallback: renderiza tudo
                             this.renderizarAlunos();
                         }
 
                     } catch (error) {
                         console.error(`❌ Erro ao confirmar saída automática de ${alunoNome}:`, error);
+                        // Em caso de erro, mantém o aluno na lista e tenta novamente após 30 segundos
+                        setTimeout(() => {
+                            if (aluno.temSolicitacaoPendente) {
+                                this.iniciarTimerSaida(alunoId, alunoNome);
+                            }
+                        }, 30000);
                     } finally {
                         this.timersSaida.delete(alunoId);
                     }
@@ -1225,10 +1219,10 @@
             }
 
             aplicarEstiloPendenteAoCard(alunoCard, mensagem) {
-                console.log(`[BISTURI] Aplicando estilo pendente ao card do aluno ${mensagem.alunoNome}`);
+                console.log(`[ESTILO] Aplicando estilo pendente ao card do aluno ${mensagem.alunoNome}`);
 
                 // Limpa classes de cor antigas
-                alunoCard.classList.remove('tutor', 'diretor', 'token', 'sistema', 'transporte');
+                alunoCard.classList.remove('tutor', 'diretor', 'token', 'sistema', 'transporte', 'pendente');
 
                 // Determina e aplica a nova classe de cor
                 let tipo = (mensagem.tipoSolicitante || 'diretor').toLowerCase();
@@ -1237,25 +1231,39 @@
                 }
                 alunoCard.classList.add('pendente', tipo);
 
-                // 🔴 NÃO ALTERA O TEXTO DO HORÁRIO - Mantém "Presente"
+                // Mantém o texto como "Presente"
                 const horarioElement = alunoCard.querySelector('.aluno-horario');
-                if (horarioElement && horarioElement.textContent !== 'Presente') {
+                if (horarioElement) {
                     horarioElement.textContent = 'Presente';
                 }
 
-                // Adiciona um pequeno indicador visual de que saída foi solicitada
-                const indicadorExistente = alunoCard.querySelector('.saida-pendente-indicador');
-                if (!indicadorExistente) {
-                    const indicador = document.createElement('div');
+                // Adiciona um indicador visual de que saída foi solicitada (se não existir)
+                let indicador = alunoCard.querySelector('.saida-pendente-indicador');
+                if (!indicador) {
+                    indicador = document.createElement('div');
                     indicador.className = 'saida-pendente-indicador';
                     indicador.style.cssText = `
-                        font-size: 0.6rem;
-                        color: #f59e0b;
-                        margin-top: 2px;
-                        font-weight: 500;
-                    `;
-                    indicador.textContent = '🚪 Saída solicitada';
+            font-size: 0.6rem;
+            color: #f59e0b;
+            margin-top: 4px;
+            font-weight: 500;
+            animation: pulse-text 1.5s ease-in-out infinite;
+        `;
                     alunoCard.appendChild(indicador);
+                }
+                indicador.textContent = '🚪 Saída solicitada';
+
+                // Adiciona a animação de pulso se não existir
+                if (!document.querySelector('#pulse-text-style')) {
+                    const style = document.createElement('style');
+                    style.id = 'pulse-text-style';
+                    style.textContent = `
+                        @keyframes pulse-text {
+                            0%, 100% { opacity: 0.7; }
+                            50% { opacity: 1; transform: scale(1.05); }
+                        }
+                    `;
+                    document.head.appendChild(style);
                 }
             }
 
@@ -1288,31 +1296,32 @@
                     this.timersSaida.delete(mensagem.alunoId);
                 }
 
+                // Atualiza o aluno no estado
+                const aluno = this.alunos.find(a => a.id === mensagem.alunoId);
+                if (aluno) {
+                    aluno.temSolicitacaoPendente = false;
+                }
+
                 const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
 
-                // 1. ANIMAÇÃO: Aplica a classe para a animação de saída.
+                // ANIMAÇÃO DE SAÍDA
                 if (alunoCard) {
                     alunoCard.classList.add('removendo');
                 }
 
-                // 2. ATRASO SINCRONIZADO: Espera a animação terminar.
                 setTimeout(() => {
-                    // 3. ATUALIZA O ESTADO: Remove o aluno da lista de dados.
                     this.alunos = this.alunos.filter(aluno => aluno.id !== mensagem.alunoId);
 
-                    if (alunoCard) {
+                    if (alunoCard && alunoCard.parentNode) {
                         alunoCard.remove();
-                        console.log(`[SAÍDA] Card do aluno ${mensagem.alunoNome} removido do DOM.`);
                     } else {
                         this.renderizarAlunos();
                     }
 
-                    // Se não houver mais alunos, mostra mensagem vazia
                     if (this.alunos.length === 0) {
                         const grid = document.getElementById('alunosGrid');
                         grid.innerHTML = '<div class="empty-state">Nenhum aluno presente na sala</div>';
                     }
-
                 }, 450);
             }
 
@@ -1757,7 +1766,7 @@
             }
 
             async executarDestaqueCompleto(chamada) {
-                const { alunoId, alunoNome } = chamada;
+                const { alunoId, alunoNome, tipoSolicitante, parentesco } = chamada;
                 const alunoCard = document.querySelector(`[data-aluno-id="${alunoId}"]`);
 
                 if (!alunoCard) {
@@ -1765,32 +1774,32 @@
                     return;
                 }
 
+                // 🔴 GUARDA AS CLASSES ORIGINAIS
+                const classesOriginais = alunoCard.className;
+
+                // 🔴 SALVA O ALUNO NO ESTADO PARA REFERÊNCIA
+                const aluno = this.alunos.find(a => a.id === alunoId);
+                if (aluno) {
+                    aluno.tipoSolicitante = tipoSolicitante;
+                    aluno.parentesco = parentesco;
+                }
+
                 // A promessa que gerencia a animação
                 const promessaDeAnimacao = new Promise(resolve => {
-
-                    // --- INÍCIO DA CORREÇÃO CRÍTICA (Forçar Reflow + rAF) ---
-
-                    // PASSO 1: Força o navegador a calcular o layout do card AGORA.
-                    // Ler uma propriedade como 'offsetHeight' é uma forma conhecida e confiável
-                    // de forçar uma "reflow" síncrona. A variável não é usada.
+                    // Força reflow
                     const _ = alunoCard.offsetHeight;
 
-                    // PASSO 2: Agora que a posição inicial está garantida, esperamos o PRÓXIMO
-                    // quadro de animação para aplicar a classe e o transform.
-                    // Isso garante que o navegador veja a mudança de um estado inicial para um final.
                     requestAnimationFrame(() => {
                         const transformacao = this.calcularExpansaoCentralizada(alunoCard);
                         alunoCard.style.transform = transformacao;
                         alunoCard.classList.add('expandindo');
 
-                        // Resolve a promessa após o tempo da animação para continuar a fila.
+                        // Resolve a promessa após 3 segundos (duração da animação)
                         setTimeout(resolve, 3000);
                     });
-
-                    // --- FIM DA CORREÇÃO CRÍTICA ---
                 });
 
-                // A lógica de áudio (que já está correta) executa em paralelo.
+                // A lógica de áudio executa em paralelo
                 const promessaSequenciaAudio = (async () => {
                     try {
                         const promessaDaVoz = this.prepararVozCartesia(chamada);
@@ -1804,14 +1813,35 @@
                 })();
 
                 try {
-                    // Espera por AMBAS as promessas (animação e áudio).
+                    // Espera por AMBAS as promessas (animação e áudio)
                     await Promise.all([promessaDeAnimacao, promessaSequenciaAudio]);
                 } catch (error) {
                     console.error("Erro durante a sincronização de áudio/animação:", error);
                 } finally {
-                    // Garante que a expansão sempre será finalizada.
-                    this.finalizarExpansao(alunoCard, alunoId);
+                    // 🔴 APÓS A ANIMAÇÃO: Finaliza a expansão e APLICA O ESTILO PENDENTE
+                    this.finalizarExpansaoEaplicarEstiloPendente(alunoCard, alunoId, chamada);
                 }
+            }
+
+            finalizarExpansaoEaplicarEstiloPendente(alunoCard, alunoId, chamada) {
+                if (!alunoCard) return;
+
+                // Remove as classes de animação
+                alunoCard.classList.remove('expandindo');
+                alunoCard.classList.add('recolhendo');
+                alunoCard.style.transform = '';
+
+                setTimeout(() => {
+                    if (alunoCard) {
+                        alunoCard.classList.remove('recolhendo');
+
+                        // 🔴 APLICA O ESTILO PENDENTE NO CARD
+                        this.aplicarEstiloPendenteAoCard(alunoCard, chamada);
+
+                        // 🔴 INICIA O TIMER DE 3 MINUTOS AGORA
+                        this.iniciarTimerSaida(alunoId, chamada.alunoNome);
+                    }
+                }, 800);
             }
 
             finalizarExpansao(alunoCard, alunoId) {
