@@ -1145,7 +1145,6 @@
             }
 
             processarSaidaPendente(mensagem) {
-                // 1. VALIDAÇÃO DE HORÁRIO
                 const aluno = this.alunos.find(a => a.id === mensagem.alunoId);
                 if (!aluno) {
                     console.warn(`[PENDENTE] Aluno com ID ${mensagem.alunoId} não foi encontrado.`);
@@ -1158,13 +1157,18 @@
                     return;
                 }
 
-                // 2. MARCA QUE TEM SOLICITAÇÃO PENDENTE E ESTÁ EM ANIMAÇÃO
+                // Só marca que tem solicitação pendente
                 aluno.temSolicitacaoPendente = true;
-                aluno.emAnimacao = true; // 🔴 NOVO: impede renderização durante animação
                 aluno.tipoSolicitante = mensagem.tipoSolicitante;
                 aluno.parentesco = mensagem.parentesco;
 
-                // 3. ADICIONA À FILA PARA ANIMAÇÃO
+                // 🔴 IMPORTANTE: Remove a flag emAnimacao se existir
+                aluno.emAnimacao = false;
+
+                // Renderiza imediatamente para mostrar a cor e indicador
+                this.renderizarAlunos();
+
+                // Adiciona à fila para animação (se quiser manter a animação)
                 this.filaDeChamadas.push({
                     alunoId: mensagem.alunoId,
                     alunoNome: mensagem.alunoNome,
@@ -1743,17 +1747,21 @@
 
                 const alunosDaApi = data.alunos;
 
-                // 🔴 MESCLA OS DADOS: preserva alunos em animação
                 const alunosProcessados = await Promise.all(alunosDaApi.map(async (alunoApi) => {
                     const alunoExistente = this.alunos.find(a => a.id === alunoApi.id);
 
-                    // Se o aluno existe localmente e está em animação, PRESERVA o estado atual
-                    if (alunoExistente && alunoExistente.emAnimacao === true) {
-                        console.log(`[SYNC] Preservando estado de animação para ${alunoApi.nome}`);
-                        return { ...alunoExistente }; // Retorna o estado local, não o da API
+                    // Se o aluno já tem solicitação pendente no estado local, PRESERVA
+                    if (alunoExistente && alunoExistente.temSolicitacaoPendente === true) {
+                        console.log(`[SYNC] Preservando solicitação pendente para ${alunoApi.nome}`);
+                        // Mantém o estado local, apenas atualiza o nome/sala por segurança
+                        return {
+                            ...alunoExistente,
+                            nome: alunoApi.nome,
+                            salaNome: alunoApi.salaNome
+                        };
                     }
 
-                    // Caso contrário, processa normalmente
+                    // Caso contrário, verifica na API
                     const url = `${this.BACKEND_URL}/api/presencas/aluno/${alunoApi.id}/saida-ativa?timestamp=${new Date().getTime()}`;
                     try {
                         const response = await fetch(url, { headers: { 'Authorization': `Bearer ${this.token}` } });
@@ -1762,7 +1770,7 @@
                             if (apiResponse.codigo === 'SAIDA_ATIVA' && apiResponse.dados) {
                                 return {
                                     ...alunoApi,
-                                    status: 'PRESENTE', // Mantém como PRESENTE para não sumir da tela
+                                    status: 'PRESENTE',
                                     temSolicitacaoPendente: true,
                                     emAnimacao: false,
                                     tipoSolicitante: apiResponse.dados.tipoSolicitante,
@@ -1777,28 +1785,8 @@
                     }
                 }));
 
-                // 🔴 FILTRA solicitações pendentes fora de horário
-                const alunosFiltrados = alunosProcessados.filter(aluno => {
-                    if (aluno.temSolicitacaoPendente) {
-                        const validacao = window.utils.validarHorarioSaida(aluno.salaNome);
-                        if (!validacao.permitido) {
-                            console.log(`⏰ Solicitação pendente de ${aluno.nome} ignorada - fora do horário`);
-                            aluno.temSolicitacaoPendente = false;
-                            delete aluno.tipoSolicitante;
-                            delete aluno.parentesco;
-                        }
-                    }
-                    return true;
-                });
-
-                // Atualiza this.alunos com os dados mesclados
-                this.alunos = alunosFiltrados.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-
-                // Renderiza apenas se não tiver animação em andamento
-                const temAlunoEmAnimacao = this.alunos.some(a => a.emAnimacao === true);
-                if (!temAlunoEmAnimacao) {
-                    this.renderizarAlunos();
-                }
+                this.alunos = alunosProcessados.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+                this.renderizarAlunos();
 
                 return this.alunos;
             }
