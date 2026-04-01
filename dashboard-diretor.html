@@ -4735,7 +4735,6 @@
             processarAcaoDiretor(studentId, type, studentName);
         };
 
-        // Substitua a função processarAcaoDiretor por esta versão corrigida
         // Substitua a função processarAcaoDiretor por esta versão
         async function processarAcaoDiretor(studentId, action, studentName) {
             try {
@@ -4756,18 +4755,43 @@
                 // Mostra mensagem de status
                 showAlert(`Processando ${action === 'entrada' ? 'entrada' : 'saída'} de ${studentName}...`, 'info');
 
-                let endpoint, body;
-
                 if (action === 'entrada') {
-                    endpoint = `${BACKEND_URL}/api/presencas/entrada`;
-                    body = {
+                    // ENTRADA - fluxo direto
+                    const body = {
                         alunoId: parseInt(studentId),
                         responsavelId: currentDirectorId,
                         responsavelNome: currentUser?.nome || 'Diretor',
                         responsavelTipo: 'DIRETOR'
                     };
-                } else { // SAÍDA - AGORA DIRETA, SEM SOLICITAÇÃO
-                    // Obtém localização do diretor
+
+                    const response = await fetch(`${BACKEND_URL}/api/presencas/entrada`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(body)
+                    });
+
+                    const responseText = await response.text();
+                    let result;
+                    try {
+                        result = JSON.parse(responseText);
+                    } catch (e) {
+                        result = { mensagem: responseText || 'Resposta inválida do servidor' };
+                    }
+
+                    if (!response.ok) {
+                        throw new Error(result.mensagem || result.erro || `Erro ${response.status}`);
+                    }
+
+                    console.log('✅ Entrada registrada com sucesso:', result);
+                    showAlert(`✅ Entrada de ${studentName} registrada!`, 'success');
+
+                } else {
+                    // SAÍDA - FLUXO EM DUAS ETAPAS (solicitar + confirmar)
+
+                    // 1. OBTÉM LOCALIZAÇÃO
                     let latitude = null, longitude = null;
 
                     try {
@@ -4795,55 +4819,60 @@
                         throw new Error(errorMsg);
                     }
 
-                    // 🔴 NOVO FLUXO: Chamar confirmar-saida DIRETAMENTE
-                    endpoint = `${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${studentId}`;
-                    body = null; // GET com query param
-                }
-
-                let response;
-
-                if (action === 'entrada') {
-                    response = await fetch(endpoint, {
+                    // 2. SOLICITA A SAÍDA (cria estado AGUARDANDO_CONFIRMACAO)
+                    console.log('📤 Solicitando saída...');
+                    const solicitarResponse = await fetch(`${BACKEND_URL}/api/presencas/saida/solicitar`, {
                         method: 'POST',
                         headers: {
                             'Authorization': `Bearer ${accessToken}`,
                             'Content-Type': 'application/json'
                         },
-                        body: JSON.stringify(body)
+                        body: JSON.stringify({
+                            alunoId: parseInt(studentId),
+                            latitude: latitude,
+                            longitude: longitude
+                        })
                     });
-                } else {
-                    // SAÍDA - POST sem body
-                    response = await fetch(endpoint, {
+
+                    const solicitarText = await solicitarResponse.text();
+                    let solicitarResult;
+                    try {
+                        solicitarResult = JSON.parse(solicitarText);
+                    } catch (e) {
+                        solicitarResult = { mensagem: solicitarText || 'Resposta inválida do servidor' };
+                    }
+
+                    if (!solicitarResponse.ok) {
+                        throw new Error(solicitarResult.mensagem || solicitarResult.erro || `Erro ao solicitar saída: ${solicitarResponse.status}`);
+                    }
+
+                    console.log('✅ Saída solicitada com sucesso:', solicitarResult);
+
+                    // 3. CONFIRMA A SAÍDA IMEDIATAMENTE
+                    console.log('📤 Confirmando saída...');
+                    const confirmarResponse = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${studentId}`, {
                         method: 'POST',
                         headers: {
                             'Authorization': `Bearer ${accessToken}`,
                             'Content-Type': 'application/json'
                         }
                     });
+
+                    const confirmarText = await confirmarResponse.text();
+                    let confirmarResult;
+                    try {
+                        confirmarResult = JSON.parse(confirmarText);
+                    } catch (e) {
+                        confirmarResult = { mensagem: confirmarText || 'Resposta inválida do servidor' };
+                    }
+
+                    if (!confirmarResponse.ok) {
+                        throw new Error(confirmarResult.mensagem || confirmarResult.erro || `Erro ao confirmar saída: ${confirmarResponse.status}`);
+                    }
+
+                    console.log('✅ Saída confirmada com sucesso:', confirmarResult);
+                    showAlert(`✅ Saída de ${studentName} confirmada!`, 'success');
                 }
-
-                console.log('📥 Status da resposta:', response.status);
-
-                let result;
-                const responseText = await response.text();
-                console.log('📥 Corpo da resposta:', responseText);
-
-                try {
-                    result = JSON.parse(responseText);
-                } catch (e) {
-                    result = { mensagem: responseText || 'Resposta inválida do servidor' };
-                }
-
-                if (!response.ok) {
-                    throw new Error(result.mensagem || result.erro || `Erro ${response.status}`);
-                }
-
-                console.log('✅ Ação registrada com sucesso:', result);
-
-                const successMessage = action === 'entrada' ?
-                    `✅ Entrada de ${studentName} registrada!` :
-                    `✅ Saída de ${studentName} confirmada!`;
-                showAlert(successMessage, 'success');
 
                 // Atualiza os dados MANTENDO a página e busca atuais
                 await loadAllStudents(currentPage, currentSearch);
@@ -6098,7 +6127,6 @@
          * Função que REALMENTE executa a confirmação no backend.
          * Chamada apenas quando o usuário clica no botão "Sim, Confirmar" do modal.
          */
-        // Substitua a função handleConfirmarSaida por esta versão
         async function handleConfirmarSaida(alunoId, alunoNome) {
             console.log(`✅ Processo de confirmação via modal iniciado para: ${alunoNome} (ID: ${alunoId})`);
 
@@ -6121,55 +6149,92 @@
                 const accessToken = await garantirAutenticacao();
                 if (!accessToken) throw new Error("Falha na autenticação.");
 
-                // 🔴 AGORA CHAMA DIRETAMENTE O CONFIRMAR-SAIDA
-                const response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`, {
+                // 1. OBTÉM LOCALIZAÇÃO
+                let latitude = null, longitude = null;
+
+                try {
+                    showAlert('Obtendo localização do diretor...', 'info');
+
+                    const position = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, {
+                            enableHighAccuracy: true,
+                            timeout: 10000,
+                            maximumAge: 0
+                        });
+                    });
+
+                    latitude = position.coords.latitude;
+                    longitude = position.coords.longitude;
+
+                    console.log(`📍 Localização obtida: ${latitude}, ${longitude}`);
+
+                } catch (geoError) {
+                    console.error('❌ Erro ao obter localização:', geoError);
+                    let errorMsg = 'Não foi possível obter sua localização.';
+                    if (geoError.code === 1) errorMsg = 'Permissão de localização negada.';
+                    if (geoError.code === 2) errorMsg = 'Localização indisponível. Verifique o GPS.';
+                    if (geoError.code === 3) errorMsg = 'Tempo esgotado. Tente novamente.';
+                    throw new Error(errorMsg);
+                }
+
+                // 2. SOLICITA A SAÍDA (cria estado AGUARDANDO_CONFIRMACAO)
+                console.log('📤 Solicitando saída...');
+                const solicitarResponse = await fetch(`${BACKEND_URL}/api/presencas/saida/solicitar`, {
                     method: 'POST',
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        alunoId: parseInt(alunoId),
+                        latitude: latitude,
+                        longitude: longitude
+                    })
                 });
 
-                const result = await response.json().catch(() => ({}));
-
-                if (!response.ok) {
-                    throw new Error(result.mensagem || `Erro ${response.status} do servidor.`);
+                const solicitarText = await solicitarResponse.text();
+                let solicitarResult;
+                try {
+                    solicitarResult = JSON.parse(solicitarText);
+                } catch (e) {
+                    solicitarResult = { mensagem: solicitarText || 'Resposta inválida do servidor' };
                 }
 
-                console.log('✅ Saída confirmada com sucesso:', result);
-                showAlert(`Saída de ${alunoNome} confirmada com sucesso!`, 'success');
-
-                // 1. Atualiza o status no cache
-                const alunoNoCache = detailedStudentsData.find(a => a.id === alunoId);
-                if (alunoNoCache) {
-                    alunoNoCache.status = 'AUSENTE';
-                    console.log(`✅ Status do aluno ${alunoNome} atualizado no cache para: AUSENTE`);
+                if (!solicitarResponse.ok) {
+                    throw new Error(solicitarResult.mensagem || solicitarResult.erro || `Erro ao solicitar saída: ${solicitarResponse.status}`);
                 }
 
-                // 2. Reordena a lista
-                detailedStudentsData.sort((a, b) => {
-                    const getStatusPriority = (status) => {
-                        if (status === 'AGUARDANDO_CONFIRMACAO') return 0;
-                        if (status === 'PRESENTE') return 1;
-                        return 2;
-                    };
-                    const priorityA = getStatusPriority(a.status);
-                    const priorityB = getStatusPriority(b.status);
-                    if (priorityA !== priorityB) return priorityA - priorityB;
-                    return (a.nome || '').localeCompare(b.nome || '');
+                console.log('✅ Saída solicitada com sucesso:', solicitarResult);
+
+                // 3. CONFIRMA A SAÍDA IMEDIATAMENTE
+                console.log('📤 Confirmando saída...');
+                const confirmarResponse = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
                 });
 
-                // 3. Renderiza a página atual da tabela
-                const pageData = detailedStudentsData.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
-                const paginatedData = {
-                    content: pageData,
-                    totalPages: Math.ceil(detailedStudentsData.length / pageSize),
-                    number: currentPage,
-                    totalElements: detailedStudentsData.length
-                };
+                const confirmarText = await confirmarResponse.text();
+                let confirmarResult;
+                try {
+                    confirmarResult = JSON.parse(confirmarText);
+                } catch (e) {
+                    confirmarResult = { mensagem: confirmarText || 'Resposta inválida do servidor' };
+                }
 
-                renderStudentsTable(paginatedData);
-                setupStudentsPagination(paginatedData);
-                refreshOverviewData();
+                if (!confirmarResponse.ok) {
+                    throw new Error(confirmarResult.mensagem || confirmarResult.erro || `Erro ao confirmar saída: ${confirmarResponse.status}`);
+                }
 
-                // Mantém a página global
+                console.log('✅ Saída confirmada com sucesso:', confirmarResult);
+                showAlert(`✅ Saída de ${alunoNome} confirmada!`, 'success');
+
+                // Atualiza os dados MANTENDO a página e busca atuais
+                await loadAllStudents(currentPage, currentSearch);
+
+                // Reatribui a página global
                 currentStudentsPage = currentPage;
 
                 // Atualiza o campo de busca visualmente
