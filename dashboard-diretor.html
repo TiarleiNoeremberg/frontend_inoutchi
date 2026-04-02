@@ -2043,6 +2043,55 @@
             onlyPresent: null
         };
 
+        // Adicione esta função no início do script, antes da classe WebSocketConnector
+        async function garantirTokenValido() {
+            const accessToken = localStorage.getItem('access_token');
+            const expiry = localStorage.getItem('token_expiry');
+
+            // Verifica se o token está próximo de expirar (menos de 5 minutos)
+            const agora = new Date().getTime();
+            const expiraEm = expiry ? parseInt(expiry) - agora : 0;
+
+            if (!accessToken || !expiry || expiraEm <= 300000) { // 5 minutos = 300000 ms
+                console.log('🔄 Token próximo de expirar ou expirado. Tentando renovar...');
+                try {
+                    const refreshToken = localStorage.getItem('refresh_token');
+                    if (!refreshToken) {
+                        throw new Error('Refresh token não encontrado');
+                    }
+
+                    const response = await fetch(`${BACKEND_URL}/api/auth/refresh`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ refreshToken })
+                    });
+
+                    if (response.ok) {
+                        const tokenData = await response.json();
+                        localStorage.setItem('access_token', tokenData.access_token);
+                        localStorage.setItem('refresh_token', tokenData.refresh_token);
+
+                        const novaExpiry = new Date().getTime() + (60 * 60 * 1000); // 1 hora
+                        localStorage.setItem('token_expiry', novaExpiry.toString());
+
+                        console.log('✅ Token renovado com sucesso!');
+                        return tokenData.access_token;
+                    } else {
+                        throw new Error('Falha ao renovar token');
+                    }
+                } catch (error) {
+                    console.error('❌ Erro ao renovar token:', error);
+                    // Se não conseguiu renovar, redireciona para login
+                    window.location.href = 'login.html';
+                    return null;
+                }
+            }
+
+            return accessToken;
+        }
+
         // ========== FUNÇÕES GLOBAIS ==========
 
         // ==================================================================
@@ -2727,12 +2776,9 @@
             console.log('Inicializando dashboard diretor...');
             initializeDOMElements();
 
-            // 2. Configura a interatividade da UI (abas, botões, etc.)
-            //setupTabNavigation();
             const accessToken = localStorage.getItem('access_token');
             const expiry = localStorage.getItem('token_expiry');
 
-            // Verificar autenticação
             if (!accessToken || !expiry || new Date().getTime() > parseInt(expiry)) {
                 console.log('REDIRECIONANDO: Token inválido ou expirado');
                 alert("Sessão expirada. Faça login novamente.");
@@ -2740,8 +2786,16 @@
                 return;
             }
 
+            // 🔴 ADICIONAR: Intervalo para renovar token preventivamente (a cada 50 minutos)
+            setInterval(async () => {
+                console.log('🔄 Verificando token para renovação preventiva...');
+                const novoToken = await garantirTokenValido();
+                if (novoToken) {
+                    console.log('✅ Token renovado preventivamente');
+                }
+            }, 50 * 60 * 1000); // 50 minutos
+
             try {
-                // 1. Carrega dados essenciais
                 await loadUserInfo();
                 if (currentSchoolId) {
                     setupWebSocket(currentSchoolId);
@@ -2749,19 +2803,16 @@
                     throw new Error("ID da Escola não encontrado. Dashboard não pode continuar.");
                 }
 
-                // 2. Carrega o resto dos dados
                 await loadDirectorData();
                 await loadAllStudents();
                 setupTabs();
                 await loadOverviewData();
 
-                // 3. Mostrar conteúdo principal
                 showContent();
 
-                console.log('Dashboard inicializado com sucesso e polling de tutores iniciado!');
+                console.log('Dashboard inicializado com sucesso!');
 
             } catch (error) {
-                // O erro que você viu estava sendo capturado aqui
                 console.error('Erro ao inicializar dashboard:', error);
                 showAlert('Erro ao carregar informações. Tente novamente.', 'error');
             }
@@ -2806,16 +2857,61 @@
             }
         }
 
+        async function fetchWithAuth(url, options = {}) {
+            // Garante token válido antes de cada requisição
+            const token = await garantirTokenValido();
+
+            if (!token) {
+                throw new Error('Token inválido. Redirecionando para login...');
+            }
+
+            const fullUrl = url.startsWith('http') ? url : `${BACKEND_URL}${url}`;
+
+            const response = await fetch(fullUrl, {
+                ...options,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                }
+            });
+
+            // Se receber 401, tenta renovar uma vez e refazer a requisição
+            if (response.status === 401) {
+                console.log('🔐 Token expirado, tentando renovar...');
+                const novoToken = await garantirTokenValido();
+
+                if (novoToken) {
+                    // Refaz a requisição com o novo token
+                    const retryResponse = await fetch(fullUrl, {
+                        ...options,
+                        headers: {
+                            'Authorization': `Bearer ${novoToken}`,
+                            'Content-Type': 'application/json',
+                            ...options.headers
+                        }
+                    });
+
+                    if (retryResponse.ok) {
+                        return retryResponse;
+                    }
+                }
+
+                // Se ainda falhar, redireciona para login
+                console.error('❌ Falha ao renovar token. Redirecionando para login...');
+                localStorage.clear();
+                window.location.href = 'login.html';
+                throw new Error('Sessão expirada. Faça login novamente.');
+            }
+
+            return response;
+        }
+
         // Carregar informações do usuário
         async function loadUserInfo() {
             try {
                 const accessToken = localStorage.getItem('access_token');
-                const response = await fetch(`${BACKEND_URL}/api/users/me`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
+                const response = await fetchWithAuth(`/api/users/me`);
 
                 if (response.ok) {
                     const userData = await response.json();
@@ -2915,18 +3011,14 @@
                 const accessToken = localStorage.getItem('access_token');
 
                 // 1. Obter o TOTAL de alunos da escola.
-                const totalResponse = await fetch(`${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?size=1`, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
-                });
+                const totalResponse = await fetchWithAuth(`/api/diretores/${currentSchoolId}/alunos?size=1`);
                 if (!totalResponse.ok) throw new Error(`Falha ao buscar total de alunos: ${totalResponse.status}`);
                 const totalData = await totalResponse.json();
                 const totalCount = totalData.totalElements || 0;
                 document.getElementById('totalStudents').textContent = totalCount;
 
                 // 2. Obter TODOS os alunos PRESENTES (incluindo os que estão aguardando).
-                const presentResponse = await fetch(`${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?size=10000`, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
-                });
+                const presentResponse = await fetchWithAuth(`/api/alunos/${currentSchoolId}/presentes?size=10000`);
                 if (!presentResponse.ok) throw new Error(`Falha ao buscar alunos presentes: ${presentResponse.status}`);
                 const presentData = await presentResponse.json();
                 const presentCount = presentData.content ? presentData.content.length : 0;
@@ -2953,12 +3045,7 @@
                 const accessToken = localStorage.getItem('access_token');
 
                 // Carregar alunos presentes
-                const presentResponse = await fetch(`${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?page=0&size=1`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
+                const presentResponse = await fetchWithAuth(`/api/alunos/${currentSchoolId}/presentes?page=0&size=1`);
 
                 if (presentResponse.ok) {
                     const presentData = await presentResponse.json();
@@ -2966,12 +3053,7 @@
                 }
 
                 // Carregar todos os alunos (para calcular totais)
-                const allStudentsResponse = await fetch(`${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=0&size=1`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
+                const allStudentsResponse = await fetchWithAuth(`/api/diretores/${currentSchoolId}/alunos?page=0&size=1`);
 
                 if (allStudentsResponse.ok) {
                     const allStudentsData = await allStudentsResponse.json();
@@ -2984,12 +3066,7 @@
                 }
 
                 // Carregar tutores
-                const tutorsResponse = await fetch(`${BACKEND_URL}/api/diretores/tutores?page=0&size=1`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
+                const tutorsResponse = await fetchWithAuth(`/api/diretores/tutores?page=0&size=1`);
 
                 if (tutorsResponse.ok) {
                     const tutorsData = await tutorsResponse.json();
@@ -3010,12 +3087,7 @@
                 const accessToken = localStorage.getItem('access_token');
 
                 // CORREÇÃO: Usar o endpoint correto que funciona
-                const response = await fetch(`${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?page=0&size=100`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
+                const response = await fetchWithAuth(`/api/alunos/${currentSchoolId}/presentes?page=0&size=100`);
 
                 if (response.ok) {
                     const data = await response.json();
@@ -3187,13 +3259,7 @@
 
                 console.log(`🔗 URL: ${url}`);
 
-                const response = await fetch(url, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    }
-                });
+                const response = await fetchWithAuth(url);
 
                 console.log(`📊 Status: ${response.status}`);
 
@@ -3226,41 +3292,30 @@
          * e então gerencia a paginação no lado do cliente para garantir a consistência.
          */
         async function loadAllStudents(page = 0, searchTerm = '') {
-            currentStudentsPage = page; // Atualiza a página atual globalmente
+            currentStudentsPage = page;
             try {
                 console.log(`Buscando TODOS os alunos... Termo: "${searchTerm}"`);
 
-                const accessToken = localStorage.getItem('access_token');
-
-
-                // Pede um número muito grande de alunos para garantir que todos venham.
+                // Use fetchWithAuth em vez de fetch direto
                 let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=${page}&size=${pageSize}`;
 
                 if (searchTerm) {
                     url += `&nome=${encodeURIComponent(searchTerm)}`;
                 }
 
-                const response = await fetch(url, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
-                });
+                const response = await fetchWithAuth(url);
 
                 if (response.ok) {
-                    // A variável 'paginatedData' já contém o objeto de paginação da API
-                    // com 'content', 'totalPages', 'totalElements', etc.
-                    paginatedData = await response.json();
+                    const paginatedData = await response.json();
 
                     if (paginatedData.content) {
                         detailedStudentsData = paginatedData.content;
                         console.log(`✅ Cache atualizado com ${detailedStudentsData.length} alunos`);
                     }
 
-                    // Opcional, mas recomendado:
-                    // Se a verificação de status em tempo real for crucial, podemos mantê-la
-                    // para a página atual de alunos.
                     if (paginatedData.content && paginatedData.content.length > 0) {
                         paginatedData.content = await checkAllStudentsStatus(paginatedData.content);
 
-                        // Ordena apenas a lista da página atual para manter a consistência visual.
                         const getStatusPriority = (status) => {
                             if (status === 'AGUARDANDO' || status === 'AGUARDANDO_CONFIRMACAO') return 0;
                             if (status === 'PRESENTE') return 1;
@@ -3274,8 +3329,6 @@
                         });
                     }
 
-                    // As funções de renderização recebem diretamente a resposta paginada da API.
-                    // Não é mais necessário fatiar (slice) ou calcular páginas no cliente.
                     renderStudentsTable(paginatedData);
                     setupStudentsPagination(paginatedData);
                 } else {
@@ -3285,19 +3338,19 @@
                 console.error('Erro ao carregar a lista de alunos:', error);
                 showAlert('Erro grave ao carregar lista de alunos.', 'error');
 
-                // Em caso de erro, limpa a tabela para evitar exibir dados desatualizados.
                 const tbody = document.getElementById('studentsTableBody');
-                tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px;">Falha ao carregar alunos. Tente novamente.</td></tr>`;
-
+                if (tbody) {
+                    tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px;">Falha ao carregar alunos. Tente novamente.</td></tr>`;
+                }
             }
         }
 
         /**
- * MERGE FINAL: Atualiza a linha do aluno na tabela.
- * Suporta tanto o objeto completo (WebSocket) quanto apenas o ID (Fallback).
- * @param {number|object} studentInput - ID do aluno ou objeto de dados completo.
- * @param {string} [newStatus] - Opcional: novo status se for passado apenas o ID.
- */
+         * MERGE FINAL: Atualiza a linha do aluno na tabela.
+         * Suporta tanto o objeto completo (WebSocket) quanto apenas o ID (Fallback).
+         * @param {number|object} studentInput - ID do aluno ou objeto de dados completo.
+         * @param {string} [newStatus] - Opcional: novo status se for passado apenas o ID.
+         */
         async function updateStudentTableRow(studentInput, newStatus) {
             let studentId = typeof studentInput === 'object' ? studentInput.id : studentInput;
             let studentData = typeof studentInput === 'object' ? studentInput : null;
@@ -3314,9 +3367,7 @@
                 // Se não recebemos os dados completos (WebSocket), vamos buscar ao servidor (Funcionalidade da Função 1)
                 if (!studentData) {
                     const accessToken = localStorage.getItem('access_token');
-                    const response = await fetch(`${BACKEND_URL}/api/alunos/${studentId}`, {
-                        headers: { 'Authorization': `Bearer ${accessToken}` }
-                    });
+                    const response = await fetchWithAuth(`/api/alunos/${studentId}`);
                     if (!response.ok) throw new Error('Falha ao buscar dados do servidor');
                     studentData = await response.json();
                 }
@@ -3751,12 +3802,7 @@
                     url += `&nome=${encodeURIComponent(searchTerm)}`;
                 }
 
-                const response = await fetch(url, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
+                const response = await fetchWithAuth(url);
 
                 if (response.ok) {
                     const data = await response.json();
@@ -3881,12 +3927,7 @@
         async function loadClassrooms() {
             try {
                 const accessToken = localStorage.getItem('access_token');
-                const response = await fetch(`${BACKEND_URL}/api/diretores/${currentSchoolId}/salas`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
+                const response = await fetchWithAuth(`/api/diretores/${currentSchoolId}/salas`);
 
                 if (response.ok) {
                     const classrooms = await response.json();
@@ -4087,9 +4128,7 @@
                 }
 
                 // Fazer a requisição
-                const response = await fetch(`${BACKEND_URL}/api/presencas/diretores/meu-historico`, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
-                });
+                const response = await fetchWithAuth(`/api/presencas/diretores/meu-historico`);
 
                 if (response.ok) {
                     const result = await response.json();
@@ -4209,9 +4248,7 @@
                 const accessToken = localStorage.getItem('access_token');
 
                 // 1. Verificar status do diretor via endpoint específico
-                const statusResponse = await fetch(`${BACKEND_URL}/api/presencas/diretores/meu-status`, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
-                });
+                const statusResponse = await fetchWithAuth(`/api/presencas/diretores/meu-status`);
 
 
                 directorStatus = 'AUSENTE';
@@ -4234,12 +4271,7 @@
                 } else {
                     console.warn('⚠️ Erro ao verificar status do diretor:', statusResponse.status);
                     // Em caso de erro, tentar buscar do histórico
-                    const historyResponse = await fetch(`${BACKEND_URL}/api/presencas/diretores/${currentDirectorId}/historico?size=1`, {
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json'
-                        }
-                    });
+                    const historyResponse = await fetchWithAuth(`/api/presencas/diretores/${currentDirectorId}/historico?size=1`);
 
                     if (historyResponse.ok) {
                         const historyData = await historyResponse.json();
@@ -4343,12 +4375,8 @@
                     '/api/presencas/diretores/entrada' :
                     '/api/presencas/diretores/saida';
 
-                const response = await fetch(`${BACKEND_URL}${endpoint}`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    },
+                const response = await fetchWithAuth(endpoint, {
+                    method: 'POST',                    
                     body: JSON.stringify(requestData)
                 });
 
@@ -4624,12 +4652,8 @@
                 console.log('📤 Enviando dados:', requestData);
                 showAlert('Registrando entrada...', 'info');
 
-                const response = await fetch(`${BACKEND_URL}/api/presencas/diretores/entrada`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    },
+                const response = await fetchWithAuth(`/api/presencas/diretores/entrada`, {
+                    method: 'POST',                    
                     body: JSON.stringify(requestData)
                 });
 
@@ -4682,12 +4706,8 @@
                 console.log('📤 Enviando dados:', requestData);
                 showAlert('Registrando saída...', 'info');
 
-                const response = await fetch(`${BACKEND_URL}/api/presencas/diretores/saida`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    },
+                const response = await fetchWithAuth(`/api/presencas/diretores/saida`, {
+                    method: 'POST',                    
                     body: JSON.stringify(requestData)
                 });
 
@@ -4752,12 +4772,8 @@
 
                 if (action === 'entrada') {
                     // ENTRADA - fluxo direto (igual ao original)
-                    const response = await fetch(`${BACKEND_URL}/api/presencas/entrada`, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json'
-                        },
+                    const response = await fetchWithAuth(`/api/presencas/entrada`, {
+                        method: 'POST',                        
                         body: JSON.stringify({
                             alunoId: parseInt(studentId),
                             responsavelId: currentDirectorId,
@@ -4789,12 +4805,8 @@
                     }
 
                     // 2. SOLICITA a saída (cria AGUARDANDO_CONFIRMACAO)
-                    const solicitarResponse = await fetch(`${BACKEND_URL}/api/presencas/saida/solicitar`, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json'
-                        },
+                    const solicitarResponse = await fetchWithAuth(`/api/presencas/saida/solicitar`, {
+                        method: 'POST',                        
                         body: JSON.stringify({ alunoId: parseInt(studentId), latitude, longitude })
                     });
 
@@ -4804,9 +4816,8 @@
                     }
 
                     // 3. CONFIRMA a saída IMEDIATAMENTE (remove AGUARDANDO_CONFIRMACAO)
-                    const confirmarResponse = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${studentId}`, {
-                        method: 'POST',
-                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                    const confirmarResponse = await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, {
+                        method: 'POST'
                     });
 
                     if (!confirmarResponse.ok) {
@@ -4988,12 +4999,8 @@
 
                 console.log('📤 Enviando dados:', requestData);
 
-                const response = await fetch(endpointUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    },
+                const response = await fetchWithAuth(endpointUrl, {
+                    method: 'POST',                    
                     body: JSON.stringify(requestData)
                 });
 
@@ -5056,11 +5063,8 @@
                 try {
                     const refreshToken = localStorage.getItem('refresh_token');
                     if (refreshToken) {
-                        const refreshResponse = await fetch(`${BACKEND_URL}/api/auth/refresh`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
+                        const refreshResponse = await fetchWithAuth(`/api/auth/refresh`, {
+                            method: 'POST',                            
                             body: JSON.stringify({ refreshToken })
                         });
 
@@ -5151,11 +5155,8 @@
                 }
 
                 console.log('🔄 Renovando token...');
-                const response = await fetch(`${BACKEND_URL}/api/auth/refresh`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                const response = await fetchWithAuth(`/api/auth/refresh`, {
+                    method: 'POST',                    
                     body: JSON.stringify({ refreshToken })
                 });
 
@@ -5189,12 +5190,7 @@
                 console.log('📝 Token:', accessToken ? accessToken.substring(0, 20) + '...' : 'AUSENTE');
 
                 // Testar endpoint que requer autenticação
-                const testResponse = await fetch(`${BACKEND_URL}/api/users/me`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
+                const testResponse = await fetchWithAuth(`/api/users/me`);
 
                 console.log('🔐 Status do teste:', testResponse.status);
 
@@ -5250,12 +5246,7 @@
 
             try {
                 const accessToken = localStorage.getItem('access_token');
-                const response = await fetch(`${BACKEND_URL}/api/alunos/${studentId}/tutores`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
+                const response = await fetchWithAuth(`/api/alunos/${studentId}/tutores`);
 
                 if (response.ok) {
                     const data = await response.json();
@@ -5354,12 +5345,7 @@
                 // 3. FAZER A REQUISIÇÃO (do jeito que funcionava antes)
                 console.log('🔍 Fazendo requisição para o histórico completo do aluno...');
                 const accessToken = localStorage.getItem('access_token');
-                const response = await fetch(`${BACKEND_URL}/api/presencas/historico/${studentId}`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
+                const response = await fetchWithAuth(`/api/presencas/historico/${studentId}`);
 
                 if (!response.ok) {
                     throw new Error(`Erro ${response.status}: ${response.statusText}`);
@@ -5497,12 +5483,8 @@
                     throw new Error('Autenticação falhou. Faça o login novamente.');
                 }
 
-                const response = await fetch(`${BACKEND_URL}/api/presencas/sessoes/${sessaoId}/encerrar-manualmente`, {
-                    method: 'PATCH',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
+                const response = await fetchWithAuth(`${BACKEND_URL}/api/presencas/sessoes/${sessaoId}/encerrar-manualmente`, {
+                    method: 'PATCH'                    
                 });
 
                 // CASO 1: SUCESSO (Status 200 OK)
@@ -5554,9 +5536,7 @@
                 const accessToken = localStorage.getItem('access_token');
 
                 // ETAPA 1: Define o status base (PRESENTE ou AUSENTE)
-                const response = await fetch(`${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?size=1000`, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
-                });
+                const response = await fetchWithAuth(`/api/alunos/${currentSchoolId}/presentes?size=1000`);
 
                 if (!response.ok) {
                     console.error('Erro ao buscar alunos presentes, retornando status original.');
@@ -5634,12 +5614,7 @@
         window.viewTutorStudents = async function (tutorName) {
             try {
                 const accessToken = localStorage.getItem('access_token');
-                const response = await fetch(`${BACKEND_URL}/api/tutores/${encodeURIComponent(tutorName)}/alunos`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
+                const response = await fetchWithAuth(`/api/tutores/${encodeURIComponent(tutorName)}/alunos`);
 
                 if (response.ok) {
                     const tutorData = await response.json();
@@ -5688,12 +5663,7 @@
                 // Aumentamos o size para 1000 para garantir que todos os alunos sejam carregados
                 let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?size=1000`;
 
-                const response = await fetch(url, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
+                const response = await fetchWithAuth(url);
 
                 if (!response.ok) {
                     throw new Error(`Erro ${response.status}: ${response.statusText}`);
@@ -5990,12 +5960,8 @@
                     // ===== CORREÇÃO APLICADA AQUI =====
                     // A variável 'alunoId' foi substituída por 'studentId', que é o nome correto
                     // do parâmetro que a função recebe.
-                    const response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${studentId}`, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json'
-                        }
+                    const response = await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, {
+                        method: 'POST'
                     });
 
                     if (response.ok) {
@@ -6094,12 +6060,8 @@
                 }
 
                 // 2. SOLICITA a saída
-                const solicitarResponse = await fetch(`${BACKEND_URL}/api/presencas/saida/solicitar`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    },
+                const solicitarResponse = await fetchWithAuth(`/api/presencas/saida/solicitar`, {
+                    method: 'POST',                   
                     body: JSON.stringify({ alunoId: parseInt(alunoId), latitude, longitude })
                 });
 
@@ -6109,9 +6071,8 @@
                 }
 
                 // 3. CONFIRMA a saída imediatamente
-                const confirmarResponse = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                const confirmarResponse = await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${alunoId}`, {
+                    method: 'POST'
                 });
 
                 if (!confirmarResponse.ok) {
