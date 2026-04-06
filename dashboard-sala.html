@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 
@@ -765,72 +766,6 @@
                 min-height: 55px;
             }
         }
-
-        /* Cores específicas para cada tipo de solicitante */
-        .aluno-card.tutor {
-            background: #ecfdf5 !important;
-            border-color: #10b981 !important;
-            color: #047857 !important;
-        }
-
-        .aluno-card.diretor {
-            background: #fef2f2 !important;
-            border-color: #ef4444 !important;
-            color: #dc2626 !important;
-        }
-
-        .aluno-card.token {
-            background: #fffbeb !important;
-            border-color: #f59e0b !important;
-            color: #b45309 !important;
-        }
-
-        .aluno-card.transporte {
-            background: #eef2ff !important;
-            border-color: #655df6 !important;
-            color: #3b34c6 !important;
-        }
-
-        .aluno-card.sistema {
-            background: #f1f5f9 !important;
-            border-color: #64748b !important;
-            color: #334155 !important;
-        }
-
-        /* Indicador de saída pendente */
-        .saida-pendente-indicador {
-            font-size: 0.6rem;
-            color: #f59e0b;
-            margin-top: 4px;
-            font-weight: 500;
-            animation: pulse-text 1.5s ease-in-out infinite;
-        }
-
-        @keyframes pulse-text {
-
-            0%,
-            100% {
-                opacity: 0.7;
-            }
-
-            50% {
-                opacity: 1;
-                transform: scale(1.05);
-            }
-        }
-
-        /* Garantir que cards em animação fiquem sobrepostos */
-        .aluno-card.expandindo,
-        .aluno-card.recolhendo {
-            z-index: 10000 !important;
-            position: relative !important;
-            will-change: transform;
-        }
-
-        /* Garantir que o container não corte os cards expandidos */
-        .alunos-grid {
-            overflow: visible !important;
-        }
     </style>
 
 </head>
@@ -899,7 +834,6 @@
                 this.salaInfo = {};
                 this.salaId = null;
                 this.currentUser = null;
-                this.timersSaida = new Map(); // Armazena timers de saída pendente por alunoId
 
                 // Tenta carregar dados do usuário do storage (para não precisar buscar da API)
                 const userDataStr = localStorage.getItem('user_data') || sessionStorage.getItem('user_data');
@@ -913,7 +847,7 @@
                         console.error('Erro ao parsear user_data:', e);
                     }
                 }
-
+                
                 // Animation & Notification Queues/Batches
                 this.filaDeChamadas = [];
                 this.alertaSoundBuffer = null;
@@ -1041,20 +975,18 @@
             renderizarAlunos() {
                 const grid = document.getElementById('alunosGrid');
 
-                // 🔴 NÃO RECRIA SE HOUVER ANIMAÇÃO EM ANDAMENTO
-                const temAnimacao = this.alunos.some(a => a.emAnimacao === true);
-                if (temAnimacao) {
-                    console.log('[RENDER] Animação em andamento, renderização adiada');
-                    return;
-                }
+                // SALVA O ESTADO ATUAL PARA COMPARAÇÃO
+                const tinhaAlunos = this.alunos && this.alunos.length > 0;
 
+                // 1. Limpa a grade
                 grid.innerHTML = '';
 
-                if (!this.alunos || this.alunos.length === 0) {
+                if (!tinhaAlunos) {
                     grid.innerHTML = '<div class="empty-state">Nenhum aluno presente na sala</div>';
                     return;
                 }
 
+                // 2. CRIA OS CARDS EM MEMÓRIA
                 const fragment = document.createDocumentFragment();
 
                 this.alunos.forEach(aluno => {
@@ -1062,32 +994,52 @@
                     card.className = 'aluno-card';
                     card.setAttribute('data-aluno-id', aluno.id);
 
-                    if (aluno.temSolicitacaoPendente && aluno.status === 'PRESENTE') {
+                    // === NOVO: Aplica a classe de cor baseada no status ===
+                    if (aluno.status === 'AGUARDANDO_CONFIRMACAO') {
                         card.classList.add('pendente');
 
+                        // Aplica a classe específica do solicitante
                         let tipo = (aluno.tipoSolicitante || 'diretor').toLowerCase();
+
+                        // Normaliza os tipos
                         if (['parente', 'amigo', 'irmao'].includes(tipo)) {
                             tipo = 'token';
+                        } else if (tipo === 'tutor') {
+                            tipo = 'tutor';
+                        } else if (tipo === 'diretor') {
+                            tipo = 'diretor';
+                        } else if (tipo === 'transporte') {
+                            tipo = 'transporte';
                         }
+
                         card.classList.add(tipo);
+                        console.log(`[RENDER] Aluno ${aluno.nome} em AGUARDANDO, tipo: ${tipo}`);
                     }
 
                     const nomeParaExibir = this.formatarNomeAluno(aluno);
+                    const horarioTexto = aluno.status === 'AGUARDANDO_CONFIRMACAO' ? 'Aguardando' : 'Presente';
 
-                    let html = `
+                    card.innerHTML = `
             <div class="aluno-nome">${nomeParaExibir}</div>
-            <div class="aluno-horario">Presente</div>
+            <div class="aluno-horario">${horarioTexto}</div>
         `;
 
-                    if (aluno.temSolicitacaoPendente) {
-                        html += `<div class="saida-pendente-indicador" style="font-size: 0.6rem; color: #f59e0b; margin-top: 2px; font-weight: 500;">Saída solicitada</div>`;
-                    }
-
-                    card.innerHTML = html;
                     fragment.appendChild(card);
                 });
 
+                // 3. ADICIONA TODOS OS CARDS DE UMA SÓ VEZ
                 grid.appendChild(fragment);
+
+                // 4. FORÇA REPAINT NO WEBVIEW
+                setTimeout(() => {
+                    grid.style.display = 'none';
+                    grid.offsetHeight; // Força reflow
+                    grid.style.display = 'grid';
+                    grid.style.transform = 'translateZ(0)';
+                    setTimeout(() => {
+                        grid.style.transform = '';
+                    }, 50);
+                }, 10);
             }
 
             formatarNomeAluno(aluno) {
@@ -1161,201 +1113,68 @@
             }
 
             processarSaidaPendente(mensagem) {
+                // 1. 🔴 NOVO: VALIDAÇÃO DE HORÁRIO
                 const aluno = this.alunos.find(a => a.id === mensagem.alunoId);
                 if (!aluno) {
                     console.warn(`[PENDENTE] Aluno com ID ${mensagem.alunoId} não foi encontrado.`);
                     return;
                 }
 
+                // Valida se a solicitação pode ser processada baseada no horário
                 const validacao = this.validarSolicitacaoSaida(aluno);
                 if (!validacao.permitido) {
                     console.log(`⏰ Solicitação de saída para ${mensagem.alunoNome} bloqueada por horário`);
+                    return; // Ignora a solicitação completamente
+                }
+
+                // 2. ATUALIZA O ESTADO (só chega aqui se passou na validação)
+                aluno.status = 'AGUARDANDO_CONFIRMACAO';
+                aluno.tipoSolicitante = mensagem.tipoSolicitante;
+
+                // 3. ATUALIZA O CARD DIRETAMENTE
+                let alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
+
+                // Se o card não existe (pode ter sido recriado), busca novamente após um pequeno delay
+                if (!alunoCard) {
+                    setTimeout(() => {
+                        alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
+                        if (alunoCard) {
+                            this.aplicarEstiloPendenteAoCard(alunoCard, mensagem);
+                        } else {
+                            // Fallback: renderiza tudo se realmente não achar
+                            this.renderizarAlunos();
+                        }
+                    }, 100);
                     return;
                 }
 
-                // Marca solicitação pendente
-                aluno.temSolicitacaoPendente = true;
-                aluno.emAnimacao = true;
-                aluno.confirmado = false; // 🔴 IMPORTANTE: ainda não confirmado
-                aluno.tipoSolicitante = mensagem.tipoSolicitante;
-                aluno.parentesco = mensagem.parentesco;
+                this.aplicarEstiloPendenteAoCard(alunoCard, mensagem);
 
-                // 🔴 APLICA A COR IMEDIATAMENTE NO ESTADO (para quando renderizar)
-                // A animação vai aplicar a cor no DOM diretamente
-
-                // Adiciona à fila para animação
-                this.filaDeChamadas.push({
-                    alunoId: mensagem.alunoId,
-                    alunoNome: mensagem.alunoNome,
-                    tipoSolicitante: mensagem.tipoSolicitante,
-                    parentesco: mensagem.parentesco
-                });
-
+                // 4. LÓGICA DA FILA (só adiciona se passou na validação)
+                this.filaDeChamadas.push(mensagem);
                 if (!this.isProcessandoFila) {
                     this.isProcessandoFila = true;
                     this.processarProximoDaFila();
                 }
             }
 
-            iniciarTimerSaida(alunoId, alunoNome) {
-                if (this.timersSaida.has(alunoId)) {
-                    clearTimeout(this.timersSaida.get(alunoId));
+            aplicarEstiloPendenteAoCard(alunoCard, mensagem) {
+                console.log(`[BISTURI] Atualizando o card do aluno ${mensagem.alunoNome} diretamente no DOM.`);
+
+                // Limpa classes de cor antigas
+                alunoCard.classList.remove('tutor', 'diretor', 'token', 'sistema', 'transporte');
+
+                // Determina e aplica a nova classe de cor
+                let tipo = (mensagem.tipoSolicitante || 'diretor').toLowerCase();
+                if (['parente', 'amigo', 'irmao'].includes(tipo)) {
+                    tipo = 'token';
                 }
+                alunoCard.classList.add('pendente', tipo);
 
-                console.log(`⏱️ Timer de 3 minutos iniciado para ${alunoNome}`);
-
-                const timer = setTimeout(async () => {
-                    console.log(`⏰ Timer expirado! Removendo aluno ${alunoNome} da sala...`);
-
-                    const aluno = this.alunos.find(a => a.id === alunoId);
-                    if (!aluno) {
-                        console.log(`⚠️ Aluno ${alunoNome} já foi removido. Ignorando.`);
-                        this.timersSaida.delete(alunoId);
-                        return;
-                    }
-
-                    // Verifica se ainda tem solicitação pendente
-                    if (!aluno.temSolicitacaoPendente) {
-                        console.log(`⚠️ Solicitação de ${alunoNome} já foi processada. Ignorando.`);
-                        this.timersSaida.delete(alunoId);
-                        return;
-                    }
-
-                    // 🔴 SE AINDA NÃO FOI CONFIRMADO NO BACKEND, CONFIRMA AGORA
-                    if (!aluno.confirmado) {
-                        try {
-                            await this.confirmarSaidaAutomatica(alunoId, alunoNome);
-                            aluno.confirmado = true;
-                        } catch (error) {
-                            console.error(`❌ Erro ao confirmar saída automática de ${alunoNome}:`, error);
-                            // Tenta novamente após 30 segundos
-                            setTimeout(() => {
-                                if (aluno.temSolicitacaoPendente) {
-                                    this.iniciarTimerSaida(alunoId, alunoNome);
-                                }
-                            }, 30000);
-                            return;
-                        }
-                    }
-
-                    // 🔴 REMOVE A MARCAÇÃO DE PENDENTE
-                    aluno.temSolicitacaoPendente = false;
-
-                    // 🔴 REMOVE O ALUNO DA LISTA
-                    this.alunos = this.alunos.filter(a => a.id !== alunoId);
-
-                    // 🔴 REMOVE O CARD DO DOM COM ANIMAÇÃO
-                    const alunoCard = document.querySelector(`[data-aluno-id="${alunoId}"]`);
-                    if (alunoCard) {
-                        alunoCard.classList.add('removendo');
-                        setTimeout(() => {
-                            if (alunoCard.parentNode) {
-                                alunoCard.remove();
-                            }
-                            // Se não houver mais alunos, mostra mensagem vazia
-                            if (this.alunos.length === 0) {
-                                const grid = document.getElementById('alunosGrid');
-                                grid.innerHTML = '<div class="empty-state">Nenhum aluno presente na sala</div>';
-                            } else {
-                                // Força reordenamento dos cards restantes
-                                this.renderizarAlunos();
-                            }
-                        }, 450);
-                    } else {
-                        this.renderizarAlunos();
-                    }
-
-                    this.timersSaida.delete(alunoId);
-
-                    console.log(`✅ Aluno ${alunoNome} removido da sala após 3 minutos.`);
-                }, 3 * 60 * 1000); // 3 minutos
-
-                this.timersSaida.set(alunoId, timer);
-            }
-
-            async confirmarSaidaAutomatica(alunoId, alunoNome) {
-                console.log(`✅ Confirmando saída automática de ${alunoNome} (ID: ${alunoId})`);
-
-                try {
-                    const accessToken = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
-
-                    // Chama o endpoint de confirmação
-                    const response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json'
-                        }
-                    });
-
-                    if (!response.ok) {
-                        const error = await response.json();
-                        throw new Error(error.mensagem || 'Erro ao confirmar saída');
-                    }
-
-                    console.log(`✅ Saída de ${alunoNome} confirmada com sucesso!`);
-
-                    // Notifica o diretor/tutor via WebSocket (o backend já faz isso)
-
-                } catch (error) {
-                    console.error(`❌ Erro ao confirmar saída de ${alunoNome}:`, error);
-                    throw error;
-                }
-            }
-
-            aplicarEstiloPendenteAoCard(alunoCard, mensagem, corClasse) {
-                console.log(`[ESTILO] Aplicando estilo pendente ao card do aluno ${mensagem.alunoNome} com cor: ${corClasse}`);
-
-                // 🔴 LIMPA TODAS AS CLASSES DE COR E PENDENTE
-                alunoCard.classList.remove('pendente', 'tutor', 'diretor', 'token', 'transporte', 'sistema');
-
-                // 🔴 APLICA A CLASSE DE COR CORRETA
-                alunoCard.classList.add('pendente', corClasse);
-
-                // ADICIONA TAMBÉM A CLASSE ESPECÍFICA PARA GARANTIR O ESTILO CSS
-                if (corClasse === 'tutor') {
-                    alunoCard.classList.add('tutor');
-                } else if (corClasse === 'diretor') {
-                    alunoCard.classList.add('diretor');
-                } else if (corClasse === 'token') {
-                    alunoCard.classList.add('token');
-                } else if (corClasse === 'transporte') {
-                    alunoCard.classList.add('transporte');
-                }
-
-                // Mantém o texto como "Presente"
+                // Atualiza o texto do status
                 const horarioElement = alunoCard.querySelector('.aluno-horario');
                 if (horarioElement) {
-                    horarioElement.textContent = 'Presente';
-                }
-
-                // Adiciona um indicador visual de que saída foi solicitada (se não existir)
-                let indicador = alunoCard.querySelector('.saida-pendente-indicador');
-                if (!indicador) {
-                    indicador = document.createElement('div');
-                    indicador.className = 'saida-pendente-indicador';
-                    indicador.style.cssText = `
-                        font-size: 0.6rem;
-                        color: #f59e0b;
-                        margin-top: 4px;
-                        font-weight: 500;
-                        animation: pulse-text 1.5s ease-in-out infinite;
-                    `;
-                    alunoCard.appendChild(indicador);
-                }
-                indicador.textContent = 'Saída solicitada';
-
-                // Adiciona a animação de pulso se não existir
-                if (!document.querySelector('#pulse-text-style')) {
-                    const style = document.createElement('style');
-                    style.id = 'pulse-text-style';
-                    style.textContent = `
-                        @keyframes pulse-text {
-                            0%, 100% { opacity: 0.7; }
-                            50% { opacity: 1; transform: scale(1.05); }
-                        }
-                    `;
-                    document.head.appendChild(style);
+                    horarioElement.textContent = 'Aguardando';
                 }
             }
 
@@ -1380,20 +1199,32 @@
             }
 
             processarSaidaConfirmada(mensagem) {
-                console.log(`[SAÍDA] Processando confirmação para ${mensagem.alunoNome}`);
+                const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
 
-                // 🔴 NÃO CANCELA O TIMER - Deixa o timer de 3 minutos rodar
-                // 🔴 NÃO REMOVE O CARD
-
-                // Apenas marca que foi confirmado no backend
-                const aluno = this.alunos.find(a => a.id === mensagem.alunoId);
-                if (aluno) {
-                    aluno.confirmado = true;
-                    console.log(`[SAÍDA] Aluno ${mensagem.alunoNome} confirmado no backend. Aguardando timer de 3 minutos.`);
+                // 1. ANIMAÇÃO: Aplica a classe para a animação de saída.
+                if (alunoCard) {
+                    alunoCard.classList.add('removendo');
                 }
 
-                // 🔴 NÃO FAZ NADA COM O CARD - ele permanece na tela
+                // 2. ATRASO SINCRONIZADO: Espera a animação terminar.
+                setTimeout(() => {
+                    // 3. ATUALIZA O ESTADO: Remove o aluno da lista de dados.
+                    this.alunos = this.alunos.filter(aluno => aluno.id !== mensagem.alunoId);
+
+                    // === SOLUÇÃO: NÃO RENDERIZAR TUDO, APENAS REMOVER O CARD DO DOM ===
+                    if (alunoCard) {
+                        alunoCard.remove(); // Remove apenas o card específico
+                        console.log(`[SAÍDA] Card do aluno ${mensagem.alunoNome} removido do DOM.`);
+                    } else {
+                        // Fallback: se não encontrou o card, renderiza tudo
+                        this.renderizarAlunos();
+                    }
+
+                    console.log(`[SAÍDA] Aluno ${mensagem.alunoNome} removido do estado.`);
+
+                }, 450); // Duração da animação CSS
             }
+
 
             //========================================================
             //  ███████╗██╗   ██╗███╗   ██╗ ██████╗████████╗
@@ -1566,24 +1397,17 @@
 
             async sincronizarSalaSilenciosamente() {
                 try {
-                    // Não sincroniza se tiver animação em andamento
                     if (this.isProcessandoFila && this.filaDeChamadas.length > 0) {
                         console.log("🔄 [SYNC] Sincronização adiada: animação em andamento.");
                         return;
                     }
 
-                    // 🔴 VERIFICA SE ALGUM ALUNO ESTÁ EM ANIMAÇÃO
-                    const temAlunoEmAnimacao = this.alunos.some(a => a.emAnimacao === true);
-                    if (temAlunoEmAnimacao) {
-                        console.log("🔄 [SYNC] Sincronização adiada: aluno em animação.");
-                        return;
-                    }
-
+                    // Alterado de fetchWithAuth para this.fetchDadosSala que já existe no seu código
                     const dados = await this.fetchDadosSala();
 
                     if (dados && dados.alunos) {
                         this.contagemErrosSync = 0;
-                        await this.processarDadosAlunos(dados.alunos);
+                        this.processarDadosAlunos(dados.alunos);
                     }
                 } catch (error) {
                     this.contagemErrosSync++;
@@ -1698,8 +1522,12 @@
             async carregarDadosSala() {
                 console.log("[DEBUG] 1. Entrando em carregarDadosSala.");
                 try {
+                    console.log("[DEBUG] 2. Chamando carregarInfoSala...");
                     await this.carregarInfoSala();
+                    console.log("[DEBUG] 3. carregarInfoSala CONCLUÍDO. Chamando atualizarHeader...");
+
                     this.atualizarHeader();
+                    console.log("[DEBUG] 4. atualizarHeader CONCLUÍDO. Chamando fetchDadosSala...");
 
                     const data = await this.fetchDadosSala();
                     console.log("[DEBUG] 5. fetchDadosSala CONCLUÍDO. Dados recebidos:", JSON.stringify(data));
@@ -1707,16 +1535,12 @@
                     const alunosProcessados = await this.processarDadosAlunos(data);
                     console.log("[DEBUG] 6. processarDadosAlunos CONCLUÍDO.");
 
-                    // 🔴 MARCA QUE NENHUM ALUNO ESTÁ EM ANIMAÇÃO INICIALMENTE
-                    alunosProcessados.forEach(aluno => {
-                        aluno.emAnimacao = false;
-                    });
-
                     this.alunos = alunosProcessados;
                     this.renderizarAlunos();
                     console.log("[DEBUG] 7. Renderização finalizada. SUCESSO TOTAL.");
 
                 } catch (error) {
+                    // Agora vamos garantir que o objeto de erro completo seja logado
                     console.error('❌ Erro no carregamento da sala:', error.message, error.stack);
                     this.mostrarNotificacao('Falha na Conexão', 'Não foi possível atualizar a lista de alunos.', 'error');
                 }
@@ -1742,52 +1566,32 @@
             }
 
             async processarDadosAlunos(data) {
-                if (!data.alunos || !Array.isArray(data.alunos)) return this.alunos || [];
+                if (!data.alunos || !Array.isArray(data.alunos)) return [];
+                const alunosComStatus = await this.verificarStatusDeSaida(data.alunos);
 
-                const alunosDaApi = data.alunos;
-
-                const alunosProcessados = await Promise.all(alunosDaApi.map(async (alunoApi) => {
-                    const alunoExistente = this.alunos.find(a => a.id === alunoApi.id);
-
-                    // Se o aluno já tem solicitação pendente no estado local, PRESERVA
-                    if (alunoExistente && alunoExistente.temSolicitacaoPendente === true) {
-                        console.log(`[SYNC] Preservando solicitação pendente para ${alunoApi.nome}`);
-                        // Mantém o estado local, apenas atualiza o nome/sala por segurança
-                        return {
-                            ...alunoExistente,
-                            nome: alunoApi.nome,
-                            salaNome: alunoApi.salaNome
-                        };
-                    }
-
-                    // Caso contrário, verifica na API
-                    const url = `${this.BACKEND_URL}/api/presencas/aluno/${alunoApi.id}/saida-ativa?timestamp=${new Date().getTime()}`;
-                    try {
-                        const response = await fetch(url, { headers: { 'Authorization': `Bearer ${this.token}` } });
-                        if (response.status === 200) {
-                            const apiResponse = await response.json();
-                            if (apiResponse.codigo === 'SAIDA_ATIVA' && apiResponse.dados) {
-                                return {
-                                    ...alunoApi,
-                                    status: 'PRESENTE',
-                                    temSolicitacaoPendente: true,
-                                    emAnimacao: false,
-                                    tipoSolicitante: apiResponse.dados.tipoSolicitante,
-                                    parentesco: apiResponse.dados.parentesco
-                                };
-                            }
+                // 🔴 NOVO: Filtra solicitações pendentes que não são permitidas por horário
+                const alunosFiltrados = alunosComStatus.filter(aluno => {
+                    if (aluno.status === 'AGUARDANDO_CONFIRMACAO') {
+                        const validacao = window.utils.validarHorarioSaida(aluno.salaNome);
+                        if (!validacao.permitido) {
+                            console.log(`⏰ Solicitação pendente de ${aluno.nome} (${aluno.salaNome}) ignorada - fora do horário`);
+                            // Altera o status de volta para PRESENTE
+                            aluno.status = 'PRESENTE';
+                            delete aluno.tipoSolicitante;
+                            delete aluno.parentesco;
                         }
-                        return { ...alunoApi, status: 'PRESENTE', temSolicitacaoPendente: false, emAnimacao: false };
-                    } catch (error) {
-                        console.error(`❌ Erro ao verificar status para aluno ${alunoApi.id}:`, error);
-                        return { ...alunoApi, status: 'PRESENTE', temSolicitacaoPendente: false, emAnimacao: false };
                     }
-                }));
+                    return true;
+                });
 
-                this.alunos = alunosProcessados.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-                this.renderizarAlunos();
+                // Log para debug
+                alunosFiltrados.forEach(aluno => {
+                    if (aluno.status === 'AGUARDANDO_CONFIRMACAO') {
+                        console.log(`[DEBUG] Aluno ${aluno.nome} - Status: ${aluno.status}, Tipo: ${aluno.tipoSolicitante}`);
+                    }
+                });
 
-                return this.alunos;
+                return alunosFiltrados.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
             }
 
             async verificarStatusDeSaida(alunos) {
@@ -1863,7 +1667,7 @@
             }
 
             async executarDestaqueCompleto(chamada) {
-                const { alunoId, alunoNome, tipoSolicitante, parentesco } = chamada;
+                const { alunoId, alunoNome } = chamada;
                 const alunoCard = document.querySelector(`[data-aluno-id="${alunoId}"]`);
 
                 if (!alunoCard) {
@@ -1871,60 +1675,32 @@
                     return;
                 }
 
-                // 🔴 DETERMINA A COR
-                const tipoParaCor = (tipoSolicitante || 'diretor').toLowerCase();
-                let corClasse = '';
-                if (['parente', 'amigo', 'irmao'].includes(tipoParaCor)) {
-                    corClasse = 'token';
-                } else {
-                    corClasse = tipoParaCor;
-                }
-
-                // 🔴 APLICA A COR NO CARD (sem remover nada)
-                alunoCard.classList.add('pendente', corClasse);
-                if (corClasse === 'tutor') {
-                    alunoCard.classList.add('tutor');
-                } else if (corClasse === 'diretor') {
-                    alunoCard.classList.add('diretor');
-                } else if (corClasse === 'token') {
-                    alunoCard.classList.add('token');
-                } else if (corClasse === 'transporte') {
-                    alunoCard.classList.add('transporte');
-                }
-
-                // Adiciona indicador visual
-                let indicador = alunoCard.querySelector('.saida-pendente-indicador');
-                if (!indicador) {
-                    indicador = document.createElement('div');
-                    indicador.className = 'saida-pendente-indicador';
-                    indicador.style.cssText = `
-            font-size: 0.6rem;
-            color: #f59e0b;
-            margin-top: 4px;
-            font-weight: 500;
-            animation: pulse-text 1.5s ease-in-out infinite;
-        `;
-                    alunoCard.appendChild(indicador);
-                }
-                indicador.textContent = 'Saída solicitada';
-
-                // 🔴 GARANTE Z-INDEX ALTO
-                alunoCard.style.position = 'relative';
-                alunoCard.style.zIndex = '10000';
-                alunoCard.style.transition = 'all 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
-
                 // A promessa que gerencia a animação
                 const promessaDeAnimacao = new Promise(resolve => {
+
+                    // --- INÍCIO DA CORREÇÃO CRÍTICA (Forçar Reflow + rAF) ---
+
+                    // PASSO 1: Força o navegador a calcular o layout do card AGORA.
+                    // Ler uma propriedade como 'offsetHeight' é uma forma conhecida e confiável
+                    // de forçar uma "reflow" síncrona. A variável não é usada.
                     const _ = alunoCard.offsetHeight;
+
+                    // PASSO 2: Agora que a posição inicial está garantida, esperamos o PRÓXIMO
+                    // quadro de animação para aplicar a classe e o transform.
+                    // Isso garante que o navegador veja a mudança de um estado inicial para um final.
                     requestAnimationFrame(() => {
                         const transformacao = this.calcularExpansaoCentralizada(alunoCard);
                         alunoCard.style.transform = transformacao;
                         alunoCard.classList.add('expandindo');
+
+                        // Resolve a promessa após o tempo da animação para continuar a fila.
                         setTimeout(resolve, 3000);
                     });
+
+                    // --- FIM DA CORREÇÃO CRÍTICA ---
                 });
 
-                // A lógica de áudio
+                // A lógica de áudio (que já está correta) executa em paralelo.
                 const promessaSequenciaAudio = (async () => {
                     try {
                         const promessaDaVoz = this.prepararVozCartesia(chamada);
@@ -1938,70 +1714,14 @@
                 })();
 
                 try {
+                    // Espera por AMBAS as promessas (animação e áudio).
                     await Promise.all([promessaDeAnimacao, promessaSequenciaAudio]);
                 } catch (error) {
                     console.error("Erro durante a sincronização de áudio/animação:", error);
                 } finally {
-                    this.finalizarExpansaoComZIndexAlto(alunoCard, alunoId, chamada);
+                    // Garante que a expansão sempre será finalizada.
+                    this.finalizarExpansao(alunoCard, alunoId);
                 }
-            }
-
-            finalizarExpansaoComZIndexAlto(alunoCard, alunoId, chamada) {
-                if (!alunoCard) return;
-
-                alunoCard.classList.remove('expandindo');
-                alunoCard.classList.add('recolhendo');
-                alunoCard.style.transform = '';
-                alunoCard.style.transition = 'transform 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94), box-shadow 0.8s ease';
-
-                setTimeout(() => {
-                    if (alunoCard) {
-                        alunoCard.classList.remove('recolhendo');
-
-                        setTimeout(() => {
-                            if (alunoCard) {
-                                alunoCard.style.zIndex = '';
-                                alunoCard.style.position = '';
-                                alunoCard.style.transition = '';
-                            }
-                        }, 100);
-
-                        const aluno = this.alunos.find(a => a.id === alunoId);
-                        if (aluno) {
-                            aluno.emAnimacao = false;
-                        }
-
-                        // 🔴 INICIA O TIMER DE 3 MINUTOS APÓS A ANIMAÇÃO
-                        this.iniciarTimerSaida(alunoId, chamada.alunoNome);
-                    }
-                }, 800);
-            }
-
-            finalizarExpansaoEaplicarEstiloPendente(alunoCard, alunoId, chamada, corClasse) {
-                if (!alunoCard) return;
-
-                // Remove as classes de animação
-                alunoCard.classList.remove('expandindo');
-                alunoCard.classList.add('recolhendo');
-                alunoCard.style.transform = '';
-
-                setTimeout(() => {
-                    if (alunoCard) {
-                        alunoCard.classList.remove('recolhendo');
-
-                        // 🔴 APLICA O ESTILO PENDENTE COM A COR CORRETA
-                        this.aplicarEstiloPendenteAoCard(alunoCard, chamada, corClasse);
-
-                        // 🔴 MARCA QUE A ANIMAÇÃO TERMINOU
-                        const aluno = this.alunos.find(a => a.id === alunoId);
-                        if (aluno) {
-                            aluno.emAnimacao = false;
-                        }
-
-                        // 🔴 INICIA O TIMER DE 3 MINUTOS AGORA
-                        this.iniciarTimerSaida(alunoId, chamada.alunoNome);
-                    }
-                }, 800);
             }
 
             finalizarExpansao(alunoCard, alunoId) {
@@ -2048,7 +1768,7 @@
                         case 'PARENTE': solicitanteAnuncio = 'Um parente seu'; break;
                         case 'AMIGO': solicitanteAnuncio = 'Um amigo de sua família'; break;
                         case 'TRANSPORTE': solicitanteAnuncio = 'A van escolar'; break;
-                        case 'DIRETOR': solicitanteAnuncio = 'Sua saída foi solicitada'; break;
+                        case 'DIRETOR': solicitanteAnuncio = 'A direção da escola'; break;
                         default: solicitanteAnuncio = 'Seu responsável';
                     }
                     textoParaVoz += solicitanteAnuncio + " está lhe aguardando na saída.";

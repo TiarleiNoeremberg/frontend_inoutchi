@@ -3279,14 +3279,6 @@
         }
 
         async function refreshStudentsData() {
-            // Evita múltiplas chamadas simultâneas
-            if (window.isRefreshing) {
-                console.log('⚠️ Refresh em andamento, ignorando...');
-                return;
-            }
-
-            window.isRefreshing = true;
-
             try {
                 const tutorNomeEncoded = encodeURIComponent(currentUser.nome);
                 const response = await fetchWithAuth(`/api/tutores/${tutorNomeEncoded}/alunos`);
@@ -3315,17 +3307,17 @@
                 if (!students || students.length === 0) {
                     students = novosAlunos;
                     renderStudents(students);
-                    window.isRefreshing = false;
                     return;
                 }
 
-                // ATUALIZAÇÃO INTELIGENTE: só atualiza o que mudou
+                // === ATUALIZAÇÃO INTELIGENTE: só o que mudou ===
                 let precisaRenderizar = false;
 
                 for (let i = 0; i < novosAlunos.length; i++) {
                     const alunoNovo = novosAlunos[i];
                     const alunoAntigo = students.find(a => a.id === alunoNovo.id);
 
+                    // Se não encontrou o aluno antigo (nunca deve acontecer), mas por segurança
                     if (!alunoAntigo) {
                         precisaRenderizar = true;
                         break;
@@ -3353,22 +3345,22 @@
 
                             switch (alunoNovo.status) {
                                 case 'PRESENTE':
-                                    statusClass = 'presente';
-                                    statusText = 'PRESENTE';
+                                    statusClass = 'status-present';
+                                    statusText = 'Presente';
                                     slideAction = 'saida';
                                     slideLabel = 'SAIR';
                                     arrowDir = 'left';
                                     break;
                                 case 'AGUARDANDO_CONFIRMACAO':
-                                    statusClass = 'aguardando';
-                                    statusText = 'AGUARDANDO';
+                                    statusClass = 'status-warning';
+                                    statusText = 'Aguardando';
                                     slideAction = 'confirmar';
                                     slideLabel = 'CONFIRMAR';
                                     arrowDir = 'right';
                                     break;
                                 default:
-                                    statusClass = 'ausente';
-                                    statusText = 'AUSENTE';
+                                    statusClass = 'status-absent';
+                                    statusText = 'Ausente';
                                     slideAction = 'entrada';
                                     slideLabel = 'ENTRAR';
                                     arrowDir = 'right';
@@ -3376,12 +3368,10 @@
                             }
 
                             // Atualiza o badge
-                            if (statusBadge) {
-                                statusBadge.className = `status-badge ${statusClass}`;
-                                statusBadge.textContent = statusText;
-                            }
+                            statusBadge.className = `status-badge ${statusClass}`;
+                            statusBadge.textContent = statusText;
 
-                            // Recria o botão deslizante
+                            // Recria o botão deslizante com o novo estado (mantendo o tamanho ampliado)
                             if (slideContainer) {
                                 const newSlideBtn = document.createElement('div');
                                 newSlideBtn.className = 'slide-btn';
@@ -3389,13 +3379,13 @@
                                 newSlideBtn.dataset.studentId = alunoNovo.id;
                                 newSlideBtn.dataset.studentName = safeStudentName;
                                 newSlideBtn.innerHTML = `
-                            <div class="slide-btn-track">
-                                <span class="slide-btn-label">${slideLabel}</span>
-                                <div class="slide-btn-fill"></div>
-                                <div class="slide-btn-thumb">${arrowDir === 'right' ? arrowSvgRight : arrowSvgLeft}</div>
-                                <div class="slide-hint">${arrowDir === 'right' ? hintChevronRight : hintChevronLeft}</div>
-                            </div>
-                        `;
+                                    <div class="slide-btn-track">
+                                        <span class="slide-btn-label">${slideLabel}</span>
+                                        <div class="slide-btn-fill"></div>
+                                        <div class="slide-btn-thumb">${arrowDir === 'right' ? arrowSvgRight : arrowSvgLeft}</div>
+                                        <div class="slide-hint">${arrowDir === 'right' ? hintChevronRight : hintChevronLeft}</div>
+                                    </div>
+                                `;
 
                                 slideContainer.innerHTML = '';
                                 slideContainer.appendChild(newSlideBtn);
@@ -3423,8 +3413,6 @@
                 if (!students || !students.length) {
                     studentList.innerHTML = '<li class="empty-state"><i class="fas fa-child"></i><p>Não foi possível carregar seus alunos.</p></li>';
                 }
-            } finally {
-                window.isRefreshing = false;
             }
         }
 
@@ -3485,7 +3473,6 @@
                         arrowDir = 'left';
                         break;
                     case 'AGUARDANDO_CONFIRMACAO':
-                        // Mantido para compatibilidade com tokens/existentes
                         slideAction = 'confirmar';
                         slideLabel = 'CONFIRMAR';
                         arrowDir = 'right';
@@ -4694,7 +4681,8 @@
             processarLocalizacaoAutomaticaSemModal(studentId, action, studentName);
         }
 
-        async function processarLocalizacaoAutomaticaSemModal(studentId, action, studentName, skipApiCall = false) {
+        async function processarLocalizacaoAutomaticaSemModal(studentId, action, studentName) {
+            // IMPEDE execução simultânea
             if (window.isProcessingLocation) {
                 console.log('⚠️ Já processando, ignorando');
                 return;
@@ -4702,8 +4690,10 @@
             window.isProcessingLocation = true;
 
             try {
+                // Mostra mensagem de status inicial
                 showStatusMessage(`📍 Obtendo localização para ${action === 'entrada' ? 'entrada' : 'saída'}...`, 'info');
 
+                // Obtém localização
                 const position = await new Promise((resolve, reject) => {
                     navigator.geolocation.getCurrentPosition(resolve, reject, {
                         enableHighAccuracy: true,
@@ -4715,23 +4705,12 @@
                 const lat = position.coords.latitude.toFixed(6);
                 const lng = position.coords.longitude.toFixed(6);
 
-                showStatusMessage(`📍 Localização obtida!<br>Lat: ${lat} | Lon: ${lng}`, 'info');
+                // 🔴 ATUALIZA A MENSAGEM COM AS COORDENADAS
+                showStatusMessage(`📍 Localização obtida!<br>Lat: ${lat} | Lon: ${lng}<br>Validando área...`, 'info');
 
                 console.log(`📍 Localização obtida: ${lat}, ${lng}`);
 
-                // SE skipApiCall = true, apenas armazena a localização e retorna
-                if (skipApiCall) {
-                    window.ultimaLocalizacao = {
-                        latitude: position.coords.latitude,
-                        longitude: position.coords.longitude,
-                        timestamp: Date.now()
-                    };
-                    console.log('✅ Localização obtida (modo skip)');
-                    window.isProcessingLocation = false;
-                    return true;
-                }
-
-                // FLUXO NORMAL - USANDO OS MESMOS ENDPOINTS DO SISTEMA ORIGINAL
+                // Prepara dados da chamada
                 let endpoint, body;
 
                 if (action === 'entrada') {
@@ -4745,7 +4724,6 @@
                         responsavelTipo: 'TUTOR'
                     };
                 } else {
-                    // SAÍDA - usa o mesmo endpoint que sempre funcionou no sistema original
                     endpoint = '/api/presencas/saida/solicitar';
                     body = {
                         alunoId: parseInt(studentId),
@@ -4754,6 +4732,7 @@
                     };
                 }
 
+                // Executa a ação
                 const response = await fetchWithAuth(endpoint, {
                     method: 'POST',
                     body: JSON.stringify(body)
@@ -4765,17 +4744,40 @@
                     if (response.status === 403) {
                         throw new Error(result.mensagem || `Fora da área permitida`);
                     }
-                    throw new Error(result.mensagem || result.erro || 'Erro ao processar solicitação');
+                    throw new Error(result.mensagem || 'Erro ao processar solicitação');
                 }
 
-                console.log(`✅ ${action === 'entrada' ? 'Entrada' : 'Solicitação de saída'} realizada com sucesso!`);
-                window.isProcessingLocation = false;
+                console.log('✅ Ação realizada com sucesso!');
+
+                // 🔴 MOSTRA MENSAGEM DE SUCESSO COM COORDENADAS (opcional)
+                //showStatusMessage(`✅ ${action === 'entrada' ? 'Entrada' : 'Saída'} realizada!<br>Lat: ${lat} | Lon: ${lng}`, 'success');
+
+                // Atualiza os dados
+                await refreshStudentsData();
+
+                // Mostra tela de sucesso
+                const tipoSucesso = action === 'entrada' ? 'entrada' : 'solicitacao';
+                await mostrarTelaSucesso(tipoSucesso, async () => {
+                    await refreshStudentsData();
+                    const alunoAtualizado = students.find(s => s.id == studentId);
+                    if (action === 'entrada') {
+                        return alunoAtualizado && alunoAtualizado.status === 'PRESENTE';
+                    } else {
+                        return alunoAtualizado && alunoAtualizado.status === 'AGUARDANDO_CONFIRMACAO';
+                    }
+                });
+
+                // Se o histórico estiver aberto, atualiza
+                if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
+                    const student = students.find(s => s.id == studentId);
+                    await viewStudentHistory(studentId, student.nome);
+                }
 
             } catch (error) {
                 console.error('Erro no processamento:', error);
                 showStatusMessage(`❌ Erro: ${error.message}`, 'danger');
+            } finally {
                 window.isProcessingLocation = false;
-                throw error;
             }
         }
 
@@ -4929,7 +4931,7 @@
             let isDragging = false;
             let startX = 0;
             let currentOffset = 0;
-            let isProcessing = false;
+            let isProcessing = false; // Impede múltiplos processamentos
 
             if (label) {
                 label.style.transform = 'translate(-50%, -50%)';
@@ -4949,7 +4951,9 @@
             const slidesRight = (action === 'entrada' || action === 'confirmar');
 
             function onStart(e) {
+                // Se já está processando, não permite novo início
                 if (btn.classList.contains('activated') || isProcessing || isActionProcessing) return;
+
                 isDragging = true;
                 btn.classList.add('sliding');
                 startX = (e.touches ? e.touches[0].clientX : e.clientX);
@@ -4961,6 +4965,7 @@
 
             function onMove(e) {
                 if (!isDragging || isProcessing || isActionProcessing) return;
+
                 const clientX = e.touches ? e.touches[0].clientX : e.clientX;
                 let delta = clientX - startX;
                 const maxTravel = getMaxTravel();
@@ -4995,6 +5000,7 @@
                 isProcessing = true;
                 isActionProcessing = true;
 
+                // Fixa na posição final enquanto processa
                 thumb.style.transition = 'transform 0.2s ease-out';
                 fill.style.width = '100%';
                 thumb.style.transform = slidesRight ? `translateX(${maxTravel}px)` : `translateX(${-maxTravel}px)`;
@@ -5006,110 +5012,74 @@
                 const action = btn.dataset.action;
 
                 try {
-                    // ===== BLOCO ALTERADO: AGORA SAÍDA VAI DIRETO PARA CONFIRMAÇÃO =====
-                    if (action === 'saida') {
-                        // 1. VALIDAÇÃO DE HORÁRIO
-                        const aluno = students.find(s => s.id == studentId);
-                        if (aluno && aluno.salaNome) {
-                            const validacao = validarHorarioSaida(aluno.salaNome);
-                            if (!validacao.permitido) {
-                                resetSlideBtn(btn, thumb, fill, label, 'fast');
-                                isProcessing = false;
-                                isActionProcessing = false;
-                                return;
-                            }
-                        }
+                    // --- PASSO 1: ENVIAR PARA A API ---
+                    let response;
+                    if (action === 'confirmar') {
+                        // 1. MANTER ESTICADO
+                        const maxTravel = getMaxTravel();
+                        thumb.style.transition = 'transform 0.2s ease-out';
+                        fill.style.width = '100%';
+                        thumb.style.transform = slidesRight ? `translateX(${maxTravel}px)` : `translateX(${-maxTravel}px)`;
 
-                        try {
-                            // Solicita a saída
-                            await processarLocalizacaoAutomaticaSemModal(studentId, 'saida', studentName);
-
-                            console.log('✅ Saída solicitada com sucesso!');
-
-                            // Confirma a saída
-                            const confirmResponse = await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, {
-                                method: 'POST'
-                            });
-
-                            if (!confirmResponse.ok) {
-                                const result = await confirmResponse.json();
-                                throw new Error(result.mensagem || result.erro || 'Erro ao confirmar saída');
-                            }
-
-                            console.log('✅ Saída confirmada com sucesso!');
-
-                            // Atualiza os dados
-                            //await refreshStudentsData();
-
-                            // MOSTRA A TELA AMARELA DE SUCESSO (já está funcionando)
-                            await mostrarTelaSucesso('confirmacao', async () => {
-                                await refreshStudentsData();
-                                const alunoAtualizado = students.find(s => s.id == studentId);
-                                return alunoAtualizado && alunoAtualizado.status !== 'PRESENTE';
-                            });
-
-                            resetSlideBtn(btn, thumb, fill, label, 'slow', true);
-
-                            // Atualiza histórico se estiver aberto
-                            if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
-                                await viewStudentHistory(studentId, studentName);
-                            }
-
-                            isProcessing = false;
-                            isActionProcessing = false;
-
-                        } catch (error) {
-                            console.error('Erro no processo de saída:', error);
-                            showStatusMessage(`❌ ${error.message}`, 'danger');
-                            resetSlideBtn(btn, thumb, fill, label, 'fast');
-                            isProcessing = false;
-                            isActionProcessing = false;
-                        }
-                    }
-                    // ===== FIM DO BLOCO ALTERADO =====
-
-                    else if (action === 'confirmar') {
-                        // Mantém o comportamento original de confirmar (para compatibilidade com tokens)
+                        // 2. ENVIA PARA A API
                         await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, { method: 'POST' });
+
+                        // 3. MOSTRAR A TELA DE SUCESSO IMEDIATAMENTE
                         mostrarTelaSucesso('confirmacao');
+
+                        // 4. ATUALIZAR DADOS E RESETAR
                         await refreshStudentsData();
                         resetSlideBtn(btn, thumb, fill, label, 'fast', true);
+
                         isProcessing = false;
                         isActionProcessing = false;
-                    }
 
-                    else if (action === 'entrada') {
-                        try {
-                            // Processa a entrada (chama a API)
-                            await processarLocalizacaoAutomaticaSemModal(studentId, 'entrada', studentName);
+                    } else if (action === 'entrada' || action === 'saida') {
 
-                            // Atualiza os dados
-                            //await refreshStudentsData();
+                        // --- INÍCIO DA TRAVA DE SEGURANÇA INTEGRADA ---
+                        if (action === 'saida') {
+                            // 1. BUSCA O NOME DA SALA NO ITEM
+                            const card = btn.closest('.student-item');
 
-                            // MOSTRA A TELA VERDE DE SUCESSO
-                            await mostrarTelaSucesso('entrada', async () => {
-                                await refreshStudentsData();
-                                const alunoAtualizado = students.find(s => s.id == studentId);
-                                return alunoAtualizado && alunoAtualizado.status === 'PRESENTE';
-                            });
+                            // CORREÇÃO: No seu HTML, a sala está em um span com background: var(--primary-light)
+                            const salaElement = card ? card.querySelector('span[style*="background: var(--primary-light)"]') : null;
 
-                            resetSlideBtn(btn, thumb, fill, label, 'slow', true);
+                            // Captura o texto de forma limpa
+                            let nomeSala = salaElement ? salaElement.textContent.trim().toUpperCase() : "";
 
-                            // Atualiza histórico se estiver aberto
-                            if (document.getElementById('historyPanel').classList.contains('active') && historyViewingStudentId == studentId) {
-                                await viewStudentHistory(studentId, studentName);
+                            console.log("🏫 Sala encontrada (RAW):", nomeSala);
+
+                            // 2. VALIDAÇÃO PELA FUNÇÃO GLOBAL
+                            if (window.validarHorarioSaida) {
+                                const validacao = window.validarHorarioSaida(nomeSala);
+                                console.log("📊 Resultado validação:", validacao);
+
+                                if (!validacao.permitido) {
+                                    console.log("🚫 SAÍDA BLOQUEADA - Horário não permitido");
+
+                                    // O modal já foi mostrado dentro da função validarHorarioSaida
+
+                                    // Volta o slider imediatamente
+                                    resetSlideBtn(btn, thumb, fill, label, 'fast');
+
+                                    // Libera as travas
+                                    isProcessing = false;
+                                    isActionProcessing = false;
+                                    window.isProcessingAction = false;
+
+                                    return;
+                                }
                             }
-
-                            isProcessing = false;
-                            isActionProcessing = false;
-
-                        } catch (error) {
-                            console.error('Erro na entrada:', error);
-                            showStatusMessage(`❌ ${error.message}`, 'danger');
-                            resetSlideBtn(btn, thumb, fill, label, 'fast');
-                            isProcessing = false;
-                            isActionProcessing = false;
                         }
+                        // --- FIM DA TRAVA DE SEGURANÇA ---
+
+                        // Segue o fluxo normal caso passe pela trava ou seja 'entrada'
+                        await processarLocalizacaoAutomaticaSemModal(studentId, action, studentName);
+                        resetSlideBtn(btn, thumb, fill, label, 'slow', true);
+                        await refreshStudentsData();
+
+                        isProcessing = false;
+                        isActionProcessing = false;
                     }
 
                 } catch (error) {
@@ -5124,6 +5094,7 @@
             function resetSlideBtn(b, t, f, l, speed = 'normal', silent = false) {
                 console.log(`🔄 Resetando slider (${silent ? 'silencioso' : 'visível'})`);
 
+                // Define a velocidade da animação
                 if (speed === 'slow') {
                     t.style.transition = 'transform 1s cubic-bezier(0.2, 0.8, 0.4, 1)';
                     f.style.transition = 'width 1s cubic-bezier(0.2, 0.8, 0.4, 1)';
@@ -5138,6 +5109,7 @@
                 t.style.transform = 'translateX(0)';
                 f.style.width = '0';
 
+                // Se for silencioso, remove a classe activated sem animação visual
                 if (silent) {
                     b.classList.remove('activated');
                 } else {
@@ -5530,9 +5502,11 @@
 
         // ===== MODAL DE BLOQUEIO DE HORÁRIO =====
         function mostrarModalBloqueio(mensagem) {
+            // Remove modal anterior se existir
             const modalAnterior = document.getElementById('modalBloqueioHorario');
             if (modalAnterior) modalAnterior.remove();
 
+            // Cria o backdrop
             const backdrop = document.createElement('div');
             backdrop.id = 'modalBloqueioHorario';
             backdrop.style.cssText = `
@@ -5550,9 +5524,11 @@
         animation: fadeInModal 0.3s ease;
     `;
 
+            // Extrai o horário da mensagem para mostrar de forma destacada
             const horarioMatch = mensagem.match(/(\d{1,2}):(\d{2})/);
             const horario = horarioMatch ? horarioMatch[0] : '';
 
+            // Cria o modal
             const modal = document.createElement('div');
             modal.style.cssText = `
         background: white;
@@ -5567,6 +5543,7 @@
         border: 1px solid rgba(255, 255, 255, 0.2);
     `;
 
+            // Ícone de relógio animado
             modal.innerHTML = `
         <div style="margin-bottom: 20px;">
             <div style="
@@ -5587,11 +5564,39 @@
                 </svg>
             </div>
         </div>
-        <h3 style="font-size: 1.4rem; font-weight: 800; color: #1e293b; margin: 0 0 8px 0;">⏰ Horário Não Permitido</h3>
-        <div style="background: #fef3c7; border-radius: 40px; padding: 12px 16px; margin: 20px 0; border: 2px solid #fbbf24;">
-            <span style="font-size: 2rem; font-weight: 800; color: #92400e; font-family: monospace; letter-spacing: 2px;">${horario}</span>
+        
+        <h3 style="
+            font-size: 1.4rem;
+            font-weight: 800;
+            color: #1e293b;
+            margin: 0 0 8px 0;
+            font-family: 'Inter', sans-serif;
+        ">⏰ Horário Não Permitido</h3>
+        
+        <div style="
+            background: #fef3c7;
+            border-radius: 40px;
+            padding: 12px 16px;
+            margin: 20px 0;
+            border: 2px solid #fbbf24;
+        ">
+            <span style="
+                font-size: 2rem;
+                font-weight: 800;
+                color: #92400e;
+                font-family: monospace;
+                letter-spacing: 2px;
+            ">${horario}</span>
         </div>
-        <p style="color: #64748b; font-size: 1rem; line-height: 1.5; margin: 0 0 24px 0; font-weight: 500;">${mensagem}</p>
+        
+        <p style="
+            color: #64748b;
+            font-size: 1rem;
+            line-height: 1.5;
+            margin: 0 0 24px 0;
+            font-weight: 500;
+        ">${mensagem}</p>
+        
         <button onclick="this.closest('#modalBloqueioHorario').remove()" style="
             background: linear-gradient(135deg, #f59e0b, #fbbf24);
             color: white;
@@ -5604,14 +5609,50 @@
             width: 100%;
             transition: all 0.3s;
             box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
-        ">
+            font-family: 'Inter', sans-serif;
+            letter-spacing: 0.5px;
+        " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(245, 158, 11, 0.4)'" 
+           onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(245, 158, 11, 0.3)'">
             Entendi
         </button>
     `;
 
+            // Adiciona animações CSS
+            const style = document.createElement('style');
+            style.textContent = `
+        @keyframes fadeInModal {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        @keyframes slideUpModal {
+            from {
+                opacity: 0;
+                transform: translateY(30px) scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+        
+        @keyframes pulseIcon {
+            0%, 100% {
+                transform: scale(1);
+                box-shadow: 0 10px 25px rgba(245, 158, 11, 0.3);
+            }
+            50% {
+                transform: scale(1.05);
+                box-shadow: 0 15px 35px rgba(245, 158, 11, 0.5);
+            }
+        }
+    `;
+
+            document.head.appendChild(style);
             backdrop.appendChild(modal);
             document.body.appendChild(backdrop);
 
+            // Fecha ao clicar no backdrop (opcional)
             backdrop.addEventListener('click', function (e) {
                 if (e.target === backdrop) {
                     backdrop.remove();
@@ -5627,8 +5668,10 @@
         };
 
         window.validarHorarioSaida = function (nomeSalaBruto) {
+            // Log do valor recebido
             console.log("🔍 [DEBUG] Validando sala (bruto):", nomeSalaBruto);
 
+            // NORMALIZAÇÃO
             const nomeSala = normalizarNomeSala(nomeSalaBruto);
 
             console.log("🔍 [DEBUG] Validando sala (normalizado):", nomeSala);
@@ -5649,10 +5692,14 @@
 
             console.log(`🕒 Agora: ${horaAtual}:${minutoAtual} | Limite: ${horaLimite}:${minutoLimite}`);
 
+            // Comparação numérica
             if (horaAtual < horaLimite || (horaAtual === horaLimite && minutoAtual < minutoLimite)) {
                 const mensagem = `A solicitação de saída para ${nomeSala} só é permitida após ${horaLimite}:${minutoLimite.toString().padStart(2, '0')}.`;
                 console.log("🚫 BLOQUEADO:", mensagem);
+
+                // Mostra o modal bonitinho em vez da notificação antiga
                 mostrarModalBloqueio(mensagem);
+
                 return {
                     permitido: false,
                     mensagem: mensagem
@@ -5683,12 +5730,18 @@
         function normalizarNomeSala(nome) {
             if (!nome) return "";
 
+            // Remove espaços extras e converte para maiúsculas
             let nomeLimpo = nome.trim().toUpperCase();
+
+            // Log para debug
             console.log("🔧 Normalizando:", nomeLimpo);
 
             // Se começar com número e tiver "ANO" ou "ANOS"
             if (nomeLimpo.match(/^\d/)) {
+                // Troca "º" por "°"
                 nomeLimpo = nomeLimpo.replace(/º/g, "°");
+
+                // Garante que tenha o formato "X° ANO"
                 const match = nomeLimpo.match(/(\d+)[°º]?\s*(ANO|ANOS)/i);
                 if (match) {
                     return match[1] + "° ANO";
