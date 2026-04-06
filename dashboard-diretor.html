@@ -3120,7 +3120,7 @@
                             break;
                         case 'quick-exits':
                             loadClassroomsForQuickExits();
-                            refreshQuickExits();
+                            carregarAlunosParaSaidasRapidas(); // Use a nova função
                             break;
                     }
                 });
@@ -6175,16 +6175,29 @@
             if (contentElement) contentElement.style.display = 'block';
         }
 
-        // ========== SAÍDAS RÁPIDAS ==========
+
+
+
+
+
+
+
+
+
+
+        // ========== SAÍDAS RÁPIDAS - VERSÃO CORRIGIDA (SEM RECURSÃO) ==========
         let salasDisponiveis = [];
         let salasSelecionadas = new Set();
-        let holdTimers = new Map(); // Armazena timers de hold por alunoId
-        let isRefreshingQuickExits = false; // CONTROLE PARA EVITAR LOOP
+        let holdTimers = new Map();
+        let isLoadingQuickExits = false;
 
         // Carregar salas para seleção
         async function loadClassroomsForQuickExits() {
             try {
-                const response = await fetchWithAuth(`/api/diretores/${currentSchoolId}/salas`);
+                const accessToken = localStorage.getItem('access_token');
+                const response = await fetch(`${BACKEND_URL}/api/diretores/${currentSchoolId}/salas`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
 
                 if (response.ok) {
                     salasDisponiveis = await response.json();
@@ -6221,25 +6234,24 @@
         // Alternar seleção de sala
         window.toggleSalaSelecionada = function (checkbox) {
             const salaId = parseInt(checkbox.value);
-
             if (checkbox.checked) {
                 salasSelecionadas.add(salaId);
             } else {
                 salasSelecionadas.delete(salaId);
             }
-
-            refreshQuickExits();
+            // Chama a função de atualização, mas com proteção contra recursão
+            carregarAlunosParaSaidasRapidas();
         };
 
-        // Atualizar o conteúdo da aba Saídas Rápidas - VERSÃO CORRIGIDA (sem recursão)
-        window.refreshQuickExits = async function () {
-            // EVITAR LOOP INFINITO
-            if (isRefreshingQuickExits) {
-                console.log('Refresh já em andamento, ignorando...');
+        // Função principal - SEM recursão
+        async function carregarAlunosParaSaidasRapidas() {
+            // PREVINE RECURSÃO
+            if (isLoadingQuickExits) {
+                console.log('Carregamento já em andamento, ignorando...');
                 return;
             }
 
-            isRefreshingQuickExits = true;
+            isLoadingQuickExits = true;
 
             try {
                 if (salasSelecionadas.size === 0) {
@@ -6260,12 +6272,17 @@
             </div>
         `;
 
+                const accessToken = localStorage.getItem('access_token');
+
                 // Buscar todos os alunos da escola
-                const response = await fetchWithAuth(`/api/diretores/${currentSchoolId}/alunos?size=1000`);
+                const response = await fetch(`${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?size=1000`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+
                 const data = await response.json();
                 const todosAlunos = data.content || [];
 
-                // Filtrar alunos por sala selecionada e apenas PRESENTES ou AGUARDANDO
+                // Filtrar alunos por sala selecionada
                 const alunosPorSala = new Map();
 
                 for (const salaId of salasSelecionadas) {
@@ -6273,29 +6290,10 @@
                         aluno.salaId === salaId &&
                         (aluno.status === 'PRESENTE' || aluno.status === 'AGUARDANDO_CONFIRMACAO')
                     );
-
-                    if (alunosDaSala.length > 0) {
-                        // Buscar status atualizado para cada aluno
-                        const alunosComStatus = await Promise.all(alunosDaSala.map(async (aluno) => {
-                            try {
-                                const saidaResponse = await fetchWithAuth(`/api/presencas/aluno/${aluno.id}/saida-ativa`);
-                                const saidaAtiva = await saidaResponse.json();
-                                if (saidaAtiva.sucesso && saidaAtiva.dados?.status === 'AGUARDANDO_CONFIRMACAO') {
-                                    aluno.status = 'AGUARDANDO_CONFIRMACAO';
-                                }
-                            } catch (e) {
-                                console.warn(`Erro ao verificar status do aluno ${aluno.id}:`, e);
-                            }
-                            return aluno;
-                        }));
-
-                        alunosPorSala.set(salaId, alunosComStatus);
-                    } else {
-                        alunosPorSala.set(salaId, []);
-                    }
+                    alunosPorSala.set(salaId, alunosDaSala);
                 }
 
-                renderQuickExits(alunosPorSala);
+                renderQuickExitsContent(alunosPorSala);
 
             } catch (error) {
                 console.error('Erro ao carregar alunos:', error);
@@ -6303,16 +6301,16 @@
             <div style="text-align: center; padding: 40px; color: var(--danger);">
                 <i class="fas fa-exclamation-triangle" style="font-size: 48px; margin-bottom: 16px;"></i>
                 <p>Erro ao carregar alunos. Tente novamente.</p>
-                <button class="btn btn-primary mt-3" onclick="refreshQuickExits()">Tentar Novamente</button>
+                <button class="btn btn-primary mt-3" onclick="carregarAlunosParaSaidasRapidas()">Tentar Novamente</button>
             </div>
         `;
             } finally {
-                isRefreshingQuickExits = false;
+                isLoadingQuickExits = false;
             }
-        };
+        }
 
-        // Renderizar os cards das salas selecionadas
-        function renderQuickExits(alunosPorSala) {
+        // Renderizar os cards (versão renomeada para evitar conflito)
+        function renderQuickExitsContent(alunosPorSala) {
             const container = document.getElementById('quickExitsContainer');
             container.innerHTML = '';
 
@@ -6344,7 +6342,6 @@
                 `).join('')}
             </div>
         `;
-
                 container.appendChild(salaCard);
             }
 
@@ -6357,16 +6354,20 @@
         `;
             }
 
-            // Inicializar os eventos de hold nos cards
             initQuickExitHoldEvents();
         }
 
-        // Inicializar eventos de hold (1 segundo) nos cards
+        // Função pública para atualizar (sem recursão)
+        window.refreshQuickExits = function () {
+            carregarAlunosParaSaidasRapidas();
+        };
+
+        // Inicializar eventos de hold
         function initQuickExitHoldEvents() {
             const cards = document.querySelectorAll('.quick-exit-aluno-card');
 
             cards.forEach(card => {
-                // Remover listeners antigos para evitar duplicação
+                // Remover listeners antigos
                 card.removeEventListener('mousedown', onHoldStart);
                 card.removeEventListener('mouseup', onHoldEnd);
                 card.removeEventListener('mouseleave', onHoldEnd);
@@ -6374,7 +6375,7 @@
                 card.removeEventListener('touchend', onHoldEnd);
                 card.removeEventListener('touchcancel', onHoldEnd);
 
-                // Adicionar novos listeners
+                // Adicionar novos
                 card.addEventListener('mousedown', onHoldStart);
                 card.addEventListener('mouseup', onHoldEnd);
                 card.addEventListener('mouseleave', onHoldEnd);
@@ -6384,42 +6385,25 @@
             });
         }
 
-        // Variáveis para controle do hold
-        let holdStartTime = null;
-        let holdAnimationFrame = null;
-
         function onHoldStart(e) {
             const card = e.currentTarget;
             const alunoId = parseInt(card.dataset.alunoId);
-            const alunoNome = card.dataset.alunoNome;
-            const statusAtual = card.dataset.alunoStatus;
 
-            // Previne evento duplicado
             if (holdTimers.has(alunoId)) return;
 
             e.preventDefault();
-
-            // Adiciona classe visual de hold ativo
             card.classList.add('hold-active');
 
-            // Obtém o elemento de progresso
             const progressBar = card.querySelector('.hold-progress');
-            if (progressBar) {
-                progressBar.style.width = '0%';
-            }
+            if (progressBar) progressBar.style.width = '0%';
 
-            // Inicia o timer de 1 segundo
             const startTime = Date.now();
             let animationId = null;
 
-            // Atualiza a barra de progresso
             const updateProgress = () => {
                 const elapsed = Date.now() - startTime;
                 const progress = Math.min(100, (elapsed / 1000) * 100);
-                if (progressBar) {
-                    progressBar.style.width = `${progress}%`;
-                }
-
+                if (progressBar) progressBar.style.width = `${progress}%`;
                 if (elapsed < 1000) {
                     animationId = requestAnimationFrame(updateProgress);
                 }
@@ -6428,18 +6412,11 @@
             animationId = requestAnimationFrame(updateProgress);
 
             const timer = setTimeout(async () => {
-                // Hold completo! Confirmar saída
                 card.classList.remove('hold-active');
-
-                // Verifica se o aluno ainda está pendente ou presente
-                if (statusAtual === 'PRESENTE' || statusAtual === 'AGUARDANDO_CONFIRMACAO') {
-                    await confirmarSaidaRapida(alunoId, alunoNome, card);
-                }
-
-                // Limpar timers
+                const alunoNome = card.dataset.alunoNome;
+                await confirmarSaidaRapida(alunoId, alunoNome, card);
                 if (animationId) cancelAnimationFrame(animationId);
                 holdTimers.delete(alunoId);
-
             }, 1000);
 
             holdTimers.set(alunoId, { timer, animationId, startTime, progressBar });
@@ -6451,18 +6428,15 @@
             const alunoNome = card.dataset.alunoNome;
             const statusAtual = card.dataset.alunoStatus;
 
-            // Remove classe visual
             card.classList.remove('hold-active');
 
             const holdData = holdTimers.get(alunoId);
             if (holdData) {
-                // Cancelar o timer (não foi hold completo)
                 clearTimeout(holdData.timer);
                 if (holdData.animationId) cancelAnimationFrame(holdData.animationId);
                 if (holdData.progressBar) holdData.progressBar.style.width = '0%';
                 holdTimers.delete(alunoId);
 
-                // Se foi um clique rápido (menos de 1 segundo) e o aluno está PRESENTE, solicita saída
                 const elapsed = Date.now() - holdData.startTime;
                 if (elapsed < 1000 && statusAtual === 'PRESENTE') {
                     solicitarSaidaRapida(alunoId, alunoNome, card);
@@ -6470,7 +6444,6 @@
             }
         }
 
-        // Solicitar saída (primeiro clique)
         async function solicitarSaidaRapida(alunoId, alunoNome, card) {
             if (directorStatus !== 'PRESENTE') {
                 showAlert('Você precisa registrar sua entrada na escola primeiro.', 'error');
@@ -6478,7 +6451,6 @@
             }
 
             try {
-                // Obtém localização
                 let latitude = null, longitude = null;
                 try {
                     const position = await new Promise((resolve, reject) => {
@@ -6490,12 +6462,16 @@
                     latitude = position.coords.latitude;
                     longitude = position.coords.longitude;
                 } catch (geoError) {
-                    throw new Error('Não foi possível obter sua localização. Verifique as permissões.');
+                    throw new Error('Não foi possível obter sua localização.');
                 }
 
-                // Solicitar saída
-                const response = await fetchWithAuth(`/api/presencas/saida/solicitar`, {
+                const accessToken = localStorage.getItem('access_token');
+                const response = await fetch(`${BACKEND_URL}/api/presencas/saida/solicitar`, {
                     method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
                     body: JSON.stringify({ alunoId, latitude, longitude })
                 });
 
@@ -6504,7 +6480,6 @@
                     throw new Error(error.mensagem || 'Erro ao solicitar saída');
                 }
 
-                // Atualizar o card para status pendente
                 card.classList.add('pendente');
                 card.dataset.alunoStatus = 'AGUARDANDO_CONFIRMACAO';
                 const statusSpan = card.querySelector('.quick-exit-aluno-status');
@@ -6518,7 +6493,6 @@
             }
         }
 
-        // Confirmar saída (hold de 1 segundo)
         async function confirmarSaidaRapida(alunoId, alunoNome, card) {
             if (directorStatus !== 'PRESENTE') {
                 showAlert('Você precisa registrar sua entrada na escola primeiro.', 'error');
@@ -6526,26 +6500,10 @@
             }
 
             try {
-                // Obtém localização
-                let latitude = null, longitude = null;
-                try {
-                    const position = await new Promise((resolve, reject) => {
-                        navigator.geolocation.getCurrentPosition(resolve, reject, {
-                            enableHighAccuracy: true,
-                            timeout: 10000
-                        });
-                    });
-                    latitude = position.coords.latitude;
-                    longitude = position.coords.longitude;
-                } catch (geoError) {
-                    // Se não conseguir localização, tenta confirmar mesmo assim
-                    console.warn('Localização não obtida, tentando confirmar sem localização');
-                }
-
-                // Confirmar saída
-                const response = await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${alunoId}`, {
+                const accessToken = localStorage.getItem('access_token');
+                const response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`, {
                     method: 'POST',
-                    body: JSON.stringify({ latitude, longitude })
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
 
                 if (!response.ok) {
@@ -6553,22 +6511,17 @@
                     throw new Error(error.mensagem || 'Erro ao confirmar saída');
                 }
 
-                // Animar remoção do card
                 card.style.transition = 'all 0.3s ease';
                 card.style.opacity = '0';
                 card.style.transform = 'scale(0.8)';
 
                 setTimeout(() => {
                     card.remove();
-
-                    // Verificar se a sala ficou vazia
                     const grid = card.closest('.quick-exits-alunos-grid');
                     if (grid && grid.children.length === 0) {
                         const salaCard = grid.closest('.quick-exits-sala-card');
                         if (salaCard) salaCard.remove();
                     }
-
-                    // Atualizar contador da sala
                     const salaHeader = card.closest('.quick-exits-sala-card')?.querySelector('.quick-exits-sala-count');
                     if (salaHeader) {
                         const currentCount = parseInt(salaHeader.textContent.match(/\d+/)?.[0] || 0);
@@ -6583,7 +6536,6 @@
             } catch (error) {
                 console.error('Erro ao confirmar saída:', error);
                 showAlert(error.message, 'error');
-                // Remover classe pendente se falhou
                 card.classList.remove('pendente');
                 card.dataset.alunoStatus = 'PRESENTE';
                 const statusSpan = card.querySelector('.quick-exit-aluno-status');
@@ -6595,13 +6547,6 @@
         window.refreshQuickExits = function () {
             refreshQuickExits();
         };
-
-        // Modificar setupTabs para carregar dados ao clicar na nova aba
-        // Adicione este case no switch da função setupTabs:
-        // case 'quick-exits':
-        //     loadClassroomsForQuickExits();
-        //     refreshQuickExits();
-        //     break;
 
         /**
          * Listener UNIFICADO que inicializa o dashboard e configura os botões dos modais
