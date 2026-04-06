@@ -2231,6 +2231,40 @@
         };
 
         // ========== FUNÇÕES GLOBAIS ==========
+        // ========== FUNÇÃO FETCH COM AUTENTICAÇÃO ==========
+        async function fetchWithAuth(url, options = {}) {
+            const token = await garantirAutenticacao();
+            if (!token) {
+                throw new Error('Token inválido');
+            }
+
+            const fullUrl = url.startsWith('http') ? url : `${BACKEND_URL}${url}`;
+
+            const response = await fetch(fullUrl, {
+                ...options,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                }
+            });
+
+            if (response.status === 401) {
+                const novoToken = await garantirAutenticacao();
+                if (novoToken) {
+                    return fetch(fullUrl, {
+                        ...options,
+                        headers: {
+                            'Authorization': `Bearer ${novoToken}`,
+                            'Content-Type': 'application/json',
+                            ...options.headers
+                        }
+                    });
+                }
+            }
+
+            return response;
+        }
 
         // ==================================================================
         //  NOVO: CLASSE PARA GERENCIAR A CONEXÃO WEBSOCKET                  
@@ -5263,45 +5297,47 @@
         }
 
         // Função para garantir autenticação - ADICIONAR ESTA FUNÇÃO
+        // ========== FUNÇÃO PARA GARANTIR AUTENTICAÇÃO ==========
         async function garantirAutenticacao() {
             const accessToken = localStorage.getItem('access_token');
+            const expiry = localStorage.getItem('token_expiry');
 
-            // Testar se o token atual funciona
-            const authOk = await testarAutenticacao();
+            // Token válido
+            if (accessToken && expiry && new Date().getTime() < parseInt(expiry)) {
+                return accessToken;
+            }
 
-            if (!authOk) {
-                console.log('🔄 Token inválido, tentando renovar...');
+            // Token expirado - tenta renovar
+            console.log('🔄 Token expirado, tentando renovar...');
 
-                try {
-                    const refreshToken = localStorage.getItem('refresh_token');
-                    if (refreshToken) {
-                        const refreshResponse = await fetch(`${BACKEND_URL}/api/auth/refresh`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({ refreshToken })
-                        });
-
-                        if (refreshResponse.ok) {
-                            const tokenData = await refreshResponse.json();
-                            localStorage.setItem('access_token', tokenData.access_token);
-                            localStorage.setItem('refresh_token', tokenData.refresh_token);
-                            console.log('✅ Token renovado com sucesso!');
-                            return tokenData.access_token;
-                        }
-                    }
-                } catch (error) {
-                    console.error('❌ Falha ao renovar token:', error);
+            try {
+                const refreshToken = localStorage.getItem('refresh_token');
+                if (!refreshToken) {
+                    throw new Error('Refresh token não encontrado');
                 }
 
-                // Se não conseguiu renovar, redirecionar para login
-                console.log('🔐 Redirecionando para login...');
+                const response = await fetch(`${BACKEND_URL}/api/auth/refresh`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refreshToken })
+                });
+
+                if (response.ok) {
+                    const tokenData = await response.json();
+                    localStorage.setItem('access_token', tokenData.access_token);
+                    localStorage.setItem('refresh_token', tokenData.refresh_token);
+                    const novaExpiry = new Date().getTime() + (60 * 60 * 1000);
+                    localStorage.setItem('token_expiry', novaExpiry.toString());
+                    console.log('✅ Token renovado com sucesso!');
+                    return tokenData.access_token;
+                }
+                throw new Error('Falha ao renovar token');
+            } catch (error) {
+                console.error('❌ Erro ao renovar token:', error);
+                localStorage.clear();
                 window.location.href = 'login.html';
                 return null;
             }
-
-            return accessToken;
         }
 
         // ========== FUNÇÕES DO DIRETOR ==========
@@ -6145,11 +6181,11 @@
         let salasDisponiveis = [];
         let salasSelecionadas = new Set();
         let holdTimers = new Map(); // Armazena timers de hold por alunoId
+        let isRefreshingQuickExits = false; // CONTROLE PARA EVITAR LOOP
 
         // Carregar salas para seleção
         async function loadClassroomsForQuickExits() {
             try {
-                const accessToken = localStorage.getItem('access_token');
                 const response = await fetchWithAuth(`/api/diretores/${currentSchoolId}/salas`);
 
                 if (response.ok) {
@@ -6166,12 +6202,17 @@
             const container = document.getElementById('quickExitsClassrooms');
             if (!container) return;
 
+            if (salasDisponiveis.length === 0) {
+                container.innerHTML = '<p style="padding: 16px; color: var(--text-secondary);">Nenhuma sala encontrada.</p>';
+                return;
+            }
+
             container.innerHTML = `
         <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
             <span style="font-weight: 600; color: var(--text);">Selecionar Salas:</span>
             ${salasDisponiveis.map(sala => `
                 <label class="classroom-checkbox">
-                    <input type="checkbox" value="${sala.id}" data-sala-nome="${sala.nome}" onchange="toggleSalaSelecionada(this)">
+                    <input type="checkbox" value="${sala.id}" data-sala-nome="${sala.nome.replace(/'/g, "\\'")}" onchange="toggleSalaSelecionada(this)">
                     <span>${sala.nome}</span>
                 </label>
             `).join('')}
@@ -6182,7 +6223,6 @@
         // Alternar seleção de sala
         window.toggleSalaSelecionada = function (checkbox) {
             const salaId = parseInt(checkbox.value);
-            const salaNome = checkbox.getAttribute('data-sala-nome');
 
             if (checkbox.checked) {
                 salasSelecionadas.add(salaId);
@@ -6195,31 +6235,39 @@
 
         // Atualizar o conteúdo da aba Saídas Rápidas
         async function refreshQuickExits() {
-            if (salasSelecionadas.size === 0) {
-                document.getElementById('quickExitsContainer').innerHTML = `
-            <div style="text-align: center; padding: 40px; color: var(--text-secondary);">
-                <i class="fas fa-info-circle" style="font-size: 48px; margin-bottom: 16px;"></i>
-                <p>Selecione pelo menos uma sala para visualizar os alunos presentes.</p>
-            </div>
-        `;
+            // EVITAR LOOP INFINITO
+            if (isRefreshingQuickExits) {
+                console.log('Refresh já em andamento, ignorando...');
                 return;
             }
 
-            // Mostrar loading
-            document.getElementById('quickExitsContainer').innerHTML = `
-        <div style="text-align: center; padding: 40px;">
-            <div class="loading-spinner" style="margin: 0 auto;"></div>
-            <p style="margin-top: 16px;">Carregando alunos...</p>
-        </div>
-    `;
+            isRefreshingQuickExits = true;
 
             try {
+                if (salasSelecionadas.size === 0) {
+                    document.getElementById('quickExitsContainer').innerHTML = `
+                <div style="text-align: center; padding: 40px; color: var(--text-secondary);">
+                    <i class="fas fa-info-circle" style="font-size: 48px; margin-bottom: 16px;"></i>
+                    <p>Selecione pelo menos uma sala para visualizar os alunos presentes.</p>
+                </div>
+            `;
+                    return;
+                }
+
+                // Mostrar loading
+                document.getElementById('quickExitsContainer').innerHTML = `
+            <div style="text-align: center; padding: 40px;">
+                <div class="loading-spinner" style="margin: 0 auto;"></div>
+                <p style="margin-top: 16px;">Carregando alunos...</p>
+            </div>
+        `;
+
                 // Buscar todos os alunos da escola
                 const response = await fetchWithAuth(`/api/diretores/${currentSchoolId}/alunos?size=1000`);
                 const data = await response.json();
                 const todosAlunos = data.content || [];
 
-                // Filtrar alunos por sala selecionada e apenas PRESENTES
+                // Filtrar alunos por sala selecionada e apenas PRESENTES ou AGUARDANDO
                 const alunosPorSala = new Map();
 
                 for (const salaId of salasSelecionadas) {
@@ -6257,8 +6305,11 @@
             <div style="text-align: center; padding: 40px; color: var(--danger);">
                 <i class="fas fa-exclamation-triangle" style="font-size: 48px; margin-bottom: 16px;"></i>
                 <p>Erro ao carregar alunos. Tente novamente.</p>
+                <button class="btn btn-primary mt-3" onclick="refreshQuickExits()">Tentar Novamente</button>
             </div>
         `;
+            } finally {
+                isRefreshingQuickExits = false;
             }
         }
 
@@ -6270,8 +6321,8 @@
             for (const [salaId, alunos] of alunosPorSala) {
                 const sala = salasDisponiveis.find(s => s.id === salaId);
                 const salaNome = sala ? sala.nome : `Sala ${salaId}`;
-                const presentes = alunos.filter(a => a.status === 'PRESENTE').length;
-                const pendentes = alunos.filter(a => a.status === 'AGUARDANDO_CONFIRMACAO').length;
+
+                if (alunos.length === 0) continue;
 
                 const salaCard = document.createElement('div');
                 salaCard.className = 'quick-exits-sala-card';
@@ -6284,9 +6335,9 @@
                 ${alunos.map(aluno => `
                     <div class="quick-exit-aluno-card ${aluno.status === 'AGUARDANDO_CONFIRMACAO' ? 'pendente' : ''}" 
                          data-aluno-id="${aluno.id}"
-                         data-aluno-nome="${aluno.nome.replace(/'/g, "\\'")}"
+                         data-aluno-nome="${(aluno.nome || 'Aluno').replace(/'/g, "\\'")}"
                          data-aluno-status="${aluno.status}">
-                        <div class="quick-exit-aluno-nome">${aluno.nome}</div>
+                        <div class="quick-exit-aluno-nome">${aluno.nome || 'Aluno'}</div>
                         <div class="quick-exit-aluno-status">${aluno.status === 'AGUARDANDO_CONFIRMACAO' ? 'Aguardando' : 'Presente'}</div>
                         <div class="hold-indicator">
                             <div class="hold-progress"></div>
@@ -6297,6 +6348,15 @@
         `;
 
                 container.appendChild(salaCard);
+            }
+
+            if (container.children.length === 0) {
+                container.innerHTML = `
+            <div style="text-align: center; padding: 40px; color: var(--text-secondary);">
+                <i class="fas fa-users-slash" style="font-size: 48px; margin-bottom: 16px;"></i>
+                <p>Nenhum aluno presente nas salas selecionadas.</p>
+            </div>
+        `;
             }
 
             // Inicializar os eventos de hold nos cards
