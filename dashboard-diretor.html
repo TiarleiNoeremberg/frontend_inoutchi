@@ -7453,16 +7453,12 @@
                     headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
 
-                let saidaAtiva = null;
-                let solicitacaoId = null;
-
-                if (verificaResponse.ok) {
-                    const verificaData = await verificaResponse.json();
-                    saidaAtiva = verificaData.dados;
-                    solicitacaoId = saidaAtiva?.id;
-                    console.log('Status da solicitação:', saidaAtiva);
-                    console.log('ID da solicitação:', solicitacaoId);
+                if (!verificaResponse.ok) {
+                    throw new Error('Não foi possível verificar a solicitação de saída.');
                 }
+
+                const verificaData = await verificaResponse.json();
+                const saidaAtiva = verificaData.dados;
 
                 if (!saidaAtiva || saidaAtiva.status !== 'AGUARDANDO_CONFIRMACAO') {
                     showAlert(`❌ Não há solicitação de saída pendente para ${alunoNome}.`, 'warning');
@@ -7470,9 +7466,7 @@
                     return;
                 }
 
-                // OBTÉM LOCALIZAÇÃO DO DIRETOR
-                showAlert(`Obtendo sua localização para confirmar saída de ${alunoNome}...`, 'info');
-
+                // OBTÉM LOCALIZAÇÃO DO DIRETOR (opcional, mas mantido por precaução)
                 let latitude = null, longitude = null;
                 try {
                     const position = await new Promise((resolve, reject) => {
@@ -7486,81 +7480,25 @@
                     longitude = position.coords.longitude;
                     console.log(`📍 Localização obtida: ${latitude}, ${longitude}`);
                 } catch (geoError) {
-                    console.warn('Erro ao obter localização:', geoError);
-                    let errorMsg = 'Não foi possível obter sua localização.';
-                    if (geoError.code === 1) errorMsg = 'Permissão de localização negada.';
-                    if (geoError.code === 2) errorMsg = 'Localização indisponível.';
-                    if (geoError.code === 3) errorMsg = 'Tempo esgotado.';
-
-                    const continuar = confirm(`${errorMsg}\n\nDeseja continuar mesmo assim? A localização pode ser necessária para registrar a saída.`);
-                    if (!continuar) return;
+                    console.warn('Erro ao obter localização, continuando mesmo assim:', geoError);
                 }
 
-                // TENTATIVA 1: Usando o endpoint com o ID da solicitação
                 showAlert(`Confirmando saída de ${alunoNome}...`, 'info');
 
-                let response;
-
-                // Tenta primeiro com o ID da solicitação no corpo
-                try {
-                    response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida`, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            solicitacaoId: solicitacaoId,
-                            alunoId: alunoId,
-                            latitude: latitude,
-                            longitude: longitude,
-                            diretorId: currentDirectorId,
-                            diretorNome: currentUser?.nome || 'Diretor'
-                        })
-                    });
-                    console.log('Tentativa 1 - Status:', response.status);
-                } catch (e) {
-                    console.warn('Erro na primeira tentativa:', e);
-                }
-
-                // TENTATIVA 2: Se falhou, tenta com query parameter e corpo
-                if (!response || !response.ok) {
-                    try {
-                        response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`, {
-                            method: 'POST',
-                            headers: {
-                                'Authorization': `Bearer ${accessToken}`,
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                                latitude: latitude,
-                                longitude: longitude,
-                                diretorId: currentDirectorId
-                            })
-                        });
-                        console.log('Tentativa 2 - Status:', response.status);
-                    } catch (e) {
-                        console.warn('Erro na segunda tentativa:', e);
+                // ⭐ ÚNICA CHAMADA CORRETA: apenas query parameter, sem corpo
+                const response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
                     }
-                }
+                    // ⚠️ NÃO ENVIAR BODY - o backend não espera
+                });
 
-                // TENTATIVA 3: Apenas query parameter sem corpo
-                if (!response || !response.ok) {
+                if (!response.ok) {
+                    let errorMessage = `Erro ${response.status}`;
                     try {
-                        response = await fetch(`${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${alunoId}&latitude=${latitude}&longitude=${longitude}`, {
-                            method: 'POST',
-                            headers: { 'Authorization': `Bearer ${accessToken}` }
-                        });
-                        console.log('Tentativa 3 - Status:', response.status);
-                    } catch (e) {
-                        console.warn('Erro na terceira tentativa:', e);
-                    }
-                }
-
-                if (!response || !response.ok) {
-                    let errorMessage = `Erro ${response?.status || 'desconhecido'}`;
-                    try {
-                        const errorData = await response?.json().catch(() => ({}));
+                        const errorData = await response.json().catch(() => ({}));
                         errorMessage = errorData.mensagem || errorData.erro || errorMessage;
                     } catch (e) { }
                     throw new Error(errorMessage);
