@@ -833,53 +833,41 @@
                 this.token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
                 this.tokenExpiry = localStorage.getItem('token_expiry') || sessionStorage.getItem('token_expiry');
 
-                this.alunos = []; // Single source of truth for student data
+                this.alunos = [];
                 this.salaInfo = {};
                 this.salaId = null;
                 this.currentUser = null;
 
-                // Tenta carregar dados do usuário do storage (para não precisar buscar da API)
                 const userDataStr = localStorage.getItem('user_data') || sessionStorage.getItem('user_data');
                 if (userDataStr) {
                     try {
                         const userData = JSON.parse(userDataStr);
                         this.currentUser = userData;
-                        this.salaId = userData.salaId; // Já define o salaId se disponível
+                        this.salaId = userData.salaId;
                         console.log('✅ Dados do usuário carregados do storage');
                     } catch (e) {
                         console.error('Erro ao parsear user_data:', e);
                     }
                 }
 
-                // Animation & Notification Queues/Batches
                 this.filaDeChamadas = [];
                 this.alertaSoundBuffer = null;
                 this.isProcessandoFila = false;
-                this.contagemErrosSync = 0; // Nova variável para monitorar saúde
+                this.contagemErrosSync = 0;
                 this.batchEntradaAlunos = new Map();
                 this.batchEntradaTimer = null;
 
-                // Sync Interval
-                const REFRESH_INTERVAL = 5000;
-                this.syncInterval = setInterval(() => {
-                    // Reset de segurança para destravar a fila se estiver vazia
-                    if (this.filaDeChamadas.length === 0) {
-                        this.isProcessandoFila = false;
-                    }
-                    this.sincronizarSalaSilenciosamente();
-                }, REFRESH_INTERVAL);
-
+                // Mantenha o heartbeat (apenas monitora, não sincroniza)
                 this.ultimoHeartbeatWebSocket = Date.now();
                 this.heartbeatCheckInterval = setInterval(() => {
                     const agora = Date.now();
-                    if (agora - this.ultimoHeartbeatWebSocket > 30000) { // 30s sem evento
-                        console.warn("⚠️ WebSocket parece inativo. Forçando sincronização...");
-                        this.sincronizarSalaSilenciosamente();
+                    if (agora - this.ultimoHeartbeatWebSocket > 30000) {
+                        console.warn("⚠️ WebSocket parece inativo. Reconectando...");
                         this.reconectarWebSocket();
                     }
                 }, 15000);
 
-                this.inicializar(); // MANTENHA ESTA LINHA SEMPRE NO FINAL
+                this.inicializar();
             }
 
             async inicializar() {
@@ -1425,18 +1413,17 @@
                     const dados = await this.fetchDadosSala();
 
                     if (dados && dados.alunos) {
-                        // 🔴 CRÍTICO: Se a API retornou vazio mas temos alunos no estado, NÃO SUBSTITUI
-                        if (dados.alunos.length === 0 && this.alunos.length > 0) {
-                            console.warn("⚠️ [SYNC] API retornou vazio mas temos alunos. Mantendo estado atual.");
-                            return; // ← SAI DA FUNÇÃO SEM MODIFICAR O ESTADO
-                        }
+                        // 🔴 REMOVA ESTE BLOCO COMPLETAMENTE
+                        // if (dados.alunos.length === 0 && this.alunos.length > 0) {
+                        //     return;
+                        // }
 
                         const alunosProcessados = await this.processarDadosAlunos(dados.alunos);
 
-                        // Atualiza o estado
+                        // SEMPRE atualiza o estado
                         this.alunos = alunosProcessados;
                         this.renderizarAlunos();
-                        console.log("🔄 [SYNC] Sincronização concluída.");
+                        console.log("🔄 [SYNC] Sincronização concluída com", this.alunos.length, "alunos");
                     }
                 } catch (error) {
                     console.error("❌ [SYNC] Erro:", error);
