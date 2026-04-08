@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="pt-BR">
 
@@ -798,6 +797,10 @@
                     <span>Offline</span>
                 </div>
             </div>
+            <button class="sync-btn" onclick="salaDashboard.sincronizarSalaSilenciosamente()"
+                style="background: #3b82f6; border: none; color: white; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; margin-right: 0.5rem;">
+                🔄 Sincronizar
+            </button>
             <button class="fullscreen-btn" onclick="salaDashboard.entrarEmTelaCheia()">⛶ Tela Cheia</button>
             <button class="logout-btn" onclick="salaDashboard.logout()">Sair</button>
         </div>
@@ -847,7 +850,7 @@
                         console.error('Erro ao parsear user_data:', e);
                     }
                 }
-                
+
                 // Animation & Notification Queues/Batches
                 this.filaDeChamadas = [];
                 this.alertaSoundBuffer = null;
@@ -857,7 +860,7 @@
                 this.batchEntradaTimer = null;
 
                 // Sync Interval
-                const REFRESH_INTERVAL = 15000;
+                const REFRESH_INTERVAL = 5000;
                 this.syncInterval = setInterval(() => {
                     // Reset de segurança para destravar a fila se estiver vazia
                     if (this.filaDeChamadas.length === 0) {
@@ -865,6 +868,16 @@
                     }
                     this.sincronizarSalaSilenciosamente();
                 }, REFRESH_INTERVAL);
+
+                this.ultimoHeartbeatWebSocket = Date.now();
+                this.heartbeatCheckInterval = setInterval(() => {
+                    const agora = Date.now();
+                    if (agora - this.ultimoHeartbeatWebSocket > 30000) { // 30s sem evento
+                        console.warn("⚠️ WebSocket parece inativo. Forçando sincronização...");
+                        this.sincronizarSalaSilenciosamente();
+                        this.reconectarWebSocket();
+                    }
+                }, 15000);
 
                 this.inicializar(); // MANTENHA ESTA LINHA SEMPRE NO FINAL
             }
@@ -1072,6 +1085,7 @@
             //========================================================
 
             processarMensagemWebSocket(mensagem) {
+                this.ultimoHeartbeatWebSocket = Date.now();
                 console.log("📡 Mensagem WebSocket:", mensagem);
                 switch (mensagem.tipo) {
                     case 'ENTRADA_ALUNO':
@@ -1087,6 +1101,15 @@
                         // NOTIFICAÇÃO REMOVIDA - Saída confirmada apenas visualmente
                         break;
                 }
+            }
+
+            reconectarWebSocket() {
+                if (this.stompClient) {
+                    try {
+                        this.stompClient.deactivate();
+                    } catch (e) { }
+                }
+                this.iniciarWebSocketStomp();
             }
 
             processarEntradaAluno(aluno, timestamp) {
@@ -1211,17 +1234,19 @@
                     // 3. ATUALIZA O ESTADO: Remove o aluno da lista de dados.
                     this.alunos = this.alunos.filter(aluno => aluno.id !== mensagem.alunoId);
 
-                    // === SOLUÇÃO: NÃO RENDERIZAR TUDO, APENAS REMOVER O CARD DO DOM ===
+                    // 4. REMOVE O CARD DO DOM
                     if (alunoCard) {
-                        alunoCard.remove(); // Remove apenas o card específico
+                        alunoCard.remove();
                         console.log(`[SAÍDA] Card do aluno ${mensagem.alunoNome} removido do DOM.`);
                     } else {
-                        // Fallback: se não encontrou o card, renderiza tudo
+                        // Fallback: renderiza tudo se não encontrou o card
                         this.renderizarAlunos();
                     }
 
-                    console.log(`[SAÍDA] Aluno ${mensagem.alunoNome} removido do estado.`);
+                    // 5. 🔄 FORÇA SINCronização silenciosa para confirmar (NOVO)
+                    setTimeout(() => this.sincronizarSalaSilenciosamente(), 500);
 
+                    console.log(`[SAÍDA] Aluno ${mensagem.alunoNome} removido do estado.`);
                 }, 450); // Duração da animação CSS
             }
 
@@ -1397,26 +1422,30 @@
 
             async sincronizarSalaSilenciosamente() {
                 try {
-                    if (this.isProcessandoFila && this.filaDeChamadas.length > 0) {
-                        console.log("🔄 [SYNC] Sincronização adiada: animação em andamento.");
-                        return;
-                    }
-
-                    // Alterado de fetchWithAuth para this.fetchDadosSala que já existe no seu código
+                    // SEMPRE busca dados frescos da API
                     const dados = await this.fetchDadosSala();
 
                     if (dados && dados.alunos) {
-                        this.contagemErrosSync = 0;
-                        this.processarDadosAlunos(dados.alunos);
+                        const alunosProcessados = await this.processarDadosAlunos(dados.alunos);
+
+                        // Compara com o estado atual
+                        const idsAtuais = new Set(this.alunos.map(a => a.id));
+                        const idsNovos = new Set(alunosProcessados.map(a => a.id));
+
+                        // Se houver diferença, força re-renderização completa
+                        if (idsAtuais.size !== idsNovos.size ||
+                            [...idsAtuais].some(id => !idsNovos.has(id))) {
+                            console.log("🔄 [SYNC] Detectada diferença! Forçando atualização completa.");
+                            this.alunos = alunosProcessados;
+                            this.renderizarAlunos();
+                        } else {
+                            // Apenas atualiza status de alunos existentes
+                            this.alunos = alunosProcessados;
+                            this.renderizarAlunos(); // Sempre renderiza para garantir consistência
+                        }
                     }
                 } catch (error) {
-                    this.contagemErrosSync++;
-                    console.error(`❌ [SYNC] Erro (${this.contagemErrosSync}/5):`, error);
-
-                    if (this.contagemErrosSync >= 5) {
-                        console.warn("🚨 [WATCHDOG] Falha persistente na sincronização. Reiniciando...");
-                        window.location.reload();
-                    }
+                    console.error("❌ [SYNC] Erro:", error);
                 }
             }
 
