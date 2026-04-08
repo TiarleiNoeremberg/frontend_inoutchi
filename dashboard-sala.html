@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 
@@ -829,41 +830,43 @@
                 this.token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
                 this.tokenExpiry = localStorage.getItem('token_expiry') || sessionStorage.getItem('token_expiry');
 
-                this.alunos = [];
+                this.alunos = []; // Single source of truth for student data
                 this.salaInfo = {};
                 this.salaId = null;
                 this.currentUser = null;
 
+                // Tenta carregar dados do usuário do storage (para não precisar buscar da API)
                 const userDataStr = localStorage.getItem('user_data') || sessionStorage.getItem('user_data');
                 if (userDataStr) {
                     try {
                         const userData = JSON.parse(userDataStr);
                         this.currentUser = userData;
-                        this.salaId = userData.salaId;
+                        this.salaId = userData.salaId; // Já define o salaId se disponível
                         console.log('✅ Dados do usuário carregados do storage');
                     } catch (e) {
                         console.error('Erro ao parsear user_data:', e);
                     }
                 }
-
+                
+                // Animation & Notification Queues/Batches
                 this.filaDeChamadas = [];
                 this.alertaSoundBuffer = null;
                 this.isProcessandoFila = false;
-                this.contagemErrosSync = 0;
+                this.contagemErrosSync = 0; // Nova variável para monitorar saúde
                 this.batchEntradaAlunos = new Map();
                 this.batchEntradaTimer = null;
 
-                // Mantenha o heartbeat (apenas monitora, não sincroniza)
-                this.ultimoHeartbeatWebSocket = Date.now();
-                this.heartbeatCheckInterval = setInterval(() => {
-                    const agora = Date.now();
-                    if (agora - this.ultimoHeartbeatWebSocket > 30000) {
-                        console.warn("⚠️ WebSocket parece inativo. Reconectando...");
-                        this.reconectarWebSocket();
+                // Sync Interval
+                const REFRESH_INTERVAL = 15000;
+                this.syncInterval = setInterval(() => {
+                    // Reset de segurança para destravar a fila se estiver vazia
+                    if (this.filaDeChamadas.length === 0) {
+                        this.isProcessandoFila = false;
                     }
-                }, 15000);
+                    this.sincronizarSalaSilenciosamente();
+                }, REFRESH_INTERVAL);
 
-                this.inicializar();
+                this.inicializar(); // MANTENHA ESTA LINHA SEMPRE NO FINAL
             }
 
             async inicializar() {
@@ -1069,7 +1072,6 @@
             //========================================================
 
             processarMensagemWebSocket(mensagem) {
-                this.ultimoHeartbeatWebSocket = Date.now();
                 console.log("📡 Mensagem WebSocket:", mensagem);
                 switch (mensagem.tipo) {
                     case 'ENTRADA_ALUNO':
@@ -1085,15 +1087,6 @@
                         // NOTIFICAÇÃO REMOVIDA - Saída confirmada apenas visualmente
                         break;
                 }
-            }
-
-            reconectarWebSocket() {
-                if (this.stompClient) {
-                    try {
-                        this.stompClient.deactivate();
-                    } catch (e) { }
-                }
-                this.iniciarWebSocketStomp();
             }
 
             processarEntradaAluno(aluno, timestamp) {
@@ -1218,19 +1211,17 @@
                     // 3. ATUALIZA O ESTADO: Remove o aluno da lista de dados.
                     this.alunos = this.alunos.filter(aluno => aluno.id !== mensagem.alunoId);
 
-                    // 4. REMOVE O CARD DO DOM
+                    // === SOLUÇÃO: NÃO RENDERIZAR TUDO, APENAS REMOVER O CARD DO DOM ===
                     if (alunoCard) {
-                        alunoCard.remove();
+                        alunoCard.remove(); // Remove apenas o card específico
                         console.log(`[SAÍDA] Card do aluno ${mensagem.alunoNome} removido do DOM.`);
                     } else {
-                        // Fallback: renderiza tudo se não encontrou o card
+                        // Fallback: se não encontrou o card, renderiza tudo
                         this.renderizarAlunos();
                     }
 
-                    // 5. 🔄 FORÇA SINCronização silenciosa para confirmar (NOVO)
-                    setTimeout(() => this.sincronizarSalaSilenciosamente(), 500);
-
                     console.log(`[SAÍDA] Aluno ${mensagem.alunoNome} removido do estado.`);
+
                 }, 450); // Duração da animação CSS
             }
 
@@ -1406,23 +1397,26 @@
 
             async sincronizarSalaSilenciosamente() {
                 try {
+                    if (this.isProcessandoFila && this.filaDeChamadas.length > 0) {
+                        console.log("🔄 [SYNC] Sincronização adiada: animação em andamento.");
+                        return;
+                    }
+
+                    // Alterado de fetchWithAuth para this.fetchDadosSala que já existe no seu código
                     const dados = await this.fetchDadosSala();
 
                     if (dados && dados.alunos) {
-                        // 🔴 REMOVA ESTE BLOCO COMPLETAMENTE
-                        // if (dados.alunos.length === 0 && this.alunos.length > 0) {
-                        //     return;
-                        // }
-
-                        const alunosProcessados = await this.processarDadosAlunos(dados.alunos);
-
-                        // SEMPRE atualiza o estado
-                        this.alunos = alunosProcessados;
-                        this.renderizarAlunos();
-                        console.log("🔄 [SYNC] Sincronização concluída com", this.alunos.length, "alunos");
+                        this.contagemErrosSync = 0;
+                        this.processarDadosAlunos(dados.alunos);
                     }
                 } catch (error) {
-                    console.error("❌ [SYNC] Erro:", error);
+                    this.contagemErrosSync++;
+                    console.error(`❌ [SYNC] Erro (${this.contagemErrosSync}/5):`, error);
+
+                    if (this.contagemErrosSync >= 5) {
+                        console.warn("🚨 [WATCHDOG] Falha persistente na sincronização. Reiniciando...");
+                        window.location.reload();
+                    }
                 }
             }
 
@@ -1563,21 +1557,10 @@
                     console.error(`[NOME SALA] Erro ao buscar nome da sala:`, error);
                 }
             }
-            /*
+
             async fetchDadosSala() {
                 const endpoint = this.ENDPOINT_ALUNOS_PRESENTES.replace('{salaId}', this.salaId);
                 const response = await fetch(`${this.BACKEND_URL}${endpoint}`, { headers: { 'Authorization': `Bearer ${this.token}` } });
-                if (!response.ok) throw new Error(`API falhou com status ${response.status}`);
-                return response.json();
-            }
-            */
-
-            async fetchDadosSala() {
-                // Remove o parâmetro "presentes=true"
-                const endpoint = `/api/diretores/salas/${this.salaId}/alunos?presentes=true`;
-                const response = await fetch(`${this.BACKEND_URL}${endpoint}`, {
-                    headers: { 'Authorization': `Bearer ${this.token}` }
-                });
                 if (!response.ok) throw new Error(`API falhou com status ${response.status}`);
                 return response.json();
             }
