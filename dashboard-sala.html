@@ -1425,25 +1425,18 @@
                     const dados = await this.fetchDadosSala();
 
                     if (dados && dados.alunos) {
-                        // 🔴 NOVO: Se API retornou vazio mas temos alunos no estado, IGNORA
+                        // 🔴 CRÍTICO: Se a API retornou vazio mas temos alunos no estado, NÃO SUBSTITUI
                         if (dados.alunos.length === 0 && this.alunos.length > 0) {
-                            console.warn("⚠️ [SYNC] API retornou vazio mas temos alunos no estado. Ignorando sincronização para não perder dados.");
-                            return;
+                            console.warn("⚠️ [SYNC] API retornou vazio mas temos alunos. Mantendo estado atual.");
+                            return; // ← SAI DA FUNÇÃO SEM MODIFICAR O ESTADO
                         }
 
                         const alunosProcessados = await this.processarDadosAlunos(dados.alunos);
-                        const idsAtuais = new Set(this.alunos.map(a => a.id));
-                        const idsNovos = new Set(alunosProcessados.map(a => a.id));
 
-                        if (idsAtuais.size !== idsNovos.size ||
-                            [...idsAtuais].some(id => !idsNovos.has(id))) {
-                            console.log("🔄 [SYNC] Detectada diferença! Forçando atualização completa.");
-                            this.alunos = alunosProcessados;
-                            this.renderizarAlunos();
-                        } else {
-                            this.alunos = alunosProcessados;
-                            this.renderizarAlunos();
-                        }
+                        // Atualiza o estado
+                        this.alunos = alunosProcessados;
+                        this.renderizarAlunos();
+                        console.log("🔄 [SYNC] Sincronização concluída.");
                     }
                 } catch (error) {
                     console.error("❌ [SYNC] Erro:", error);
@@ -1598,22 +1591,14 @@
 
             async fetchDadosSala() {
                 // Remove o parâmetro "presentes=true"
-                const endpoint = `/api/diretores/salas/${this.salaId}/alunos`;
+                const endpoint = `/api/diretores/salas/${this.salaId}/alunos?presentes=true`;
                 const response = await fetch(`${this.BACKEND_URL}${endpoint}`, {
                     headers: { 'Authorization': `Bearer ${this.token}` }
                 });
                 if (!response.ok) throw new Error(`API falhou com status ${response.status}`);
-                const data = await response.json();
-
-                // Filtra apenas PRESENTES no frontend
-                if (data.alunos) {
-                    data.alunos = data.alunos.filter(aluno =>
-                        aluno.status === 'PRESENTE' || aluno.status === 'AGUARDANDO_CONFIRMACAO'
-                    );
-                }
-                return data;
+                return response.json();
             }
-            
+
             async processarDadosAlunos(data) {
                 if (!data.alunos || !Array.isArray(data.alunos)) return [];
                 const alunosComStatus = await this.verificarStatusDeSaida(data.alunos);
