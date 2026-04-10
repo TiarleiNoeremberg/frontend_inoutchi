@@ -2960,7 +2960,7 @@
                     currentClassroomModal.classroomName,
                     currentClassroomModal.onlyPresent
                 );
-            }           
+            }
 
         }
 
@@ -3694,7 +3694,7 @@
 
             // Configurar botão de localização após pequeno delay
             setTimeout(() => {
-                
+
                 const locationBtn = document.getElementById("directorGetLocationBtn");
                 if (locationBtn) {
                     // Adicionar listener ao botão
@@ -5115,7 +5115,7 @@
 
         // Função para obter localização do diretor
         async function getDirectorLocation() {
-            
+
             const locationStatus = document.getElementById(
                 "directorLocationStatus",
             );
@@ -5498,7 +5498,7 @@
         // Substitua a função processarAcaoDiretor por esta versão corrigida
         async function processarAcaoDiretor(studentId, action, studentName) {
             try {
-                
+
                 const accessToken = localStorage.getItem("access_token");
 
                 // Salva o estado atual ANTES da ação
@@ -5523,7 +5523,7 @@
                         longitude = null;
 
                     try {
-                        
+
                         const position = await new Promise((resolve, reject) => {
                             navigator.geolocation.getCurrentPosition(resolve, reject, {
                                 enableHighAccuracy: true,
@@ -5626,7 +5626,7 @@
 
         // Função auxiliar para obter localização - ADICIONAR ESTA FUNÇÃO
         async function obterLocalizacaoParaModal() {
-            
+
             const locationStatus = document.getElementById("locationStatus");
             const coordinatesDisplay =
                 document.getElementById("coordinatesDisplay");
@@ -7189,14 +7189,95 @@
                     throw new Error(error.mensagem || "Erro ao solicitar saída");
                 }
 
-                // ATUALIZA APENAS O CARD, NÃO RECARREGA TUDO
+                // ATUALIZA O CARD PARA PENDENTE
                 card.classList.add("pendente");
                 card.dataset.alunoStatus = "AGUARDANDO_CONFIRMACAO";
+
                 const statusSpan = card.querySelector(".quick-exit-aluno-status");
                 if (statusSpan) statusSpan.textContent = "Aguardando";
 
+                // ADICIONA BOTÃO DESFAZER
+                this.adicionarBotaoDesfazer(card, alunoId, alunoNome);
+
             } catch (error) {
                 console.error("Erro ao solicitar saída:", error);
+                showAlert(error.message, "error");
+            }
+        }
+
+        // NOVA FUNÇÃO: Adicionar botão desfazer no card
+        function adicionarBotaoDesfazer(card, alunoId, alunoNome) {
+            // Remove botão existente se houver
+            const btnExistente = card.querySelector('.btn-desfazer');
+            if (btnExistente) btnExistente.remove();
+
+            // Cria botão desfazer
+            const btnDesfazer = document.createElement('button');
+            btnDesfazer.textContent = '↩️ Desfazer';
+            btnDesfazer.className = 'btn-desfazer';
+            btnDesfazer.style.cssText = `
+                position: absolute;
+                bottom: 4px;
+                right: 4px;
+                background: #64748b;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 2px 6px;
+                font-size: 0.6rem;
+                cursor: pointer;
+                z-index: 10;
+            `;
+
+            btnDesfazer.onclick = async (e) => {
+                e.stopPropagation();
+                await cancelarSolicitacaoSaida(alunoId, alunoNome, card);
+            };
+
+            card.appendChild(btnDesfazer);
+
+            // Remove o botão após 10 segundos (tempo para desfazer)
+            setTimeout(() => {
+                if (btnDesfazer && btnDesfazer.parentNode) {
+                    btnDesfazer.remove();
+                }
+            }, 10000);
+        }
+
+        // NOVA FUNÇÃO: Cancelar solicitação de saída
+        async function cancelarSolicitacaoSaida(alunoId, alunoNome, card) {
+            try {
+                const accessToken = localStorage.getItem("access_token");
+
+                const response = await fetch(`${BACKEND_URL}/api/presencas/saida/cancelar-solicitacao`, {
+                    method: "POST",
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ alunoId })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.mensagem || "Erro ao cancelar solicitação");
+                }
+
+                // RESTAURA O CARD PARA PRESENTE
+                card.classList.remove("pendente");
+                card.dataset.alunoStatus = "PRESENTE";
+
+                const statusSpan = card.querySelector(".quick-exit-aluno-status");
+                if (statusSpan) statusSpan.textContent = "Presente";
+
+                // Remove o botão desfazer
+                const btnDesfazer = card.querySelector('.btn-desfazer');
+                if (btnDesfazer) btnDesfazer.remove();
+
+                showAlert(`✅ Solicitação de saída de ${alunoNome} cancelada!`, "success");
+
+            } catch (error) {
+                console.error("Erro ao cancelar solicitação:", error);
                 showAlert(error.message, "error");
             }
         }
