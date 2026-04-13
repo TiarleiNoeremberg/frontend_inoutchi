@@ -1127,8 +1127,6 @@
             const recoveryAlertBox = document.getElementById('recoveryAlertBox');
 
             const BACKEND_URL = `https://api.inoutchi.com`;
-            const CLIENT_ID = 'myclientid';
-            const CLIENT_SECRET = 'myclientsecret';
 
             // =================================================================
             // 2. FUNÇÕES AUXILIARES
@@ -1308,25 +1306,30 @@
                     loginBtn.disabled = true;
 
                     try {
-                        const response = await fetch(`${BACKEND_URL}/oauth2/token`, {
+                        const response = await fetch(`${BACKEND_URL}/api/bff/login`, {
                             method: 'POST',
                             headers: {
-                                'Content-Type': 'application/x-www-form-urlencoded',
-                                'Authorization': 'Basic ' + btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)
+                                'Content-Type': 'application/json'
                             },
-                            body: new URLSearchParams({
-                                'grant_type': 'password',
-                                'username': email,
-                                'password': password,
-                                'scope': 'read write'
+                            body: JSON.stringify({
+                                username: email,
+                                password: password
                             })
                         });
 
                         if (response.ok) {
                             const data = await response.json();
 
-                            // Buscar dados do usuário para obter a role, escolaId, salaId
-                            const userData = await getUserData(data.access_token);
+                            // O BFF retorna accessToken (camelCase) ou access_token
+                            // O Spring geralmente serializa como camelCase, então vamos verificar ambos
+                            const accessToken = data.accessToken || data.access_token;
+
+                            if (!accessToken) {
+                                throw new Error('Token não recebido do servidor');
+                            }
+
+                            // Buscar dados do usuário com o token recebido
+                            const userData = await getUserData(accessToken);
                             const userRole = userData.roles[0];
 
                             const userDataToStore = {
@@ -1347,19 +1350,24 @@
 
                             if (isTutor && !rememberMe) {
                                 // Tutor moderno - modo sessão
-                                sessionStorage.setItem('access_token', data.access_token);
+                                sessionStorage.setItem('access_token', accessToken);
                                 sessionStorage.setItem('user_role', userRole);
                                 sessionStorage.setItem('user_data', JSON.stringify(userDataToStore));
-                                if (data.refresh_token) sessionStorage.setItem('refresh_token', data.refresh_token);
+                                // O BFF não retorna refresh_token por segurança
+                                // Se precisar de refresh, o back-end pode retornar, mas não é necessário
                                 console.log(`✅ Login TUTOR - modo sessão (sessionStorage)`);
                             } else {
                                 // TODOS OS OUTROS (Sala, Escola, Diretor, Transporte, Tutor com "lembrar")
-                                localStorage.setItem('access_token', data.access_token);
+                                localStorage.setItem('access_token', accessToken);
                                 localStorage.setItem('user_role', userRole);
                                 localStorage.setItem('user_data', JSON.stringify(userDataToStore));
-                                if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
 
-                                // 🔴 CRÍTICO: Salvar escolaId separadamente
+                                // refresh_token é opcional (BFF pode não retornar)
+                                if (data.refresh_token) {
+                                    localStorage.setItem('refresh_token', data.refresh_token);
+                                }
+
+                                // Salvar escolaId separadamente
                                 if (userDataToStore.escolaId) {
                                     localStorage.setItem('escolaId', userDataToStore.escolaId);
                                 }
@@ -1384,7 +1392,6 @@
                             setTimeout(() => {
                                 window.location.href = roleRoutes[userRole] || 'index.html';
                             }, 1500);
-
                         } else {
                             let errorMessage = '';
                             if (response.status === 401 || response.status === 400) {
