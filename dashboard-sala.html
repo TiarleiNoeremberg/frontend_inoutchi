@@ -3,7 +3,8 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
     <title>Inoutchi - Dashboard Sala</title>
     <link rel="icon" href="assets/images/favicon.png" type="image/png">
     <script src="utils.js"></script>
@@ -49,7 +50,7 @@
             flex-shrink: 0;
         }
 
-        /* CONTAINER OCUPA OS 90% RESTANTES */
+        /* Ajuste para o container principal */
         .container {
             flex: 1;
             min-height: 0;
@@ -57,23 +58,22 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            height: 100%;
+            /* Permite scroll quando necessário */
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
 
-        /* GRADE FIXA - SEMPRE 6 COLUNAS E 6 LINHAS */
         .alunos-grid {
             display: grid;
-            grid-template-columns: repeat(6, 1fr);
-            /* ALTURA: usa flex-grow para ocupar todo espaço disponível */
-            grid-auto-rows: minmax(0, 1fr);
+            grid-template-columns: repeat(6, minmax(120px, 1fr));
             gap: 0.5rem;
             width: 100%;
-            height: 100%;
             min-height: 0;
+            overflow-x: auto;
             overflow-y: auto;
             padding: 0.25rem;
-            /* Garante que a grade ocupe toda a altura do container */
-            flex: 1;
+            /* Importante: permite scroll quando zoom estiver ativo */
+            -webkit-overflow-scrolling: touch;
         }
 
         /* OVERLAY - GARANTE VISIBILIDADE */
@@ -103,7 +103,7 @@
             z-index: 10000;
         }
 
-        /* CARDS OCUPAM TODO O ESPAÇO DISPONÍVEL */
+        /* Cards mantêm proporção durante zoom */
         .aluno-card {
             background: #ffffff;
             border: 2px solid #e2e8f0;
@@ -120,10 +120,9 @@
             position: relative;
             overflow: hidden;
             width: 100%;
-            /* ALTURA: ocupa 100% da célula da grid */
-            height: 100%;
+            height: auto;
             min-height: 80px;
-            /* Altura mínima para legibilidade */
+            /* Mantém altura mínima mesmo com zoom */
         }
 
         /* TEXTOS RESPONSIVOS - AJUSTAM AUTOMATICAMENTE */
@@ -833,6 +832,74 @@
                 min-height: 100px;
             }
         }
+
+        /* Melhora a experiência de zoom em dispositivos móveis */
+        @media (max-width: 768px) {
+            .alunos-grid {
+                grid-template-columns: repeat(6, minmax(100px, 1fr));
+                gap: 0.4rem;
+            }
+
+            .aluno-nome {
+                font-size: clamp(0.65rem, 4vw, 1rem);
+            }
+
+            .aluno-horario {
+                font-size: clamp(0.55rem, 3vw, 0.85rem);
+            }
+        }
+
+        /* Tablet em modo paisagem (horizontal) */
+        @media (min-width: 768px) and (max-width: 1024px) and (orientation: landscape) {
+            .alunos-grid {
+                grid-template-columns: repeat(6, minmax(140px, 1fr));
+                gap: 0.6rem;
+            }
+
+            .aluno-card {
+                min-height: 110px;
+            }
+        }
+
+        /* Tablet em modo retrato (vertical) */
+        @media (min-width: 768px) and (max-width: 1024px) and (orientation: portrait) {
+            .alunos-grid {
+                grid-template-columns: repeat(4, minmax(120px, 1fr));
+                gap: 0.5rem;
+            }
+
+            .aluno-card {
+                min-height: 100px;
+            }
+        }
+
+        /* Permite scroll em todas as direções quando necessário */
+        .alunos-grid {
+            overflow-x: auto;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            scroll-behavior: smooth;
+        }
+
+        /* Adiciona feedback visual para scroll */
+        .alunos-grid::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        .alunos-grid::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+
+        .alunos-grid::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 4px;
+        }
+
+        .alunos-grid::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
     </style>
 
 </head>
@@ -865,6 +932,8 @@
                     <span>Offline</span>
                 </div>
             </div>
+            <button class="fullscreen-btn" onclick="salaDashboard.resetZoom()" style="background-color: #3b82f6;">🔍
+                Reset Zoom</button>
             <button class="fullscreen-btn" onclick="salaDashboard.entrarEmTelaCheia()">⛶ Tela Cheia</button>
             <button class="logout-btn" onclick="salaDashboard.logout()">Sair</button>
         </div>
@@ -922,6 +991,8 @@
                 this.contagemErrosSync = 0; // Nova variável para monitorar saúde
                 this.batchEntradaAlunos = new Map();
                 this.batchEntradaTimer = null;
+
+                this.setupZoomHandlers();
 
                 // Sync Interval
                 const REFRESH_INTERVAL = 15000;
@@ -2152,6 +2223,49 @@
             // Cria a instância e carrega os alunos automaticamente
             window.salaDashboard = new SalaDashboard();
         });
+
+        setupZoomHandlers() {
+            // Detecta quando o usuário está fazendo zoom
+            let lastTouchDistance = 0;
+
+            const container = document.querySelector('.container');
+            const grid = document.getElementById('alunosGrid');
+
+            if (!container || !grid) return;
+
+            // Permite scroll normal quando zoom estiver ativo
+            container.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 2) {
+                    // Dois dedos = zoom, permite scroll normal
+                    container.style.overflow = 'auto';
+                }
+            }, { passive: false });
+
+            container.addEventListener('touchend', () => {
+                // Restaura scroll após zoom
+                setTimeout(() => {
+                    container.style.overflow = 'auto';
+                }, 100);
+            });
+        }
+
+        // Método para ajudar usuários com botão de reset de zoom
+        resetZoom() {
+            // Reseta o zoom da página
+            const viewport = document.querySelector('meta[name="viewport"]');
+            if (viewport) {
+                viewport.content = 'width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover';
+            }
+
+            // Força reflow
+            document.body.style.zoom = '100%';
+
+            this.mostrarNotificacao('Zoom Resetado', 'O zoom foi redefinido para o padrão.', 'success');
+
+            setTimeout(() => {
+                window.scrollTo(0, 0);
+            }, 100);
+        }
     </script>
 </body>
 
