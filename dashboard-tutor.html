@@ -2139,10 +2139,6 @@
             color: white !important;
         }
 
-
-
-
-
         #content {
             transition: opacity 0.3s ease;
             min-height: 100px;
@@ -2151,6 +2147,163 @@
 
         #content:empty {
             display: none;
+        }
+
+        /* ===== GEOFENCE MONITOR - INDICADOR E TOASTS ===== */
+        .geofence-indicator-pro {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, #1a6fc4, #0ea5a0);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 50px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            z-index: 10000;
+            display: none;
+            align-items: center;
+            gap: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            font-family: 'Inter', sans-serif;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .geofence-indicator-pro.warning {
+            background: linear-gradient(135deg, #f59e0b, #fbbf24);
+            animation: pulseWarning 1s infinite;
+        }
+
+        .geofence-indicator-pro.danger {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            animation: pulseDanger 0.5s infinite;
+        }
+
+        .geofence-indicator-pro.poor-gps {
+            background: linear-gradient(135deg, #6b7280, #4b5563);
+            animation: none;
+        }
+
+        .indicator-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .indicator-timer {
+            font-family: 'Courier New', monospace;
+            font-size: 1.2rem;
+            font-weight: 700;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 4px 10px;
+            border-radius: 30px;
+            letter-spacing: 2px;
+        }
+
+        .indicator-close {
+            background: rgba(0, 0, 0, 0.3);
+            border: none;
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .indicator-close:hover {
+            background: rgba(0, 0, 0, 0.5);
+            transform: scale(1.1);
+        }
+
+        .geofence-toast {
+            position: fixed;
+            bottom: 100px;
+            left: 20px;
+            right: 20px;
+            max-width: 350px;
+            background: white;
+            border-radius: 12px;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            z-index: 10001;
+            animation: slideInLeft 0.3s ease;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .toast-content {
+            flex: 1;
+        }
+
+        .toast-title {
+            font-weight: 700;
+            font-size: 0.9rem;
+            margin-bottom: 4px;
+            color: #1e293b;
+        }
+
+        .toast-message {
+            font-size: 0.8rem;
+            color: #64748b;
+        }
+
+        .toast-close {
+            background: none;
+            border: none;
+            font-size: 1.2rem;
+            cursor: pointer;
+            color: #94a3b8;
+            padding: 0 4px;
+        }
+
+        .toast-close:hover {
+            color: #475569;
+        }
+
+        @keyframes slideInLeft {
+            from {
+                transform: translateX(-100%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes pulseWarning {
+
+            0%,
+            100% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.03);
+                box-shadow: 0 4px 25px rgba(245, 158, 11, 0.6);
+            }
+        }
+
+        @keyframes pulseDanger {
+
+            0%,
+            100% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.05);
+                box-shadow: 0 4px 30px rgba(239, 68, 68, 0.7);
+            }
         }
     </style>
 </head>
@@ -3152,6 +3305,8 @@
                 await refreshStudentsData();
                 startAutoRefresh();
 
+                initGeofenceMonitor();
+
                 document.addEventListener("visibilitychange", () => {
                     if (document.hidden) {
                         if (studentRefreshInterval) clearInterval(studentRefreshInterval);
@@ -3821,10 +3976,17 @@
 
         window.openLocationActionModal = function (studentId, type, studentName) {
             console.log('🚪 openLocationActionModal chamada', { studentId, type });
+
             if (isActionProcessing) return;
 
-            // Se já tem localização recente? Talvez tentar automático novamente?
-            // Por enquanto, mantém o comportamento original como fallback
+            // Se for SAÍDA, inicia o monitoramento de geofence
+            if (type === 'saida') {
+                const aluno = students.find(s => s.id == studentId);
+                if (aluno) {
+                    initGeofenceMonitor();
+                    geofenceMonitor.startMonitoring(studentId, studentName);
+                }
+            }
 
             const modal = document.getElementById('actionLocationModal');
             modal.querySelector('#actionLocationModalLabel').textContent = type === 'entrada' ? '📍 Registrar Entrada' : '📍 Solicitar Saída';
@@ -3977,10 +4139,12 @@
                 showAlert('Saída confirmada com sucesso!', 'success');
                 manualConfirmExitModalInstance.hide();
 
-                // 🔴 PRIMEIRO: Atualiza os dados para o slider mudar (por baixo dos panos)
-                await refreshStudentsData();
+                // Para o monitoramento deste aluno
+                if (geofenceMonitor) {
+                    geofenceMonitor.stopMonitoring(parseInt(studentId));
+                }
 
-                // 🔴 SEGUNDO: Mostra a tela de sucesso
+                await refreshStudentsData();
                 await mostrarTelaSucesso('confirmacao', async () => {
                     const alunoAtualizado = students.find(s => s.id == studentId);
                     return alunoAtualizado && alunoAtualizado.status !== 'AGUARDANDO_CONFIRMACAO';
@@ -5664,7 +5828,7 @@
         window.HORARIOS_SAIDA = {
             '2° ANO': { hora: 15, minuto: 10 },
             '5° ANO': { hora: 15, minuto: 30 },
-            '3° ANO': { hora: 12, minuto: 59 } // Adicionei para teste baseada nos seus logs
+            '3° ANO': { hora: 10, minuto: 0o0 }
         };
 
         window.validarHorarioSaida = function (nomeSalaBruto) {
@@ -5749,6 +5913,526 @@
             }
 
             return nomeLimpo;
+        }
+
+        // ============================================
+        // GEOFENCE MONITOR - CLASSE COMPLETA
+        // ============================================
+
+        class GeofenceMonitorPro {
+            constructor() {
+                this.watchId = null;
+                this.activeMonitors = new Map();
+                this.GEOFENCE_RADIUS_METERS = 200;
+                this.TIMEOUT_MINUTES = 3;
+                this.THROTTLE_MS = 15000;
+                this.lastBackendCall = 0;
+                this.schoolCoords = null;
+                this.indicator = null;
+                this.isInitialized = false;
+                this.wakeLock = null;
+                this.poorGpsCount = 0;
+            }
+
+            async init() {
+                if (this.isInitialized) return;
+
+                // Carrega coordenadas da escola
+                try {
+                    const escolaId = await this.getEscolaId();
+                    const response = await fetchWithAuth(`/api/geofences/escola/${escolaId}/coordenadas`);
+                    const data = await response.json();
+                    this.schoolCoords = {
+                        lat: data.latitude,
+                        lng: data.longitude,
+                        raio: data.raio
+                    };
+                    this.GEOFENCE_RADIUS_METERS = data.raio || 200;
+                    console.log('📍 Coordenadas da escola:', this.schoolCoords);
+                } catch (error) {
+                    console.error('❌ Erro ao carregar coordenadas:', error);
+                    this.schoolCoords = { lat: -23.5505, lng: -46.6333, raio: 200 };
+                }
+
+                // Recupera estado após refresh
+                await this.recuperarEstadoAposRefresh();
+
+                // Solicita permissão de notificação
+                this.requestNotificationPermission();
+
+                // Prepara Wake Lock
+                this.setupWakeLock();
+
+                // Cria indicador visual
+                this.createIndicator();
+
+                this.isInitialized = true;
+                console.log('✅ GeofenceMonitor inicializado');
+            }
+
+            async getEscolaId() {
+                // Busca o ID da escola do primeiro aluno
+                if (students && students.length > 0 && students[0].escolaId) {
+                    return students[0].escolaId;
+                }
+                // Fallback: tenta buscar do usuário logado
+                try {
+                    const response = await fetchWithAuth('/api/users/me/escola');
+                    const data = await response.json();
+                    return data.escolaId;
+                } catch (error) {
+                    console.warn('⚠️ Não foi possível obter escolaId, usando fallback');
+                    return 1; // Fallback
+                }
+            }
+
+            async recuperarEstadoAposRefresh() {
+                try {
+                    const sessaoId = this.getSessionId();
+                    const response = await fetchWithAuth(`/api/geofences/sessao/status?sessaoId=${sessaoId}`);
+                    const status = await response.json();
+
+                    if (status.monitorando && status.alunoId) {
+                        console.log('🔄 Recuperando monitoramento após refresh:', status);
+
+                        this.activeMonitors.set(status.alunoId, {
+                            studentId: status.alunoId,
+                            studentName: status.alunoNome,
+                            isOutside: status.status === 'FORA',
+                            startTimeOutside: Date.now() - (status.segundosFora * 1000),
+                            timeoutId: null,
+                            recovering: true
+                        });
+
+                        if (status.status === 'FORA' && status.tempoRestante > 0) {
+                            this.showIndicator(status.alunoNome, status.tempoRestante, 'warning');
+                            this.sendNotification(
+                                '🔄 Monitoramento Recuperado',
+                                `${status.alunoNome}: ${Math.floor(status.tempoRestante / 60)}:${(status.tempoRestante % 60).toString().padStart(2, '0')} restantes.`,
+                                'info'
+                            );
+                            this.iniciarTimerRecuperado(status.alunoId, status.tempoRestante);
+                        }
+
+                        if (!this.watchId) {
+                            this.startWatching();
+                        }
+                    }
+                } catch (error) {
+                    console.warn('⚠️ Não foi possível recuperar estado:', error);
+                }
+            }
+
+            iniciarTimerRecuperado(studentId, tempoRestanteSegundos) {
+                const monitor = this.activeMonitors.get(studentId);
+                if (!monitor) return;
+
+                let timeLeft = tempoRestanteSegundos;
+                const visualInterval = setInterval(() => {
+                    if (!monitor.isOutside) {
+                        clearInterval(visualInterval);
+                        return;
+                    }
+                    const elapsed = Math.floor((Date.now() - monitor.startTimeOutside) / 1000);
+                    timeLeft = Math.max(0, this.TIMEOUT_MINUTES * 60 - elapsed);
+                    if (timeLeft > 0) {
+                        const status = timeLeft <= 30 ? 'danger' : 'warning';
+                        this.showIndicator(monitor.studentName, timeLeft, status);
+                    } else {
+                        clearInterval(visualInterval);
+                    }
+                }, 1000);
+
+                const checkTimeout = () => {
+                    const elapsed = (Date.now() - monitor.startTimeOutside) / 1000;
+                    if (elapsed >= this.TIMEOUT_MINUTES * 60 && monitor.isOutside) {
+                        this.autoConfirmExit(studentId, monitor);
+                    } else if (monitor.isOutside) {
+                        const remaining = (this.TIMEOUT_MINUTES * 60 - elapsed) * 1000;
+                        monitor.timeoutId = setTimeout(checkTimeout, Math.min(remaining, 10000));
+                    }
+                };
+
+                monitor.timeoutId = setTimeout(checkTimeout, tempoRestanteSegundos * 1000);
+            }
+
+            async setupWakeLock() {
+                if ('wakeLock' in navigator && this.activeMonitors.size > 0) {
+                    try {
+                        this.wakeLock = await navigator.wakeLock.request('screen');
+                        console.log('💡 Wake Lock ativado');
+                        document.addEventListener('visibilitychange', async () => {
+                            if (document.visibilityState === 'visible' && this.activeMonitors.size > 0) {
+                                this.wakeLock = await navigator.wakeLock.request('screen');
+                            }
+                        });
+                    } catch (err) {
+                        console.warn('⚠️ Wake Lock não suportado:', err);
+                    }
+                }
+            }
+
+            releaseWakeLock() {
+                if (this.wakeLock) {
+                    this.wakeLock.release();
+                    this.wakeLock = null;
+                }
+            }
+
+            createIndicator() {
+                if (document.querySelector('.geofence-indicator-pro')) return;
+
+                this.indicator = document.createElement('div');
+                this.indicator.className = 'geofence-indicator-pro';
+                this.indicator.innerHTML = `
+            <div class="indicator-content">
+                <i class="fas fa-satellite-dish"></i>
+                <span class="indicator-text">Monitorando...</span>
+                <span class="indicator-timer"></span>
+                <button class="indicator-close">&times;</button>
+            </div>
+        `;
+                document.body.appendChild(this.indicator);
+
+                const closeBtn = this.indicator.querySelector('.indicator-close');
+                closeBtn.onclick = () => this.hideIndicator();
+            }
+
+            showIndicator(studentName, timeLeft = null, status = 'info') {
+                if (!this.indicator) return;
+
+                this.indicator.style.display = 'flex';
+                this.indicator.className = `geofence-indicator-pro ${status}`;
+
+                const textSpan = this.indicator.querySelector('.indicator-text');
+                const timerSpan = this.indicator.querySelector('.indicator-timer');
+
+                if (timeLeft !== null && timeLeft > 0) {
+                    const minutes = Math.floor(timeLeft / 60);
+                    const seconds = timeLeft % 60;
+                    timerSpan.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                    timerSpan.style.display = 'inline-block';
+                    textSpan.innerHTML = `<i class="fas fa-walking"></i> ${studentName}: ${minutes}:${seconds.toString().padStart(2, '0')}`;
+                } else {
+                    timerSpan.style.display = 'none';
+                    textSpan.innerHTML = `<i class="fas fa-shield-alt"></i> Monitorando ${studentName}`;
+                }
+            }
+
+            hideIndicator() {
+                if (this.indicator && this.activeMonitors.size === 0) {
+                    this.indicator.style.display = 'none';
+                }
+            }
+
+            showToast(title, message, type = 'info') {
+                const oldToast = document.querySelector('.geofence-toast');
+                if (oldToast) oldToast.remove();
+
+                const toast = document.createElement('div');
+                toast.className = 'geofence-toast';
+
+                let icon = 'fa-info-circle';
+                let borderColor = '#1a6fc4';
+                if (type === 'success') { icon = 'fa-check-circle'; borderColor = '#10b981'; }
+                if (type === 'warning') { icon = 'fa-exclamation-triangle'; borderColor = '#f59e0b'; }
+                if (type === 'error') { icon = 'fa-times-circle'; borderColor = '#ef4444'; }
+
+                toast.style.borderLeft = `4px solid ${borderColor}`;
+                toast.innerHTML = `
+            <div class="toast-icon"><i class="fas ${icon}"></i></div>
+            <div class="toast-content">
+                <div class="toast-title">${title}</div>
+                <div class="toast-message">${message}</div>
+            </div>
+            <button class="toast-close">&times;</button>
+        `;
+
+                document.body.appendChild(toast);
+
+                setTimeout(() => toast.remove(), 5000);
+                toast.querySelector('.toast-close').onclick = () => toast.remove();
+            }
+
+            sendNotification(title, message, type = 'info') {
+                this.showToast(title, message, type);
+
+                if ('Notification' in window && Notification.permission === 'granted') {
+                    try {
+                        const notification = new Notification(title, {
+                            body: message,
+                            icon: '/assets/images/Logo_iOs.png',
+                            tag: 'geofence_' + Date.now(),
+                            vibrate: [200, 100, 200]
+                        });
+                        setTimeout(() => notification.close(), 5000);
+                        notification.onclick = () => { window.focus(); notification.close(); };
+                    } catch (e) { }
+                }
+            }
+
+            requestNotificationPermission() {
+                if ('Notification' in window && Notification.permission === 'default') {
+                    Notification.requestPermission();
+                }
+            }
+
+            calculateDistance(lat1, lon1, lat2, lon2) {
+                const R = 6371e3;
+                const φ1 = lat1 * Math.PI / 180;
+                const φ2 = lat2 * Math.PI / 180;
+                const Δφ = (lat2 - lat1) * Math.PI / 180;
+                const Δλ = (lon2 - lon1) * Math.PI / 180;
+                const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                    Math.cos(φ1) * Math.cos(φ2) *
+                    Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                return R * c;
+            }
+
+            getSessionId() {
+                let sessionId = sessionStorage.getItem('geofence_session_id');
+                if (!sessionId) {
+                    sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                    sessionStorage.setItem('geofence_session_id', sessionId);
+                    this.registrarSessaoNoBackend(sessionId);
+                }
+                return sessionId;
+            }
+
+            async registrarSessaoNoBackend(sessaoId) {
+                try {
+                    await fetchWithAuth('/api/geofences/sessao/registrar', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ sessaoId: sessaoId, timestamp: Date.now() })
+                    });
+                } catch (error) { }
+            }
+
+            async notifyBackendPosition(latitude, longitude, isInside, distance) {
+                try {
+                    await fetchWithAuth('/api/geofences/monitoramento/posicao', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            sessaoId: this.getSessionId(),
+                            latitude, longitude,
+                            dentroGeofence: isInside,
+                            distancia: Math.round(distance),
+                            timestamp: Date.now()
+                        })
+                    });
+                } catch (error) { }
+            }
+
+            async notifyBackendExit(studentId, distance) {
+                try {
+                    await fetchWithAuth('/api/geofences/monitoramento/saida', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            sessaoId: this.getSessionId(),
+                            alunoId: studentId,
+                            distancia: Math.round(distance),
+                            timestamp: Date.now()
+                        })
+                    });
+                } catch (error) { }
+            }
+
+            async notifyBackendReturn(studentId) {
+                try {
+                    await fetchWithAuth('/api/geofences/monitoramento/retorno', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            sessaoId: this.getSessionId(),
+                            alunoId: studentId,
+                            timestamp: Date.now()
+                        })
+                    });
+                } catch (error) { }
+            }
+
+            async startMonitoring(studentId, studentName) {
+                await this.init();
+
+                if (this.activeMonitors.has(studentId)) return;
+
+                await this.notifyBackendMonitoringStart(studentId, studentName);
+
+                this.activeMonitors.set(studentId, {
+                    studentId, studentName,
+                    isOutside: false,
+                    startTimeOutside: null,
+                    timeoutId: null
+                });
+
+                this.showIndicator(studentName);
+                this.sendNotification('🔍 Monitoramento Ativado',
+                    `${studentName}: Se você se afastar por ${this.TIMEOUT_MINUTES} minutos, a saída será confirmada.`, 'info');
+
+                if (!this.watchId) this.startWatching();
+            }
+
+            async notifyBackendMonitoringStart(studentId, studentName) {
+                try {
+                    await fetchWithAuth('/api/geofences/monitoramento/iniciar', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            sessaoId: this.getSessionId(),
+                            alunoId: studentId,
+                            alunoNome: studentName,
+                            timestamp: Date.now()
+                        })
+                    });
+                } catch (error) { }
+            }
+
+            startWatching() {
+                if (!navigator.geolocation) return;
+
+                this.watchId = navigator.geolocation.watchPosition(
+                    (position) => this.handlePositionUpdate(position),
+                    (error) => this.handleLocationError(error),
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+                );
+            }
+
+            async handlePositionUpdate(position) {
+                const { latitude, longitude, accuracy } = position.coords;
+
+                if (accuracy > 150) {
+                    this.poorGpsCount++;
+                    if (this.poorGpsCount % 6 === 0) {
+                        this.showToast('Sinal de GPS fraco', 'Tentando melhorar o sinal...', 'warning');
+                    }
+                    return;
+                }
+
+                this.poorGpsCount = 0;
+
+                const distance = this.calculateDistance(latitude, longitude, this.schoolCoords.lat, this.schoolCoords.lng);
+                const isInside = distance <= this.GEOFENCE_RADIUS_METERS;
+
+                const now = Date.now();
+                if (now - this.lastBackendCall >= this.THROTTLE_MS) {
+                    this.lastBackendCall = now;
+                    await this.notifyBackendPosition(latitude, longitude, isInside, distance);
+                }
+
+                for (const [studentId, monitor] of this.activeMonitors) {
+                    if (isInside) {
+                        if (monitor.isOutside) {
+                            monitor.isOutside = false;
+                            if (monitor.timeoutId) clearTimeout(monitor.timeoutId);
+                            this.showIndicator(monitor.studentName);
+                            this.sendNotification('✅ Retorno à Área', `${monitor.studentName}: Você retornou à área escolar.`, 'success');
+                            await this.notifyBackendReturn(studentId);
+                        }
+                    } else {
+                        if (!monitor.isOutside) {
+                            monitor.isOutside = true;
+                            monitor.startTimeOutside = Date.now();
+
+                            this.showIndicator(monitor.studentName, this.TIMEOUT_MINUTES * 60, 'warning');
+                            this.sendNotification('🚶 Saída Detectada',
+                                `${monitor.studentName}: Fora da área. Se ficar ${this.TIMEOUT_MINUTES} minutos fora, a saída será confirmada.`, 'warning');
+
+                            // Timer visual
+                            let timeLeft = this.TIMEOUT_MINUTES * 60;
+                            const visualInterval = setInterval(() => {
+                                if (!monitor.isOutside) { clearInterval(visualInterval); return; }
+                                const elapsed = Math.floor((Date.now() - monitor.startTimeOutside) / 1000);
+                                timeLeft = Math.max(0, this.TIMEOUT_MINUTES * 60 - elapsed);
+                                if (timeLeft > 0) {
+                                    this.showIndicator(monitor.studentName, timeLeft, timeLeft <= 30 ? 'danger' : 'warning');
+                                } else {
+                                    clearInterval(visualInterval);
+                                }
+                            }, 1000);
+
+                            // Timer real
+                            const checkTimeout = () => {
+                                const elapsed = (Date.now() - monitor.startTimeOutside) / 1000;
+                                if (elapsed >= this.TIMEOUT_MINUTES * 60 && monitor.isOutside) {
+                                    this.autoConfirmExit(studentId, monitor);
+                                } else if (monitor.isOutside) {
+                                    const remaining = (this.TIMEOUT_MINUTES * 60 - elapsed) * 1000;
+                                    monitor.timeoutId = setTimeout(checkTimeout, Math.min(remaining, 10000));
+                                }
+                            };
+                            monitor.timeoutId = setTimeout(checkTimeout, this.TIMEOUT_MINUTES * 60 * 1000);
+
+                            await this.notifyBackendExit(studentId, distance);
+                        }
+                    }
+                }
+            }
+
+            async autoConfirmExit(studentId, monitor) {
+                if (monitor.confirming) return;
+                monitor.confirming = true;
+
+                try {
+                    const response = await fetchWithAuth('/api/presencas/confirmar-saida-auto', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            alunoId: parseInt(studentId),
+                            motivo: 'Afastamento da geofence por 3 minutos',
+                            confirmadoPor: 'SISTEMA_AUTOMATICO'
+                        })
+                    });
+
+                    if (!response.ok) throw new Error('Erro na API');
+
+                    await mostrarTelaSucesso('confirmacao', async () => {
+                        await refreshStudentsData();
+                        return true;
+                    });
+
+                    this.sendNotification('✅ Saída Confirmada', `${monitor.studentName}: Saída confirmada automaticamente.`, 'success');
+                    this.stopMonitoring(studentId);
+
+                } catch (error) {
+                    this.sendNotification('❌ Erro', `Não foi possível confirmar saída de ${monitor.studentName}.`, 'error');
+                } finally {
+                    monitor.confirming = false;
+                }
+            }
+
+            stopMonitoring(studentId) {
+                const monitor = this.activeMonitors.get(studentId);
+                if (monitor && monitor.timeoutId) clearTimeout(monitor.timeoutId);
+                this.activeMonitors.delete(studentId);
+
+                if (this.activeMonitors.size === 0) {
+                    if (this.watchId) { navigator.geolocation.clearWatch(this.watchId); this.watchId = null; }
+                    this.releaseWakeLock();
+                    this.hideIndicator();
+                }
+            }
+
+            handleLocationError(error) {
+                let message = '';
+                if (error.code === error.PERMISSION_DENIED) message = 'Permissão de localização negada.';
+                else if (error.code === error.POSITION_UNAVAILABLE) message = 'Localização indisponível.';
+                else if (error.code === error.TIMEOUT) message = 'Tempo limite excedido.';
+                if (message) this.showToast('Erro de Localização', message, 'error');
+            }
+        }
+
+        // Instância global
+        let geofenceMonitor = null;
+
+        function initGeofenceMonitor() {
+            if (!geofenceMonitor) {
+                geofenceMonitor = new GeofenceMonitorPro();
+                console.log('✅ GeofenceMonitor inicializado');
+            }
         }
 
     </script>
