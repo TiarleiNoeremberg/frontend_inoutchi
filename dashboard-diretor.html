@@ -2561,19 +2561,40 @@
                 // ========== ATUALIZA A ABA SAÍDAS RÁPIDAS SE ESTIVER ATIVA ==========
                 const quickExitsTab = document.getElementById('quick-exits-tab');
                 if (quickExitsTab && quickExitsTab.classList.contains('active')) {
-                    console.log(`[QuickExits] Processando evento ${msg.tipo} para ${msg.alunoNome} - mesma lógica da aba Alunos`);
-
-                    // 1. Primeiro, atualiza o cache (mesma função que a aba Alunos usa)
+                    // Força a atualização do cache exatamente como a aba Alunos faz
                     if (typeof window.updateStudentStatusInCache === 'function') {
                         window.updateStudentStatusInCache(msg.alunoId, msg.tipo);
                     }
 
-                    // 2. Depois, recarrega a interface de Saídas Rápidas
-                    setTimeout(() => {
-                        if (typeof window.carregarAlunosParaSaidasRapidas === 'function') {
-                            window.carregarAlunosParaSaidasRapidas();
+                    // Aguarda o cache atualizar e recarrega a visualização
+                    setTimeout(async () => {
+                        try {
+                            // Recarrega os dados da API (mesmo que a aba Alunos faz)
+                            const accessToken = localStorage.getItem('access_token');
+                            const response = await fetch(`${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?size=1000`, {
+                                headers: { Authorization: `Bearer ${accessToken}` }
+                            });
+                            const data = await response.json();
+                            let todosAlunos = data.content || [];
+
+                            // Atualiza os status (mesma lógica)
+                            todosAlunos = await window.checkAllStudentsStatus(todosAlunos);
+
+                            // Atualiza o cache global
+                            window.detailedStudentsData = todosAlunos;
+
+                            // Recarrega a aba Saídas Rápidas
+                            if (typeof window.carregarAlunosParaSaidasRapidas === 'function') {
+                                window.carregarAlunosParaSaidasRapidas();
+                            }
+                        } catch (error) {
+                            console.error('[QuickExits] Erro ao sincronizar:', error);
+                            // Fallback: tenta recarregar mesmo assim
+                            if (typeof window.carregarAlunosParaSaidasRapidas === 'function') {
+                                window.carregarAlunosParaSaidasRapidas();
+                            }
                         }
-                    }, 150);
+                    }, 200);
                 }
             }
 
