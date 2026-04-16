@@ -3033,55 +3033,105 @@
 
             const quickExitsTab = document.getElementById('quick-exits-tab');
             if (quickExitsTab && quickExitsTab.classList.contains('active')) {
-                // Recarrega a lista inteira para qualquer evento (ENTRADA, SAIDA_PENDENTE, SAIDA_CONFIRMADA)
-                console.log(`[QuickExits] Evento ${eventType} - recarregando lista...`);
-                if (typeof window.carregarAlunosParaSaidasRapidas === 'function') {
-                    setTimeout(() => window.carregarAlunosParaSaidasRapidas(), 100);
+
+                const card = document.querySelector(`.quick-exit-aluno-card[data-aluno-id="${studentId}"]`);
+
+                if (eventType === 'ENTRADA_ALUNO') {
+                    if (card) {
+                        // Card já existe - atualiza status
+                        card.dataset.alunoStatus = 'PRESENTE';
+                        card.classList.remove('pendente');
+                        const statusSpan = card.querySelector('.quick-exit-aluno-status');
+                        if (statusSpan) statusSpan.textContent = 'Presente';
+                        const btnUndo = card.querySelector('.btn-desfazer-check');
+                        if (btnUndo) btnUndo.remove();
+                    } else {
+                        // Card não existe - precisa ADICIONAR (sem recarregar a lista)
+                        const aluno = detailedStudentsData.find(s => s.id === studentId);
+                        if (aluno && aluno.salaId && salasSelecionadas.has(aluno.salaId)) {
+                            adicionarCardAlunoNaSala(aluno);
+                        }
+                    }
+                }
+                else if (eventType === 'SAIDA_PENDENTE') {
+                    if (card) {
+                        card.classList.add('pendente');
+                        card.dataset.alunoStatus = 'AGUARDANDO_CONFIRMACAO';
+                        const statusSpan = card.querySelector('.quick-exit-aluno-status');
+                        if (statusSpan) statusSpan.textContent = 'Aguardando';
+
+                        if (!card.querySelector('.btn-desfazer-check')) {
+                            const btnDesfazer = document.createElement('button');
+                            btnDesfazer.className = 'btn-desfazer-check';
+                            btnDesfazer.title = 'Cancelar solicitação de saída';
+                            btnDesfazer.onclick = async (e) => {
+                                e.stopPropagation();
+                                await cancelarSolicitacaoSaida(studentId, card.dataset.alunoNome, card);
+                            };
+                            card.appendChild(btnDesfazer);
+                        }
+                    }
+                }
+                else if (eventType === 'SAIDA_CONFIRMADA') {
+                    if (card) {
+                        card.style.transition = 'all 0.3s ease';
+                        card.style.opacity = '0';
+                        card.style.transform = 'scale(0.8)';
+                        setTimeout(() => {
+                            card.remove();
+                            const salaCard = card.closest('.quick-exits-sala-card');
+                            if (salaCard) {
+                                const grid = salaCard.querySelector('.quick-exits-alunos-grid');
+                                const count = grid?.querySelectorAll('.quick-exit-aluno-card').length || 0;
+                                const counter = salaCard.querySelector('.quick-exits-sala-count');
+                                if (counter) counter.textContent = `${count} aluno(s) presente(s)`;
+                                if (count === 0) salaCard.remove();
+                            }
+                        }, 300);
+                    }
                 }
             }
 
             // Função para adicionar um card de aluno na sala correta (sem recarregar toda a lista)
             function adicionarCardAlunoNaSala(aluno) {
-                // Encontra o card da sala correspondente
-                const salaCard = document.querySelector(`.quick-exits-sala-card:has(.quick-exits-alunos-grid[data-sala-id="${aluno.salaId}"])`);
-
-                if (!salaCard) {
-                    // Se a sala não estiver visível, recarrega a lista (fallback)
-                    console.log(`[QuickExits] Sala ${aluno.salaId} não está visível, recarregando lista...`);
-                    carregarAlunosParaSaidasRapidas();
-                    return;
+                // Encontra o card da sala
+                let salaCard = null;
+                for (const card of document.querySelectorAll('.quick-exits-sala-card')) {
+                    const salaId = parseInt(card.querySelector('.quick-exits-alunos-grid')?.dataset.salaId);
+                    if (salaId === aluno.salaId) {
+                        salaCard = card;
+                        break;
+                    }
                 }
+
+                if (!salaCard) return;
 
                 const grid = salaCard.querySelector('.quick-exits-alunos-grid');
                 if (!grid) return;
 
-                // Verifica se o aluno já existe na sala
-                const cardExistente = grid.querySelector(`.quick-exit-aluno-card[data-aluno-id="${aluno.id}"]`);
-                if (cardExistente) return;
+                // Verifica se já existe
+                if (grid.querySelector(`.quick-exit-aluno-card[data-aluno-id="${aluno.id}"]`)) return;
 
-                // Cria o novo card
-                const alunosDaSala = Array.from(grid.querySelectorAll('.quick-exit-aluno-card'))
-                    .map(card => ({
-                        id: parseInt(card.dataset.alunoId),
-                        nome: card.dataset.alunoNome
-                    }));
+                // Pega lista de nomes para desambiguação
+                const alunosNaSala = Array.from(grid.querySelectorAll('.quick-exit-aluno-card'))
+                    .map(c => ({ id: parseInt(c.dataset.alunoId), nome: c.dataset.alunoNome }));
 
-                const nomeExibicao = formatarNomeAluno(aluno.nome, alunosDaSala, aluno.id);
+                const nomeExibicao = formatarNomeAluno(aluno.nome, alunosNaSala, aluno.id);
 
                 const newCard = document.createElement('div');
                 newCard.className = 'quick-exit-aluno-card';
                 newCard.dataset.alunoId = aluno.id;
                 newCard.dataset.alunoNome = aluno.nome;
-                newCard.dataset.alunoStatus = aluno.status;
+                newCard.dataset.alunoStatus = 'PRESENTE';
                 newCard.innerHTML = `
-        <div class="quick-exit-aluno-nome">${nomeExibicao}</div>
-        <div class="quick-exit-aluno-status">Presente</div>
-        <div class="hold-indicator">
-            <div class="hold-progress"></div>
-        </div>
-    `;
+                    <div class="quick-exit-aluno-nome">${nomeExibicao}</div>
+                    <div class="quick-exit-aluno-status">Presente</div>
+                    <div class="hold-indicator">
+                        <div class="hold-progress"></div>
+                    </div>
+                `;
 
-                // Adiciona os eventos de hold
+                // Adiciona eventos de hold
                 newCard.addEventListener('mousedown', onHoldStart);
                 newCard.addEventListener('mouseup', onHoldEnd);
                 newCard.addEventListener('mouseleave', onHoldEnd);
@@ -3089,7 +3139,7 @@
                 newCard.addEventListener('touchend', onHoldEnd);
                 newCard.addEventListener('touchcancel', onHoldEnd);
 
-                // Insere o card ordenado por nome
+                // Insere ordenado
                 const cards = Array.from(grid.querySelectorAll('.quick-exit-aluno-card'));
                 let inserted = false;
                 for (let i = 0; i < cards.length; i++) {
@@ -3100,16 +3150,12 @@
                         break;
                     }
                 }
-                if (!inserted) {
-                    grid.appendChild(newCard);
-                }
+                if (!inserted) grid.appendChild(newCard);
 
-                // Atualiza o contador da sala
+                // Atualiza contador
                 const count = grid.querySelectorAll('.quick-exit-aluno-card').length;
                 const counter = salaCard.querySelector('.quick-exits-sala-count');
                 if (counter) counter.textContent = `${count} aluno(s) presente(s)`;
-
-                console.log(`[QuickExits] Card adicionado para ${aluno.nome}`);
             }
 
             // ========== ATUALIZA MODAL DA SALA SE ESTIVER ABERTO ==========
