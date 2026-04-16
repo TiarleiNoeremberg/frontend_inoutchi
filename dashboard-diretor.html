@@ -7166,7 +7166,6 @@
 
                 if (alunos.length === 0) continue;
 
-                // Pega a lista de alunos desta sala para usar na desambiguação de nomes
                 const alunosDaSala = alunos;
 
                 const salaCard = document.createElement("div");
@@ -7179,22 +7178,23 @@
             <div class="quick-exits-alunos-grid" data-sala-id="${salaId}">
                 ${alunos
                         .map((aluno) => {
-                            // Aplica a formatação do nome
                             const nomeExibicao = formatarNomeAluno(
                                 aluno.nome,
                                 alunosDaSala,
                                 aluno.id,
                             );
+                            const isPendente = aluno.status === "AGUARDANDO_CONFIRMACAO";
                             return `
-                    <div class="quick-exit-aluno-card ${aluno.status === "AGUARDANDO_CONFIRMACAO" ? "pendente" : ""}" 
+                    <div class="quick-exit-aluno-card ${isPendente ? "pendente" : ""}" 
                          data-aluno-id="${aluno.id}"
                          data-aluno-nome="${(aluno.nome || "Aluno").replace(/'/g, "\\'")}"
                          data-aluno-status="${aluno.status}">
                         <div class="quick-exit-aluno-nome">${nomeExibicao}</div>
-                        <div class="quick-exit-aluno-status">${aluno.status === "AGUARDANDO_CONFIRMACAO" ? "Aguardando" : "Presente"}</div>
+                        <div class="quick-exit-aluno-status">${isPendente ? "Aguardando" : "Presente"}</div>
                         <div class="hold-indicator">
                             <div class="hold-progress"></div>
                         </div>
+                        ${isPendente ? `<button class="btn-desfazer-check" title="Cancelar solicitação de saída"></button>` : ""}
                     </div>
                 `;
                         })
@@ -7213,7 +7213,33 @@
         `;
             }
 
+            // Inicializa os eventos de hold E os botões de cancelar
             initQuickExitHoldEvents();
+            initCancelButtonsEvents(); // ← NOVA FUNÇÃO
+        }
+
+        // Inicializar eventos dos botões de cancelar
+        function initCancelButtonsEvents() {
+            const cancelButtons = document.querySelectorAll('.quick-exit-aluno-card .btn-desfazer-check');
+
+            cancelButtons.forEach(btn => {
+                // Remove listener antigo para evitar duplicação
+                btn.removeEventListener('click', handleCancelClick);
+                // Adiciona novo listener
+                btn.addEventListener('click', handleCancelClick);
+            });
+        }
+
+        // Função separada para o clique do botão cancelar
+        async function handleCancelClick(e) {
+            e.stopPropagation(); // Impede o hold do card
+            const card = e.currentTarget.closest('.quick-exit-aluno-card');
+            if (!card) return;
+
+            const alunoId = parseInt(card.dataset.alunoId);
+            const alunoNome = card.dataset.alunoNome;
+
+            await cancelarSolicitacaoSaida(alunoId, alunoNome, card);
         }
 
         // Função pública para atualizar (sem recursão)
@@ -7431,14 +7457,14 @@
                     throw new Error(error.mensagem || "Erro ao cancelar solicitação");
                 }
 
-                // RESTAURA O CARD PARA PRESENTE
+                // Atualiza o card visualmente (sem recarregar a lista toda)
                 card.classList.remove("pendente");
                 card.dataset.alunoStatus = "PRESENTE";
 
                 const statusSpan = card.querySelector(".quick-exit-aluno-status");
                 if (statusSpan) statusSpan.textContent = "Presente";
 
-                // REMOVE O ÍCONE DE CHECK
+                // Remove o botão de cancelar
                 const btnCheck = card.querySelector('.btn-desfazer-check');
                 if (btnCheck) btnCheck.remove();
 
@@ -7447,6 +7473,8 @@
                 if (alunoNoCache) {
                     alunoNoCache.status = "PRESENTE";
                 }
+
+                showAlert(`Solicitação de saída de ${alunoNome} cancelada!`, "success");
 
             } catch (error) {
                 console.error("Erro ao cancelar solicitação:", error);
