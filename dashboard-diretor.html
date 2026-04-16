@@ -2530,6 +2530,17 @@
                         classeBotao = "btn-success";
                         textoBotao = "ENTRADA";
                         break;
+
+                    // ADICIONE ESTES CASOS PARA SITUAÇÕES ADICIONAIS
+                    case "CANCELAR_PENDENTE":
+                        titulo = "Solicitação Cancelada";
+                        texto = `A solicitação de saída de <b>${msg.alunoNome}</b> foi cancelada.`;
+                        tipoNotificacao = "info";
+                        novoStatus = { texto: "PRESENTE", classe: "status-present" };
+                        acaoBotao = "saida";
+                        classeBotao = "btn-danger";
+                        textoBotao = "SAÍDA";
+                        break;
                 }
 
                 if (titulo) this.mostrarNotificacao(titulo, texto, tipoNotificacao);
@@ -2561,15 +2572,86 @@
                 // ========== ATUALIZA A ABA SAÍDAS RÁPIDAS SE ESTIVER ATIVA ==========
                 const quickExitsTab = document.getElementById('quick-exits-tab');
                 if (quickExitsTab && quickExitsTab.classList.contains('active')) {
-                    // Atualiza apenas o card específico, não recarrega tudo
                     const card = document.querySelector(`.quick-exit-aluno-card[data-aluno-id="${msg.alunoId}"]`);
+
                     if (card) {
-                        if (msg.tipo === 'SAIDA_PENDENTE') {
-                            card.classList.add('pendente');
-                            card.dataset.alunoStatus = 'AGUARDANDO_CONFIRMACAO';
-                            card.querySelector('.quick-exit-aluno-status').textContent = 'Aguardando';
-                        } else if (msg.tipo === 'SAIDA_CONFIRMADA') {
-                            card.remove();
+                        // Atualiza o card baseado no tipo do evento
+                        switch (msg.tipo) {
+                            case 'ENTRADA_ALUNO':
+                                // Aluno entrou - atualiza para presente
+                                card.classList.remove('pendente');
+                                card.dataset.alunoStatus = 'PRESENTE';
+                                const statusPresente = card.querySelector('.quick-exit-aluno-status');
+                                if (statusPresente) statusPresente.textContent = 'Presente';
+
+                                // Remove botão de desfazer se existir
+                                const btnRemove = card.querySelector('.btn-desfazer-check');
+                                if (btnRemove) btnRemove.remove();
+
+                                // Atualiza contador da sala
+                                this.atualizarContadorSala(card);
+                                break;
+
+                            case 'SAIDA_PENDENTE':
+                                // Solicitação de saída - marca como pendente
+                                card.classList.add('pendente');
+                                card.dataset.alunoStatus = 'AGUARDANDO_CONFIRMACAO';
+                                const statusAguardando = card.querySelector('.quick-exit-aluno-status');
+                                if (statusAguardando) statusAguardando.textContent = 'Aguardando';
+
+                                // Adiciona botão de desfazer se não existir
+                                if (!card.querySelector('.btn-desfazer-check')) {
+                                    const btnDesfazer = document.createElement('button');
+                                    btnDesfazer.className = 'btn-desfazer-check';
+                                    btnDesfazer.title = 'Cancelar solicitação de saída';
+                                    btnDesfazer.onclick = async (e) => {
+                                        e.stopPropagation();
+                                        if (typeof window.cancelarSolicitacaoSaida === 'function') {
+                                            await window.cancelarSolicitacaoSaida(msg.alunoId, msg.alunoNome, card);
+                                        }
+                                    };
+                                    card.appendChild(btnDesfazer);
+                                }
+                                break;
+
+                            case 'SAIDA_CONFIRMADA':
+                                // Saída confirmada - remove o card com animação
+                                card.style.transition = 'all 0.3s ease';
+                                card.style.opacity = '0';
+                                card.style.transform = 'scale(0.8)';
+
+                                setTimeout(() => {
+                                    card.remove();
+                                    this.atualizarContadorSala(card);
+
+                                    // Se a sala ficou vazia, remove o container da sala
+                                    const salaCard = card.closest('.quick-exits-sala-card');
+                                    const grid = salaCard?.querySelector('.quick-exits-alunos-grid');
+                                    if (grid && grid.children.length === 0) {
+                                        salaCard?.remove();
+                                    }
+                                }, 300);
+                                break;
+
+                            case 'CANCELAR_PENDENTE':
+                                // Cancelamento da solicitação - volta para presente
+                                card.classList.remove('pendente');
+                                card.dataset.alunoStatus = 'PRESENTE';
+                                const statusRestaurado = card.querySelector('.quick-exit-aluno-status');
+                                if (statusRestaurado) statusRestaurado.textContent = 'Presente';
+
+                                // Remove botão de desfazer
+                                const btnCancelar = card.querySelector('.btn-desfazer-check');
+                                if (btnCancelar) btnCancelar.remove();
+                                break;
+                        }
+                    } else {
+                        // Se o card não existe mas é uma entrada de aluno, pode ser necessário recarregar
+                        if (msg.tipo === 'ENTRADA_ALUNO') {
+                            console.log(`[QuickExits] Aluno ${msg.alunoNome} entrou mas não está na lista. Recarregando...`);
+                            if (typeof window.carregarAlunosParaSaidasRapidas === 'function') {
+                                setTimeout(() => window.carregarAlunosParaSaidasRapidas(), 500);
+                            }
                         }
                     }
                 }
@@ -2654,6 +2736,27 @@
                 console.log(
                     `✅ [WS] Aluno ${alunoNome} atualizado para: ${novoStatus.texto}`,
                 );
+            }
+
+            atualizarContadorSala(card) {
+                const salaCard = card.closest('.quick-exits-sala-card');
+                if (salaCard) {
+                    const grid = salaCard.querySelector('.quick-exits-alunos-grid');
+                    // Conta apenas cards visíveis (não removidos)
+                    const alunosVisiveis = Array.from(grid?.querySelectorAll('.quick-exit-aluno-card') || [])
+                        .filter(c => c.style.opacity !== '0' && c.parentElement !== null);
+                    const count = alunosVisiveis.length;
+
+                    const counter = salaCard.querySelector('.quick-exits-sala-count');
+                    if (counter) {
+                        counter.textContent = `${count} aluno(s) presente(s)`;
+                    }
+
+                    // Se não houver mais alunos, remove a sala
+                    if (count === 0) {
+                        salaCard.remove();
+                    }
+                }
             }
         }
 
@@ -2988,6 +3091,14 @@
                 detailedStudentsData = paginatedData.content;
             }
             refreshOverviewData();
+
+            const quickExitsTab = document.getElementById('quick-exits-tab');
+            if (quickExitsTab && quickExitsTab.classList.contains('active')) {
+                const aluno = detailedStudentsData.find(s => s.id === studentId);
+                if (aluno) {
+                    updateQuickExitStudentStatus(studentId, aluno.nome, eventType);
+                }
+            }
 
             // ========== ATUALIZA MODAL DA SALA SE ESTIVER ABERTO ==========
             const detailsModal = document.getElementById('detailsModal');
@@ -7488,7 +7599,7 @@
 
                     if (response.ok) {
                         const result = await response.json();
-                        
+
                         // Recarrega a tabela para que todos vejam a mudança de status do aluno para 'AUSENTE'.
                         await loadAllStudents(
                             currentStudentsPage,
@@ -7627,7 +7738,7 @@
                 }
 
                 const result = await response.json();
-                
+
                 // Atualiza o cache
                 const alunoNoCache = detailedStudentsData.find(a => a.id === alunoId);
                 if (alunoNoCache) {
@@ -7792,6 +7903,100 @@
 
             // Nome único, exibe apenas o primeiro nome
             return primeiroNome;
+        }
+
+        function updateQuickExitStudentStatus(alunoId, alunoNome, eventType) {
+            // Procura o card do aluno na aba Saídas Rápidas
+            const card = document.querySelector(`.quick-exit-aluno-card[data-aluno-id="${alunoId}"]`);
+
+            if (!card) {
+                console.log(`[QuickExits] Aluno ${alunoNome} (ID: ${alunoId}) não encontrado na aba Saídas Rápidas no momento`);
+                return;
+            }
+
+            console.log(`[QuickExits] Atualizando status do aluno ${alunoNome} para: ${eventType}`);
+
+            switch (eventType) {
+                case "ENTRADA_ALUNO":
+                    // Aluno entrou - deve aparecer na lista se a sala estiver selecionada
+                    card.dataset.alunoStatus = "PRESENTE";
+                    card.classList.remove("pendente");
+
+                    const statusSpan = card.querySelector(".quick-exit-aluno-status");
+                    if (statusSpan) statusSpan.textContent = "Presente";
+
+                    // Remove botão de desfazer se existir
+                    const btnUndo = card.querySelector('.btn-desfazer-check');
+                    if (btnUndo) btnUndo.remove();
+
+                    // Atualiza o contador da sala
+                    updateQuickExitSalaCounter(card);
+                    break;
+
+                case "SAIDA_PENDENTE":
+                    // Aluno solicitou saída - marca como pendente
+                    card.dataset.alunoStatus = "AGUARDANDO_CONFIRMACAO";
+                    card.classList.add("pendente");
+
+                    const statusSpanPendente = card.querySelector(".quick-exit-aluno-status");
+                    if (statusSpanPendente) statusSpanPendente.textContent = "Aguardando";
+
+                    // Adiciona botão de desfazer se não existir
+                    if (!card.querySelector('.btn-desfazer-check')) {
+                        const btnDesfazer = document.createElement('button');
+                        btnDesfazer.className = 'btn-desfazer-check';
+                        btnDesfazer.title = 'Cancelar solicitação de saída';
+                        btnDesfazer.onclick = async (e) => {
+                            e.stopPropagation();
+                            await cancelarSolicitacaoSaida(alunoId, alunoNome, card);
+                        };
+                        card.appendChild(btnDesfazer);
+                    }
+                    break;
+
+                case "SAIDA_CONFIRMADA":
+                    // Saída confirmada - remove o card da lista
+                    card.style.transition = 'all 0.3s ease';
+                    card.style.opacity = '0';
+                    card.style.transform = 'scale(0.8)';
+
+                    setTimeout(() => {
+                        card.remove();
+                        // Atualiza o contador da sala
+                        updateQuickExitSalaCounter(card);
+
+                        // Se a sala ficou vazia, remove o card da sala
+                        const salaCard = card.closest('.quick-exits-sala-card');
+                        const grid = salaCard?.querySelector('.quick-exits-alunos-grid');
+                        if (grid && grid.children.length === 0) {
+                            salaCard?.remove();
+                        }
+                    }, 300);
+                    break;
+            }
+        }
+
+        // FUNÇÃO AUXILIAR PARA ATUALIZAR O CONTADOR DA SALA
+        function updateQuickExitSalaCounter(card) {
+            const salaCard = card.closest('.quick-exits-sala-card');
+            if (salaCard) {
+                const grid = salaCard.querySelector('.quick-exits-alunos-grid');
+                const alunosVisiveis = grid?.querySelectorAll('.quick-exit-aluno-card:not([style*="opacity: 0"])') || [];
+                const count = alunosVisiveis.length;
+
+                const counter = salaCard.querySelector('.quick-exits-sala-count');
+                if (counter) {
+                    counter.textContent = `${count} aluno(s) presente(s)`;
+                }
+            }
+        }
+
+        // FUNÇÃO PARA RECARREGAR COMPLETAMENTE A ABA SAÍDAS RÁPIDAS (se necessário)
+        async function refreshQuickExitsCompleto() {
+            if (document.getElementById('quick-exits-tab')?.classList.contains('active')) {
+                console.log('[QuickExits] Recarregando aba Saídas Rápidas...');
+                await carregarAlunosParaSaidasRapidas();
+            }
         }
 
         window.currentClassroomModal = currentClassroomModal;
