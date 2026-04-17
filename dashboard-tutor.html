@@ -2803,6 +2803,8 @@
         let actionLocationModalInstance, manualConfirmExitModalInstance, logoutConfirmModalInstance;
         let isActionProcessing = false;
         let studentRefreshInterval = null;
+        // Instância global
+        let geofenceMonitor = null;
 
         document.body.classList.add('splash-active');
 
@@ -4848,7 +4850,6 @@
         async function processarLocalizacaoAutomaticaSemModal(studentId, action, studentName) {
             // IMPEDE execução simultânea
             if (window.isProcessingLocation) {
-                console.log('⚠️ Já processando, ignorando');
                 return;
             }
             window.isProcessingLocation = true;
@@ -4911,10 +4912,25 @@
                     throw new Error(result.mensagem || 'Erro ao processar solicitação');
                 }
 
-                console.log('✅ Ação realizada com sucesso!');
+                // ========== ⭐ NOVO: INICIAR MONITORAMENTO DE GEOFENCE PARA SAÍDA ==========
+                if (action === 'saida') {
+                    console.log(`📍 Iniciando monitoramento de geofence para aluno ${studentId} - ${studentName}`);
 
-                // 🔴 MOSTRA MENSAGEM DE SUCESSO COM COORDENADAS (opcional)
-                //showStatusMessage(`✅ ${action === 'entrada' ? 'Entrada' : 'Saída'} realizada!<br>Lat: ${lat} | Lon: ${lng}`, 'success');
+                    // Garante que o monitor está inicializado
+                    if (typeof initGeofenceMonitor === 'function') {
+                        initGeofenceMonitor();
+                    }
+
+                    // Verifica se geofenceMonitor está disponível e inicia o monitoramento
+                    if (window.geofenceMonitor && typeof window.geofenceMonitor.startMonitoring === 'function') {
+                        window.geofenceMonitor.startMonitoring(studentId, studentName);
+                        console.log('✅ Monitoramento de geofence iniciado com sucesso');
+                    } else {
+                        console.warn('⚠️ geofenceMonitor não disponível para iniciar monitoramento');
+                    }
+                }
+
+                console.log('✅ Ação realizada com sucesso!');
 
                 // Atualiza os dados
                 await refreshStudentsData();
@@ -5828,7 +5844,7 @@
         window.HORARIOS_SAIDA = {
             '2° ANO': { hora: 15, minuto: 10 },
             '5° ANO': { hora: 15, minuto: 30 },
-            '3° ANO': { hora: 10, minuto: 0o0 }
+            '3° ANO': { hora: 15, minuto: 10 }
         };
 
         window.validarHorarioSaida = function (nomeSalaBruto) {
@@ -6423,10 +6439,7 @@
                 else if (error.code === error.TIMEOUT) message = 'Tempo limite excedido.';
                 if (message) this.showToast('Erro de Localização', message, 'error');
             }
-        }
-
-        // Instância global
-        let geofenceMonitor = null;
+        }       
 
         function initGeofenceMonitor() {
             if (!geofenceMonitor) {
