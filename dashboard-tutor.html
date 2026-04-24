@@ -4829,21 +4829,43 @@
         }
 
         // ===== NOVA FUNÇÃO: Abre modal e já inicia processo automático =====
+        // ===== FUNÇÃO CORRIGIDA: Agora com validação de horário =====
         function abrirModalComProcessamentoAutomatico(studentId, action, studentName) {
-            console.log('🚪 abrirModalComProcessamentoAutomatico chamada - MODAL NÃO SERÁ ABERTO', { studentId, action });
+            console.log('🚪 abrirModalComProcessamentoAutomatico chamada', { studentId, action });
 
             if (isActionProcessing) return;
 
-            // Validação de horário para SAÍDA
+            // VALIDAÇÃO DE HORÁRIO PARA SAÍDA - ADICIONADA AQUI!
             if (action === 'saida') {
                 const aluno = students.find(s => s.id == studentId);
-                const validacao = validarSaidaPorHorario(aluno);
-                if (!validacao.permitido) {
-                    return; // Não prossegue
+
+                // Busca o nome da sala corretamente
+                let nomeSala = '';
+                if (aluno && aluno.salaNome) {
+                    nomeSala = aluno.salaNome;
+                } else {
+                    // Fallback: tenta buscar no DOM
+                    const card = document.querySelector(`.slide-btn[data-student-id="${studentId}"]`).closest('.student-item');
+                    const salaElement = card ? card.querySelector('span[style*="background: var(--primary-light)"]') : null;
+                    nomeSala = salaElement ? salaElement.textContent.trim().toUpperCase() : '';
                 }
+
+                console.log(`🏫 Validando horário para sala: ${nomeSala}`);
+
+                const validacao = validarSaidaPorHorario({ salaNome: nomeSala });
+
+                if (!validacao.permitido) {
+                    console.log('🚫 SAÍDA BLOQUEADA - Horário não permitido');
+                    // Mostra alerta visual
+                    showStatusMessage(validacao.mensagem, 'warning');
+                    // Retorna sem prosseguir
+                    return;
+                }
+
+                console.log('✅ Horário permitido, prosseguindo...');
             }
 
-            // 🔴 NÃO ABRE O MODAL - VAI DIRETO PARA O PROCESSAMENTO
+            // Só prossegue se a validação passou (ou se é entrada)
             processarLocalizacaoAutomaticaSemModal(studentId, action, studentName);
         }
 
@@ -5311,12 +5333,23 @@
         // ===== FUNÇÃO SIMPLIFICADA - SEM PROMISE COMPLEXA =====
         async function processarAcaoComModal(studentId, action, studentName) {
             try {
-                // 🔴 NOVO: Validação de horário para SAÍDA
+                // 🔴 VALIDAÇÃO DE HORÁRIO PARA SAÍDA
                 if (action === 'saida') {
                     const aluno = students.find(s => s.id == studentId);
-                    const validacao = await validarSaidaPorHorario(aluno);
+
+                    let nomeSala = '';
+                    if (aluno && aluno.salaNome) {
+                        nomeSala = aluno.salaNome;
+                    } else {
+                        const card = document.querySelector(`.slide-btn[data-student-id="${studentId}"]`).closest('.student-item');
+                        const salaElement = card ? card.querySelector('span[style*="background: var(--primary-light)"]') : null;
+                        nomeSala = salaElement ? salaElement.textContent.trim().toUpperCase() : '';
+                    }
+
+                    const validacao = validarSaidaPorHorario({ salaNome: nomeSala });
                     if (!validacao.permitido) {
-                        return false; // Não prossegue
+                        mostrarModalBloqueio(validacao.mensagem);
+                        return false;
                     }
                 }
 
@@ -6439,7 +6472,7 @@
                 else if (error.code === error.TIMEOUT) message = 'Tempo limite excedido.';
                 if (message) this.showToast('Erro de Localização', message, 'error');
             }
-        }       
+        }
 
         function initGeofenceMonitor() {
             if (!geofenceMonitor) {
