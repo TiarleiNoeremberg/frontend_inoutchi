@@ -74,17 +74,19 @@
             grid-auto-rows: minmax(80px, auto);
         }
 
+        /* OVERLAY - AGORA CORRETAMENTE SOBREPOSTO */
         #startOverlay {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0, 0, 0, 0.85);
+            background: rgba(0, 0, 0, 0.9);
             z-index: 9999;
             display: flex;
             justify-content: center;
             align-items: center;
+            backdrop-filter: blur(5px);
         }
 
         #startButton {
@@ -92,12 +94,22 @@
             font-size: 2rem;
             font-weight: bold;
             color: white;
-            background: #22c55e;
+            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
             border: none;
-            border-radius: 12px;
+            border-radius: 16px;
             cursor: pointer;
             text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-            z-index: 10000;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        #startButton:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 25px rgba(0, 0, 0, 0.4);
+        }
+
+        #startButton:active {
+            transform: scale(0.98);
         }
 
         .aluno-card {
@@ -591,10 +603,9 @@
 </head>
 
 <body>
-    <div id="startOverlay"
-        style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); z-index: 2000; display: flex; justify-content: center; align-items: center;">
-        <button id="startButton"
-            style="padding: 20px 40px; font-size: 2rem; font-weight: bold; color: white; background: #22c55e; border: none; border-radius: 12px; cursor: pointer; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+    <!-- OVERLAY DE INICIALIZAÇÃO - SÓ É REMOVIDO NO CLIQUE -->
+    <div id="startOverlay">
+        <button id="startButton">
             ► INICIAR DASHBOARD
         </button>
     </div>
@@ -623,7 +634,7 @@
     <div class="container">
         <div class="alunos-grid" id="alunosGrid">
             <div class="loading">
-                Inicializando dashboard...
+                Aguardando inicialização...
             </div>
         </div>
     </div>
@@ -639,7 +650,6 @@
                 this.BACKEND_URL = 'https://inoutchi-backend.onrender.com';
                 this.WS_URL = 'https://inoutchi-backend.onrender.com/ws-sala';
                 
-                // Endpoints existentes no backend
                 this.ENDPOINT_ALUNOS_SALA = '/api/diretores/salas/{salaId}/alunos?presentes=true';
                 this.ENDPOINT_SAIDA_ATIVA = '/api/presencas/aluno/{alunoId}/saida-ativa';
 
@@ -647,12 +657,12 @@
                 this.token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
                 this.tokenExpiry = localStorage.getItem('token_expiry') || sessionStorage.getItem('token_expiry');
 
-                // Estado: APENAS alunos com saída pendente
                 this.alunos = [];
-                this.todosAlunosDaSala = []; // Cache de todos os alunos da sala
+                this.todosAlunosDaSala = [];
                 this.salaInfo = {};
                 this.salaId = null;
                 this.currentUser = null;
+                this.inicializado = false; // Flag para saber se já foi inicializado
 
                 const userDataStr = localStorage.getItem('user_data') || sessionStorage.getItem('user_data');
                 if (userDataStr) {
@@ -673,32 +683,55 @@
 
                 this.setupZoomHandlers();
 
-                const REFRESH_INTERVAL = 15000;
-                this.syncInterval = setInterval(() => {
-                    if (this.filaDeChamadas.length === 0) {
-                        this.isProcessandoFila = false;
-                    }
-                    this.sincronizarSalaSilenciosamente();
-                }, REFRESH_INTERVAL);
+                // NÃO INICIALIZA NADA AUTOMATICAMENTE
+                // Só prepara o botão para quando o usuário clicar
+                this.prepararBotaoInicializacao();
+            }
 
-                this.inicializar();
+            // Prepara apenas o botão - NADA de API ou WebSocket ainda
+            prepararBotaoInicializacao() {
+                const startButton = document.getElementById('startButton');
+                const overlay = document.getElementById('startOverlay');
+                
+                if (startButton) {
+                    startButton.addEventListener('click', async () => {
+                        console.log('🎯 Usuário clicou em INICIAR DASHBOARD');
+                        
+                        // Remove o overlay imediatamente
+                        if (overlay) {
+                            overlay.style.opacity = '0';
+                            overlay.style.transition = 'opacity 0.3s';
+                            setTimeout(() => {
+                                overlay.remove();
+                            }, 300);
+                        }
+                        
+                        // Agora sim, inicializa tudo
+                        await this.inicializar();
+                    });
+                } else {
+                    console.error("CRÍTICO: Botão de inicialização não encontrado!");
+                }
             }
 
             async inicializar() {
-                console.log('=== INICIALIZANDO DASHBOARD SALA (MODO APENAS SOLICITAÇÕES) ===');
+                if (this.inicializado) {
+                    console.log('Dashboard já inicializado, ignorando...');
+                    return;
+                }
+                
+                console.log('=== INICIALIZANDO DASHBOARD SALA (APÓS CLIQUE DO USUÁRIO) ===');
 
+                // Verifica se está no App Android ou navegador
                 const isApp = window.AndroidBridge && typeof window.AndroidBridge.isAndroidApp === 'function';
-
-                if (isApp) {
-                    console.log("📱 Executando dentro do App Android.");
-                } else {
-                    console.log("🌐 Executando em um Navegador.");
+                if (!isApp) {
                     const fullscreenBtn = document.querySelector('.fullscreen-btn');
                     if (fullscreenBtn) {
                         fullscreenBtn.style.display = 'inline-block';
                     }
                 }
 
+                // Valida token
                 if (!this.token || !this.tokenExpiry || new Date().getTime() > parseInt(this.tokenExpiry)) {
                     this.mostrarErro('Sessão expirada. Faça login novamente.');
                     setTimeout(() => this.redirecionarParaLogin(), 2000);
@@ -706,6 +739,13 @@
                 }
 
                 try {
+                    // Mostra loading na grade
+                    const grid = document.getElementById('alunosGrid');
+                    if (grid) {
+                        grid.innerHTML = '<div class="loading">🔄 Carregando dados da sala...</div>';
+                    }
+
+                    // Carrega dados do usuário
                     await this.carregarUsuario();
                     this.determinarSalaId();
 
@@ -713,24 +753,35 @@
                         throw new Error('Não foi possível determinar o ID da sala.');
                     }
 
+                    // Carrega informações da sala
                     await this.carregarInfoSala();
                     this.atualizarHeader();
 
-                    // Carrega TODOS os alunos da sala (mas não exibe)
+                    // Carrega TODOS os alunos da sala (apenas referência)
                     await this.carregarTodosAlunosDaSala();
                     
                     // Verifica quais têm saída ativa e exibe apenas esses
                     await this.carregarSolicitacoesAtivas();
 
+                    // Inicia o relógio
                     this.atualizarHora();
                     setInterval(() => this.atualizarHora(), 1000);
 
-                    const startButton = document.getElementById('startButton');
-                    if (startButton) {
-                        startButton.addEventListener('click', () => this.startApplication());
-                    } else {
-                        console.error("CRÍTICO: Botão de inicialização não encontrado no HTML.");
-                    }
+                    // Inicia áudio e WebSocket
+                    await this.iniciarAudio();
+                    this.iniciarWebSocketStomp();
+
+                    // Inicia sync interval
+                    const REFRESH_INTERVAL = 15000;
+                    this.syncInterval = setInterval(() => {
+                        if (this.filaDeChamadas.length === 0) {
+                            this.isProcessandoFila = false;
+                        }
+                        this.sincronizarSalaSilenciosamente();
+                    }, REFRESH_INTERVAL);
+
+                    this.inicializado = true;
+                    console.log('✅ Dashboard completamente inicializado!');
 
                 } catch (error) {
                     console.error('❌ Erro fatal durante a inicialização:', error);
@@ -738,7 +789,31 @@
                 }
             }
 
-            // Busca todos os alunos da sala (apenas para referência)
+            async iniciarAudio() {
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    if (this.audioContext.state === 'suspended') {
+                        await this.audioContext.resume();
+                    }
+                    console.log('✅ AudioContext iniciado.');
+                    await this.carregarSons();
+                } catch (error) {
+                    console.error('❌ Erro ao iniciar áudio:', error);
+                }
+            }
+
+            async carregarSons() {
+                if (!this.audioContext) return;
+                try {
+                    const response = await fetch('https://tiarleinoeremberg.github.io/frontend_inoutchi/assets/mp3/Alertas/Alerta.mp3');
+                    const arrayBuffer = await response.arrayBuffer();
+                    this.alertaSoundBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
+                    console.log("✅ Som de alerta pré-carregado.");
+                } catch (error) {
+                    console.error("❌ Erro ao carregar som:", error);
+                }
+            }
+
             async carregarTodosAlunosDaSala() {
                 try {
                     const endpoint = this.ENDPOINT_ALUNOS_SALA.replace('{salaId}', this.salaId);
@@ -753,7 +828,7 @@
                     const data = await response.json();
                     if (data.alunos && Array.isArray(data.alunos)) {
                         this.todosAlunosDaSala = data.alunos;
-                        console.log(`📚 Carregados ${this.todosAlunosDaSala.length} alunos da sala (referência)`);
+                        console.log(`📚 Carregados ${this.todosAlunosDaSala.length} alunos da sala`);
                     }
                 } catch (error) {
                     console.error('❌ Erro ao carregar alunos da sala:', error);
@@ -761,7 +836,6 @@
                 }
             }
 
-            // Busca alunos com saída ativa usando o endpoint existente
             async carregarSolicitacoesAtivas() {
                 console.log('🔍 Verificando solicitações ativas...');
                 
@@ -772,7 +846,6 @@
                     return;
                 }
 
-                // Para cada aluno, verifica se tem saída ativa
                 const alunosComSaidaAtiva = [];
                 
                 for (const aluno of this.todosAlunosDaSala) {
@@ -784,10 +857,9 @@
 
                         if (response.ok) {
                             const data = await response.json();
-                            // Verifica se o código indica que há saída ativa
                             if (data.codigo === 'SAIDA_ATIVA' && data.dados) {
                                 const chamadaAtiva = data.dados;
-                                console.log(`✅ Aluno ${aluno.nome} tem saída ativa! Status: ${chamadaAtiva.status}`);
+                                console.log(`✅ Aluno ${aluno.nome} tem saída ativa!`);
                                 
                                 alunosComSaidaAtiva.push({
                                     id: aluno.id,
@@ -808,7 +880,6 @@
                 this.renderizarAlunos();
             }
 
-            // Mapeia o tipo de solicitante do backend para o formato usado no frontend
             mapearTipoSolicitante(tipo) {
                 if (!tipo) return 'diretor';
                 const tipoLower = tipo.toLowerCase();
@@ -818,25 +889,10 @@
                 return 'token';
             }
 
-            validarSolicitacaoSaida(aluno) {
-                if (!aluno || !aluno.salaNome) {
-                    return { permitido: true };
-                }
-
-                if (window.utils && window.utils.validarHorarioSaida) {
-                    const validacao = window.utils.validarHorarioSaida(aluno.salaNome);
-                    if (!validacao.permitido) {
-                        console.log(`⏰ Solicitação de saída para ${aluno.nome} bloqueada: ${validacao.mensagem}`);
-                        this.mostrarNotificacaoHorario(validacao.mensagem);
-                        return { permitido: false, mensagem: validacao.mensagem };
-                    }
-                }
-
-                return { permitido: true };
-            }
-
             renderizarAlunos() {
                 const grid = document.getElementById('alunosGrid');
+                if (!grid) return;
+                
                 grid.innerHTML = '';
 
                 if (!this.alunos || this.alunos.length === 0) {
@@ -869,17 +925,6 @@
                 });
 
                 grid.appendChild(fragment);
-
-                // Força repaint
-                setTimeout(() => {
-                    grid.style.display = 'none';
-                    grid.offsetHeight;
-                    grid.style.display = 'grid';
-                    grid.style.transform = 'translateZ(0)';
-                    setTimeout(() => {
-                        grid.style.transform = '';
-                    }, 50);
-                }, 10);
             }
 
             getSolicitanteTexto(aluno) {
@@ -923,8 +968,7 @@
                 console.log("📡 Mensagem WebSocket:", mensagem);
                 switch (mensagem.tipo) {
                     case 'ENTRADA_ALUNO':
-                        // IGNORAR COMPLETAMENTE - não exibir no dashboard
-                        console.log(`🚪 [IGNORADO] Entrada de aluno ${mensagem.aluno?.nome || 'desconhecido'} - não será exibida`);
+                        console.log(`🚪 [IGNORADO] Entrada de aluno - não será exibida`);
                         break;
                     case 'SAIDA_PENDENTE':
                         this.processarSaidaPendente(mensagem);
@@ -939,7 +983,6 @@
                 }
             }
 
-            // Criar o card na hora se o aluno não existir
             processarSaidaPendente(mensagem) {
                 const alunoExistente = this.alunos.find(a => a.id === mensagem.alunoId);
                 
@@ -955,7 +998,6 @@
                     return;
                 }
 
-                // CRIA O ALUNO SE NÃO EXISTIR
                 const novoAluno = {
                     id: mensagem.alunoId,
                     nome: mensagem.alunoNome,
@@ -969,7 +1011,7 @@
                 this.alunos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
                 this.renderizarAlunos();
                 
-                console.log(`🆕 [PENDENTE] Aluno ${mensagem.alunoNome} CRIADO e adicionado ao dashboard.`);
+                console.log(`🆕 [PENDENTE] Aluno ${mensagem.alunoNome} CRIADO e adicionado.`);
 
                 this.filaDeChamadas.push(mensagem);
                 if (!this.isProcessandoFila) {
@@ -978,58 +1020,44 @@
                 }
             }
 
-            // Remover completamente do estado
             processarSaidaConfirmada(mensagem) {
                 const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
-
                 if (alunoCard) {
                     alunoCard.classList.add('removendo');
                 }
 
                 setTimeout(() => {
                     this.alunos = this.alunos.filter(aluno => aluno.id !== mensagem.alunoId);
-                    
                     if (alunoCard) {
                         alunoCard.remove();
-                        console.log(`[SAÍDA] Card do aluno ${mensagem.alunoNome} removido.`);
                     } else {
                         this.renderizarAlunos();
                     }
-
-                    console.log(`[SAÍDA] Aluno ${mensagem.alunoNome} removido do estado.`);
+                    console.log(`[SAÍDA] Aluno ${mensagem.alunoNome} removido.`);
                 }, 450);
             }
 
-            // Remover completamente do estado
             processarSaidaCancelada(mensagem) {
                 this.alunos = this.alunos.filter(a => a.id !== mensagem.alunoId);
-                
                 const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
                 if (alunoCard) {
                     alunoCard.remove();
-                    console.log(`[CANCELADO] Card do aluno ${mensagem.alunoNome} removido.`);
                 } else {
                     this.renderizarAlunos();
                 }
-                
                 this.filaDeChamadas = this.filaDeChamadas.filter(c => c.alunoId !== mensagem.alunoId);
             }
 
             async sincronizarSalaSilenciosamente() {
                 try {
                     if (this.isProcessandoFila && this.filaDeChamadas.length > 0) {
-                        console.log("🔄 [SYNC] Sincronização adiada: animação em andamento.");
                         return;
                     }
-
-                    // Recarrega a lista de todos os alunos e verifica saídas ativas
                     await this.carregarTodosAlunosDaSala();
                     await this.carregarSolicitacoesAtivas();
-
                 } catch (error) {
                     this.contagemErrosSync++;
                     console.error(`❌ [SYNC] Erro (${this.contagemErrosSync}/5):`, error);
-
                     if (this.contagemErrosSync >= 5) {
                         console.warn("🚨 Falha persistente. Reiniciando...");
                         window.location.reload();
@@ -1037,8 +1065,6 @@
                 }
             }
 
-            // ==================== ÁUDIO E ANIMAÇÕES ====================
-            
             tocarSomDeTremorGrave() {
                 if (!this.audioContext) return;
                 const now = this.audioContext.currentTime;
@@ -1081,46 +1107,6 @@
                 oscillator.stop(this.audioContext.currentTime + 0.7);
             }
 
-            async startApplication() {
-                console.log('[FINAL] Botão Iniciar Clicado.');
-                const overlay = document.getElementById('startOverlay');
-
-                if (overlay) {
-                    overlay.remove();
-                }
-
-                try {
-                    if (!this.audioContext) {
-                        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                        if (this.audioContext.state === 'suspended') {
-                            await this.audioContext.resume();
-                        }
-                        console.log('✅ AudioContext iniciado.');
-                        await this.carregarSons();
-                    }
-
-                    this.iniciarWebSocketStomp();
-                    console.log('🎉 Serviços em tempo real iniciados.');
-
-                } catch (error) {
-                    console.error('❌ Falha ao iniciar serviços:', error);
-                }
-            }
-
-            async carregarSons() {
-                if (!this.audioContext) return;
-                try {
-                    const response = await fetch('https://tiarleinoeremberg.github.io/frontend_inoutchi/assets/mp3/Alertas/Alerta.mp3');
-                    const arrayBuffer = await response.arrayBuffer();
-                    this.alertaSoundBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
-                    console.log("✅ Som de alerta pré-carregado.");
-                } catch (error) {
-                    console.error("❌ Erro ao carregar som:", error);
-                }
-            }
-
-            // ==================== WEBSOCKET ====================
-
             iniciarWebSocketStomp() {
                 this.atualizarStatusWebSocket('connecting', 'Conectando...');
                 const stompConfig = {
@@ -1162,8 +1148,6 @@
                 this.stompClient.subscribe(`/topic/sala/${this.salaId}`, (message) => this.processarMensagemWebSocket(JSON.parse(message.body)));
             }
 
-            // ==================== ANIMAÇÃO DA FILA ====================
-
             async processarProximoDaFila() {
                 if (this.filaDeChamadas.length === 0) {
                     this.isProcessandoFila = false;
@@ -1175,7 +1159,7 @@
                 try {
                     await this.executarDestaqueCompleto(chamada);
                 } catch (error) {
-                    console.error(`💥 Erro ao processar ${chamada.alunoNome}.`, error);
+                    console.error(`💥 Erro:`, error);
                 } finally {
                     await new Promise(resolve => setTimeout(resolve, 500));
                     this.processarProximoDaFila();
@@ -1183,13 +1167,9 @@
             }
 
             async executarDestaqueCompleto(chamada) {
-                const { alunoId, alunoNome } = chamada;
+                const { alunoId } = chamada;
                 const alunoCard = document.querySelector(`[data-aluno-id="${alunoId}"]`);
-
-                if (!alunoCard) {
-                    console.warn(`Card do ${alunoNome} não encontrado.`);
-                    return;
-                }
+                if (!alunoCard) return;
 
                 const promessaDeAnimacao = new Promise(resolve => {
                     const _ = alunoCard.offsetHeight;
@@ -1213,7 +1193,7 @@
                 try {
                     await Promise.all([promessaDeAnimacao, promessaSequenciaAudio]);
                 } catch (error) {
-                    console.error("Erro na sincronização:", error);
+                    console.error("Erro:", error);
                 } finally {
                     this.finalizarExpansao(alunoCard);
                 }
@@ -1261,21 +1241,16 @@
                 });
             }
 
-            // ==================== MÉTODOS AUXILIARES ====================
-
             async carregarUsuario() {
                 try {
                     const response = await fetch(`${this.BACKEND_URL}/api/users/me`, {
                         headers: { 'Authorization': `Bearer ${this.token}` }
                     });
-
                     if (!response.ok) {
                         throw new Error(`Erro ${response.status}`);
                     }
-
                     this.currentUser = await response.json();
                     localStorage.setItem('user_data', JSON.stringify(this.currentUser));
-
                 } catch (error) {
                     console.error('❌ Erro ao carregar usuário:', error);
                     throw error;
@@ -1325,34 +1300,6 @@
                 return 'Noturno';
             }
 
-            mostrarNotificacaoHorario(mensagem) {
-                const notification = document.createElement('div');
-                notification.style.cssText = `
-                    position: fixed;
-                    top: 20px;
-                    left: 50%;
-                    transform: translateX(-50%);
-                    z-index: 9999;
-                    background: #fef3c7;
-                    color: #92400e;
-                    border: 1px solid #fbbf24;
-                    border-radius: 12px;
-                    padding: 16px 24px;
-                    font-weight: 600;
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-                    max-width: 90%;
-                    text-align: center;
-                    font-size: 1rem;
-                `;
-                notification.innerHTML = `<span>⏰ ${mensagem}</span>`;
-                document.body.appendChild(notification);
-                setTimeout(() => {
-                    notification.style.opacity = '0';
-                    notification.style.transition = 'opacity 0.5s';
-                    setTimeout(() => notification.remove(), 500);
-                }, 5000);
-            }
-
             atualizarStatusWebSocket(status, mensagem) {
                 const statusConexao = document.getElementById('statusConexao');
                 if (statusConexao) {
@@ -1363,13 +1310,14 @@
 
             mostrarErro(mensagem) {
                 const grid = document.getElementById('alunosGrid');
-                grid.innerHTML = `<div class="error-state">⚠️ ${mensagem}</div>`;
+                if (grid) {
+                    grid.innerHTML = `<div class="error-state">⚠️ ${mensagem}</div>`;
+                }
             }
 
             redirecionarParaLogin() {
                 if (this.stompClient) this.stompClient.deactivate();
                 if (this.syncInterval) clearInterval(this.syncInterval);
-
                 localStorage.removeItem('access_token');
                 localStorage.removeItem('refresh_token');
                 localStorage.removeItem('token_expiry');
@@ -1377,7 +1325,6 @@
                 sessionStorage.removeItem('access_token');
                 sessionStorage.removeItem('token_expiry');
                 sessionStorage.removeItem('user_data');
-
                 window.location.href = 'login.html';
             }
 
