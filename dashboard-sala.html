@@ -1456,10 +1456,40 @@
             }
 
             processarSaidaPendente(mensagem) {
-                // ===== NOVO: CRIA O CARD SE NÃO EXISTIR =====
+                // 1. VERIFICA SE O CARD JÁ EXISTE
+                let alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
                 let alunoNoEstado = this.alunos.find(a => a.id === mensagem.alunoId);
-                if (!alunoNoEstado) {
-                    console.log(`[PENDENTE] Criando novo aluno no estado: ${mensagem.alunoNome}`);
+
+                // 2. SE NÃO EXISTE, CRIA O CARD MANUALMENTE
+                if (!alunoCard && !alunoNoEstado) {
+                    console.log(`[PENDENTE] Criando card manualmente para: ${mensagem.alunoNome}`);
+
+                    // Cria o card no DOM
+                    const grid = document.getElementById('alunosGrid');
+                    // Remove a mensagem de "nenhum aluno" se existir
+                    if (grid.innerHTML.includes('empty-state')) {
+                        grid.innerHTML = '';
+                    }
+
+                    const card = document.createElement('div');
+                    card.className = 'aluno-card pendente';
+                    card.setAttribute('data-aluno-id', mensagem.alunoId);
+
+                    // Define a classe de cor
+                    let tipo = (mensagem.tipoSolicitante || 'diretor').toLowerCase();
+                    if (['parente', 'amigo', 'irmao'].includes(tipo)) tipo = 'token';
+                    card.classList.add(tipo);
+
+                    const nomeParaExibir = this.formatarNomeAluno({ nome: mensagem.alunoNome });
+                    card.innerHTML = `
+            <div class="aluno-nome">${nomeParaExibir}</div>
+            <div class="aluno-horario">Aguardando</div>
+        `;
+
+                    grid.appendChild(card);
+                    alunoCard = card;
+
+                    // Adiciona ao estado
                     const novoAluno = {
                         id: mensagem.alunoId,
                         nome: mensagem.alunoNome,
@@ -1470,47 +1500,26 @@
                     };
                     this.alunos.push(novoAluno);
                     this.alunos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-                    this.renderizarAlunos();
-                    alunoNoEstado = novoAluno;
-                }
-                // 1. 🔴 NOVO: VALIDAÇÃO DE HORÁRIO
-                const aluno = this.alunos.find(a => a.id === mensagem.alunoId);
-                if (!aluno) {
-                    console.warn(`[PENDENTE] Aluno com ID ${mensagem.alunoId} não foi encontrado.`);
-                    return;
                 }
 
-                // Valida se a solicitação pode ser processada baseada no horário
+                // 3. VALIDAÇÃO DE HORÁRIO
+                const aluno = this.alunos.find(a => a.id === mensagem.alunoId);
+                if (!aluno) return;
+
                 const validacao = this.validarSolicitacaoSaida(aluno);
                 if (!validacao.permitido) {
-                    console.log(`⏰ Solicitação de saída para ${mensagem.alunoNome} bloqueada por horário`);
-                    return; // Ignora a solicitação completamente
-                }
-
-                // 2. ATUALIZA O ESTADO (só chega aqui se passou na validação)
-                aluno.status = 'AGUARDANDO_CONFIRMACAO';
-                aluno.tipoSolicitante = mensagem.tipoSolicitante;
-
-                // 3. ATUALIZA O CARD DIRETAMENTE
-                let alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
-
-                // Se o card não existe (pode ter sido recriado), busca novamente após um pequeno delay
-                if (!alunoCard) {
-                    setTimeout(() => {
-                        alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
-                        if (alunoCard) {
-                            this.aplicarEstiloPendenteAoCard(alunoCard, mensagem);
-                        } else {
-                            // Fallback: renderiza tudo se realmente não achar
-                            this.renderizarAlunos();
-                        }
-                    }, 100);
+                    // Remove o card que acabou de ser criado
+                    if (alunoCard) alunoCard.remove();
+                    this.alunos = this.alunos.filter(a => a.id !== mensagem.alunoId);
                     return;
                 }
 
-                this.aplicarEstiloPendenteAoCard(alunoCard, mensagem);
+                // 4. APLICA O ESTILO PENDENTE (já está OK)
+                if (alunoCard) {
+                    this.aplicarEstiloPendenteAoCard(alunoCard, mensagem);
+                }
 
-                // 4. LÓGICA DA FILA (só adiciona se passou na validação)
+                // 5. ADICIONA À FILA PARA ANIMAÇÃO (AGORA O CARD EXISTE!)
                 this.filaDeChamadas.push(mensagem);
                 if (!this.isProcessandoFila) {
                     this.isProcessandoFila = true;
