@@ -1126,9 +1126,9 @@
                     <span>Offline</span>
                 </div>
             </div>
-                <button class="fullscreen-btn" onclick="salaDashboard.entrarEmTelaCheia()">⛶ Tela Cheia</button>
-                <button class="logout-btn" onclick="salaDashboard.logout()">Sair</button>
-            </div>
+            <button class="fullscreen-btn" onclick="salaDashboard.entrarEmTelaCheia()">⛶ Tela Cheia</button>
+            <button class="logout-btn" onclick="salaDashboard.logout()">Sair</button>
+        </div>
     </header>
     <div class="container">
         <div class="alunos-grid" id="alunosGrid">
@@ -1416,8 +1416,8 @@
                 console.log("📡 Mensagem WebSocket:", mensagem);
                 switch (mensagem.tipo) {
                     case 'ENTRADA_ALUNO':
-                        this.processarEntradaAluno(mensagem.aluno, mensagem.timestamp);
-                        // NOTIFICAÇÃO REMOVIDA - Entrada registrada apenas visualmente
+                        // IGNORAR COMPLETAMENTE - alunos não são mais exibidos na sala por entrada
+                        console.log(`[IGNORADO] Entrada de ${mensagem.aluno?.nome || 'aluno'} ignorada - não será exibida na sala`);
                         break;
                     case 'SAIDA_PENDENTE':
                         this.processarSaidaPendente(mensagem);
@@ -1433,29 +1433,29 @@
             }
 
             processarEntradaAluno(aluno, timestamp) {
-                // 1. Verifica se o aluno já existe para evitar duplicatas.
-                const existe = this.alunos.some(a => a.id === aluno.id);
-                if (existe) {
-                    console.log(`[ENTRADA] Aluno ${aluno.nome} já está na sala. Ignorando.`);
-                    return;
-                }
-
-                // 2. ATUALIZA O ESTADO: Adiciona o aluno à lista de dados.
-                this.alunos.push({ ...aluno, status: 'PRESENTE' });
-                this.alunos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-
-                // 3. ATUALIZA A TELA: Chama a função mestra para redesenhar a grade.
-                this.renderizarAlunos();
-                console.log(`[ENTRADA] Aluno ${aluno.nome} adicionado ao estado e tela renderizada.`);
-
-                // 4. LÓGICA DE ANIMAÇÃO E NOTIFICAÇÃO (Sua lógica original, preservada)
-                clearTimeout(this.batchEntradaTimer);
-                this.batchEntradaAlunos.set(aluno.id, aluno.nome);
-                this.batchEntradaTimer = setTimeout(() => this.processarBatchDeEntradas(), 350);
-                console.log(`[BATCH] Aluno ${aluno.nome} adicionado ao lote de entrada.`);
+                // IGNORAR COMPLETAMENTE - alunos não são mais exibidos na sala por entrada
+                console.log(`[IGNORADO] Entrada de ${aluno.nome} ignorada - não será exibida na sala`);
+                return;
             }
 
             processarSaidaPendente(mensagem) {
+                // ===== NOVO: CRIA O CARD SE NÃO EXISTIR =====
+                let alunoNoEstado = this.alunos.find(a => a.id === mensagem.alunoId);
+                if (!alunoNoEstado) {
+                    console.log(`[PENDENTE] Criando novo aluno no estado: ${mensagem.alunoNome}`);
+                    const novoAluno = {
+                        id: mensagem.alunoId,
+                        nome: mensagem.alunoNome,
+                        status: 'AGUARDANDO_CONFIRMACAO',
+                        tipoSolicitante: mensagem.tipoSolicitante,
+                        parentesco: mensagem.parentesco,
+                        salaNome: mensagem.salaNome
+                    };
+                    this.alunos.push(novoAluno);
+                    this.alunos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+                    this.renderizarAlunos();
+                    alunoNoEstado = novoAluno;
+                }
                 // 1. 🔴 NOVO: VALIDAÇÃO DE HORÁRIO
                 const aluno = this.alunos.find(a => a.id === mensagem.alunoId);
                 if (!aluno) {
@@ -1544,68 +1544,44 @@
             processarSaidaConfirmada(mensagem) {
                 const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
 
-                // 1. ANIMAÇÃO: Aplica a classe para a animação de saída.
                 if (alunoCard) {
                     alunoCard.classList.add('removendo');
                 }
 
-                // 2. ATRASO SINCRONIZADO: Espera a animação terminar.
                 setTimeout(() => {
                     // 3. ATUALIZA O ESTADO: Remove o aluno da lista de dados.
                     this.alunos = this.alunos.filter(aluno => aluno.id !== mensagem.alunoId);
 
-                    // === SOLUÇÃO: NÃO RENDERIZAR TUDO, APENAS REMOVER O CARD DO DOM ===
+                    // Remove também da fila de chamadas
+                    this.filaDeChamadas = this.filaDeChamadas.filter(c => c.alunoId !== mensagem.alunoId);
+
                     if (alunoCard) {
-                        alunoCard.remove(); // Remove apenas o card específico
-                        console.log(`[SAÍDA] Card do aluno ${mensagem.alunoNome} removido do DOM.`);
+                        alunoCard.remove();
                     } else {
-                        // Fallback: se não encontrou o card, renderiza tudo
                         this.renderizarAlunos();
                     }
 
                     console.log(`[SAÍDA] Aluno ${mensagem.alunoNome} removido do estado.`);
-
-                }, 450); // Duração da animação CSS
+                }, 450);
             }
 
             processarSaidaCancelada(mensagem) {
-
-                // 1. Atualiza o estado interno (alunos)
-                const alunoIndex = this.alunos.findIndex(a => a.id === mensagem.alunoId);
-                if (alunoIndex !== -1) {
-                    this.alunos[alunoIndex].status = 'PRESENTE';
-                    delete this.alunos[alunoIndex].tipoSolicitante;
-                    delete this.alunos[alunoIndex].parentesco;
-                }
-
-                // 2. Encontra o card do aluno no DOM
                 const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
 
+                // REMOVE COMPLETAMENTE DO ESTADO
+                this.alunos = this.alunos.filter(aluno => aluno.id !== mensagem.alunoId);
+
+                // Remove também da fila de chamadas
+                this.filaDeChamadas = this.filaDeChamadas.filter(c => c.alunoId !== mensagem.alunoId);
+
                 if (alunoCard) {
-                    // 3. Remove a classe "pendente" e volta para o estilo normal
-                    alunoCard.classList.remove('pendente', 'tutor', 'diretor', 'token', 'transporte');
-
-                    // 4. Atualiza o texto do status
-                    const horarioElement = alunoCard.querySelector('.aluno-horario');
-                    if (horarioElement) {
-                        horarioElement.textContent = 'Presente';
-                    }
-
-                    if (horarioElement && horarioElement.textContent !== 'Presente') {
-                        horarioElement.innerHTML = 'Presente';
-                    }
-
-                    // 5. Remove animações
-                    alunoCard.classList.remove('expandindo', 'recolhendo', 'destaque');
-                    alunoCard.style.transform = '';
-
+                    alunoCard.remove();
+                    console.log(`[SAÍDA CANCELADA] Aluno ${mensagem.alunoNome} removido completamente.`);
                 } else {
-                    // Fallback: recarrega a lista completa se o card não foi encontrado
-                    console.warn(`Card do aluno ${mensagem.alunoNome} não encontrado, recarregando lista...`);
-                    this.carregarDadosSala();
+                    this.renderizarAlunos();
+                    console.log(`[SAÍDA CANCELADA] Aluno ${mensagem.alunoNome} removido do estado, renderizando tela.`);
                 }
             }
-
 
             //========================================================
             //  ███████╗██╗   ██╗███╗   ██╗ ██████╗████████╗
@@ -1809,7 +1785,7 @@
                 console.log(`[BATCH] Processando lote de ${totalAlunosNoLote} novas entradas.`);
 
                 for (const alunoId of this.batchEntradaAlunos.keys()) {
-                    this.tocarSomDeTremorGrave();
+                    //this.tocarSomDeTremorGrave();
                     this.aplicarDestaqueTremor(alunoId);
                 }
 
@@ -1916,8 +1892,8 @@
                     const alunosProcessados = await this.processarDadosAlunos(data);
                     console.log("[DEBUG] 6. processarDadosAlunos CONCLUÍDO.");
 
-                    this.alunos = alunosProcessados;
-                    this.renderizarAlunos();
+                    this.alunos = []; // Começa vazio - só exibe alunos com saída pendente
+                    await this.carregarPendenciasExistentes(); // Carrega apenas pendências existentes
                     console.log("[DEBUG] 7. Renderização finalizada. SUCESSO TOTAL.");
 
                 } catch (error) {
@@ -1999,6 +1975,66 @@
                     }
                 });
                 return Promise.all(statusPromises);
+            }
+
+            async carregarPendenciasExistentes() {
+                console.log("[PENDENCIAS] Buscando solicitações de saída pendentes existentes...");
+
+                try {
+                    const endpoint = this.ENDPOINT_ALUNOS_PRESENTES.replace('{salaId}', this.salaId);
+                    const response = await fetch(`${this.BACKEND_URL}${endpoint}`, {
+                        headers: { 'Authorization': `Bearer ${this.token}` }
+                    });
+
+                    if (!response.ok) {
+                        console.warn("[PENDENCIAS] Não foi possível buscar alunos da sala");
+                        return;
+                    }
+
+                    const data = await response.json();
+                    const alunos = data.alunos || [];
+
+                    if (alunos.length === 0) {
+                        console.log("[PENDENCIAS] Nenhum aluno encontrado na sala");
+                        return;
+                    }
+
+                    // Verificar quais alunos já têm saída pendente
+                    for (const aluno of alunos) {
+                        const url = `${this.BACKEND_URL}/api/presencas/aluno/${aluno.id}/saida-ativa?timestamp=${new Date().getTime()}`;
+                        try {
+                            const statusResponse = await fetch(url, {
+                                headers: { 'Authorization': `Bearer ${this.token}` }
+                            });
+
+                            if (statusResponse.status === 200) {
+                                const apiResponse = await statusResponse.json();
+                                if (apiResponse.codigo === 'SAIDA_ATIVA' && apiResponse.dados) {
+                                    console.log(`[PENDENCIAS] Aluno ${aluno.nome} já com saída pendente`);
+                                    this.alunos.push({
+                                        id: aluno.id,
+                                        nome: aluno.nome,
+                                        status: 'AGUARDANDO_CONFIRMACAO',
+                                        tipoSolicitante: apiResponse.dados.tipoSolicitante,
+                                        parentesco: apiResponse.dados.parentesco,
+                                        salaNome: aluno.salaNome
+                                    });
+                                }
+                            }
+                        } catch (error) {
+                            console.error(`[PENDENCIAS] Erro ao verificar status de ${aluno.nome}:`, error);
+                        }
+                    }
+
+                    if (this.alunos.length > 0) {
+                        this.alunos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+                        this.renderizarAlunos();
+                        console.log(`[PENDENCIAS] Carregados ${this.alunos.length} alunos com saída pendente`);
+                    }
+
+                } catch (error) {
+                    console.error("[PENDENCIAS] Erro ao carregar pendências:", error);
+                }
             }
 
             // ... Demais funções auxiliares, de áudio, animação, etc ...
