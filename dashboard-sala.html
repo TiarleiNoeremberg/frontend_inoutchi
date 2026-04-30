@@ -609,7 +609,7 @@
 
         .aluno-card.expandindo {
             z-index: 1000 !important;
-            transition: all 3s cubic-bezier(0.25, 0.46, 0.45, 0.94) !important;
+            transition: transform 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) !important;
             position: relative !important;
         }
 
@@ -1132,8 +1132,13 @@
     </header>
     <div class="container">
         <div class="alunos-grid" id="alunosGrid">
-            <div class="loading">
-                Inicializando dashboard...
+            <div class="loading" id="loadingMessage">
+                <div style="text-align: center;">
+                    <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">🎯</div>
+                    <div>Aguardando comandos...</div>
+                    <div style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.5rem;">Clique em INICIAR para começar
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -1240,22 +1245,34 @@
                         throw new Error('Não foi possível determinar o ID da sala.');
                     }
 
-                    // Carrega a lista inicial de alunos e mostra na tela
-                    await this.carregarDadosSala();
+                    // 3. PREPARA O BOTÃO "INICIAR" IMEDIATAMENTE (antes de carregar dados)
+                    const startButton = document.getElementById('startButton');
+                    if (startButton) {
+                        // Remove o listener anterior se existir para evitar duplicação
+                        const newStartButton = startButton.cloneNode(true);
+                        startButton.parentNode.replaceChild(newStartButton, startButton);
 
+                        newStartButton.addEventListener('click', () => {
+                            console.log('[OVERLAY] Clique detectado, removendo overlay imediatamente');
+                            const overlay = document.getElementById('startOverlay');
+                            if (overlay) {
+                                overlay.remove();
+                                console.log('[OVERLAY] Overlay removido do DOM');
+                            }
+                            this.startApplication();
+                        });
+                    } else {
+                        console.error("CRÍTICO: Botão de inicialização não encontrado no HTML.");
+                    }
+
+                    // Carrega a lista inicial de alunos em BACKGROUND (sem travar o clique)
+                    this.carregarDadosSala().catch(error => {
+                        console.error('Erro ao carregar dados em background:', error);
+                    });
 
                     // Inicia o relógio
                     this.atualizarHora();
                     setInterval(() => this.atualizarHora(), 1000);
-
-                    // 3. APENAS PREPARA O BOTÃO "INICIAR"
-                    // A inicialização do áudio e do WebSocket agora é controlada 100% pelo clique.
-                    const startButton = document.getElementById('startButton');
-                    if (startButton) {
-                        startButton.addEventListener('click', () => this.startApplication());
-                    } else {
-                        console.error("CRÍTICO: Botão de inicialização não encontrado no HTML.");
-                    }
 
                 } catch (error) {
                     console.error('❌ Erro fatal durante a inicialização:', error);
@@ -2094,27 +2111,24 @@
 
                 // A promessa que gerencia a animação
                 const promessaDeAnimacao = new Promise(resolve => {
+                    // Calcula a transformação final ANTES de começar
+                    const transformacaoFinal = this.calcularExpansaoCentralizada(alunoCard);
 
-                    // --- INÍCIO DA CORREÇÃO CRÍTICA (Forçar Reflow + rAF) ---
+                    // Garante que o card está na posição original
+                    alunoCard.style.transition = 'transform 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+                    alunoCard.style.transform = 'scale(1)';
 
-                    // PASSO 1: Força o navegador a calcular o layout do card AGORA.
-                    // Ler uma propriedade como 'offsetHeight' é uma forma conhecida e confiável
-                    // de forçar uma "reflow" síncrona. A variável não é usada.
-                    const _ = alunoCard.offsetHeight;
+                    // Força reflow
+                    alunoCard.offsetHeight;
 
-                    // PASSO 2: Agora que a posição inicial está garantida, esperamos o PRÓXIMO
-                    // quadro de animação para aplicar a classe e o transform.
-                    // Isso garante que o navegador veja a mudança de um estado inicial para um final.
-                    requestAnimationFrame(() => {
-                        const transformacao = this.calcularExpansaoCentralizada(alunoCard);
-                        alunoCard.style.transform = transformacao;
-                        alunoCard.classList.add('expandindo');
+                    // Aplica a transformação suavemente
+                    alunoCard.style.transform = transformacaoFinal;
+                    alunoCard.classList.add('expandindo');
 
-                        // Resolve a promessa após o tempo da animação para continuar a fila.
-                        setTimeout(resolve, 3000);
-                    });
-
-                    // --- FIM DA CORREÇÃO CRÍTICA ---
+                    // Aguarda a animação terminar
+                    setTimeout(() => {
+                        resolve();
+                    }, 800); // Reduzido de 3000 para 800ms (mais suave)
                 });
 
                 // A lógica de áudio (que já está correta) executa em paralelo.
