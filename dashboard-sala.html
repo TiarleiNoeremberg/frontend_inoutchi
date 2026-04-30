@@ -1163,6 +1163,8 @@
                 this.salaId = null;
                 this.currentUser = null;
 
+                this.solicitacoesPendentesCarregadas = false;
+
                 // Tenta carregar dados do usuário do storage (para não precisar buscar da API)
                 const userDataStr = localStorage.getItem('user_data') || sessionStorage.getItem('user_data');
                 if (userDataStr) {
@@ -1416,8 +1418,8 @@
                 console.log("📡 Mensagem WebSocket:", mensagem);
                 switch (mensagem.tipo) {
                     case 'ENTRADA_ALUNO':
-                        // IGNORAR COMPLETAMENTE - entrada de aluno não deve ser exibida na sala
-                        console.log(`[ENTRADA_IGNORADA] Aluno ${mensagem.aluno?.nome || 'desconhecido'} - não será exibido na sala`);
+                        // IGNORAR - entrada de aluno não deve ser exibida na sala
+                        console.log(`[IGNORADO] Entrada de ${mensagem.aluno?.nome}`);
                         break;
                     case 'SAIDA_PENDENTE':
                         this.processarSaidaPendente(mensagem);
@@ -1553,14 +1555,16 @@
             processarSaidaConfirmada(mensagem) {
                 const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
 
-                // Animação de saída
                 if (alunoCard) {
                     alunoCard.classList.add('removendo');
                 }
 
                 setTimeout(() => {
-                    // REMOVE COMPLETAMENTE DO ESTADO (não apenas muda status)
+                    // REMOVER COMPLETAMENTE do estado
                     this.alunos = this.alunos.filter(aluno => aluno.id !== mensagem.alunoId);
+
+                    // REMOVER da fila de chamadas
+                    this.filaDeChamadas = this.filaDeChamadas.filter(c => c.alunoId !== mensagem.alunoId);
 
                     if (alunoCard) {
                         alunoCard.remove();
@@ -1568,29 +1572,25 @@
                         this.renderizarAlunos();
                     }
 
-                    // Remove também da fila de chamadas
-                    this.filaDeChamadas = this.filaDeChamadas.filter(c => c.alunoId !== mensagem.alunoId);
-
-                    console.log(`[SAÍDA CONFIRMADA] Aluno ${mensagem.alunoNome} removido completamente.`);
+                    console.log(`[SAÍDA] Aluno ${mensagem.alunoNome} removido`);
                 }, 450);
             }
 
             processarSaidaCancelada(mensagem) {
-                const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
-
-                // REMOVE COMPLETAMENTE DO ESTADO
+                // REMOVER COMPLETAMENTE do estado
                 this.alunos = this.alunos.filter(aluno => aluno.id !== mensagem.alunoId);
 
-                // Remove da fila de chamadas
+                // REMOVER da fila de chamadas
                 this.filaDeChamadas = this.filaDeChamadas.filter(c => c.alunoId !== mensagem.alunoId);
 
+                const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
                 if (alunoCard) {
                     alunoCard.remove();
-                    console.log(`[SAÍDA CANCELADA] Aluno ${mensagem.alunoNome} removido completamente.`);
                 } else {
                     this.renderizarAlunos();
-                    console.log(`[SAÍDA CANCELADA] Aluno ${mensagem.alunoNome} removido do estado, renderizando tela.`);
                 }
+
+                console.log(`[CANCELADO] Aluno ${mensagem.alunoNome} removido`);
             }
 
             //========================================================
@@ -1926,6 +1926,44 @@
                 }
             }
 
+            async carregarSolicitacoesPendentes() {
+                console.log("🔍 Carregando solicitações pendentes existentes...");
+
+                for (const aluno of this.alunos) {
+                    try {
+                        const url = `${this.BACKEND_URL}/api/presencas/aluno/${aluno.id}/saida-ativa`;
+                        const response = await fetch(url, { headers: { 'Authorization': `Bearer ${this.token}` } });
+
+                        if (response.ok) {
+                            const data = await response.json();
+                            if (data.codigo === 'SAIDA_ATIVA' && data.dados) {
+                                console.log(`[PENDENTE] Aluno ${aluno.nome} já tinha saída pendente`);
+                                aluno.status = 'AGUARDANDO_CONFIRMACAO';
+                                aluno.tipoSolicitante = data.dados.tipoSolicitante;
+
+                                // Adicionar à fila para processar animação
+                                this.filaDeChamadas.push({
+                                    alunoId: aluno.id,
+                                    alunoNome: aluno.nome,
+                                    tipoSolicitante: data.dados.tipoSolicitante
+                                });
+                            }
+                        }
+                    } catch (error) {
+                        console.error(`Erro ao verificar pendência para ${aluno.nome}:`, error);
+                    }
+                }
+
+                // Renderizar com os status atualizados
+                this.renderizarAlunos();
+
+                // Processar fila de animações
+                if (this.filaDeChamadas.length > 0 && !this.isProcessandoFila) {
+                    this.isProcessandoFila = true;
+                    this.processarProximoDaFila();
+                }
+            }
+
             async carregarDadosSala() {
                 console.log("[DEBUG] 1. Entrando em carregarDadosSala.");
                 try {
@@ -1943,7 +1981,10 @@
                     console.log("[DEBUG] 6. processarDadosAlunos CONCLUÍDO.");
 
                     this.alunos = alunosProcessados;
-                    this.alunos = alunosProcessados;
+                    if (!this.solicitacoesPendentesCarregadas) {
+                        await this.carregarSolicitacoesPendentes();
+                        this.solicitacoesPendentesCarregadas = true;
+                    }
                     await this.carregarSolicitacoesPendentes();  // ADICIONE ESTA LINHA
                     this.renderizarAlunos();
                     console.log("[DEBUG] 7. Renderização finalizada. SUCESSO TOTAL.");
