@@ -2029,15 +2029,21 @@
                             if (statusResponse.status === 200) {
                                 const apiResponse = await statusResponse.json();
                                 if (apiResponse.codigo === 'SAIDA_ATIVA' && apiResponse.dados) {
-                                    console.log(`[PENDENCIAS] Aluno ${aluno.nome} já com saída pendente`);
-                                    this.alunos.push({
-                                        id: aluno.id,
-                                        nome: aluno.nome,
-                                        status: 'AGUARDANDO_CONFIRMACAO',
-                                        tipoSolicitante: apiResponse.dados.tipoSolicitante,
-                                        parentesco: apiResponse.dados.parentesco,
-                                        salaNome: aluno.salaNome
-                                    });
+                                    // VERIFICA SE JÁ EXISTE ANTES DE ADICIONAR
+                                    const jaExiste = this.alunos.some(a => a.id === aluno.id);
+                                    if (!jaExiste) {
+                                        console.log(`[PENDENCIAS] Aluno ${aluno.nome} já com saída pendente, adicionando`);
+                                        this.alunos.push({
+                                            id: aluno.id,
+                                            nome: aluno.nome,
+                                            status: 'AGUARDANDO_CONFIRMACAO',
+                                            tipoSolicitante: apiResponse.dados.tipoSolicitante,
+                                            parentesco: apiResponse.dados.parentesco,
+                                            salaNome: aluno.salaNome
+                                        });
+                                    } else {
+                                        console.log(`[PENDENCIAS] Aluno ${aluno.nome} já existe no estado, ignorando duplicação`);
+                                    }
                                 }
                             }
                         } catch (error) {
@@ -2113,30 +2119,30 @@
 
                 // A promessa que gerencia a animação
                 const promessaDeAnimacao = new Promise(resolve => {
-                    // Salva posições originais
-                    const rect = alunoCard.getBoundingClientRect();
+                    // Guarda a posição original do card
+                    const rectOriginal = alunoCard.getBoundingClientRect();
                     const container = document.querySelector('.alunos-grid');
                     const containerRect = container.getBoundingClientRect();
 
-                    // Centraliza o card
-                    const targetX = (containerRect.width / 2) - (rect.width / 2);
-                    const targetY = (containerRect.height / 2) - (rect.height / 2);
+                    // Calcula o centro do container
+                    const centroX = (containerRect.width / 2) - (rectOriginal.width / 2);
+                    const centroY = (containerRect.height / 2) - (rectOriginal.height / 2);
 
-                    // Prepara o card para a animação
-                    alunoCard.style.transform = `translate(0px, 0px) scale(1)`;
-                    alunoCard.style.transition = 'transform 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
-                    alunoCard.style.position = 'relative';
+                    // Prepara o card para animação
+                    alunoCard.style.transition = 'transform 0.9s cubic-bezier(0.2, 0.9, 0.4, 1.1)';
+                    alunoCard.style.transformOrigin = 'center center';
 
                     // Força reflow
                     alunoCard.offsetHeight;
 
-                    // Aplica a animação
-                    alunoCard.style.transform = `translate(${targetX}px, ${targetY}px) scale(2.25)`;
+                    // Aplica transformação suave
+                    alunoCard.style.transform = `translate(${centroX}px, ${centroY}px) scale(2.25)`;
                     alunoCard.classList.add('expandindo');
 
+                    // Aguarda a animação terminar
                     setTimeout(() => {
                         resolve();
-                    }, 800);
+                    }, 900);
                 });
 
                 // A lógica de áudio (que já está correta) executa em paralelo.
@@ -2166,27 +2172,22 @@
             finalizarExpansao(alunoCard, alunoId) {
                 if (!alunoCard) return;
 
-                // Guarda as classes atuais antes de modificar
-                const classesAtuais = alunoCard.className;
-
+                alunoCard.style.transition = 'transform 0.7s cubic-bezier(0.2, 0.9, 0.4, 1.1)';
+                alunoCard.style.transform = 'translate(0px, 0px) scale(1)';
                 alunoCard.classList.remove('expandindo');
-                alunoCard.classList.add('recolhendo');
-                alunoCard.style.transform = '';
+                alunoCard.style.transformOrigin = 'center center';
 
                 setTimeout(() => {
                     if (alunoCard) {
                         alunoCard.classList.remove('recolhendo');
-                        // Restaura as classes de cor se necessário
+                        alunoCard.style.transition = '';
+                        alunoCard.style.transform = '';
                         const aluno = this.alunos.find(a => a.id === alunoId);
                         if (aluno && aluno.status === 'AGUARDANDO_CONFIRMACAO') {
-                            // Se ainda está pendente, mantém a classe de cor
                             console.log(`[FINALIZAR] Mantendo classe pendente para ${aluno.nome}`);
                         }
                     }
-                }, 800);
-
-                const horarioElement = alunoCard.querySelector('.aluno-horario');
-                if (horarioElement) horarioElement.textContent = 'Aguardando';
+                }, 700);
             }
 
             async prepararVozCartesia(chamada) {
