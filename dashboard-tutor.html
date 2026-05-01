@@ -1869,216 +1869,420 @@
     <div class="toast-tray" id="toastTray"></div>
 
     <script>
-        /* =========================================================
-           INOUTCHI · TUTOR v6 — FASE 1: ESTRUTURA + AUTENTICAÇÃO
-           ========================================================= */
+        (function () {
+            // ============== CONSTANTES ==============
+            // const BACKEND_URL = 'https://inoutchi-backend.onrender.com';
 
-        // ============== CONSTANTES ==============
-        //const BACKEND_URL = 'https://inoutchi-backend.onrender.com';
+            // ============== VARIÁVEIS ==============
+            let currentUser = null;
+            let studentsData = [];
+            let studentRefreshInterval = null;
 
-        // ============== VARIÁVEIS GLOBAIS ==============
-        let currentUser = null;
-        let studentsData = [];
-        let tokensData = [];
-        let studentRefreshInterval = null;
-
-        // ============== FUNÇÕES AUXILIARES ==============
-        function showToast(msg, type = '') {
-            const tray = document.getElementById('toastTray');
-            if (!tray) return;
-            const el = document.createElement('div');
-            el.className = 'toast-msg ' + type;
-            const icon = type === 'success' ? 'fa-check-circle' : (type === 'danger' ? 'fa-triangle-exclamation' : 'fa-info-circle');
-            el.innerHTML = `<i class="fas ${icon}"></i> ${msg}`;
-            tray.appendChild(el);
-            setTimeout(() => {
-                el.style.transition = 'all .3s';
-                el.style.opacity = '0';
-                el.style.transform = 'translateY(-8px)';
-                setTimeout(() => el.remove(), 300);
-            }, 2400);
-        }
-
-        function formatarNomeParaAvatar(nome) {
-            if (!nome) return '?';
-            const partes = nome.trim().split(' ');
-            if (partes.length === 1) return partes[0].charAt(0).toUpperCase();
-            return (partes[0].charAt(0) + partes[partes.length - 1].charAt(0)).toUpperCase();
-        }
-
-        function getInitials(nome) {
-            if (!nome) return '??';
-            const partes = nome.trim().split(' ');
-            if (partes.length === 1) return partes[0].substring(0, 2).toUpperCase();
-            return (partes[0].charAt(0) + partes[partes.length - 1].charAt(0)).toUpperCase();
-        }
-
-        function formatarData(dataISO) {
-            if (!dataISO) return '';
-            const data = new Date(dataISO);
-            return data.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        }
-
-        function formatarHora(dataISO) {
-            if (!dataISO) return '';
-            const data = new Date(dataISO);
-            return data.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-        }
-
-        // ============== REMOVER SPLASH SCREEN ==============
-        function esconderSplash() {
-            const splash = document.getElementById('splash-screen');
-            if (!splash) return;
-            splash.classList.add('fade-out');
-            document.body.classList.remove('splash-active');
-            setTimeout(() => {
-                splash.style.display = 'none';
-                if (splash.parentNode) splash.parentNode.removeChild(splash);
-            }, 500);
-        }
-
-        // ============== LOAD USER DATA ==============
-        async function loadUserData() {
-            try {
-                const response = await fetchWithAuth('/api/users/me');
-                if (!response.ok) throw new Error('Falha ao carregar dados do usuário');
-                currentUser = await response.json();
-
-                // Atualizar UI
-                const primeiroNome = currentUser.nome?.split(' ')[0] || 'Tutor';
-                const greetingEl = document.getElementById('greetingText');
-                if (greetingEl) greetingEl.textContent = `Olá, ${primeiroNome}`;
-
-                const userNameEl = document.getElementById('userFullName');
-                if (userNameEl) userNameEl.textContent = currentUser.nome || 'Usuário';
-
-                const userEmailEl = document.getElementById('userEmail');
-                if (userEmailEl) userEmailEl.textContent = currentUser.email || '';
-
-                const avatarEl = document.getElementById('userAvatarInitials');
-                if (avatarEl) avatarEl.textContent = formatarNomeParaAvatar(currentUser.nome);
-
-                return currentUser;
-            } catch (error) {
-                console.error('Erro ao carregar dados do usuário:', error);
-                showToast('Erro ao carregar perfil. Faça login novamente.', 'danger');
-                setTimeout(() => logout(), 2000);
-                return null;
+            // ============== FUNÇÕES AUXILIARES ==============
+            function showToast(msg, type = '') {
+                const tray = document.getElementById('toastTray');
+                if (!tray) return;
+                const el = document.createElement('div');
+                el.className = 'toast-msg ' + type;
+                const icon = type === 'success' ? 'fa-check-circle' : (type === 'danger' ? 'fa-triangle-exclamation' : 'fa-info-circle');
+                el.innerHTML = `<i class="fas ${icon}"></i> ${msg}`;
+                tray.appendChild(el);
+                setTimeout(() => {
+                    el.style.transition = 'all .3s';
+                    el.style.opacity = '0';
+                    el.style.transform = 'translateY(-8px)';
+                    setTimeout(() => el.remove(), 300);
+                }, 2400);
             }
-        }
 
-        // ============== LOGOUT ==============
-        function logout() {
-            if (studentRefreshInterval) clearInterval(studentRefreshInterval);
-            localStorage.clear();
-            sessionStorage.clear();
-            window.location.href = 'login.html';
-        }
+            function formatarNomeParaAvatar(nome) {
+                if (!nome) return '?';
+                const partes = nome.trim().split(' ');
+                if (partes.length === 1) return partes[0].charAt(0).toUpperCase();
+                return (partes[0].charAt(0) + partes[partes.length - 1].charAt(0)).toUpperCase();
+            }
 
-        // ============== BOTTOM NAVIGATION ==============
-        function initBottomNavigation() {
-            const navItems = document.querySelectorAll('.bottom-nav-item');
-            const panes = document.querySelectorAll('.tab-pane');
+            function getInitials(nome) {
+                if (!nome) return '??';
+                const partes = nome.trim().split(' ');
+                if (partes.length === 1) return partes[0].substring(0, 2).toUpperCase();
+                return (partes[0].charAt(0) + partes[partes.length - 1].charAt(0)).toUpperCase();
+            }
 
-            navItems.forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const target = btn.dataset.target;
-                    navItems.forEach(b => b.classList.toggle('active', b === btn));
-                    panes.forEach(p => p.classList.toggle('active', p.dataset.tab === target));
-                    const appMain = document.getElementById('appMain');
-                    if (appMain) appMain.scrollTo({ top: 0, behavior: 'smooth' });
-                    if (navigator.vibrate) navigator.vibrate(8);
-                });
-            });
-        }
+            function getStatusClass(status) {
+                if (status === 'PRESENTE') return 'in';
+                if (status === 'AGUARDANDO_CONFIRMACAO') return 'pending';
+                return 'out';
+            }
 
-        // ============== CONFIG ROWS ==============
-        function initConfigRows() {
-            document.querySelectorAll('.config-row').forEach(row => {
-                row.addEventListener('click', () => {
-                    const action = row.dataset.action;
-                    switch (action) {
-                        case 'dados-pessoais':
-                            showToast('Perfil - Em desenvolvimento');
-                            break;
-                        case 'meus-filhos':
-                            showToast('Em breve: Gerenciamento de alunos vinculados');
-                            break;
-                        case 'trocar-senha':
-                            showToast('Troca de senha - Em desenvolvimento');
-                            break;
-                        case 'logout':
-                            if (confirm('Tem certeza que deseja sair?')) logout();
-                            break;
-                        case 'excluir-conta':
-                            if (confirm('ATENÇÃO! Esta ação é irreversível. Tem certeza que deseja excluir sua conta permanentemente?')) {
-                                showToast('Exclusão de conta - Em desenvolvimento');
-                            }
-                            break;
-                        default:
-                            showToast(`Funcionalidade em desenvolvimento: ${action}`);
+            function getStatusText(status) {
+                if (status === 'PRESENTE') return 'Dentro da escola';
+                if (status === 'AGUARDANDO_CONFIRMACAO') return 'Saída solicitada';
+                return 'Fora da escola';
+            }
+
+            function getStatusIcon(status) {
+                if (status === 'PRESENTE') return 'fa-circle';
+                if (status === 'AGUARDANDO_CONFIRMACAO') return 'fa-spinner fa-pulse';
+                return 'fa-circle';
+            }
+
+            function getSlideAction(status) {
+                if (status === 'PRESENTE') return 'exit-request';
+                if (status === 'AGUARDANDO_CONFIRMACAO') return 'exit-confirm';
+                return 'entry';
+            }
+
+            function getSlideLabel(status) {
+                if (status === 'PRESENTE') return '← Deslize para solicitar saída';
+                if (status === 'AGUARDANDO_CONFIRMACAO') return 'Deslize para confirmar saída →';
+                return 'Deslize para registrar entrada →';
+            }
+
+            function getSlideIcon(status) {
+                if (status === 'PRESENTE') return 'fa-chevron-left';
+                return 'fa-chevron-right';
+            }
+
+            function esconderSplash() {
+                const splash = document.getElementById('splash-screen');
+                if (!splash) return;
+                splash.classList.add('fade-out');
+                document.body.classList.remove('splash-active');
+                setTimeout(() => {
+                    splash.style.display = 'none';
+                    if (splash.parentNode) splash.parentNode.removeChild(splash);
+                }, 500);
+            }
+
+            // ============== CARREGAR ALUNOS ==============
+            async function loadStudents() {
+                const container = document.getElementById('studentsContainer');
+                if (!container) return;
+
+                container.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-spinner fa-pulse"></i></div><div class="t">Carregando alunos...</div></div>`;
+
+                try {
+                    const tutorNome = encodeURIComponent(currentUser.nome);
+                    const response = await fetchWithAuth(`/api/tutores/${tutorNome}/alunos`);
+
+                    if (!response.ok) throw new Error('Falha ao carregar alunos');
+
+                    const data = await response.json();
+                    studentsData = data.alunos || [];
+
+                    if (studentsData.length === 0) {
+                        container.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-child"></i></div><div class="t">Nenhum aluno vinculado</div><div class="s">Você não possui alunos cadastrados</div></div>`;
+                        return;
                     }
-                });
-            });
-        }
 
-        // ============== INICIALIZAÇÃO PRINCIPAL ==============
-        async function initializeApp() {
-            try {
-                // Verificar token usando auth.js
-                const token = await getValidToken();
-                if (!token) {
-                    console.error('Token inválido, redirecionando para login');
-                    window.location.href = 'login.html';
-                    return;
+                    // Verificar status de saída pendente para cada aluno
+                    await checkPendingExits(studentsData);
+
+                    renderStudents(studentsData);
+
+                } catch (error) {
+                    console.error('Erro ao carregar alunos:', error);
+                    container.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-exclamation-triangle"></i></div><div class="t">Erro ao carregar</div><div class="s">${error.message}</div></div>`;
                 }
-
-                // Carregar dados do usuário
-                await loadUserData();
-                if (!currentUser) throw new Error('Usuário não encontrado');
-
-                // Mostrar app shell
-                const appShell = document.getElementById('appShell');
-                if (appShell) appShell.classList.add('visible');
-
-                // Inicializar componentes
-                initBottomNavigation();
-                initConfigRows();
-
-                // Esconder splash após carregar
-                setTimeout(esconderSplash, 800);
-
-                console.log('✅ Fase 1 concluída - App inicializado com sucesso!');
-                showToast('Bem-vindo ao Inoutchi!', 'success');
-
-            } catch (error) {
-                console.error('Erro na inicialização:', error);
-                showToast('Erro ao inicializar aplicativo', 'danger');
-                setTimeout(() => logout(), 2000);
             }
-        }
 
-        // ============== EVENT LISTENERS ==============
-        const notifBtn = document.getElementById('btn-notif');
-        if (notifBtn) notifBtn.addEventListener('click', () => showToast('Você tem 5 novas notificações'));
+            // Verificar se cada aluno tem saída pendente
+            async function checkPendingExits(students) {
+                for (const student of students) {
+                    try {
+                        const response = await fetchWithAuth(`/api/presencas/aluno/${student.id}/saida-ativa`);
+                        const data = await response.json();
 
-        const helpBtn = document.getElementById('btn-help');
-        if (helpBtn) helpBtn.addEventListener('click', () => showToast('Central de ajuda em breve'));
-
-        const generateTokenBtn = document.getElementById('btnGenerateToken');
-        if (generateTokenBtn) generateTokenBtn.addEventListener('click', () => showToast('Formulário de token em desenvolvimento'));
-
-        // ============== INICIAR APLICAÇÃO ==============
-        // Aguardar auth.js carregar e então iniciar
-        document.addEventListener('DOMContentLoaded', () => {
-            // Verificar se auth.js já carregou suas funções
-            if (typeof getValidToken === 'function') {
-                initializeApp();
-            } else {
-                // Aguardar um pouco para auth.js carregar
-                setTimeout(initializeApp, 500);
+                        if (data.codigo === 'SAIDA_ATIVA' && data.dados) {
+                            student.status = 'AGUARDANDO_CONFIRMACAO';
+                        }
+                    } catch (error) {
+                        console.warn(`Erro ao verificar saída para aluno ${student.id}:`, error);
+                    }
+                }
+                return students;
             }
-        });
+
+            // Renderizar cards dos alunos
+            function renderStudents(students) {
+                const container = document.getElementById('studentsContainer');
+                if (!container) return;
+
+                container.innerHTML = students.map(student => `
+            <article class="student-card" data-student-id="${student.id}">
+                <div class="student-head">
+                    <div class="student-avatar">${getInitials(student.nome)}</div>
+                    <div class="student-info">
+                        <div class="student-name">${student.nome}</div>
+                        <div class="student-meta">${student.salaNome || 'Sem sala'} · ${student.turno || 'Manhã'}</div>
+                        <span class="status-badge ${getStatusClass(student.status)}">
+                            <i class="fas ${getStatusIcon(student.status)}"></i>${getStatusText(student.status)}
+                        </span>
+                    </div>
+                </div>
+                <div class="slide-btn" data-action="${getSlideAction(student.status)}" data-student-id="${student.id}" data-student-name="${student.nome.replace(/'/g, "\\'")}">
+                    <div class="slide-fill"></div>
+                    <div class="slide-track-label">${getSlideLabel(student.status)}</div>
+                    <div class="slide-thumb"><i class="fas ${getSlideIcon(student.status)}"></i></div>
+                </div>
+            </article>
+        `).join('');
+
+                // Inicializar slide buttons
+                initSlideButtons();
+            }
+
+            // ============== SLIDE BUTTONS ==============
+            function initSlideButtons() {
+                document.querySelectorAll('.slide-btn').forEach(btn => {
+                    const action = btn.dataset.action;
+                    const reversed = action === 'exit-request';
+                    const thumb = btn.querySelector('.slide-thumb');
+                    const fill = btn.querySelector('.slide-fill');
+                    const label = btn.querySelector('.slide-track-label');
+
+                    let dragging = false, startX = 0, currentX = 0, maxDist = 0;
+
+                    function start(e) {
+                        if (btn.classList.contains('activated')) return;
+                        dragging = true;
+                        btn.classList.add('dragging');
+                        startX = (e.touches ? e.touches[0].clientX : e.clientX);
+                        maxDist = btn.offsetWidth - thumb.offsetWidth - 8;
+                        e.preventDefault();
+                    }
+
+                    function move(e) {
+                        if (!dragging) return;
+                        const x = (e.touches ? e.touches[0].clientX : e.clientX);
+                        let delta = x - startX;
+                        if (reversed) delta = -delta;
+                        delta = Math.max(0, Math.min(maxDist, delta));
+                        currentX = delta;
+                        if (reversed) {
+                            thumb.style.right = (4 + delta) + 'px';
+                            fill.style.width = (delta + 48) + 'px';
+                        } else {
+                            thumb.style.left = (4 + delta) + 'px';
+                            fill.style.width = (delta + 48) + 'px';
+                        }
+                        label.style.opacity = Math.max(.15, 1 - delta / maxDist);
+                    }
+
+                    async function end() {
+                        if (!dragging) return;
+                        dragging = false;
+                        btn.classList.remove('dragging');
+                        const ratio = currentX / maxDist;
+
+                        if (ratio >= 0.85) {
+                            btn.classList.add('activated');
+                            if (reversed) {
+                                thumb.style.right = (maxDist + 4) + 'px';
+                            } else {
+                                thumb.style.left = (maxDist + 4) + 'px';
+                            }
+                            fill.style.width = '100%';
+                            label.style.opacity = 1;
+
+                            const studentId = btn.dataset.studentId;
+                            const studentName = btn.dataset.studentName;
+                            const actionType = action;
+
+                            if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+
+                            // Executar ação correspondente
+                            if (actionType === 'entry') {
+                                await handleEntry(studentId, studentName, btn);
+                            } else if (actionType === 'exit-request') {
+                                await handleExitRequest(studentId, studentName, btn);
+                            } else if (actionType === 'exit-confirm') {
+                                await handleExitConfirm(studentId, studentName, btn);
+                            }
+
+                            setTimeout(() => {
+                                btn.classList.remove('activated');
+                                if (reversed) {
+                                    thumb.style.right = '4px';
+                                } else {
+                                    thumb.style.left = '4px';
+                                }
+                                fill.style.width = '0%';
+                                label.style.opacity = 1;
+                            }, 2000);
+                        } else {
+                            if (reversed) {
+                                thumb.style.right = '4px';
+                            } else {
+                                thumb.style.left = '4px';
+                            }
+                            fill.style.width = '0%';
+                            label.style.opacity = 1;
+                            currentX = 0;
+                        }
+                    }
+
+                    thumb.addEventListener('mousedown', start);
+                    thumb.addEventListener('touchstart', start, { passive: false });
+                    window.addEventListener('mousemove', move);
+                    window.addEventListener('touchmove', move, { passive: false });
+                    window.addEventListener('mouseup', end);
+                    window.addEventListener('touchend', end);
+                });
+            }
+
+            // Handlers das ações
+            async function handleEntry(studentId, studentName, btn) {
+                showToast(`Registrando entrada de ${studentName}...`, 'info');
+                // TODO: Implementar lógica de geolocalização + chamada API
+                setTimeout(() => {
+                    showToast(`Entrada de ${studentName} registrada!`, 'success');
+                    // Atualizar status localmente
+                    const student = studentsData.find(s => s.id == studentId);
+                    if (student) student.status = 'PRESENTE';
+                    renderStudents(studentsData);
+                }, 1500);
+            }
+
+            async function handleExitRequest(studentId, studentName, btn) {
+                showToast(`Solicitando saída de ${studentName}...`, 'info');
+                // TODO: Implementar lógica de geolocalização + chamada API
+                setTimeout(() => {
+                    showToast(`Saída de ${studentName} solicitada!`, 'success');
+                    const student = studentsData.find(s => s.id == studentId);
+                    if (student) student.status = 'AGUARDANDO_CONFIRMACAO';
+                    renderStudents(studentsData);
+                }, 1500);
+            }
+
+            async function handleExitConfirm(studentId, studentName, btn) {
+                showToast(`Confirmando saída de ${studentName}...`, 'info');
+                // TODO: Implementar chamada API
+                setTimeout(() => {
+                    showToast(`Saída de ${studentName} confirmada!`, 'success');
+                    const student = studentsData.find(s => s.id == studentId);
+                    if (student) student.status = 'AUSENTE';
+                    renderStudents(studentsData);
+                }, 1500);
+            }
+
+            // ============== LOAD USER DATA ==============
+            async function loadUserData() {
+                try {
+                    const response = await fetchWithAuth('/api/users/me');
+                    if (!response.ok) throw new Error('Falha ao carregar dados do usuário');
+                    currentUser = await response.json();
+
+                    const primeiroNome = currentUser.nome?.split(' ')[0] || 'Tutor';
+                    const greetingEl = document.getElementById('greetingText');
+                    if (greetingEl) greetingEl.textContent = `Olá, ${primeiroNome}`;
+
+                    const userNameEl = document.getElementById('userFullName');
+                    if (userNameEl) userNameEl.textContent = currentUser.nome || 'Usuário';
+
+                    const userEmailEl = document.getElementById('userEmail');
+                    if (userEmailEl) userEmailEl.textContent = currentUser.email || '';
+
+                    const avatarEl = document.getElementById('userAvatarInitials');
+                    if (avatarEl) avatarEl.textContent = formatarNomeParaAvatar(currentUser.nome);
+
+                    const filhosCount = document.getElementById('filhosCount');
+                    if (filhosCount && studentsData) filhosCount.textContent = `${studentsData.length} aluno(s) vinculado(s)`;
+
+                    return currentUser;
+                } catch (error) {
+                    console.error('Erro ao carregar dados do usuário:', error);
+                    showToast('Erro ao carregar perfil. Faça login novamente.', 'danger');
+                    setTimeout(() => logout(), 2000);
+                    return null;
+                }
+            }
+
+            function logout() {
+                if (studentRefreshInterval) clearInterval(studentRefreshInterval);
+                localStorage.clear();
+                sessionStorage.clear();
+                window.location.href = 'login.html';
+            }
+
+            // ============== BOTTOM NAVIGATION ==============
+            function initBottomNavigation() {
+                const navItems = document.querySelectorAll('.bottom-nav-item');
+                const panes = document.querySelectorAll('.tab-pane');
+
+                navItems.forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const target = btn.dataset.target;
+                        navItems.forEach(b => b.classList.toggle('active', b === btn));
+                        panes.forEach(p => p.classList.toggle('active', p.dataset.tab === target));
+                        const appMain = document.getElementById('appMain');
+                        if (appMain) appMain.scrollTo({ top: 0, behavior: 'smooth' });
+                        if (navigator.vibrate) navigator.vibrate(8);
+                    });
+                });
+            }
+
+            function initConfigRows() {
+                document.querySelectorAll('.config-row').forEach(row => {
+                    row.addEventListener('click', () => {
+                        const action = row.dataset.action;
+                        switch (action) {
+                            case 'logout':
+                                if (confirm('Tem certeza que deseja sair?')) logout();
+                                break;
+                            default:
+                                showToast(`Funcionalidade em desenvolvimento: ${action}`);
+                        }
+                    });
+                });
+            }
+
+            // ============== INICIALIZAÇÃO ==============
+            async function initializeApp() {
+                try {
+                    const token = await getValidToken();
+                    if (!token) {
+                        window.location.href = 'login.html';
+                        return;
+                    }
+
+                    await loadUserData();
+                    if (!currentUser) throw new Error('Usuário não encontrado');
+
+                    await loadStudents();
+
+                    const appShell = document.getElementById('appShell');
+                    if (appShell) appShell.classList.add('visible');
+
+                    initBottomNavigation();
+                    initConfigRows();
+
+                    setTimeout(esconderSplash, 800);
+
+                    console.log('✅ App inicializado com sucesso!');
+
+                } catch (error) {
+                    console.error('Erro na inicialização:', error);
+                    showToast('Erro ao inicializar aplicativo', 'danger');
+                    setTimeout(() => logout(), 2000);
+                }
+            }
+
+            // Eventos
+            document.getElementById('btn-notif')?.addEventListener('click', () => showToast('Notificações em breve'));
+            document.getElementById('btn-help')?.addEventListener('click', () => showToast('Central de ajuda em breve'));
+            document.getElementById('btnGenerateToken')?.addEventListener('click', () => showToast('Geração de token em breve'));
+
+            // Iniciar
+            document.addEventListener('DOMContentLoaded', () => {
+                if (typeof getValidToken === 'function') {
+                    initializeApp();
+                } else {
+                    setTimeout(initializeApp, 500);
+                }
+            });
+        })();
     </script>
 
 </body>
