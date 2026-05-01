@@ -2909,10 +2909,6 @@
                 currentHistoryStudentId = studentId;
                 currentHistoryPage = 1;
 
-                // Atualizar título da aba
-                const historyHeader = document.querySelector('#historico-tab .tab-header h1');
-                if (historyHeader) historyHeader.textContent = `Histórico · ${studentName}`;
-
                 // Mudar para aba de histórico
                 const navItem = document.querySelector('.bottom-nav-item[data-target="historico"]');
                 if (navItem) navItem.click();
@@ -2927,7 +2923,6 @@
                 container.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-spinner fa-pulse"></i></div><div class="t">Carregando histórico...</div></div>`;
 
                 try {
-                    // 🔥 SIMPLES: como no código antigo, o endpoint já retorna TUDO
                     const response = await fetchWithAuth(`/api/presencas/historico/${studentId}`);
                     const data = await response.json();
 
@@ -2937,14 +2932,15 @@
                         throw new Error(data.mensagem || 'Erro ao carregar histórico');
                     }
 
-                    currentHistoryData = data.dados || [];
+                    const historyData = data.dados || [];
 
-                    if (currentHistoryData.length === 0) {
+                    if (historyData.length === 0) {
                         container.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-clock-rotate-left"></i></div><div class="t">Nenhum registro encontrado</div><div class="s">Este aluno ainda não possui movimentações</div></div>`;
                         return;
                     }
 
-                    renderHistoryTimeline();
+                    // CORREÇÃO: Passar o data para a função de renderização
+                    renderHistoryTimeline(historyData);
 
                 } catch (error) {
                     console.error('Erro ao carregar histórico:', error);
@@ -2960,8 +2956,8 @@
                     'TUTOR': 'Responsável',
                     'DIRETOR': 'Diretor',
                     'SISTEMA': 'Sistema',
-                    'TOKEN': 'Token',
-                    'TRANSPORTE': 'Transporte',
+                    'TOKEN': 'Token Autorizado',
+                    'TRANSPORTE': 'Transporte Escolar',
                     'MAE': 'Mãe',
                     'PAI': 'Pai',
                     'AVO': 'Avô/Avó',
@@ -2974,9 +2970,10 @@
             }
 
             function renderHistoryTimeline(data) {
-                const container = document.getElementById('historyTimeline') || document.getElementById('historicoContainer');
+                // CORREÇÃO: Selecionar o container correto
+                const container = document.getElementById('historicoContainer');
 
-                // CORREÇÃO DE SEGURANÇA: Se o container não existir, não tenta escrever nele
+                // CORREÇÃO: Verificar se o container existe
                 if (!container) {
                     console.error("ERRO CRÍTICO: Container de histórico não encontrado!");
                     return;
@@ -2984,34 +2981,147 @@
 
                 if (!data || data.length === 0) {
                     container.innerHTML = `
-            <div class="text-center p-5">
-                <i class="fas fa-history mb-3" style="font-size: 3rem; opacity: 0.2;"></i>
-                <p>Nenhum registro encontrado para este aluno.</p>
+            <div class="empty">
+                <div class="ic"><i class="fas fa-clock-rotate-left"></i></div>
+                <div class="t">Nenhum registro encontrado</div>
+                <div class="s">Este aluno ainda não possui movimentações</div>
             </div>`;
                     return;
                 }
 
-                // Início da lógica da linha (Timeline)
-                let html = '<div class="history-list-wrapper">'; // Classe para a linha vertical
+                // CORREÇÃO: CSS inline para a timeline funcionar corretamente
+                let html = `
+        <style>
+            .history-list-wrapper {
+                position: relative;
+                padding-left: 30px;
+            }
+            
+            .history-list-wrapper::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                bottom: 0;
+                left: 15px;
+                width: 2px;
+                background: linear-gradient(180deg, var(--primary) 0%, var(--cyan) 100%);
+                opacity: 0.3;
+                z-index: 0;
+            }
+            
+            .history-item {
+                position: relative;
+                margin-bottom: 24px;
+                padding-left: 20px;
+            }
+            
+            .history-marker {
+                position: absolute;
+                left: -23px;
+                top: 0;
+                width: 32px;
+                height: 32px;
+                border-radius: 50%;
+                background: white;
+                border: 2px solid;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 2;
+                font-size: 12px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            }
+            
+            .marker-entrance {
+                border-color: var(--success);
+                color: var(--success);
+            }
+            
+            .marker-exit {
+                border-color: var(--primary);
+                color: var(--primary);
+            }
+            
+            .history-card {
+                background: var(--gradient-card);
+                border: 1px solid var(--border);
+                border-radius: var(--radius);
+                padding: 14px 16px;
+                transition: transform 0.2s, box-shadow 0.2s;
+                cursor: pointer;
+            }
+            
+            .history-card:hover {
+                transform: translateX(4px);
+                box-shadow: var(--shadow-md);
+            }
+            
+            .history-badge {
+                display: inline-block;
+                padding: 4px 10px;
+                border-radius: 12px;
+                font-size: 0.7rem;
+                font-weight: 700;
+                letter-spacing: 0.5px;
+                margin-bottom: 8px;
+            }
+            
+            .badge-entrance {
+                background: rgba(16, 185, 129, 0.1);
+                color: var(--success);
+            }
+            
+            .badge-exit {
+                background: rgba(26, 111, 196, 0.1);
+                color: var(--primary);
+            }
+            
+            .history-time {
+                font-size: 0.75rem;
+                color: var(--text-muted);
+                font-weight: 500;
+            }
+            
+            .history-responsavel {
+                font-size: 0.7rem;
+                color: var(--text-secondary);
+                margin-top: 6px;
+                padding-top: 6px;
+                border-top: 1px solid var(--border);
+            }
+        </style>
+        <div class="history-list-wrapper">
+    `;
 
                 data.forEach(item => {
                     const isEntrada = item.tipoOperacao === 'ENTRADA';
-                    const dataFormatada = new Date(item.dataHora).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                    const dataHora = new Date(item.dataHora);
+                    const horaFormatada = dataHora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                    const dataFormatada = dataHora.toLocaleDateString('pt-BR');
+
+                    const tipoResponsavel = formatarTipoResponsavel(item.responsavelTipo);
+                    const responsavelNome = item.responsavelNome || (item.responsavelTipo === 'SISTEMA' ? 'Sistema' : tipoResponsavel);
 
                     html += `
             <div class="history-item">
                 <div class="history-marker ${isEntrada ? 'marker-entrance' : 'marker-exit'}">
-                    <i class="fas ${isEntrada ? 'fa-login' : 'fa-logout'}"></i>
+                    <i class="fas ${isEntrada ? 'fa-sign-in-alt' : 'fa-sign-out-alt'} fa-xs"></i>
                 </div>
-                <div class="history-card shadow-sm">
-                    <div class="d-flex justify-content-between align-items-start">
+                <div class="history-card">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                         <div>
-                            <span class="badge ${isEntrada ? 'bg-success-subtle text-success' : 'bg-primary-subtle text-primary'} mb-1">
-                                ${item.tipoOperacao}
+                            <span class="history-badge ${isEntrada ? 'badge-entrance' : 'badge-exit'}">
+                                <i class="fas ${isEntrada ? 'fa-arrow-right-to-bracket' : 'fa-arrow-right-from-bracket'} fa-xs"></i>
+                                ${isEntrada ? 'ENTRADA' : 'SAÍDA'}
                             </span>
-                            <p class="mb-0 fw-bold">${item.alunoNome}</p>
                         </div>
-                        <span class="text-muted small">${dataFormatada}</span>
+                        <span class="history-time">
+                            <i class="far fa-calendar-alt fa-xs"></i> ${dataFormatada} · ${horaFormatada}
+                        </span>
+                    </div>
+                    <div class="history-responsavel">
+                        <i class="fas fa-user-check fa-xs"></i> Registrado por: <strong>${responsavelNome}</strong>
+                        ${tipoResponsavel && tipoResponsavel !== responsavelNome ? ` (${tipoResponsavel})` : ''}
                     </div>
                 </div>
             </div>
@@ -3019,6 +3129,8 @@
                 });
 
                 html += '</div>';
+
+                // CORREÇÃO: Usar innerHTML no container correto
                 container.innerHTML = html;
             }
 
