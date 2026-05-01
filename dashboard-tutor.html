@@ -2381,6 +2381,7 @@
                     if (!currentUser) throw new Error('Usuário não encontrado');
 
                     await loadStudents();
+                    await loadTokens();
 
                     const appShell = document.getElementById('appShell');
                     if (appShell) appShell.classList.add('visible');
@@ -2402,7 +2403,7 @@
             // Eventos
             document.getElementById('btn-notif')?.addEventListener('click', () => showToast('Notificações em breve'));
             document.getElementById('btn-help')?.addEventListener('click', () => showToast('Central de ajuda em breve'));
-            document.getElementById('btnGenerateToken')?.addEventListener('click', () => showToast('Geração de token em breve'));
+            document.getElementById('btnGenerateToken')?.addEventListener('click', openGenerateTokenModal);
 
             // Iniciar
             document.addEventListener('DOMContentLoaded', () => {
@@ -2412,6 +2413,182 @@
                     setTimeout(initializeApp, 500);
                 }
             });
+
+            // ============== FASE 3: TOKENS ==============
+
+            // Carregar tokens do tutor
+            async function loadTokens() {
+                const tokensListEl = document.getElementById('tokensList');
+                if (!tokensListEl) return;
+
+                tokensListEl.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-spinner fa-pulse"></i></div><div class="t">Carregando tokens...</div></div>`;
+
+                try {
+                    const response = await fetchWithAuth('/api/tokens/meus-tokens');
+                    const data = await response.json();
+
+                    if (!data.sucesso || !data.tokens) {
+                        throw new Error(data.erro || 'Erro ao carregar tokens');
+                    }
+
+                    const tokens = data.tokens;
+
+                    // Atualizar contadores
+                    const ativos = tokens.filter(t => t.valido && !t.utilizado && new Date(t.dataExpiracao) > new Date()).length;
+                    const usados = tokens.filter(t => t.utilizado).length;
+                    const expirados = tokens.filter(t => !t.valido || new Date(t.dataExpiracao) <= new Date()).length - usados;
+
+                    document.getElementById('tokenAtivosCount').textContent = ativos;
+                    document.getElementById('tokenUsadosCount').textContent = usados;
+                    document.getElementById('tokenExpiradosCount').textContent = expirados;
+
+                    if (tokens.length === 0) {
+                        tokensListEl.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-key"></i></div><div class="t">Nenhum token gerado</div><div class="s">Clique em "Gerar novo token" para autorizar alguém</div></div>`;
+                        return;
+                    }
+
+                    // Renderizar lista de tokens
+                    tokensListEl.innerHTML = tokens.map(token => {
+                        const isExpired = new Date(token.dataExpiracao) < new Date();
+                        let statusClass = 'active';
+                        let statusText = 'Ativo';
+
+                        if (token.utilizado) {
+                            statusClass = 'used';
+                            statusText = 'Usado';
+                        } else if (isExpired || !token.valido) {
+                            statusClass = 'expired';
+                            statusText = 'Expirado';
+                        }
+
+                        const podeRevogar = !token.utilizado && !isExpired && token.valido;
+                        const tokenLink = `https://www.inoutchi.com/dashboard-token.html?token=${token.token}`;
+
+                        return `
+                    <article class="token-card status-${statusClass}">
+                        <div class="t-icon"><i class="fas ${token.utilizado ? 'fa-check' : (isExpired ? 'fa-clock' : 'fa-key')}"></i></div>
+                        <div class="t-info">
+                            <div class="t-name">${token.destinatario?.nome || 'Destinatário'}</div>
+                            <div class="t-meta">${token.aluno?.nome || 'Aluno'} · expira ${new Date(token.dataExpiracao).toLocaleDateString('pt-BR')} ${new Date(token.dataExpiracao).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+                            <div class="t-status">● ${statusText}</div>
+                        </div>
+                        ${podeRevogar ? `<button class="icon-btn share-token-btn" data-token="${token.token}" data-link="${tokenLink}" title="Compartilhar"><i class="fas fa-share-nodes"></i></button>` : ''}
+                        ${podeRevogar ? `<button class="icon-btn revoke-token-btn" data-token="${token.token}" title="Revogar"><i class="fas fa-trash"></i></button>` : ''}
+                    </article>
+                `;
+                    }).join('');
+
+                    // Adicionar eventos aos botões
+                    document.querySelectorAll('.share-token-btn').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const link = btn.dataset.link;
+                            navigator.clipboard.writeText(link);
+                            showToast('Link copiado para a área de transferência!', 'success');
+                        });
+                    });
+
+                    document.querySelectorAll('.revoke-token-btn').forEach(btn => {
+                        btn.addEventListener('click', async (e) => {
+                            e.stopPropagation();
+                            const token = btn.dataset.token;
+                            if (confirm('Tem certeza que deseja revogar este token?')) {
+                                await revokeToken(token);
+                            }
+                        });
+                    });
+
+                } catch (error) {
+                    console.error('Erro ao carregar tokens:', error);
+                    tokensListEl.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-exclamation-triangle"></i></div><div class="t">Erro ao carregar tokens</div><div class="s">${error.message}</div></div>`;
+                }
+            }
+
+            // Revogar token
+            async function revokeToken(token) {
+                try {
+                    const response = await fetchWithAuth(`/api/tokens/revogar/${token}`, {
+                        method: 'DELETE'
+                    });
+
+                    const data = await response.json();
+
+                    if (!data.sucesso) {
+                        throw new Error(data.erro || 'Erro ao revogar token');
+                    }
+
+                    showToast('Token revogado com sucesso!', 'success');
+                    await loadTokens(); // Recarregar lista
+
+                } catch (error) {
+                    console.error('Erro ao revogar token:', error);
+                    showToast(`❌ ${error.message}`, 'danger');
+                }
+            }
+
+            // Abrir modal de geração de token
+            function openGenerateTokenModal() {
+                // TODO: Implementar modal com formulário completo
+                // Por enquanto, um prompt simples
+                const alunoId = prompt('Digite o ID do aluno para gerar o token:');
+                if (!alunoId) return;
+
+                const destinatario = prompt('Nome da pessoa que receberá o token (ex: Vovó Maria):');
+                if (!destinatario) return;
+
+                const parentesco = prompt('Parentesco (PAI, MAE, AVO, TIO, AMIGO, TRANSPORTE):', 'PARENTE');
+                if (!parentesco) return;
+
+                const tipoOperacao = prompt('Tipo de operação (ENTRADA ou SAIDA):', 'SAIDA');
+                if (!tipoOperacao) return;
+
+                // Data de expiração (padrão: 2 horas)
+                const expiracao = new Date();
+                expiracao.setHours(expiracao.getHours() + 2);
+
+                generateToken(alunoId, destinatario, parentesco, tipoOperacao, expiracao);
+            }
+
+            // Gerar novo token
+            async function generateToken(alunoId, destinatarioNome, tipoParentesco, tipoOperacao, dataExpiracao) {
+                showToast('Gerando token...', 'info');
+
+                try {
+                    const payload = {
+                        alunoId: parseInt(alunoId),
+                        destinatarioNome: destinatarioNome,
+                        tipoParentesco: tipoParentesco,
+                        tipoOperacao: tipoOperacao,
+                        dataExpiracao: dataExpiracao.toISOString(),
+                        reutilizavel: false
+                    };
+
+                    const response = await fetchWithAuth('/api/tokens/gerar', {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                    });
+
+                    const data = await response.json();
+
+                    if (!data.sucesso) {
+                        throw new Error(data.mensagem || data.erro || 'Erro ao gerar token');
+                    }
+
+                    showToast('✅ Token gerado com sucesso!', 'success');
+
+                    // Copiar link automaticamente
+                    if (data.linkAcesso) {
+                        navigator.clipboard.writeText(data.linkAcesso);
+                        showToast('Link copiado para a área de transferência!', 'success');
+                    }
+
+                    await loadTokens(); // Recarregar lista
+
+                } catch (error) {
+                    console.error('Erro ao gerar token:', error);
+                    showToast(`❌ ${error.message}`, 'danger');
+                }
+            }
         })();
     </script>
 
