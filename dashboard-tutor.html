@@ -2132,39 +2132,169 @@
                 });
             }
 
-            // Handlers das ações
+            // Handler: Registrar ENTRADA
             async function handleEntry(studentId, studentName, btn) {
-                showToast(`Registrando entrada de ${studentName}...`, 'info');
-                // TODO: Implementar lógica de geolocalização + chamada API
-                setTimeout(() => {
-                    showToast(`Entrada de ${studentName} registrada!`, 'success');
-                    // Atualizar status localmente
+                try {
+                    showToast(`📍 Obtendo localização para registrar entrada de ${studentName}...`, 'info');
+
+                    // 1. Obter localização
+                    const position = await getCurrentPosition();
+                    const { latitude, longitude } = position.coords;
+
+                    showToast(`✅ Localização obtida! Registrando entrada...`, 'info');
+
+                    // 2. Chamar API
+                    const payload = {
+                        alunoId: parseInt(studentId),
+                        latitude: latitude,
+                        longitude: longitude,
+                        responsavelId: currentUser.id,
+                        responsavelNome: currentUser.nome,
+                        responsavelTipo: 'TUTOR'
+                    };
+
+                    const response = await fetchWithAuth('/api/presencas/entrada', {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.mensagem || 'Erro ao registrar entrada');
+                    }
+
+                    showToast(`✅ Entrada de ${studentName} registrada com sucesso!`, 'success');
+
+                    // 3. Atualizar status local
                     const student = studentsData.find(s => s.id == studentId);
                     if (student) student.status = 'PRESENTE';
                     renderStudents(studentsData);
-                }, 1500);
+
+                } catch (error) {
+                    console.error('Erro na entrada:', error);
+                    showToast(`❌ ${error.message}`, 'danger');
+                    // Reset do slide button
+                    resetSlideButton(btn);
+                }
             }
 
+            // Handler: SOLICITAR SAÍDA
             async function handleExitRequest(studentId, studentName, btn) {
-                showToast(`Solicitando saída de ${studentName}...`, 'info');
-                // TODO: Implementar lógica de geolocalização + chamada API
-                setTimeout(() => {
-                    showToast(`Saída de ${studentName} solicitada!`, 'success');
+                try {
+                    showToast(`📍 Obtendo localização para solicitar saída de ${studentName}...`, 'info');
+
+                    // 1. Obter localização
+                    const position = await getCurrentPosition();
+                    const { latitude, longitude } = position.coords;
+
+                    showToast(`✅ Localização obtida! Solicitando saída...`, 'info');
+
+                    // 2. Chamar API
+                    const payload = {
+                        alunoId: parseInt(studentId),
+                        latitude: latitude,
+                        longitude: longitude
+                    };
+
+                    const response = await fetchWithAuth('/api/presencas/saida/solicitar', {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.mensagem || 'Erro ao solicitar saída');
+                    }
+
+                    showToast(`✅ Saída de ${studentName} solicitada com sucesso!`, 'success');
+
+                    // 3. Atualizar status local
                     const student = studentsData.find(s => s.id == studentId);
                     if (student) student.status = 'AGUARDANDO_CONFIRMACAO';
                     renderStudents(studentsData);
-                }, 1500);
+
+                } catch (error) {
+                    console.error('Erro ao solicitar saída:', error);
+                    showToast(`❌ ${error.message}`, 'danger');
+                    resetSlideButton(btn);
+                }
             }
 
+            // Handler: CONFIRMAR SAÍDA
             async function handleExitConfirm(studentId, studentName, btn) {
-                showToast(`Confirmando saída de ${studentName}...`, 'info');
-                // TODO: Implementar chamada API
-                setTimeout(() => {
-                    showToast(`Saída de ${studentName} confirmada!`, 'success');
+                try {
+                    showToast(`📍 Confirmando saída de ${studentName}...`, 'info');
+
+                    // 1. Chamar API (confirmação não precisa de localização)
+                    const response = await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, {
+                        method: 'POST'
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.mensagem || 'Erro ao confirmar saída');
+                    }
+
+                    showToast(`✅ Saída de ${studentName} confirmada com sucesso!`, 'success');
+
+                    // 2. Atualizar status local
                     const student = studentsData.find(s => s.id == studentId);
                     if (student) student.status = 'AUSENTE';
                     renderStudents(studentsData);
-                }, 1500);
+
+                } catch (error) {
+                    console.error('Erro ao confirmar saída:', error);
+                    showToast(`❌ ${error.message}`, 'danger');
+                    resetSlideButton(btn);
+                }
+            }
+
+            // ============== FUNÇÕES AUXILIARES DE GEOLOCALIZAÇÃO ==============
+            function getCurrentPosition() {
+                return new Promise((resolve, reject) => {
+                    if (!navigator.geolocation) {
+                        reject(new Error('Seu navegador não suporta geolocalização'));
+                        return;
+                    }
+
+                    navigator.geolocation.getCurrentPosition(resolve, reject, {
+                        enableHighAccuracy: true,
+                        timeout: 15000,
+                        maximumAge: 0
+                    });
+                });
+            }
+
+            function resetSlideButton(btn) {
+                const reversed = btn.dataset.action === 'exit-request';
+                const thumb = btn.querySelector('.slide-thumb');
+                const fill = btn.querySelector('.slide-fill');
+                const label = btn.querySelector('.slide-track-label');
+                const action = btn.dataset.action;
+
+                btn.classList.remove('activated', 'dragging');
+
+                if (reversed) {
+                    thumb.style.right = '4px';
+                } else {
+                    thumb.style.left = '4px';
+                }
+                fill.style.width = '0%';
+                label.style.opacity = 1;
+
+                // Restaurar texto original
+                if (action === 'entry') {
+                    label.textContent = 'Deslize para registrar entrada →';
+                } else if (action === 'exit-request') {
+                    label.textContent = '← Deslize para solicitar saída';
+                } else if (action === 'exit-confirm') {
+                    label.textContent = 'Deslize para confirmar saída →';
+                }
+            }
+
+            // Handler para erros de geofence (fora da área permitida)
+            function handleGeofenceError(studentName) {
+                showToast(`⚠️ Operação cancelada: Você está fora da área permitida da escola. Aproxime-se do portão para realizar esta ação.`, 'danger');
             }
 
             // ============== LOAD USER DATA ==============
