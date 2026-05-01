@@ -2605,14 +2605,13 @@
                 }
             }
 
-            // ============== FASE 4: HISTÓRICO ==============
+            // ============== FASE 4: HISTÓRICO (SIMPLIFICADO) ==============
 
             let currentHistoryStudentId = null;
             let currentHistoryData = [];
             let currentHistoryPage = 1;
             const HISTORY_PAGE_SIZE = 10;
 
-            // Função para abrir o histórico de um aluno (deve ser chamada pelo botão)
             async function openStudentHistory(studentId, studentName) {
                 console.log('📜 Abrindo histórico para:', studentName, 'ID:', studentId);
 
@@ -2627,11 +2626,9 @@
                 const navItem = document.querySelector('.bottom-nav-item[data-target="historico"]');
                 if (navItem) navItem.click();
 
-                // Carregar histórico
                 await loadHistory(studentId);
             }
 
-            // Função para carregar o histórico do aluno
             async function loadHistory(studentId) {
                 const container = document.getElementById('historicoContainer');
                 if (!container) return;
@@ -2639,37 +2636,17 @@
                 container.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-spinner fa-pulse"></i></div><div class="t">Carregando histórico...</div></div>`;
 
                 try {
-                    // 1. Buscar SAÍDAS
-                    const saidasResponse = await fetchWithAuth(`/api/presencas/historico/${studentId}`);
-                    const saidasData = await saidasResponse.json();
-                    const saidas = (saidasData.sucesso && saidasData.dados) ? saidasData.dados : [];
+                    // 🔥 SIMPLES: como no código antigo, o endpoint já retorna TUDO
+                    const response = await fetchWithAuth(`/api/presencas/historico/${studentId}`);
+                    const data = await response.json();
 
-                    // 2. Buscar ENTRADAS (sessão atual aberta)
-                    let entradas = [];
-                    try {
-                        const entradaResponse = await fetchWithAuth(`/api/presencas/sessao-aberta/${studentId}`);
-                        const entradaData = await entradaResponse.json();
+                    console.log('📊 Histórico recebido:', data);
 
-                        if (entradaData.sucesso && entradaData.dados && entradaData.dados.entradaAt) {
-                            entradas.push({
-                                alunoNome: entradaData.dados.alunoNome,
-                                entradaAt: entradaData.dados.entradaAt,
-                                saidaAt: null,
-                                iniciadoPor: entradaData.dados.iniciadoPor,
-                                iniciadoPorTipo: entradaData.dados.iniciadoPorTipo,
-                                status: 'PRESENTE',
-                                tipo: 'ENTRADA'
-                            });
-                        }
-                    } catch (e) {
-                        console.warn('Não foi possível buscar entrada atual:', e);
+                    if (!data.sucesso) {
+                        throw new Error(data.mensagem || 'Erro ao carregar histórico');
                     }
 
-                    // 3. Combinar e ordenar
-                    const todos = [...entradas, ...saidas];
-                    todos.sort((a, b) => new Date(b.entradaAt) - new Date(a.entradaAt));
-
-                    currentHistoryData = todos;
+                    currentHistoryData = data.dados || [];
 
                     if (currentHistoryData.length === 0) {
                         container.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-clock-rotate-left"></i></div><div class="t">Nenhum registro encontrado</div><div class="s">Este aluno ainda não possui movimentações</div></div>`;
@@ -2684,7 +2661,6 @@
                 }
             }
 
-            // Função para renderizar a timeline
             function renderHistoryTimeline() {
                 const container = document.getElementById('historicoContainer');
                 if (!container) return;
@@ -2707,7 +2683,6 @@
 
                 let html = '';
 
-                // Renderizar cada dia
                 for (const [day, records] of Object.entries(groupedByDay)) {
                     html += `<div class="day-divider"><span>${day}</span></div>`;
                     html += `<div class="timeline">`;
@@ -2718,7 +2693,6 @@
                         const isEntry = !saidaTime;
 
                         if (isEntry) {
-                            // Registro de ENTRADA
                             html += `
                         <div class="tl-item entry">
                             <div class="tl-card">
@@ -2731,7 +2705,6 @@
                         </div>
                     `;
                         } else {
-                            // Registro de SAÍDA
                             html += `
                         <div class="tl-item exit">
                             <div></div>
@@ -2749,15 +2722,16 @@
                     html += `</div>`;
                 }
 
-                // Adicionar paginação se necessário
-                if (totalPages > 1) {
+                // Paginação
+                const totalPagesCalc = Math.ceil(sorted.length / HISTORY_PAGE_SIZE);
+                if (totalPagesCalc > 1) {
                     html += `
                 <div class="pagination-controls" style="display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 24px; padding: 16px;">
                     <button class="pagination-btn" id="historyPrevPage" ${currentHistoryPage === 1 ? 'disabled' : ''}>
                         <i class="fas fa-chevron-left"></i> Anterior
                     </button>
-                    <span class="page-info">Página ${currentHistoryPage} de ${totalPages}</span>
-                    <button class="pagination-btn" id="historyNextPage" ${currentHistoryPage === totalPages ? 'disabled' : ''}>
+                    <span class="page-info">Página ${currentHistoryPage} de ${totalPagesCalc}</span>
+                    <button class="pagination-btn" id="historyNextPage" ${currentHistoryPage === totalPagesCalc ? 'disabled' : ''}>
                         Próxima <i class="fas fa-chevron-right"></i>
                     </button>
                 </div>
@@ -2766,26 +2740,27 @@
 
                 container.innerHTML = html;
 
-                // Adicionar eventos de paginação
+                // Eventos de paginação
                 const prevBtn = document.getElementById('historyPrevPage');
                 const nextBtn = document.getElementById('historyNextPage');
 
                 if (prevBtn) {
-                    prevBtn.addEventListener('click', () => {
+                    prevBtn.onclick = () => {
                         if (currentHistoryPage > 1) {
                             currentHistoryPage--;
                             renderHistoryTimeline();
                         }
-                    });
+                    };
                 }
 
                 if (nextBtn) {
-                    nextBtn.addEventListener('click', () => {
-                        if (currentHistoryPage < totalPages) {
+                    nextBtn.onclick = () => {
+                        const total = Math.ceil(currentHistoryData.length / HISTORY_PAGE_SIZE);
+                        if (currentHistoryPage < total) {
                             currentHistoryPage++;
                             renderHistoryTimeline();
                         }
-                    });
+                    };
                 }
             }
         })();
