@@ -2300,18 +2300,45 @@
 
             // Buscar ID da escola do aluno logado
             async function getEscolaId() {
-                try {
-                    // Pega o primeiro aluno para obter a escolaId
-                    if (studentsData && studentsData.length > 0) {
-                        const response = await fetchWithAuth(`/api/alunos/${studentsData[0].id}`);
-                        const data = await response.json();
-                        return data.escolaId;
+                console.log('📍 getEscolaId: tentando obter escolaId');
+
+                // OPÇÃO 1: Buscar do primeiro aluno já carregado (se já tiver escolaId)
+                if (studentsData && studentsData.length > 0) {
+                    // Tenta obter escolaId diretamente do objeto aluno (se existir)
+                    if (studentsData[0].escolaId) {
+                        console.log('✅ EscolaId obtida do studentsData[0].escolaId:', studentsData[0].escolaId);
+                        return studentsData[0].escolaId;
                     }
-                    return null;
-                } catch (error) {
-                    console.error('Erro ao buscar escolaId:', error);
-                    return null;
+
+                    // OPÇÃO 2: Buscar via endpoint de tutores (evita o endpoint problemático)
+                    try {
+                        const tutorNome = encodeURIComponent(currentUser.nome);
+                        const response = await fetchWithAuth(`/api/tutores/${tutorNome}/alunos`);
+                        const data = await response.json();
+                        if (data.alunos && data.alunos.length > 0 && data.alunos[0].escolaId) {
+                            console.log('✅ EscolaId obtida via /api/tutores:', data.alunos[0].escolaId);
+                            return data.alunos[0].escolaId;
+                        }
+                    } catch (error) {
+                        console.warn('Erro ao buscar escolaId via tutores:', error);
+                    }
                 }
+
+                // OPÇÃO 3: Fallback via /api/users/me
+                try {
+                    const response = await fetchWithAuth('/api/users/me');
+                    const userData = await response.json();
+                    if (userData.escolaId) {
+                        console.log('✅ EscolaId obtida via /api/users/me:', userData.escolaId);
+                        return userData.escolaId;
+                    }
+                } catch (error) {
+                    console.warn('Erro ao buscar escolaId via /api/users/me:', error);
+                }
+
+                // Último fallback
+                console.warn('⚠️ Não foi possível obter escolaId, usando fallback 1');
+                return 1;
             }
 
             // Verificar localização atual via backend
