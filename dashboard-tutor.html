@@ -2642,18 +2642,15 @@
                 });
             }
 
-            // Handler: Registrar ENTRADA
             async function handleEntry(studentId, studentName, btn) {
                 try {
                     showToast(`📍 Obtendo localização para registrar entrada de ${studentName}...`, 'info');
 
-                    // 1. Obter localização
                     const position = await getCurrentPosition();
                     const { latitude, longitude } = position.coords;
 
                     showToast(`✅ Localização obtida! Registrando entrada...`, 'info');
 
-                    // 2. Chamar API
                     const payload = {
                         alunoId: parseInt(studentId),
                         latitude: latitude,
@@ -2673,17 +2670,17 @@
                         throw new Error(error.mensagem || 'Erro ao registrar entrada');
                     }
 
-                    showToast(`✅ Entrada de ${studentName} registrada com sucesso!`, 'success');
-
-                    // 3. Atualizar status local
-                    const student = studentsData.find(s => s.id == studentId);
-                    if (student) student.status = 'PRESENTE';
-                    renderStudents(studentsData);
+                    // ========== MOSTRAR TELA DE SUCESSO ==========
+                    await mostrarTelaSucesso('entrada', async () => {
+                        // Atualiza os dados após a tela de sucesso
+                        await refreshStudentsData();
+                        renderStudents(studentsData);
+                    });
+                    // ============================================
 
                 } catch (error) {
                     console.error('Erro na entrada:', error);
                     showToast(`❌ ${error.message}`, 'danger');
-                    // Reset do slide button
                     resetSlideButton(btn);
                 }
             }
@@ -2691,27 +2688,22 @@
             // Handler: SOLICITAR SAÍDA
             async function handleExitRequest(studentId, studentName, btn) {
                 try {
-                    // ========== VALIDAÇÃO DE HORÁRIO PARA SAÍDA ==========
-                    // Buscar o nome da sala do aluno
+                    // Validação de horário
                     const alunoAtual = studentsData.find(s => s.id == studentId);
                     const nomeSala = alunoAtual?.salaNome || '';
-
                     const validacao = validarHorarioSaida(nomeSala);
                     if (!validacao.permitido) {
                         resetSlideButton(btn);
                         return;
                     }
-                    // ========== FIM DA VALIDAÇÃO ==========
 
                     showToast(`📍 Obtendo localização para solicitar saída de ${studentName}...`, 'info');
 
-                    // 1. Obter localização
                     const position = await getCurrentPosition();
                     const { latitude, longitude } = position.coords;
 
                     showToast(`✅ Localização obtida! Solicitando saída...`, 'info');
 
-                    // 2. Chamar API
                     const payload = {
                         alunoId: parseInt(studentId),
                         latitude: latitude,
@@ -2728,17 +2720,18 @@
                         throw new Error(error.mensagem || 'Erro ao solicitar saída');
                     }
 
-                    showToast(`✅ Saída de ${studentName} solicitada com sucesso!`, 'success');
+                    // ========== MOSTRAR TELA DE SUCESSO ==========
+                    await mostrarTelaSucesso('solicitacao', async () => {
+                        // Atualiza os dados após a tela de sucesso
+                        await refreshStudentsData();
+                        renderStudents(studentsData);
 
-                    // 3. Atualizar status local
-                    const aluno = studentsData.find(s => s.id == studentId);
-                    if (aluno) aluno.status = 'AGUARDANDO_CONFIRMACAO';
-                    renderStudents(studentsData);
-
-                    // 4. INICIAR MONITORAMENTO DE GEOFENCE (APÓS SUCESSO)
-                    if (geofenceMonitor) {
-                        geofenceMonitor.startMonitoring(studentId, studentName);
-                    }
+                        // Iniciar monitoramento APÓS a tela de sucesso
+                        if (geofenceMonitor) {
+                            geofenceMonitor.startMonitoring(studentId, studentName);
+                        }
+                    });
+                    // ============================================
 
                 } catch (error) {
                     console.error('Erro ao solicitar saída:', error);
@@ -2752,7 +2745,6 @@
                 try {
                     showToast(`📍 Confirmando saída de ${studentName}...`, 'info');
 
-                    // 1. Chamar API (confirmação não precisa de localização)
                     const response = await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, {
                         method: 'POST'
                     });
@@ -2762,17 +2754,18 @@
                         throw new Error(error.mensagem || 'Erro ao confirmar saída');
                     }
 
-                    showToast(`✅ Saída de ${studentName} confirmada com sucesso!`, 'success');
+                    // ========== MOSTRAR TELA DE SUCESSO ==========
+                    await mostrarTelaSucesso('confirmacao', async () => {
+                        // Parar monitoramento
+                        if (geofenceMonitor) {
+                            geofenceMonitor.stopMonitoring(studentId);
+                        }
 
-                    // 2. PARAR MONITORAMENTO DE GEOFENCE
-                    if (geofenceMonitor) {
-                        geofenceMonitor.stopMonitoring(studentId);
-                    }
-
-                    // 3. Atualizar status local
-                    const student = studentsData.find(s => s.id == studentId);
-                    if (student) student.status = 'AUSENTE';
-                    renderStudents(studentsData);
+                        // Atualiza os dados após a tela de sucesso
+                        await refreshStudentsData();
+                        renderStudents(studentsData);
+                    });
+                    // ============================================
 
                 } catch (error) {
                     console.error('Erro ao confirmar saída:', error);
