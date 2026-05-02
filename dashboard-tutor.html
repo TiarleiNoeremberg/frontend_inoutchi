@@ -1883,6 +1883,43 @@
                 box-shadow: 0 0 0 0 rgba(26, 111, 196, 0);
             }
         }
+
+        /* Animações para o modal de bloqueio de horário */
+        @keyframes fadeInModal {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        @keyframes slideUpModal {
+            from {
+                opacity: 0;
+                transform: translateY(30px) scale(0.9);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        @keyframes pulseIcon {
+
+            0%,
+            100% {
+                transform: scale(1);
+                box-shadow: 0 10px 25px rgba(245, 158, 11, 0.3);
+            }
+
+            50% {
+                transform: scale(1.05);
+                box-shadow: 0 15px 35px rgba(245, 158, 11, 0.5);
+            }
+        }
     </style>
 </head>
 
@@ -1922,7 +1959,7 @@
             <section class="tab-pane active" data-tab="portaria">
                 <div class="tab-header">
                     <p class="greet" id="greetingText">Olá, Tutor</p>
-                    <h1>Portaria 👋</h1>
+                    <h1>Portaria</h1>
                     <p class="subtitle">Gerencie a entrada e saída dos seus filhos.</p>
                 </div>
 
@@ -2367,7 +2404,7 @@
                             if (data.dentro_geofence) {
                                 atualizarPillGeofence(true, null, 'Dentro da área da escola');
                             } else {
-                                atualizarPillGeofence(false, null, 'Fora da área da escola');    
+                                atualizarPillGeofence(false, null, 'Fora da área da escola');
                             }
                         } catch (error) {
                             console.error('Erro ao verificar geofence:', error);
@@ -2654,6 +2691,18 @@
             // Handler: SOLICITAR SAÍDA
             async function handleExitRequest(studentId, studentName, btn) {
                 try {
+                    // ========== VALIDAÇÃO DE HORÁRIO PARA SAÍDA ==========
+                    // Buscar o nome da sala do aluno
+                    const alunoAtual = studentsData.find(s => s.id == studentId);
+                    const nomeSala = alunoAtual?.salaNome || '';
+
+                    const validacao = validarHorarioSaida(nomeSala);
+                    if (!validacao.permitido) {
+                        resetSlideButton(btn);
+                        return;
+                    }
+                    // ========== FIM DA VALIDAÇÃO ==========
+
                     showToast(`📍 Obtendo localização para solicitar saída de ${studentName}...`, 'info');
 
                     // 1. Obter localização
@@ -2682,8 +2731,8 @@
                     showToast(`✅ Saída de ${studentName} solicitada com sucesso!`, 'success');
 
                     // 3. Atualizar status local
-                    const student = studentsData.find(s => s.id == studentId);
-                    if (student) student.status = 'AGUARDANDO_CONFIRMACAO';
+                    const aluno = studentsData.find(s => s.id == studentId);
+                    if (aluno) aluno.status = 'AGUARDANDO_CONFIRMACAO';
                     renderStudents(studentsData);
 
                     // 4. INICIAR MONITORAMENTO DE GEOFENCE (APÓS SUCESSO)
@@ -3523,6 +3572,207 @@
                     else if (error.code === error.TIMEOUT) message = 'Tempo limite excedido.';
                     if (message) this.showToast('Erro de Localização', message, 'error');
                 }
+            }
+
+            // ============== CONFIGURAÇÃO DE HORÁRIOS POR SALA ==============
+            window.HORARIOS_SAIDA = {
+                '2° ANO': { hora: 15, minuto: 10 },
+                '5° ANO': { hora: 15, minuto: 30 },
+                '3° ANO': { hora: 15, minuto: 10 }
+            };
+
+            function normalizarNomeSala(nome) {
+                if (!nome) return "";
+
+                // Remove espaços extras e converte para maiúsculas
+                let nomeLimpo = nome.trim().toUpperCase();
+
+                // Se começar com número e tiver "ANO" ou "ANOS"
+                if (nomeLimpo.match(/^\d/)) {
+                    // Troca "º" por "°"
+                    nomeLimpo = nomeLimpo.replace(/º/g, "°");
+
+                    // Garante que tenha o formato "X° ANO"
+                    const match = nomeLimpo.match(/(\d+)[°º]?\s*(ANO|ANOS)/i);
+                    if (match) {
+                        return match[1] + "° ANO";
+                    }
+                }
+
+                return nomeLimpo;
+            }
+
+            function mostrarModalBloqueio(mensagem) {
+                // Remove modal anterior se existir
+                const modalAnterior = document.getElementById('modalBloqueioHorario');
+                if (modalAnterior) modalAnterior.remove();
+
+                // Extrai o horário da mensagem
+                const horarioMatch = mensagem.match(/(\d{1,2}):(\d{2})/);
+                const horario = horarioMatch ? horarioMatch[0] : '';
+
+                // Cria o backdrop
+                const backdrop = document.createElement('div');
+                backdrop.id = 'modalBloqueioHorario';
+                backdrop.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(5px);
+        z-index: 1000000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        animation: fadeInModal 0.3s ease;
+    `;
+
+                // Cria o modal
+                const modal = document.createElement('div');
+                modal.style.cssText = `
+        background: white;
+        border-radius: 28px;
+        width: 90%;
+        max-width: 340px;
+        padding: 32px 24px;
+        text-align: center;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        animation: slideUpModal 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        position: relative;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    `;
+
+                modal.innerHTML = `
+                    <div style="margin-bottom: 20px;">
+                        <div style="
+                            width: 80px;
+                            height: 80px;
+                            background: linear-gradient(135deg, #f59e0b, #fbbf24);
+                            border-radius: 50%;
+                            margin: 0 auto;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            box-shadow: 0 10px 25px rgba(245, 158, 11, 0.3);
+                            animation: pulseIcon 2s infinite;
+                        ">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <polyline points="12 6 12 12 16 14"/>
+                            </svg>
+                        </div>
+                    </div>
+                    
+                    <h3 style="
+                        font-size: 1.4rem;
+                        font-weight: 800;
+                        color: #1e293b;
+                        margin: 0 0 8px 0;
+                        font-family: 'Inter', sans-serif;
+                    ">⏰ Horário Não Permitido</h3>
+                    
+                    <div style="
+                        background: #fef3c7;
+                        border-radius: 40px;
+                        padding: 12px 16px;
+                        margin: 20px 0;
+                        border: 2px solid #fbbf24;
+                    ">
+                        <span style="
+                            font-size: 1.8rem;
+                            font-weight: 800;
+                            color: #92400e;
+                            font-family: monospace;
+                            letter-spacing: 2px;
+                        ">${horario}</span>
+                    </div>
+                    
+                    <p style="
+                        color: #64748b;
+                        font-size: 0.95rem;
+                        line-height: 1.5;
+                        margin: 0 0 24px 0;
+                        font-weight: 500;
+                    ">${mensagem}</p>
+                    
+                    <button style="
+                        background: linear-gradient(135deg, #f59e0b, #fbbf24);
+                        color: white;
+                        border: none;
+                        border-radius: 40px;
+                        padding: 14px 32px;
+                        font-size: 1rem;
+                        font-weight: 700;
+                        cursor: pointer;
+                        width: 100%;
+                        transition: all 0.3s;
+                        box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
+                        font-family: 'Inter', sans-serif;
+                        letter-spacing: 0.5px;
+                    " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(245, 158, 11, 0.4)'" 
+                    onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(245, 158, 11, 0.3)'">
+                        Entendi
+                    </button>
+                `;
+
+                backdrop.appendChild(modal);
+                document.body.appendChild(backdrop);
+
+                // Fecha ao clicar no backdrop
+                backdrop.addEventListener('click', function (e) {
+                    if (e.target === backdrop) {
+                        backdrop.remove();
+                    }
+                });
+
+                // Fecha ao clicar no botão
+                modal.querySelector('button').addEventListener('click', () => {
+                    backdrop.remove();
+                });
+            }
+
+            function validarHorarioSaida(nomeSalaBruto) {
+                console.log("🔍 [DEBUG] Validando sala (bruto):", nomeSalaBruto);
+
+                // NORMALIZAÇÃO
+                const nomeSala = normalizarNomeSala(nomeSalaBruto);
+
+                console.log("🔍 [DEBUG] Validando sala (normalizado):", nomeSala);
+                console.log("📋 Horários disponíveis:", window.HORARIOS_SAIDA);
+
+                if (!nomeSala || !window.HORARIOS_SAIDA[nomeSala]) {
+                    console.log("✅ Sala sem restrição:", nomeSala);
+                    return { permitido: true };
+                }
+
+                const agora = new Date();
+                const config = window.HORARIOS_SAIDA[nomeSala];
+
+                const horaAtual = agora.getHours();
+                const minutoAtual = agora.getMinutes();
+                const horaLimite = config.hora;
+                const minutoLimite = config.minuto;
+
+                console.log(`🕒 Agora: ${horaAtual}:${minutoAtual} | Limite: ${horaLimite}:${minutoLimite}`);
+
+                // Comparação numérica
+                if (horaAtual < horaLimite || (horaAtual === horaLimite && minutoAtual < minutoLimite)) {
+                    const mensagem = `A solicitação de saída para ${nomeSala} só é permitida após ${horaLimite}:${minutoLimite.toString().padStart(2, '0')}.`;
+                    console.log("🚫 BLOQUEADO:", mensagem);
+
+                    // Mostra o modal bonitinho
+                    mostrarModalBloqueio(mensagem);
+
+                    return {
+                        permitido: false,
+                        mensagem: mensagem
+                    };
+                }
+
+                console.log("✅ Horário permitido!");
+                return { permitido: true };
             }
 
             // ============== INICIALIZAÇÃO ==============
