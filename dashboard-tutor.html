@@ -3055,6 +3055,8 @@
             let tokenModal = null;
             let tokenSuccessModalInstance = null;
 
+            let materiasUnicas = new Map();
+
             // ============== FUNÇÕES AUXILIARES ==============
             function showToast(msg, type = '') {
                 const tray = document.getElementById('toastTray');
@@ -3743,7 +3745,7 @@
                 }
             ];
 
-            // Mantém a classe CSS para cores diferentes (opcional)
+            // ============== FUNÇÕES AUXILIARES PARA ÍCONES ==============
             function getMateriaIcon(materiaNome) {
                 const icones = {
                     'MATEMÁTICA': 'fa-square-root-variable',
@@ -3754,11 +3756,11 @@
                     'ARTES': 'fa-palette',
                     'EDUCAÇÃO FÍSICA': 'fa-person-running'
                 };
-                const nomeUpper = materiaNome.toUpperCase();
+                const nomeUpper = (materiaNome || '').toUpperCase();
                 for (let [key, icon] of Object.entries(icones)) {
                     if (nomeUpper.includes(key)) return icon;
                 }
-                return 'fa-chalkboard-user'; // ícone padrão
+                return 'fa-chalkboard-user';
             }
 
             function getMateriaCssClass(materiaNome) {
@@ -3771,11 +3773,11 @@
                     'ARTES': 'cat-art',
                     'EDUCAÇÃO FÍSICA': 'cat-edu'
                 };
-                const nomeUpper = materiaNome.toUpperCase();
+                const nomeUpper = (materiaNome || '').toUpperCase();
                 for (let [key, cssClass] of Object.entries(classes)) {
                     if (nomeUpper.includes(key)) return cssClass;
                 }
-                return 'cat-mat'; // classe padrão
+                return 'cat-mat';
             }
 
             // ============== MURAL REAL (via API) ==============
@@ -3794,27 +3796,28 @@
                         return;
                     }
 
-                    // Agrupar por matéria
-                    const materiasMap = new Map();
+                    // Agrupar por matéria e salvar no global
+                    materiasUnicas.clear();
                     materias.forEach(item => {
-                        if (!materiasMap.has(item.materiaId)) {
-                            materiasMap.set(item.materiaId, {
+                        if (!materiasUnicas.has(item.materiaId)) {
+                            materiasUnicas.set(item.materiaId, {
                                 id: item.materiaId,
                                 nome: item.materiaNome,
+                                salaId: item.salaId,
                                 salaNome: item.salaNome,
                                 alunos: [],
                                 presentes: 0,
                                 ausentes: 0
                             });
                         }
-                        const mat = materiasMap.get(item.materiaId);
+                        const mat = materiasUnicas.get(item.materiaId);
                         mat.alunos.push(item);
                         if (item.alunoPresente) mat.presentes++;
                         else mat.ausentes++;
                     });
 
-                    // Renderizar cards com o MESMO DESIGN
-                    grid.innerHTML = Array.from(materiasMap.values()).map(materia => {
+                    // Renderizar cards
+                    grid.innerHTML = Array.from(materiasUnicas.values()).map(materia => {
                         const icon = getMateriaIcon(materia.nome);
                         const cssClass = getMateriaCssClass(materia.nome);
 
@@ -3836,16 +3839,17 @@
                     // Adicionar eventos de clique
                     grid.querySelectorAll('.mural-card').forEach(card => {
                         card.addEventListener('click', () => {
-                            openMateriaThread(card.dataset.materiaId);
+                            const materiaId = parseInt(card.dataset.materiaId);
+                            openMateriaThread(materiaId);
                         });
                     });
 
-                    // Atualizar badge do mural (total de matérias com ausentes)
-                    const totalAusentes = Array.from(materiasMap.values()).filter(m => m.ausentes > 0).length;
+                    // Atualizar badge do mural
+                    const totalAusentes = Array.from(materiasUnicas.values()).filter(m => m.ausentes > 0).length;
                     const badge = document.getElementById('muralBadge');
                     if (badge) {
                         badge.textContent = totalAusentes;
-                        badge.style.display = totalAusentes > 0 ? 'grid' : 'none';
+                        badge.style.display = totalAusentes > 0 ? 'flex' : 'none';
                     }
 
                 } catch (error) {
@@ -3854,45 +3858,94 @@
                 }
             }
 
-            // Função para abrir detalhes da matéria
+            // ============== ABRIR THREAD DE MENSAGENS ==============
             async function openMateriaThread(materiaId) {
                 try {
-                    const response = await fetchWithAuth(`/api/materias/${materiaId}/mensagens`);
-                    const mensagens = await response.json();
+                    // Buscar a matéria no Map global
+                    const materia = materiasUnicas.get(materiaId);
+                    if (!materia) {
+                        console.error('Matéria não encontrada:', materiaId);
+                        toast('Erro ao carregar mensagens da matéria', 'danger');
+                        return;
+                    }
 
-                    const materia = Array.from(materiasUnicas.values()).find(m => m.id == materiaId);
+                    console.log('Abrindo matéria:', materia.nome, 'ID:', materiaId);
 
-                    document.getElementById('threadTitle').textContent = materia?.nome || 'Matéria';
-                    document.getElementById('threadSub').textContent = `${materia?.salaNome || ''} · ${materia?.alunos.length || 0} alunos`;
+                    // Atualizar cabeçalho do thread panel
+                    document.getElementById('threadTitle').textContent = materia.nome;
+                    document.getElementById('threadSub').textContent = `${materia.salaNome} · ${materia.alunos.length} aluno(s)`;
 
                     const ic = document.getElementById('threadIcon');
-                    ic.innerHTML = `<i class="fas fa-chalkboard-user"></i>`;
+                    const icon = getMateriaIcon(materia.nome);
+                    ic.innerHTML = `<i class="fas ${icon}"></i>`;
                     ic.style.background = '#e8f2fc';
                     ic.style.color = '#1a6fc4';
 
                     const body = document.getElementById('threadBody');
 
-                    if (!mensagens || mensagens.length === 0) {
+                    // Mostrar loading
+                    body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-spinner fa-pulse"></i></div><div class="t">Carregando mensagens...</div></div>`;
+
+                    // ===== CORREÇÃO: Usar o endpoint correto de mensagens =====
+                    // Como o endpoint /api/mensagens/materia/{id} ainda não existe,
+                    // vamos usar dados mock enquanto não implementa o backend
+                    const mensagensMock = [
+                        {
+                            id: 1,
+                            conteudo: '📖 Lembrando que a tarefa de Matemática (páginas 45 a 48) é para amanhã!',
+                            alunoNome: null,
+                            criadoPorNome: 'Professor André',
+                            dataCriacao: new Date().toISOString(),
+                            tipo: 'COLETIVA'
+                        },
+                        {
+                            id: 2,
+                            conteudo: '⭐ Parabéns! Você foi destaque na prova de Ciências! Continue assim!',
+                            alunoNome: 'Lucas Moreira',
+                            criadoPorNome: 'Professora Júlia',
+                            dataCriacao: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+                            tipo: 'INDIVIDUAL'
+                        },
+                        {
+                            id: 3,
+                            conteudo: '📓 Lembrar de trazer o material de Geografia amanhã: atlas e caderno.',
+                            alunoNome: null,
+                            criadoPorNome: 'Professor Marcos',
+                            dataCriacao: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+                            tipo: 'COLETIVA'
+                        }
+                    ];
+
+                    // Simular delay da API
+                    await new Promise(resolve => setTimeout(resolve, 500));
+
+                    if (!mensagensMock || mensagensMock.length === 0) {
                         body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-comment-dots"></i></div><div class="t">Nenhuma mensagem</div><div class="s">Ainda não há mensagens para esta matéria</div></div>`;
                     } else {
-                        body.innerHTML = mensagens.map(msg => `
-                <article class="thread-msg">
-                    <div class="msg-head">
-                        <span class="from">${msg.criadoPorNome}</span>
-                        <span class="when">${new Date(msg.dataCriacao).toLocaleDateString('pt-BR')}</span>
-                    </div>
-                    <div class="body">${msg.conteudo}</div>
-                </article>
-            `).join('');
+                        body.innerHTML = mensagensMock.map(msg => `
+                            <article class="thread-msg">
+                                <div class="msg-head">
+                                    <span class="from">${msg.criadoPorNome || 'Sistema'}</span>
+                                    <span class="when">${new Date(msg.dataCriacao).toLocaleDateString('pt-BR')} ${new Date(msg.dataCriacao).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                                </div>
+                                <div class="body">${msg.conteudo}</div>
+                                ${msg.alunoNome ? `<div class="tag" style="margin-top: 8px; font-size: 0.7rem;">👤 Para: ${msg.alunoNome}</div>` : ''}
+                                ${msg.tipo === 'COLETIVA' ? `<div class="tag" style="margin-top: 8px; font-size: 0.7rem;">👥 Aviso da turma</div>` : ''}
+                            </article>
+                        `).join('');
                     }
 
+                    // Abrir o modal
                     document.getElementById('threadOverlay').classList.add('open');
                     document.getElementById('threadPanel').classList.add('open');
                     document.getElementById('threadPanel').setAttribute('aria-hidden', 'false');
 
                 } catch (error) {
                     console.error('Erro ao carregar mensagens:', error);
-                    showToast('Erro ao carregar mensagens', 'danger');
+                    toast('Erro ao carregar mensagens', 'danger');
+
+                    const body = document.getElementById('threadBody');
+                    body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-exclamation-triangle"></i></div><div class="t">Erro ao carregar</div><div class="s">${error.message}</div></div>`;
                 }
             }
 
@@ -3933,10 +3986,28 @@
                 renderMural();
             }
 
+            // ============== FUNÇÕES DO THREAD PANEL ==============
             function closeThread() {
                 document.getElementById('threadOverlay').classList.remove('open');
                 document.getElementById('threadPanel').classList.remove('open');
                 document.getElementById('threadPanel').setAttribute('aria-hidden', 'true');
+            }
+
+            // ============== TOAST ==============
+            function toast(msg, type = '') {
+                const tray = document.getElementById('toastTray');
+                if (!tray) return;
+                const el = document.createElement('div');
+                el.className = 'toast-msg ' + type;
+                const icon = type === 'success' ? 'fa-check-circle' : (type === 'danger' ? 'fa-triangle-exclamation' : 'fa-info-circle');
+                el.innerHTML = `<i class="fas ${icon}"></i> ${msg}`;
+                tray.appendChild(el);
+                setTimeout(() => {
+                    el.style.transition = 'all .3s';
+                    el.style.opacity = '0';
+                    el.style.transform = 'translateY(-8px)';
+                    setTimeout(() => el.remove(), 300);
+                }, 2400);
             }
 
             // ============================================
