@@ -3743,35 +3743,156 @@
                 }
             ];
 
-            function renderMural() {
+            // Mantém a classe CSS para cores diferentes (opcional)
+            function getMateriaIcon(materiaNome) {
+                const icones = {
+                    'MATEMÁTICA': 'fa-square-root-variable',
+                    'PORTUGUÊS': 'fa-book-open',
+                    'HISTÓRIA': 'fa-landmark',
+                    'GEOGRAFIA': 'fa-globe',
+                    'CIÊNCIAS': 'fa-flask',
+                    'ARTES': 'fa-palette',
+                    'EDUCAÇÃO FÍSICA': 'fa-person-running'
+                };
+                const nomeUpper = materiaNome.toUpperCase();
+                for (let [key, icon] of Object.entries(icones)) {
+                    if (nomeUpper.includes(key)) return icon;
+                }
+                return 'fa-chalkboard-user'; // ícone padrão
+            }
+
+            function getMateriaCssClass(materiaNome) {
+                const classes = {
+                    'MATEMÁTICA': 'cat-mat',
+                    'PORTUGUÊS': 'cat-port',
+                    'HISTÓRIA': 'cat-his',
+                    'GEOGRAFIA': 'cat-geo',
+                    'CIÊNCIAS': 'cat-cie',
+                    'ARTES': 'cat-art',
+                    'EDUCAÇÃO FÍSICA': 'cat-edu'
+                };
+                const nomeUpper = materiaNome.toUpperCase();
+                for (let [key, cssClass] of Object.entries(classes)) {
+                    if (nomeUpper.includes(key)) return cssClass;
+                }
+                return 'cat-mat'; // classe padrão
+            }
+
+            // ============== MURAL REAL (via API) ==============
+            async function renderMural() {
                 const grid = document.getElementById('muralGrid');
                 if (!grid) return;
 
-                grid.innerHTML = muralCategories.map(c => `
-        <div class="mural-card ${c.cat}" data-cat="${c.id}">
-            <div class="icon-wrap"><i class="fas ${c.icon}"></i></div>
-            <div class="label">${c.label}</div>
-            <div class="preview">${c.preview}</div>
-            <div class="meta">
-                <span class="time">${c.time}</span>
-                ${c.unread > 0 ? `<span class="badge-count">${c.unread}</span>` : ''}
-            </div>
-        </div>
-    `).join('');
+                grid.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-spinner fa-pulse"></i></div><div class="t">Carregando matérias...</div></div>`;
 
-                grid.querySelectorAll('.mural-card').forEach(card => {
-                    card.addEventListener('click', () => openThread(card.dataset.cat));
-                });
+                try {
+                    const response = await fetchWithAuth('/api/tutor/materias');
+                    const materias = await response.json();
 
-                const total = muralCategories.reduce((a, c) => a + c.unread, 0);
-                const badge = document.getElementById('muralBadge');
-                if (badge) {
-                    if (total > 0) {
-                        badge.textContent = total;
-                        badge.style.display = 'grid';
-                    } else {
-                        badge.style.display = 'none';
+                    if (!materias || materias.length === 0) {
+                        grid.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-book-open"></i></div><div class="t">Nenhuma matéria encontrada</div><div class="s">Você não está vinculado a nenhuma matéria</div></div>`;
+                        return;
                     }
+
+                    // Agrupar por matéria
+                    const materiasMap = new Map();
+                    materias.forEach(item => {
+                        if (!materiasMap.has(item.materiaId)) {
+                            materiasMap.set(item.materiaId, {
+                                id: item.materiaId,
+                                nome: item.materiaNome,
+                                salaNome: item.salaNome,
+                                alunos: [],
+                                presentes: 0,
+                                ausentes: 0
+                            });
+                        }
+                        const mat = materiasMap.get(item.materiaId);
+                        mat.alunos.push(item);
+                        if (item.alunoPresente) mat.presentes++;
+                        else mat.ausentes++;
+                    });
+
+                    // Renderizar cards com o MESMO DESIGN
+                    grid.innerHTML = Array.from(materiasMap.values()).map(materia => {
+                        const icon = getMateriaIcon(materia.nome);
+                        const cssClass = getMateriaCssClass(materia.nome);
+
+                        return `
+                            <div class="mural-card ${cssClass}" data-materia-id="${materia.id}">
+                                <div class="icon-wrap"><i class="fas ${icon}"></i></div>
+                                <div class="label">${materia.nome}</div>
+                                <div class="preview">${materia.alunos.length} aluno(s) · ${materia.salaNome}</div>
+                                <div class="meta">
+                                    <span class="time">
+                                        <i class="fas fa-user-check"></i> ${materia.presentes} presente(s)
+                                    </span>
+                                    ${materia.ausentes > 0 ? `<span class="badge-count">${materia.ausentes}</span>` : ''}
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+
+                    // Adicionar eventos de clique
+                    grid.querySelectorAll('.mural-card').forEach(card => {
+                        card.addEventListener('click', () => {
+                            openMateriaThread(card.dataset.materiaId);
+                        });
+                    });
+
+                    // Atualizar badge do mural (total de matérias com ausentes)
+                    const totalAusentes = Array.from(materiasMap.values()).filter(m => m.ausentes > 0).length;
+                    const badge = document.getElementById('muralBadge');
+                    if (badge) {
+                        badge.textContent = totalAusentes;
+                        badge.style.display = totalAusentes > 0 ? 'grid' : 'none';
+                    }
+
+                } catch (error) {
+                    console.error('Erro ao carregar mural:', error);
+                    grid.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-exclamation-triangle"></i></div><div class="t">Erro ao carregar</div><div class="s">${error.message}</div></div>`;
+                }
+            }
+
+            // Função para abrir detalhes da matéria
+            async function openMateriaThread(materiaId) {
+                try {
+                    const response = await fetchWithAuth(`/api/materias/${materiaId}/mensagens`);
+                    const mensagens = await response.json();
+
+                    const materia = Array.from(materiasUnicas.values()).find(m => m.id == materiaId);
+
+                    document.getElementById('threadTitle').textContent = materia?.nome || 'Matéria';
+                    document.getElementById('threadSub').textContent = `${materia?.salaNome || ''} · ${materia?.alunos.length || 0} alunos`;
+
+                    const ic = document.getElementById('threadIcon');
+                    ic.innerHTML = `<i class="fas fa-chalkboard-user"></i>`;
+                    ic.style.background = '#e8f2fc';
+                    ic.style.color = '#1a6fc4';
+
+                    const body = document.getElementById('threadBody');
+
+                    if (!mensagens || mensagens.length === 0) {
+                        body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-comment-dots"></i></div><div class="t">Nenhuma mensagem</div><div class="s">Ainda não há mensagens para esta matéria</div></div>`;
+                    } else {
+                        body.innerHTML = mensagens.map(msg => `
+                <article class="thread-msg">
+                    <div class="msg-head">
+                        <span class="from">${msg.criadoPorNome}</span>
+                        <span class="when">${new Date(msg.dataCriacao).toLocaleDateString('pt-BR')}</span>
+                    </div>
+                    <div class="body">${msg.conteudo}</div>
+                </article>
+            `).join('');
+                    }
+
+                    document.getElementById('threadOverlay').classList.add('open');
+                    document.getElementById('threadPanel').classList.add('open');
+                    document.getElementById('threadPanel').setAttribute('aria-hidden', 'false');
+
+                } catch (error) {
+                    console.error('Erro ao carregar mensagens:', error);
+                    showToast('Erro ao carregar mensagens', 'danger');
                 }
             }
 
@@ -4577,9 +4698,7 @@
                         iniciarMonitoramentoGeofence();
                     }
 
-                    // ========== ADICIONAR ESTA LINHA ==========
-                    renderMural();  // Carrega o MURAL com os dados mock
-                    // ==========================================
+                    renderMural();
 
                     initGeofenceMonitor();
 
