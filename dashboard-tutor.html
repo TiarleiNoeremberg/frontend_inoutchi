@@ -3080,6 +3080,51 @@
 
             let totalNaoLidas = 0;
 
+            // Salvar mensagens lidas em ambos os storages
+            function salvarMensagensLidas(ids) {
+                // Salvar no sessionStorage
+                let sessionLidas = JSON.parse(sessionStorage.getItem('mensagens_lidas') || '{}');
+                ids.forEach(id => { sessionLidas[id] = true; });
+                sessionStorage.setItem('mensagens_lidas', JSON.stringify(sessionLidas));
+
+                // Salvar também no localStorage
+                let localLidas = JSON.parse(localStorage.getItem('mensagens_lidas') || '{}');
+                ids.forEach(id => { localLidas[id] = true; });
+                localStorage.setItem('mensagens_lidas', JSON.stringify(localLidas));
+
+                console.log('💾 Mensagens salvas em ambos storages:', ids);
+            }
+
+            // Recuperar mensagens lidas de ambos os storages (prioriza sessionStorage)
+            function getMensagensLidas() {
+                // Primeiro tenta sessionStorage
+                let sessionLidas = JSON.parse(sessionStorage.getItem('mensagens_lidas') || '{}');
+
+                // Depois tenta localStorage e faz merge
+                let localLidas = JSON.parse(localStorage.getItem('mensagens_lidas') || '{}');
+
+                // Mesclar: sessionStorage tem prioridade, mas inclui as do localStorage
+                const merged = { ...localLidas, ...sessionLidas };
+
+                // Salvar o merge de volta em ambos para consistência
+                if (Object.keys(localLidas).length > 0 && Object.keys(sessionLidas).length === 0) {
+                    sessionStorage.setItem('mensagens_lidas', JSON.stringify(merged));
+                }
+                if (Object.keys(sessionLidas).length > 0 && Object.keys(localLidas).length === 0) {
+                    localStorage.setItem('mensagens_lidas', JSON.stringify(merged));
+                }
+
+                console.log('📖 Mensagens lidas recuperadas:', Object.keys(merged).length);
+                return merged;
+            }
+
+            // Limpar mensagens lidas (útil para debug)
+            function limparMensagensLidas() {
+                sessionStorage.removeItem('mensagens_lidas');
+                localStorage.removeItem('mensagens_lidas');
+                console.log('🗑️ Storages limpos');
+            }
+
             // ============== FUNÇÕES AUXILIARES ==============
             function showToast(msg, type = '') {
                 const tray = document.getElementById('toastTray');
@@ -3881,6 +3926,7 @@
                     })));
 
                     // Marcar como lidas
+                    // Marcar como lidas
                     const naoLidasIds = mensagens.filter(msg => !msg.lida).map(msg => msg.id);
                     console.log('📝 IDs das mensagens não lidas:', naoLidasIds);
 
@@ -3890,7 +3936,23 @@
                                 method: 'POST',
                                 body: JSON.stringify(naoLidasIds)
                             });
-                            const markResult = await markResponse.json();
+
+                            // Verificar se a resposta tem conteúdo antes de tentar parsear JSON
+                            const textResponse = await markResponse.text();
+                            console.log('🔍 Resposta bruta do backend:', textResponse);
+
+                            let markResult = {};
+                            if (textResponse && textResponse.trim()) {
+                                try {
+                                    markResult = JSON.parse(textResponse);
+                                } catch (e) {
+                                    console.warn('Resposta não é JSON válido:', textResponse);
+                                    markResult = { sucesso: markResponse.ok, mensagem: textResponse || 'OK' };
+                                }
+                            } else {
+                                markResult = { sucesso: markResponse.ok, mensagem: 'Resposta vazia' };
+                            }
+
                             console.log('🔍 Resposta do backend ao marcar lidas:', markResult);
 
                             if (!markResponse.ok) {
@@ -3900,29 +3962,35 @@
 
                             console.log(`✅ Marcadas ${naoLidasIds.length} mensagens como lidas`);
 
-                            // ===== SALVAR NO SESSIONSTORAGE COMO FALLBACK =====
-                            const lidasSalvas = JSON.parse(sessionStorage.getItem('mensagens_lidas') || '{}');
+                            // SALVAR NO SESSIONSTORAGE COMO FALLBACK
+                            const lidasSalvas = getMensagensLidas();
                             naoLidasIds.forEach(id => {
                                 lidasSalvas[id] = true;
                             });
-                            sessionStorage.setItem('mensagens_lidas', JSON.stringify(lidasSalvas));
+                            salvarMensagensLidas(naoLidasIds);
                             console.log('💾 IDs salvos no sessionStorage:', naoLidasIds);
 
-                            // ===== VERIFICAR SE REALMENTE MARCOU =====
-                            const checkResponse = await fetchWithAuth(endpoint);
-                            const checkData = await checkResponse.json();
-                            console.log('📊 Mensagens DEPOIS de marcar:', checkData.map(m => ({
-                                id: m.id,
-                                lida: m.lida
-                            })));
+                            // VERIFICAR SE REALMENTE MARCOU (opcional, pode remover se estiver lento)
+                            try {
+                                const checkResponse = await fetchWithAuth(endpoint);
+                                const checkData = await checkResponse.json();
+                                console.log('📊 Mensagens DEPOIS de marcar:', checkData.map(m => ({
+                                    id: m.id,
+                                    lida: m.lida
+                                })));
+                            } catch (e) {
+                                console.warn('Não foi possível verificar estado após marcar:', e);
+                            }
 
                             // Atualizar estado local
                             cardData.mensagensNaoLidas = 0;
-                            cardData.mensagens.forEach(msg => {
-                                if (naoLidasIds.includes(msg.id)) {
-                                    msg.lida = true;
-                                }
-                            });
+                            if (cardData.mensagens) {
+                                cardData.mensagens.forEach(msg => {
+                                    if (naoLidasIds.includes(msg.id)) {
+                                        msg.lida = true;
+                                    }
+                                });
+                            }
 
                             // Recalcular total de não lidas
                             totalNaoLidas = 0;
@@ -3939,7 +4007,13 @@
 
                         } catch (error) {
                             console.error('❌ Erro ao marcar mensagens como lidas:', error);
-                            showToast(`Erro ao marcar mensagens: ${error.message}`, 'danger');
+                            // Mesmo com erro, salvar no sessionStorage para não mostrar o badge novamente
+                            const lidasSalvas = getMensagensLidas();
+                            naoLidasIds.forEach(id => {
+                                lidasSalvas[id] = true;
+                            });
+                            salvarMensagensLidas(naoLidasIds);
+                            showToast(`Erro ao marcar mensagens, mas estado salvo localmente.`, 'warning');
                         }
                     } else {
                         console.log('ℹ️ Nenhuma mensagem não lida para marcar');
@@ -4033,12 +4107,14 @@
                     }
 
                     // Recuperar IDs de mensagens lidas do sessionStorage
-                    const lidasSalvas = JSON.parse(sessionStorage.getItem('mensagens_lidas') || '{}');
+                    const lidasSalvas = getMensagensLidas();
+                    console.log('💾 IDs lidos do sessionStorage:', Object.keys(lidasSalvas));
 
                     // Aplicar estado salvo nas mensagens institucionais
                     institucionais.forEach(msg => {
                         if (lidasSalvas[msg.id]) {
                             msg.lida = true;
+                            console.log(`📌 Marcando como lida via sessionStorage: msg ${msg.id}`);
                         }
                     });
 
