@@ -2564,6 +2564,27 @@
             background: var(--primary);
             color: white;
         }
+
+        /* Estilos para os diferentes tipos de mensagem */
+        .thread-msg.unread {
+            background: #f8fafc;
+            border-left: 3px solid var(--primary);
+        }
+
+        .tag.institucional {
+            background: #e8f2fc;
+            color: #1a6fc4;
+        }
+
+        .tag.coletiva {
+            background: #e6f7f6;
+            color: #0ea5a0;
+        }
+
+        .tag.individual {
+            background: #f3efff;
+            color: #8b5cf6;
+        }
     </style>
 </head>
 
@@ -3886,59 +3907,119 @@
                     // Mostrar loading
                     body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-spinner fa-pulse"></i></div><div class="t">Carregando mensagens...</div></div>`;
 
-                    // ===== CORREÇÃO: Usar o endpoint correto de mensagens =====
-                    // Como o endpoint /api/mensagens/materia/{id} ainda não existe,
-                    // vamos usar dados mock enquanto não implementa o backend
-                    const mensagensMock = [
-                        {
-                            id: 1,
-                            conteudo: '📖 Lembrando que a tarefa de Matemática (páginas 45 a 48) é para amanhã!',
-                            alunoNome: null,
-                            criadoPorNome: 'Professor André',
-                            dataCriacao: new Date().toISOString(),
-                            tipo: 'COLETIVA'
-                        },
-                        {
-                            id: 2,
-                            conteudo: '⭐ Parabéns! Você foi destaque na prova de Ciências! Continue assim!',
-                            alunoNome: 'Lucas Moreira',
-                            criadoPorNome: 'Professora Júlia',
-                            dataCriacao: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-                            tipo: 'INDIVIDUAL'
-                        },
-                        {
-                            id: 3,
-                            conteudo: '📓 Lembrar de trazer o material de Geografia amanhã: atlas e caderno.',
-                            alunoNome: null,
-                            criadoPorNome: 'Professor Marcos',
-                            dataCriacao: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-                            tipo: 'COLETIVA'
-                        }
-                    ];
+                    // ===== BUSCAR MENSAGENS REAIS DA API =====
+                    let mensagens = [];
 
-                    // Simular delay da API
-                    await new Promise(resolve => setTimeout(resolve, 500));
+                    try {
+                        // Endpoint para buscar mensagens da matéria com status de leitura
+                        const response = await fetchWithAuth(`/api/mensagens/materia/${materiaId}/para-tutor`);
+                        mensagens = await response.json();
+                        console.log('✅ Mensagens carregadas da API:', mensagens.length);
+                    } catch (apiError) {
+                        console.error('❌ Erro ao buscar mensagens da API:', apiError);
+                        toast('Erro ao carregar mensagens. Tente novamente.', 'danger');
+                        body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-exclamation-triangle"></i></div><div class="t">Erro ao carregar mensagens</div><div class="s">Não foi possível carregar as mensagens. Tente novamente.</div></div>`;
+                        return;
+                    }
 
-                    if (!mensagensMock || mensagensMock.length === 0) {
+                    // ===== VERIFICAR SE HÁ MENSAGENS =====
+                    if (!mensagens || mensagens.length === 0) {
                         body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-comment-dots"></i></div><div class="t">Nenhuma mensagem</div><div class="s">Ainda não há mensagens para esta matéria</div></div>`;
-                    } else {
-                        body.innerHTML = mensagensMock.map(msg => `
-                            <article class="thread-msg">
+
+                        // Fechar modal se não houver mensagens
+                        setTimeout(() => {
+                            document.getElementById('threadOverlay').classList.remove('open');
+                            document.getElementById('threadPanel').classList.remove('open');
+                        }, 2000);
+                        return;
+                    }
+
+                    // ===== SEPARAR MENSAGENS NÃO LIDAS =====
+                    const naoLidasIds = mensagens.filter(msg => !msg.lida).map(msg => msg.id);
+                    console.log(`📊 Mensagens não lidas: ${naoLidasIds.length}`);
+
+                    // ===== MARCAR COMO LIDAS NO BACKEND =====
+                    if (naoLidasIds.length > 0) {
+                        try {
+                            await fetchWithAuth('/api/mensagens/marcar-lidas', {
+                                method: 'POST',
+                                body: JSON.stringify(naoLidasIds)
+                            });
+                            console.log(`✅ Marcadas ${naoLidasIds.length} mensagens como lidas`);
+
+                            // Atualizar contadores localmente
+                            materia.mensagensNaoLidas = 0;
+
+                            // Recalcular total não lidas
+                            totalNaoLidas = Array.from(materiasUnicas.values()).reduce((total, mat) => total + mat.mensagensNaoLidas, 0);
+                            atualizarBadgeMural(totalNaoLidas);
+
+                            // Remover badge do card
+                            const card = document.querySelector(`.mural-card[data-materia-id="${materiaId}"]`);
+                            const badgeSpan = card?.querySelector('.badge-count');
+                            if (badgeSpan) badgeSpan.remove();
+
+                            // Atualizar também o badge do card no Map global
+                            if (card) {
+                                if (materia.mensagensNaoLidas > 0) {
+                                    const badge = card.querySelector('.badge-count');
+                                    if (badge) badge.textContent = materia.mensagensNaoLidas;
+                                }
+                            }
+
+                        } catch (error) {
+                            console.warn('Erro ao marcar mensagens como lidas:', error);
+                            // Não falha a exibição das mensagens se o marcador falhar
+                        }
+                    }
+
+                    // ===== RENDERIZAR MENSAGENS =====
+                    body.innerHTML = mensagens.map(msg => {
+                        // Determinar ícone baseado no tipo
+                        let tipoIcon = '';
+                        let tipoClass = '';
+
+                        if (msg.tipo === 'INSTITUCIONAL') {
+                            tipoIcon = '🏛️';
+                            tipoClass = 'institucional';
+                        } else if (msg.tipo === 'COLETIVA') {
+                            tipoIcon = '👥';
+                            tipoClass = 'coletiva';
+                        } else if (msg.tipo === 'INDIVIDUAL') {
+                            tipoIcon = '👤';
+                            tipoClass = 'individual';
+                        }
+
+                        return `
+                            <article class="thread-msg ${!msg.lida ? 'unread' : ''}">
                                 <div class="msg-head">
-                                    <span class="from">${msg.criadoPorNome || 'Sistema'}</span>
-                                    <span class="when">${new Date(msg.dataCriacao).toLocaleDateString('pt-BR')} ${new Date(msg.dataCriacao).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                                    <span class="from">
+                                        ${tipoIcon} ${msg.criadoPorNome || 'Sistema'}
+                                        <span class="tag ${tipoClass}" style="margin-left: 8px; font-size: 0.65rem;">
+                                            ${msg.tipo === 'INSTITUCIONAL' ? 'Diretoria' : (msg.tipo === 'COLETIVA' ? 'Turma' : 'Individual')}
+                                        </span>
+                                    </span>
+                                    <span class="when">
+                                        ${new Date(msg.dataCriacao).toLocaleDateString('pt-BR')} 
+                                        ${new Date(msg.dataCriacao).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
                                 </div>
                                 <div class="body">${msg.conteudo}</div>
                                 ${msg.alunoNome ? `<div class="tag" style="margin-top: 8px; font-size: 0.7rem;">👤 Para: ${msg.alunoNome}</div>` : ''}
-                                ${msg.tipo === 'COLETIVA' ? `<div class="tag" style="margin-top: 8px; font-size: 0.7rem;">👥 Aviso da turma</div>` : ''}
+                                ${msg.salaNome && msg.tipo === 'COLETIVA' ? `<div class="tag" style="margin-top: 8px; font-size: 0.7rem;">🏫 Turma: ${msg.salaNome}</div>` : ''}
+                                ${!msg.lida ? `<div class="tag" style="margin-top: 8px; background: var(--primary-light);">🆕 Nova</div>` : ''}
                             </article>
-                        `).join('');
-                    }
+                        `;
+                    }).join('');
 
                     // Abrir o modal
                     document.getElementById('threadOverlay').classList.add('open');
                     document.getElementById('threadPanel').classList.add('open');
                     document.getElementById('threadPanel').setAttribute('aria-hidden', 'false');
+
+                    // Rolar para o topo do modal
+                    const threadBody = document.getElementById('threadBody');
+                    if (threadBody) threadBody.scrollTop = 0;
 
                 } catch (error) {
                     console.error('Erro ao carregar mensagens:', error);
