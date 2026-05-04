@@ -3808,72 +3808,151 @@
                 const grid = document.getElementById('muralGrid');
                 if (!grid) return;
 
-                grid.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-spinner fa-pulse"></i></div><div class="t">Carregando matérias...</div></div>`;
+                grid.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-spinner fa-pulse"></i></div><div class="t">Carregando mural...</div></div>`;
 
                 try {
+                    // Buscar matérias do tutor
                     const response = await fetchWithAuth('/api/tutor/materias');
                     const materias = await response.json();
 
-                    if (!materias || materias.length === 0) {
-                        grid.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-book-open"></i></div><div class="t">Nenhuma matéria encontrada</div><div class="s">Você não está vinculado a nenhuma matéria</div></div>`;
-                        return;
+                    // Buscar mensagens institucionais (Diretoria)
+                    const institucionaisResponse = await fetchWithAuth('/api/mensagens/institucionais');
+                    const institucionais = await institucionaisResponse.json();
+
+                    // Buscar mensagens coletivas da sala
+                    const salaId = materias[0]?.salaId;
+                    let coletivasDaSala = [];
+                    if (salaId) {
+                        const coletivasResponse = await fetchWithAuth(`/api/mensagens/sala/${salaId}`);
+                        coletivasDaSala = await coletivasResponse.json();
                     }
 
-                    // Agrupar por matéria e salvar no global
+                    // Limpar e popular materiasUnicas
                     materiasUnicas.clear();
+
+                    // 1. Adicionar card "Diretoria" (se houver mensagens institucionais)
+                    const totalInstitucionaisNaoLidas = institucionais.filter(msg => !msg.lida).length;
+                    materiasUnicas.set('diretoria', {
+                        id: 'diretoria',
+                        nome: 'Diretoria',
+                        tipo: 'INSTITUCIONAL',
+                        mensagensNaoLidas: totalInstitucionaisNaoLidas,
+                        mensagens: institucionais,
+                        salaNome: 'Avisos da Direção'
+                    });
+
+                    // 2. Adicionar card "Turma" (se houver mensagens coletivas da sala)
+                    const totalColetivasNaoLidas = coletivasDaSala.filter(msg => !msg.lida).length;
+                    materiasUnicas.set('turma', {
+                        id: 'turma',
+                        nome: 'Turma',
+                        tipo: 'COLETIVA',
+                        mensagensNaoLidas: totalColetivasNaoLidas,
+                        mensagens: coletivasDaSala,
+                        salaNome: `Mensagens da ${materias[0]?.salaNome || 'Turma'}`
+                    });
+
+                    // 3. Adicionar cards das matérias (apenas mensagens INDIVIDUAIS ou COLETIVAS da matéria)
+                    // Agrupar matérias
+                    const materiasMap = new Map();
                     materias.forEach(item => {
-                        if (!materiasUnicas.has(item.materiaId)) {
-                            materiasUnicas.set(item.materiaId, {
+                        if (!materiasMap.has(item.materiaId)) {
+                            materiasMap.set(item.materiaId, {
                                 id: item.materiaId,
                                 nome: item.materiaNome,
                                 salaId: item.salaId,
                                 salaNome: item.salaNome,
                                 alunos: [],
                                 presentes: 0,
-                                ausentes: 0
+                                ausentes: 0,
+                                tipo: 'MATERIA'
                             });
                         }
-                        const mat = materiasUnicas.get(item.materiaId);
+                        const mat = materiasMap.get(item.materiaId);
                         mat.alunos.push(item);
                         if (item.alunoPresente) mat.presentes++;
                         else mat.ausentes++;
                     });
 
+                    // Para cada matéria, buscar suas mensagens (apenas da matéria)
+                    for (const [materiaId, materia] of materiasMap) {
+                        try {
+                            const msgResponse = await fetchWithAuth(`/api/mensagens/materia/${materiaId}/para-tutor`);
+                            const mensagensDaMateria = await msgResponse.json();
+
+                            // Filtrar apenas mensagens que NÃO são institucionais e NÃO são coletivas de sala
+                            const mensagensFiltradas = mensagensDaMateria.filter(msg =>
+                                msg.tipo !== 'INSTITUCIONAL' &&
+                                !(msg.tipo === 'COLETIVA' && msg.salaId === salaId)
+                            );
+
+                            const naoLidas = mensagensFiltradas.filter(msg => !msg.lida).length;
+
+                            materiasUnicas.set(materiaId, {
+                                ...materia,
+                                mensagens: mensagensFiltradas,
+                                mensagensNaoLidas: naoLidas
+                            });
+                        } catch (error) {
+                            console.warn(`Erro ao buscar mensagens para matéria ${materiaId}:`, error);
+                            materiasUnicas.set(materiaId, {
+                                ...materia,
+                                mensagens: [],
+                                mensagensNaoLidas: 0
+                            });
+                        }
+                    }
+
+                    // Calcular total de não lidas
+                    totalNaoLidas = Array.from(materiasUnicas.values()).reduce((total, item) => total + (item.mensagensNaoLidas || 0), 0);
+                    atualizarBadgeMural(totalNaoLidas);
+
                     // Renderizar cards
-                    grid.innerHTML = Array.from(materiasUnicas.values()).map(materia => {
-                        const icon = getMateriaIcon(materia.nome);
-                        const cssClass = getMateriaCssClass(materia.nome);
+                    grid.innerHTML = Array.from(materiasUnicas.values()).map(item => {
+                        const isDiretoria = item.id === 'diretoria';
+                        const isTurma = item.id === 'turma';
+                        const isMateria = item.tipo !== 'INSTITUCIONAL' && item.id !== 'turma';
+
+                        let icon, cssClass, preview;
+
+                        if (isDiretoria) {
+                            icon = 'fa-school-flag';
+                            cssClass = 'cat-diretoria';
+                            preview = 'Avisos e comunicados oficiais da direção';
+                        } else if (isTurma) {
+                            icon = 'fa-users';
+                            cssClass = 'cat-edu';
+                            preview = `Avisos para toda a turma · ${item.salaNome}`;
+                        } else {
+                            icon = getMateriaIcon(item.nome);
+                            cssClass = getMateriaCssClass(item.nome);
+                            preview = `${item.alunos.length} aluno(s) · ${item.salaNome}`;
+                        }
 
                         return `
-                            <div class="mural-card ${cssClass}" data-materia-id="${materia.id}">
-                                <div class="icon-wrap"><i class="fas ${icon}"></i></div>
-                                <div class="label">${materia.nome}</div>
-                                <div class="preview">${materia.alunos.length} aluno(s) · ${materia.salaNome}</div>
-                                <div class="meta">
-                                    <span class="time">
-                                        <i class="fas fa-user-check"></i> ${materia.presentes} presente(s)
-                                    </span>
-                                    ${materia.ausentes > 0 ? `<span class="badge-count">${materia.ausentes}</span>` : ''}
-                                </div>
-                            </div>
-                        `;
+                <div class="mural-card ${cssClass}" data-card-id="${item.id}" data-card-tipo="${item.tipo || 'MATERIA'}">
+                    <div class="icon-wrap"><i class="fas ${icon}"></i></div>
+                    <div class="label">${item.nome}</div>
+                    <div class="preview">${preview}</div>
+                    <div class="meta">
+                        <span class="time">
+                            <i class="fas fa-envelope"></i> ${item.mensagens?.length || 0} mensagem(ns)
+                        </span>
+                        ${item.mensagensNaoLidas > 0 ? `<span class="badge-count">${item.mensagensNaoLidas}</span>` : ''}
+                    </div>
+                </div>
+            `;
                     }).join('');
 
                     // Adicionar eventos de clique
                     grid.querySelectorAll('.mural-card').forEach(card => {
+                        const cardId = card.dataset.cardId;
+                        const cardTipo = card.dataset.cardTipo;
                         card.addEventListener('click', () => {
-                            const materiaId = parseInt(card.dataset.materiaId);
-                            openMateriaThread(materiaId);
+                            console.log(`👉 Clique no card: ${cardId} (${cardTipo})`);
+                            openCardThread(cardId, cardTipo);
                         });
                     });
-
-                    // Atualizar badge do mural
-                    const totalAusentes = Array.from(materiasUnicas.values()).filter(m => m.ausentes > 0).length;
-                    const badge = document.getElementById('muralBadge');
-                    if (badge) {
-                        badge.textContent = totalAusentes;
-                        badge.style.display = totalAusentes > 0 ? 'flex' : 'none';
-                    }
 
                 } catch (error) {
                     console.error('Erro ao carregar mural:', error);
@@ -5843,6 +5922,92 @@
                 }
             }
 
+            async function openCardThread(cardId, cardTipo) {
+                try {
+                    const cardData = materiasUnicas.get(cardId);
+                    if (!cardData) {
+                        toast('Erro ao carregar mensagens', 'danger');
+                        return;
+                    }
+
+                    console.log('Abrindo card:', cardData.nome, 'Tipo:', cardTipo);
+
+                    // Atualizar cabeçalho
+                    document.getElementById('threadTitle').textContent = cardData.nome;
+                    document.getElementById('threadSub').textContent = cardData.salaNome ||
+                        (cardTipo === 'INSTITUCIONAL' ? 'Avisos da Direção' : 'Mensagens');
+
+                    const ic = document.getElementById('threadIcon');
+                    let icon = cardTipo === 'INSTITUCIONAL' ? 'fa-school-flag' :
+                        (cardTipo === 'COLETIVA' ? 'fa-users' : getMateriaIcon(cardData.nome));
+                    ic.innerHTML = `<i class="fas ${icon}"></i>`;
+
+                    const body = document.getElementById('threadBody');
+                    body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-spinner fa-pulse"></i></div><div class="t">Carregando mensagens...</div></div>`;
+
+                    // Buscar mensagens baseado no tipo
+                    let mensagens = cardData.mensagens || [];
+
+                    // Se não tiver mensagens pré-carregadas, buscar da API
+                    if (!mensagens.length && cardTipo !== 'MATERIA') {
+                        let endpoint = '';
+                        if (cardTipo === 'INSTITUCIONAL') {
+                            endpoint = '/api/mensagens/institucionais';
+                        } else if (cardTipo === 'COLETIVA') {
+                            const salaId = cardData.salaId || (await getSalaIdDoTutor());
+                            endpoint = `/api/mensagens/sala/${salaId}`;
+                        }
+
+                        if (endpoint) {
+                            const response = await fetchWithAuth(endpoint);
+                            mensagens = await response.json();
+                        }
+                    }
+
+                    // Renderizar (mesma lógica de antes)
+                    if (!mensagens || mensagens.length === 0) {
+                        body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-comment-dots"></i></div><div class="t">Nenhuma mensagem</div><div class="s">Ainda não há mensagens para ${cardData.nome}</div></div>`;
+                        return;
+                    }
+
+                    // Marcar como lidas
+                    const naoLidasIds = mensagens.filter(msg => !msg.lida).map(msg => msg.id);
+                    if (naoLidasIds.length > 0) {
+                        await fetchWithAuth('/api/mensagens/marcar-lidas', {
+                            method: 'POST',
+                            body: JSON.stringify(naoLidasIds)
+                        });
+                        cardData.mensagensNaoLidas = 0;
+                        totalNaoLidas = Math.max(0, totalNaoLidas - naoLidasIds.length);
+                        atualizarBadgeMural(totalNaoLidas);
+
+                        // Atualizar badge do card
+                        const cardElement = document.querySelector(`.mural-card[data-card-id="${cardId}"]`);
+                        const badgeSpan = cardElement?.querySelector('.badge-count');
+                        if (badgeSpan) badgeSpan.remove();
+                    }
+
+                    // Renderizar mensagens
+                    body.innerHTML = mensagens.map(msg => `
+            <article class="thread-msg">
+                <div class="msg-head">
+                    <span class="from">${msg.criadoPorNome || 'Sistema'}</span>
+                    <span class="when">${new Date(msg.dataCriacao).toLocaleString('pt-BR')}</span>
+                </div>
+                <div class="body">${msg.conteudo}</div>
+                ${msg.alunoNome ? `<div class="tag">👤 Para: ${msg.alunoNome}</div>` : ''}
+            </article>
+        `).join('');
+
+                    // Abrir modal
+                    document.getElementById('threadOverlay').classList.add('open');
+                    document.getElementById('threadPanel').classList.add('open');
+
+                } catch (error) {
+                    console.error('Erro:', error);
+                    toast('Erro ao carregar mensagens', 'danger');
+                }
+            }
 
 
         })();
