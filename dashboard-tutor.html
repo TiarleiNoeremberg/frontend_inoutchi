@@ -3803,6 +3803,154 @@
                 return 'cat-mat';
             }
 
+            // ============== FUNÇÃO PARA ABRIR THREAD DO CARD ==============
+            async function openCardThread(cardId, cardTipo) {
+                try {
+                    console.log('🔍 openCardThread chamada com:', { cardId, cardTipo });
+
+                    const cardData = materiasUnicas.get(cardId);
+                    if (!cardData) {
+                        console.error('❌ Card não encontrado:', cardId);
+                        showToast('Erro ao carregar mensagens', 'danger');
+                        return;
+                    }
+
+                    console.log('📦 CardData encontrado:', cardData);
+
+                    // Atualizar cabeçalho
+                    document.getElementById('threadTitle').textContent = cardData.nome;
+                    document.getElementById('threadSub').textContent = cardData.salaNome ||
+                        (cardTipo === 'INSTITUCIONAL' ? 'Avisos da Direção' :
+                            cardTipo === 'COLETIVA' ? 'Avisos da Turma' : 'Mensagens da matéria');
+
+                    const ic = document.getElementById('threadIcon');
+                    let icon = cardTipo === 'INSTITUCIONAL' ? 'fa-school-flag' :
+                        (cardTipo === 'COLETIVA' ? 'fa-users' : getMateriaIcon(cardData.nome));
+                    ic.innerHTML = `<i class="fas ${icon}"></i>`;
+
+                    const body = document.getElementById('threadBody');
+                    body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-spinner fa-pulse"></i></div><div class="t">Carregando mensagens...</div></div>`;
+
+                    // Buscar mensagens do backend
+                    let mensagens = [];
+                    let endpoint = '';
+
+                    if (cardTipo === 'INSTITUCIONAL') {
+                        endpoint = '/api/mensagens/institucionais';
+                    } else if (cardTipo === 'COLETIVA') {
+                        const salaId = cardData.salaId || await getSalaIdDoTutor();
+                        if (!salaId) {
+                            throw new Error('Sala não identificada');
+                        }
+                        endpoint = `/api/mensagens/sala/${salaId}`;
+                    } else if (cardTipo === 'MATERIA') {
+                        endpoint = `/api/mensagens/materia/${cardId}/para-tutor`;
+                    }
+
+                    console.log('🌐 Chamando endpoint:', endpoint);
+
+                    if (endpoint) {
+                        const response = await fetchWithAuth(endpoint);
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        }
+                        mensagens = await response.json();
+                        console.log(`✅ ${cardData.nome}: ${mensagens.length} mensagens carregadas`);
+                    }
+
+                    // Se não houver mensagens
+                    if (!mensagens || mensagens.length === 0) {
+                        body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-comment-dots"></i></div><div class="t">Nenhuma mensagem</div><div class="s">Ainda não há mensagens para ${cardData.nome}</div></div>`;
+
+                        document.getElementById('threadOverlay').classList.add('open');
+                        document.getElementById('threadPanel').classList.add('open');
+                        return;
+                    }
+
+                    // Marcar como lidas
+                    const naoLidasIds = mensagens.filter(msg => !msg.lida).map(msg => msg.id);
+                    if (naoLidasIds.length > 0) {
+                        try {
+                            await fetchWithAuth('/api/mensagens/marcar-lidas', {
+                                method: 'POST',
+                                body: JSON.stringify(naoLidasIds)
+                            });
+                            console.log(`✅ Marcadas ${naoLidasIds.length} mensagens como lidas`);
+
+                            cardData.mensagensNaoLidas = 0;
+                            totalNaoLidas = Math.max(0, totalNaoLidas - naoLidasIds.length);
+                            atualizarBadgeMural(totalNaoLidas);
+
+                            const cardElement = document.querySelector(`.mural-card[data-card-id="${cardId}"]`);
+                            const badgeSpan = cardElement?.querySelector('.badge-count');
+                            if (badgeSpan) badgeSpan.remove();
+                        } catch (error) {
+                            console.warn('Erro ao marcar mensagens como lidas:', error);
+                        }
+                    }
+
+                    // Renderizar mensagens
+                    body.innerHTML = mensagens.map(msg => {
+                        let tipoIcon = '';
+                        let tipoClass = '';
+
+                        if (msg.tipo === 'INSTITUCIONAL') {
+                            tipoIcon = '🏛️ ';
+                            tipoClass = 'institucional';
+                        } else if (msg.tipo === 'COLETIVA') {
+                            tipoIcon = '👥 ';
+                            tipoClass = 'coletiva';
+                        } else if (msg.tipo === 'INDIVIDUAL') {
+                            tipoIcon = '👤 ';
+                            tipoClass = 'individual';
+                        }
+
+                        return `
+                <article class="thread-msg">
+                    <div class="msg-head">
+                        <span class="from">
+                            ${tipoIcon}${msg.criadoPorNome || 'Sistema'}
+                            <span class="tag ${tipoClass}" style="margin-left: 8px;">
+                                ${msg.tipo === 'INSTITUCIONAL' ? 'Diretoria' : (msg.tipo === 'COLETIVA' ? 'Turma' : 'Individual')}
+                            </span>
+                        </span>
+                        <span class="when">${new Date(msg.dataCriacao).toLocaleString('pt-BR')}</span>
+                    </div>
+                    <div class="body">${msg.conteudo}</div>
+                    ${msg.alunoNome ? `<div class="tag" style="margin-top: 8px;">👤 Para: ${msg.alunoNome}</div>` : ''}
+                </article>
+            `;
+                    }).join('');
+
+                    // Abrir modal
+                    document.getElementById('threadOverlay').classList.add('open');
+                    document.getElementById('threadPanel').classList.add('open');
+
+                } catch (error) {
+                    console.error('❌ Erro em openCardThread:', error);
+                    showToast(`Erro ao carregar mensagens: ${error.message}`, 'danger');
+
+                    const body = document.getElementById('threadBody');
+                    body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-exclamation-triangle"></i></div><div class="t">Erro ao carregar mensagens</div><div class="s">${error.message}</div></div>`;
+                    document.getElementById('threadOverlay').classList.add('open');
+                    document.getElementById('threadPanel').classList.add('open');
+                }
+            }
+
+            // Função auxiliar para obter sala do tutor
+            async function getSalaIdDoTutor() {
+                try {
+                    const response = await fetchWithAuth('/api/tutor/materias');
+                    const materias = await response.json();
+                    if (materias && materias.length > 0) {
+                        return materias[0].salaId;
+                    }
+                } catch (error) {
+                    console.error('Erro ao obter sala do tutor:', error);
+                }
+                return null;
+            }
+
             // ============== MURAL REAL (via API) ==============
             async function renderMural() {
                 const grid = document.getElementById('muralGrid');
@@ -3852,8 +4000,7 @@
                         salaNome: `Mensagens da ${materias[0]?.salaNome || 'Turma'}`
                     });
 
-                    // 3. Adicionar cards das matérias (apenas mensagens INDIVIDUAIS ou COLETIVAS da matéria)
-                    // Agrupar matérias
+                    // 3. Adicionar cards das matérias
                     const materiasMap = new Map();
                     materias.forEach(item => {
                         if (!materiasMap.has(item.materiaId)) {
@@ -3874,13 +4021,12 @@
                         else mat.ausentes++;
                     });
 
-                    // Para cada matéria, buscar suas mensagens (apenas da matéria)
+                    // Para cada matéria, buscar suas mensagens
                     for (const [materiaId, materia] of materiasMap) {
                         try {
                             const msgResponse = await fetchWithAuth(`/api/mensagens/materia/${materiaId}/para-tutor`);
                             const mensagensDaMateria = await msgResponse.json();
 
-                            // Filtrar apenas mensagens que NÃO são institucionais e NÃO são coletivas de sala
                             const mensagensFiltradas = mensagensDaMateria.filter(msg =>
                                 msg.tipo !== 'INSTITUCIONAL' &&
                                 !(msg.tipo === 'COLETIVA' && msg.salaId === salaId)
@@ -3911,7 +4057,6 @@
                     grid.innerHTML = Array.from(materiasUnicas.values()).map(item => {
                         const isDiretoria = item.id === 'diretoria';
                         const isTurma = item.id === 'turma';
-                        const isMateria = item.tipo !== 'INSTITUCIONAL' && item.id !== 'turma';
 
                         let icon, cssClass, preview;
 
@@ -3944,7 +4089,7 @@
             `;
                     }).join('');
 
-                    // Adicionar eventos de clique
+                    // Adicionar eventos de clique - USANDO ARROW FUNCTION PARA MANTER O ESCOPO
                     grid.querySelectorAll('.mural-card').forEach(card => {
                         const cardId = card.dataset.cardId;
                         const cardTipo = card.dataset.cardTipo;
@@ -3952,12 +4097,8 @@
                             e.preventDefault();
                             e.stopPropagation();
                             console.log(`👉 Clique no card: ${cardId} (${cardTipo})`);
-                            if (typeof window.openCardThread === 'function') {
-                                window.openCardThread(cardId, cardTipo);
-                            } else {
-                                console.error('❌ openCardThread não está definida globalmente');
-                                toast('Erro: função não disponível', 'danger');
-                            }
+                            // Chamar a função diretamente (mesmo escopo)
+                            openCardThread(cardId, cardTipo);
                         });
                     });
 
@@ -5929,113 +6070,6 @@
                 }
             }
 
-            async function openCardThread(cardId, cardTipo) {
-                try {
-                    const cardData = materiasUnicas.get(cardId);
-                    if (!cardData) {
-                        toast('Erro ao carregar mensagens', 'danger');
-                        return;
-                    }
-
-                    console.log('Abrindo card:', cardData.nome, 'Tipo:', cardTipo);
-
-                    // Atualizar cabeçalho
-                    document.getElementById('threadTitle').textContent = cardData.nome;
-                    document.getElementById('threadSub').textContent = cardData.salaNome ||
-                        (cardTipo === 'INSTITUCIONAL' ? 'Avisos da Direção' :
-                            cardTipo === 'COLETIVA' ? 'Avisos da Turma' : 'Mensagens');
-
-                    const ic = document.getElementById('threadIcon');
-                    let icon = cardTipo === 'INSTITUCIONAL' ? 'fa-school-flag' :
-                        (cardTipo === 'COLETIVA' ? 'fa-users' : getMateriaIcon(cardData.nome));
-                    ic.innerHTML = `<i class="fas ${icon}"></i>`;
-
-                    const body = document.getElementById('threadBody');
-                    body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-spinner fa-pulse"></i></div><div class="t">Carregando mensagens...</div></div>`;
-
-                    // ===== CORREÇÃO: Buscar mensagens para TODOS os tipos =====
-                    let mensagens = [];
-                    let endpoint = '';
-
-                    if (cardTipo === 'INSTITUCIONAL') {
-                        endpoint = '/api/mensagens/institucionais';
-                    } else if (cardTipo === 'COLETIVA') {
-                        const salaId = cardData.salaId || await getSalaIdDoTutor();
-                        endpoint = `/api/mensagens/sala/${salaId}`;
-                    } else if (cardTipo === 'MATERIA') {
-                        endpoint = `/api/mensagens/materia/${cardId}/para-tutor`;
-                    }
-
-                    if (endpoint) {
-                        const response = await fetchWithAuth(endpoint);
-                        mensagens = await response.json();
-                        console.log(`✅ ${cardData.nome}: ${mensagens.length} mensagens carregadas`);
-                    } else if (cardData.mensagens && cardData.mensagens.length) {
-                        mensagens = cardData.mensagens;
-                    }
-
-                    // Se não houver mensagens
-                    if (!mensagens || mensagens.length === 0) {
-                        body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-comment-dots"></i></div><div class="t">Nenhuma mensagem</div><div class="s">Ainda não há mensagens para ${cardData.nome}</div></div>`;
-
-                        // Abrir o modal mesmo assim (para mostrar que está vazio)
-                        document.getElementById('threadOverlay').classList.add('open');
-                        document.getElementById('threadPanel').classList.add('open');
-                        return;
-                    }
-
-                    // Marcar como lidas
-                    const naoLidasIds = mensagens.filter(msg => !msg.lida).map(msg => msg.id);
-                    if (naoLidasIds.length > 0) {
-                        try {
-                            await fetchWithAuth('/api/mensagens/marcar-lidas', {
-                                method: 'POST',
-                                body: JSON.stringify(naoLidasIds)
-                            });
-                            console.log(`✅ Marcadas ${naoLidasIds.length} mensagens como lidas`);
-
-                            cardData.mensagensNaoLidas = 0;
-                            totalNaoLidas = Math.max(0, totalNaoLidas - naoLidasIds.length);
-                            atualizarBadgeMural(totalNaoLidas);
-
-                            // Atualizar badge do card
-                            const cardElement = document.querySelector(`.mural-card[data-card-id="${cardId}"]`);
-                            const badgeSpan = cardElement?.querySelector('.badge-count');
-                            if (badgeSpan) badgeSpan.remove();
-                        } catch (error) {
-                            console.warn('Erro ao marcar mensagens como lidas:', error);
-                        }
-                    }
-
-                    // Renderizar mensagens
-                    body.innerHTML = mensagens.map(msg => `
-                        <article class="thread-msg">
-                            <div class="msg-head">
-                                <span class="from">${msg.criadoPorNome || 'Sistema'}</span>
-                                <span class="when">${new Date(msg.dataCriacao).toLocaleString('pt-BR')}</span>
-                            </div>
-                            <div class="body">${msg.conteudo}</div>
-                            ${msg.alunoNome ? `<div class="tag">👤 Para: ${msg.alunoNome}</div>` : ''}
-                            ${msg.tipo === 'COLETIVA' ? `<div class="tag">👥 Turma</div>` : ''}
-                            ${msg.tipo === 'INSTITUCIONAL' ? `<div class="tag">🏛️ Diretoria</div>` : ''}
-                        </article>
-                    `).join('');
-
-                    // Abrir modal
-                    document.getElementById('threadOverlay').classList.add('open');
-                    document.getElementById('threadPanel').classList.add('open');
-
-                } catch (error) {
-                    console.error('Erro ao abrir card:', error);
-                    toast('Erro ao carregar mensagens', 'danger');
-
-                    // Mesmo com erro, abrir o modal vazio
-                    const body = document.getElementById('threadBody');
-                    body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-exclamation-triangle"></i></div><div class="t">Erro ao carregar mensagens</div><div class="s">Tente novamente mais tarde</div></div>`;
-                    document.getElementById('threadOverlay').classList.add('open');
-                    document.getElementById('threadPanel').classList.add('open');
-                }
-            }
 
             async function getSalaIdDoTutor() {
                 try {
@@ -6050,186 +6084,7 @@
                 return null;
             }
         })();
-
-        // Adicione esta função FORA do IIFE, antes da declaração da função anônima
-        window.openCardThread = async function (cardId, cardTipo) {
-            try {
-                console.log('🔍 openCardThread chamada com:', { cardId, cardTipo });
-
-                const cardData = materiasUnicas.get(cardId);
-                if (!cardData) {
-                    console.error('❌ Card não encontrado:', cardId);
-                    toast('Erro ao carregar mensagens', 'danger');
-                    return;
-                }
-
-                console.log('📦 CardData:', cardData);
-
-                // Atualizar cabeçalho
-                document.getElementById('threadTitle').textContent = cardData.nome;
-                document.getElementById('threadSub').textContent = cardData.salaNome ||
-                    (cardTipo === 'INSTITUCIONAL' ? 'Avisos da Direção' :
-                        cardTipo === 'COLETIVA' ? 'Avisos da Turma' : 'Mensagens da matéria');
-
-                const ic = document.getElementById('threadIcon');
-                let icon = cardTipo === 'INSTITUCIONAL' ? 'fa-school-flag' :
-                    (cardTipo === 'COLETIVA' ? 'fa-users' : getMateriaIcon(cardData.nome));
-                ic.innerHTML = `<i class="fas ${icon}"></i>`;
-
-                const body = document.getElementById('threadBody');
-                body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-spinner fa-pulse"></i></div><div class="t">Carregando mensagens...</div></div>`;
-
-                // ===== BUSCAR MENSAGENS DO BACKEND =====
-                let mensagens = [];
-                let endpoint = '';
-
-                if (cardTipo === 'INSTITUCIONAL') {
-                    endpoint = '/api/mensagens/institucionais';
-                } else if (cardTipo === 'COLETIVA') {
-                    const salaId = cardData.salaId || await getSalaIdDoTutor();
-                    if (!salaId) {
-                        throw new Error('Sala não identificada');
-                    }
-                    endpoint = `/api/mensagens/sala/${salaId}`;
-                } else if (cardTipo === 'MATERIA') {
-                    endpoint = `/api/mensagens/materia/${cardId}/para-tutor`;
-                }
-
-                console.log('🌐 Chamando endpoint:', endpoint);
-
-                if (endpoint) {
-                    const response = await fetchWithAuth(endpoint);
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                    }
-                    mensagens = await response.json();
-                    console.log(`✅ ${cardData.nome}: ${mensagens.length} mensagens carregadas`);
-                }
-
-                // Se não houver mensagens
-                if (!mensagens || mensagens.length === 0) {
-                    body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-comment-dots"></i></div><div class="t">Nenhuma mensagem</div><div class="s">Ainda não há mensagens para ${cardData.nome}</div></div>`;
-
-                    // Abrir o modal mesmo assim
-                    document.getElementById('threadOverlay').classList.add('open');
-                    document.getElementById('threadPanel').classList.add('open');
-                    return;
-                }
-
-                // Marcar como lidas
-                const naoLidasIds = mensagens.filter(msg => !msg.lida).map(msg => msg.id);
-                if (naoLidasIds.length > 0) {
-                    try {
-                        await fetchWithAuth('/api/mensagens/marcar-lidas', {
-                            method: 'POST',
-                            body: JSON.stringify(naoLidasIds)
-                        });
-                        console.log(`✅ Marcadas ${naoLidasIds.length} mensagens como lidas`);
-
-                        cardData.mensagensNaoLidas = 0;
-                        totalNaoLidas = Math.max(0, totalNaoLidas - naoLidasIds.length);
-                        atualizarBadgeMural(totalNaoLidas);
-
-                        // Atualizar badge do card
-                        const cardElement = document.querySelector(`.mural-card[data-card-id="${cardId}"]`);
-                        const badgeSpan = cardElement?.querySelector('.badge-count');
-                        if (badgeSpan) badgeSpan.remove();
-                    } catch (error) {
-                        console.warn('Erro ao marcar mensagens como lidas:', error);
-                    }
-                }
-
-                // Renderizar mensagens
-                body.innerHTML = mensagens.map(msg => {
-                    let tipoIcon = '';
-                    let tipoClass = '';
-
-                    if (msg.tipo === 'INSTITUCIONAL') {
-                        tipoIcon = '🏛️ ';
-                        tipoClass = 'institucional';
-                    } else if (msg.tipo === 'COLETIVA') {
-                        tipoIcon = '👥 ';
-                        tipoClass = 'coletiva';
-                    } else if (msg.tipo === 'INDIVIDUAL') {
-                        tipoIcon = '👤 ';
-                        tipoClass = 'individual';
-                    }
-
-                    return `
-                <article class="thread-msg">
-                    <div class="msg-head">
-                        <span class="from">
-                            ${tipoIcon}${msg.criadoPorNome || 'Sistema'}
-                            <span class="tag ${tipoClass}" style="margin-left: 8px;">
-                                ${msg.tipo === 'INSTITUCIONAL' ? 'Diretoria' : (msg.tipo === 'COLETIVA' ? 'Turma' : 'Individual')}
-                            </span>
-                        </span>
-                        <span class="when">${new Date(msg.dataCriacao).toLocaleString('pt-BR')}</span>
-                    </div>
-                    <div class="body">${msg.conteudo}</div>
-                    ${msg.alunoNome ? `<div class="tag" style="margin-top: 8px;">👤 Para: ${msg.alunoNome}</div>` : ''}
-                </article>
-            `;
-                }).join('');
-
-                // Abrir modal
-                document.getElementById('threadOverlay').classList.add('open');
-                document.getElementById('threadPanel').classList.add('open');
-
-            } catch (error) {
-                console.error('❌ Erro em openCardThread:', error);
-                toast(`Erro ao carregar mensagens: ${error.message}`, 'danger');
-
-                const body = document.getElementById('threadBody');
-                body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-exclamation-triangle"></i></div><div class="t">Erro ao carregar mensagens</div><div class="s">${error.message}</div></div>`;
-                document.getElementById('threadOverlay').classList.add('open');
-                document.getElementById('threadPanel').classList.add('open');
-            }
-        };
-
-        window.getMateriaIcon = function (materiaNome) {
-            const icones = {
-                'MATEMÁTICA': 'fa-square-root-variable',
-                'PORTUGUÊS': 'fa-book-open',
-                'HISTÓRIA': 'fa-landmark',
-                'GEOGRAFIA': 'fa-globe',
-                'CIÊNCIAS': 'fa-flask',
-                'ARTES': 'fa-palette',
-                'EDUCAÇÃO FÍSICA': 'fa-person-running'
-            };
-            const nomeUpper = (materiaNome || '').toUpperCase();
-            for (let [key, icon] of Object.entries(icones)) {
-                if (nomeUpper.includes(key)) return icon;
-            }
-            return 'fa-chalkboard-user';
-        };
-
-        window.atualizarBadgeMural = function (total) {
-            const badge = document.getElementById('muralBadge');
-            if (!badge) return;
-
-            if (total > 0) {
-                badge.textContent = total;
-                badge.style.display = 'grid';
-            } else {
-                badge.style.display = 'none';
-            }
-
-            localStorage.setItem('totalMensagensNaoLidas', total);
-        };
-
-        window.getSalaIdDoTutor = async function () {
-            try {
-                const response = await fetchWithAuth('/api/tutor/materias');
-                const materias = await response.json();
-                if (materias && materias.length > 0) {
-                    return materias[0].salaId;
-                }
-            } catch (error) {
-                console.error('Erro ao obter sala do tutor:', error);
-            }
-            return null;
-        };
+        
     </script>
 
 </body>
