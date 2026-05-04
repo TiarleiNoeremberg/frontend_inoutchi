@@ -3810,12 +3810,16 @@
 
                     let cardData = materiasUnicas.get(cardId);
                     if (!cardData && !isNaN(cardId)) {
-                        // Se cardId é número (ou string numérica), tenta como número
                         cardData = materiasUnicas.get(parseInt(cardId));
                     }
                     if (!cardData) {
-                        // Tenta como string (se não for string já)
                         cardData = materiasUnicas.get(String(cardId));
+                    }
+
+                    if (!cardData) {
+                        console.error('❌ Card não encontrado:', cardId);
+                        showToast('Erro ao carregar mensagens', 'danger');
+                        return;
                     }
 
                     console.log('📦 CardData encontrado:', cardData);
@@ -3833,9 +3837,6 @@
 
                     const body = document.getElementById('threadBody');
                     body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-spinner fa-pulse"></i></div><div class="t">Carregando mensagens...</div></div>`;
-
-                    console.log('🔍 Buscando cardId:', cardId, 'em materiasUnicas');
-                    console.log('🔍 Keys disponíveis:', Array.from(materiasUnicas.keys()));
 
                     // Buscar mensagens do backend
                     let mensagens = [];
@@ -3867,38 +3868,88 @@
                     // Se não houver mensagens
                     if (!mensagens || mensagens.length === 0) {
                         body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-comment-dots"></i></div><div class="t">Nenhuma mensagem</div><div class="s">Ainda não há mensagens para ${cardData.nome}</div></div>`;
-
                         document.getElementById('threadOverlay').classList.add('open');
                         document.getElementById('threadPanel').classList.add('open');
                         return;
                     }
 
+                    // ===== LOGS PARA DEBUG =====
+                    console.log('📊 Mensagens ANTES de marcar:', mensagens.map(m => ({
+                        id: m.id,
+                        lida: m.lida,
+                        conteudo: m.conteudo?.substring(0, 30)
+                    })));
+
                     // Marcar como lidas
                     const naoLidasIds = mensagens.filter(msg => !msg.lida).map(msg => msg.id);
+                    console.log('📝 IDs das mensagens não lidas:', naoLidasIds);
+
                     if (naoLidasIds.length > 0) {
                         try {
-                            await fetchWithAuth('/api/mensagens/marcar-lidas', {
+                            const markResponse = await fetchWithAuth('/api/mensagens/marcar-lidas', {
                                 method: 'POST',
                                 body: JSON.stringify(naoLidasIds)
                             });
+                            const markResult = await markResponse.json();
+                            console.log('🔍 Resposta do backend ao marcar lidas:', markResult);
+
+                            if (!markResponse.ok) {
+                                console.error('❌ Erro na resposta do backend:', markResult);
+                                throw new Error(markResult.mensagem || 'Erro ao marcar mensagens como lidas');
+                            }
+
                             console.log(`✅ Marcadas ${naoLidasIds.length} mensagens como lidas`);
 
+                            // ===== SALVAR NO SESSIONSTORAGE COMO FALLBACK =====
+                            const lidasSalvas = JSON.parse(sessionStorage.getItem('mensagens_lidas') || '{}');
+                            naoLidasIds.forEach(id => {
+                                lidasSalvas[id] = true;
+                            });
+                            sessionStorage.setItem('mensagens_lidas', JSON.stringify(lidasSalvas));
+                            console.log('💾 IDs salvos no sessionStorage:', naoLidasIds);
+
+                            // ===== VERIFICAR SE REALMENTE MARCOU =====
+                            const checkResponse = await fetchWithAuth(endpoint);
+                            const checkData = await checkResponse.json();
+                            console.log('📊 Mensagens DEPOIS de marcar:', checkData.map(m => ({
+                                id: m.id,
+                                lida: m.lida
+                            })));
+
+                            // Atualizar estado local
                             cardData.mensagensNaoLidas = 0;
-                            totalNaoLidas = Math.max(0, totalNaoLidas - naoLidasIds.length);
+                            cardData.mensagens.forEach(msg => {
+                                if (naoLidasIds.includes(msg.id)) {
+                                    msg.lida = true;
+                                }
+                            });
+
+                            // Recalcular total de não lidas
+                            totalNaoLidas = 0;
+                            for (const [_, item] of materiasUnicas) {
+                                const naoLidasItem = item.mensagens?.filter(m => !m.lida).length || 0;
+                                totalNaoLidas += naoLidasItem;
+                            }
                             atualizarBadgeMural(totalNaoLidas);
 
+                            // Remover badge do card visualmente
                             const cardElement = document.querySelector(`.mural-card[data-card-id="${cardId}"]`);
                             const badgeSpan = cardElement?.querySelector('.badge-count');
                             if (badgeSpan) badgeSpan.remove();
+
                         } catch (error) {
-                            console.warn('Erro ao marcar mensagens como lidas:', error);
+                            console.error('❌ Erro ao marcar mensagens como lidas:', error);
+                            showToast(`Erro ao marcar mensagens: ${error.message}`, 'danger');
                         }
+                    } else {
+                        console.log('ℹ️ Nenhuma mensagem não lida para marcar');
                     }
 
                     // Renderizar mensagens
                     body.innerHTML = mensagens.map(msg => {
                         let tipoIcon = '';
                         let tipoClass = '';
+                        const isLida = msg.lida || (JSON.parse(sessionStorage.getItem('mensagens_lidas') || '{}')[msg.id] === true);
 
                         if (msg.tipo === 'INSTITUCIONAL') {
                             tipoIcon = '🏛️ ';
@@ -3912,7 +3963,7 @@
                         }
 
                         return `
-                <article class="thread-msg">
+                <article class="thread-msg ${!isLida ? 'unread' : ''}">
                     <div class="msg-head">
                         <span class="from">
                             ${tipoIcon}${msg.criadoPorNome || 'Sistema'}
@@ -3971,7 +4022,7 @@
 
                     // Buscar mensagens institucionais (Diretoria)
                     const institucionaisResponse = await fetchWithAuth('/api/mensagens/institucionais');
-                    const institucionais = await institucionaisResponse.json();
+                    let institucionais = await institucionaisResponse.json();
 
                     // Buscar mensagens coletivas da sala
                     const salaId = materias[0]?.salaId;
@@ -3981,10 +4032,27 @@
                         coletivasDaSala = await coletivasResponse.json();
                     }
 
+                    // Recuperar IDs de mensagens lidas do sessionStorage
+                    const lidasSalvas = JSON.parse(sessionStorage.getItem('mensagens_lidas') || '{}');
+
+                    // Aplicar estado salvo nas mensagens institucionais
+                    institucionais.forEach(msg => {
+                        if (lidasSalvas[msg.id]) {
+                            msg.lida = true;
+                        }
+                    });
+
+                    // Aplicar estado salvo nas mensagens coletivas
+                    coletivasDaSala.forEach(msg => {
+                        if (lidasSalvas[msg.id]) {
+                            msg.lida = true;
+                        }
+                    });
+
                     // Limpar e popular materiasUnicas
                     materiasUnicas.clear();
 
-                    // 1. Adicionar card "Diretoria" (se houver mensagens institucionais)
+                    // 1. Adicionar card "Diretoria"
                     const totalInstitucionaisNaoLidas = institucionais.filter(msg => !msg.lida).length;
                     materiasUnicas.set('diretoria', {
                         id: 'diretoria',
@@ -3995,7 +4063,7 @@
                         salaNome: 'Avisos da Direção'
                     });
 
-                    // 2. Adicionar card "Turma" (se houver mensagens coletivas da sala)
+                    // 2. Adicionar card "Turma"
                     const totalColetivasNaoLidas = coletivasDaSala.filter(msg => !msg.lida).length;
                     materiasUnicas.set('turma', {
                         id: 'turma',
@@ -4031,13 +4099,22 @@
                     for (const [materiaId, materia] of materiasMap) {
                         try {
                             const msgResponse = await fetchWithAuth(`/api/mensagens/materia/${materiaId}/para-tutor`);
-                            const mensagensDaMateria = await msgResponse.json();
+                            let mensagensDaMateria = await msgResponse.json();
 
+                            // Filtrar mensagens
                             const mensagensFiltradas = mensagensDaMateria.filter(msg =>
                                 msg.tipo !== 'INSTITUCIONAL' &&
                                 !(msg.tipo === 'COLETIVA' && msg.salaId === salaId)
                             );
 
+                            // Aplicar estado salvo do sessionStorage
+                            mensagensFiltradas.forEach(msg => {
+                                if (lidasSalvas[msg.id]) {
+                                    msg.lida = true;
+                                }
+                            });
+
+                            // Calcular não lidas após aplicar estado salvo
                             const naoLidas = mensagensFiltradas.filter(msg => !msg.lida).length;
 
                             materiasUnicas.set(materiaId, {
@@ -4059,7 +4136,8 @@
                     console.log('🔍 materiasUnicas contents:', Array.from(materiasUnicas.entries()).map(([key, val]) => ({
                         id: key,
                         nome: val.nome,
-                        tipo: val.tipo
+                        tipo: val.tipo,
+                        naoLidas: val.mensagensNaoLidas
                     })));
 
                     // Calcular total de não lidas
@@ -4102,7 +4180,7 @@
             `;
                     }).join('');
 
-                    // Adicionar eventos de clique - USANDO ARROW FUNCTION PARA MANTER O ESCOPO
+                    // Adicionar eventos de clique
                     grid.querySelectorAll('.mural-card').forEach(card => {
                         const cardId = card.dataset.cardId;
                         const cardTipo = card.dataset.cardTipo;
@@ -4110,7 +4188,6 @@
                             e.preventDefault();
                             e.stopPropagation();
                             console.log(`👉 Clique no card: ${cardId} (${cardTipo})`);
-                            // Chamar a função diretamente (mesmo escopo)
                             openCardThread(cardId, cardTipo);
                         });
                     });
