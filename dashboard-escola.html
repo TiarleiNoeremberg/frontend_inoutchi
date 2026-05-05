@@ -1705,6 +1705,21 @@
             padding: 4px 12px;
             font-size: 0.7rem;
         }
+
+        .mensagem-tipo.individual {
+            background: linear-gradient(135deg, #8B5CF6, #6D28D9);
+            color: white;
+        }
+
+        .mensagem-tipo.coletiva {
+            background: var(--warning);
+            color: white;
+        }
+
+        .mensagem-tipo.institucional {
+            background: linear-gradient(135deg, #1a6fc4, #0ea5a0);
+            color: white;
+        }
     </style>
 </head>
 
@@ -2394,9 +2409,10 @@
                     <div class="filter-group">
                         <label class="form-label">Filtrar por Tipo</label>
                         <select id="filtroTipoMensagem" class="custom-form-input" onchange="carregarMensagens()">
-                            <option value="TODOS">Todas</option>
-                            <option value="INSTITUCIONAL">📢 Institucional</option>
-                            <option value="COLETIVA">👥 Coletiva</option>
+                            <option value="TODOS">Todas as mensagens</option>
+                            <option value="INSTITUCIONAL">Institucional (Diretoria)</option>
+                            <option value="COLETIVA">Coletiva (Turma/Sala)</option>
+                            <option value="INDIVIDUAL">Individual (Aluno)</option>
                         </select>
                     </div>
                     <div class="filter-group button-group">
@@ -2650,8 +2666,8 @@
                         <div class="form-group">
                             <label for="mensagemTipo">Tipo de Mensagem</label>
                             <select id="mensagemTipo" class="modern-select" required>
-                                <option value="INSTITUCIONAL">📢 Institucional - Para todos (Diretoria)</option>
-                                <option value="COLETIVA">👥 Coletiva - Para uma turma específica</option>
+                                <option value="INSTITUCIONAL">Institucional - Para todos (Diretoria)</option>
+                                <option value="COLETIVA">Coletiva - Para uma turma específica</option>
                             </select>
                         </div>
 
@@ -6259,21 +6275,23 @@
 
         async function carregarMensagens() {
             const container = document.getElementById('mensagensList');
-            const filtroTipo = document.getElementById('filtroTipoMensagem').value;
+            if (!container) return;
+
+            const filtroTipo = document.getElementById('filtroTipoMensagem')?.value || 'TODOS';
 
             container.innerHTML = '<div class="text-center py-4"><div class="loading-spinner"></div><p>Carregando mensagens...</p></div>';
 
             try {
-                let url = `${API_URL}/api/mensagens?size=100&sort=criadoEm,desc`;
-
-                const response = await fetch(url, {
+                // Usar o endpoint unificado (se já tiver implementado)
+                const response = await fetch(`${API_URL}/api/mensagens`, {
                     headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
                 });
 
-                if (!response.ok) throw new Error('Erro ao carregar mensagens');
+                if (!response.ok) {
+                    throw new Error(`Erro ${response.status}: ${response.statusText}`);
+                }
 
-                const data = await response.json();
-                let mensagens = data.content || [];
+                let mensagens = await response.json();
 
                 // Aplicar filtro
                 if (filtroTipo !== 'TODOS') {
@@ -6293,33 +6311,81 @@
                     return;
                 }
 
-                container.innerHTML = mensagens.map(msg => `
-            <div class="mensagem-card">
-                <span class="mensagem-tipo ${msg.tipo === 'INSTITUCIONAL' ? 'institucional' : 'coletiva'}">
-                    ${msg.tipo === 'INSTITUCIONAL' ? '📢 Institucional' : '👥 Coletiva'}
-                    ${msg.salaNome ? ` · ${msg.salaNome}` : ''}
-                </span>
-                ${msg.materiaNome ? `<span class="badge" style="background: var(--primary-light); color: var(--primary); margin-left: 8px;">📚 ${msg.materiaNome}</span>` : ''}
-                <div class="mensagem-conteudo">${msg.conteudo}</div>
-                <div class="mensagem-meta">
-                    <div>
-                        <i class="fas fa-user"></i> ${msg.criadoPorNome || 'Sistema'} 
-                        <span class="text-muted">(${msg.criadoPorTipo || 'ESCOLA'})</span>
-                        <span class="mx-2">•</span>
-                        <i class="fas fa-calendar"></i> ${new Date(msg.dataCriacao).toLocaleString('pt-BR')}
-                        ${msg.dataExibicaoFim ? `<br><i class="fas fa-clock"></i> Expira: ${new Date(msg.dataExibicaoFim).toLocaleString('pt-BR')}` : ''}
+                // Renderizar mensagens
+                container.innerHTML = mensagens.map(msg => {
+                    let tipoLabel = '';
+                    let tipoClass = '';
+                    let tipoIcon = '';
+
+                    switch (msg.tipo) {
+                        case 'INSTITUCIONAL':
+                            tipoLabel = '📢 Institucional (Diretoria)';
+                            tipoClass = 'institucional';
+                            tipoIcon = 'fa-building';
+                            break;
+                        case 'COLETIVA':
+                            tipoLabel = '👥 Coletiva';
+                            tipoClass = 'coletiva';
+                            tipoIcon = 'fa-users';
+                            break;
+                        case 'INDIVIDUAL':
+                            tipoLabel = '👤 Individual';
+                            tipoClass = 'individual';
+                            tipoIcon = 'fa-user';
+                            break;
+                        default:
+                            tipoLabel = msg.tipo || 'Mensagem';
+                            tipoClass = 'outro';
+                            tipoIcon = 'fa-envelope';
+                    }
+
+                    // Informação adicional para mensagens individuais
+                    const infoAdicional = msg.alunoNome
+                        ? `<span class="badge" style="background: var(--info-bg); color: var(--info); padding: 4px 12px; border-radius: 20px; font-size: 0.7rem; margin-left: 8px;">
+                    <i class="fas fa-child"></i> Aluno: ${escapeHtml(msg.alunoNome)}
+                   </span>`
+                        : '';
+
+                    return `
+                <div class="mensagem-card">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                        <div>
+                            <span class="mensagem-tipo ${tipoClass}">
+                                <i class="fas ${tipoIcon}"></i> ${tipoLabel}
+                                ${msg.salaNome ? ` · ${escapeHtml(msg.salaNome)}` : ''}
+                            </span>
+                            ${infoAdicional}
+                        </div>
+                        ${msg.materiaNome ? `<span class="badge" style="background: var(--primary-light); color: var(--primary); padding: 4px 12px; border-radius: 20px; font-size: 0.7rem;">📚 ${escapeHtml(msg.materiaNome)}</span>` : ''}
                     </div>
-                    <div class="mensagem-actions">
-                        <button class="btn btn-sm btn-edit" onclick="openMensagemModal(${JSON.stringify(msg)})">
-                            <i class="fas fa-edit"></i> Editar
-                        </button>
-                        <button class="btn btn-sm btn-delete" onclick="openDesativarModal(${msg.id}, '${msg.conteudo.replace(/'/g, "\\'")}')">
-                            <i class="fas fa-trash"></i> Desativar
-                        </button>
+                    <div class="mensagem-conteudo">${escapeHtml(msg.conteudo)}</div>
+                    <div class="mensagem-meta">
+                        <div>
+                            <i class="fas fa-user"></i> ${escapeHtml(msg.criadoPorNome || 'Sistema')} 
+                            <span class="text-muted">(${escapeHtml(msg.criadoPorTipo || 'SISTEMA')})</span>
+                            <span class="mx-2">•</span>
+                            <i class="fas fa-calendar"></i> ${new Date(msg.dataCriacao).toLocaleString('pt-BR')}
+                            ${msg.dataExibicaoFim ? `<br><i class="fas fa-clock"></i> Expira: ${new Date(msg.dataExibicaoFim).toLocaleString('pt-BR')}` : ''}
+                        </div>
+                        <div class="mensagem-actions">
+                            <button class="btn btn-sm btn-edit" onclick='openMensagemModal(${JSON.stringify(msg)})'>
+                                <i class="fas fa-edit"></i> Editar
+                            </button>
+                            <button class="btn btn-sm btn-delete" onclick="openDesativarModal(${msg.id}, '${escapeHtml(msg.conteudo).replace(/'/g, "\\'")}')">
+                                <i class="fas fa-trash"></i> Desativar
+                            </button>
+                        </div>
                     </div>
                 </div>
-            </div>
-        `).join('');
+            `;
+                }).join('');
+
+                // Atualizar contador no título
+                const totalMensagens = mensagens.length;
+                const tituloMural = document.querySelector('#mural-content .section-header h1');
+                if (tituloMural) {
+                    tituloMural.innerHTML = `📢 Mural de Comunicações <span style="font-size: 0.8rem; background: var(--primary-light); padding: 4px 12px; border-radius: 20px; margin-left: 12px;">${totalMensagens} mensagem(ns)</span>`;
+                }
 
             } catch (error) {
                 console.error('Erro ao carregar mensagens:', error);
