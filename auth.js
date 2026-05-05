@@ -1,5 +1,6 @@
 // auth.js - Gerenciamento de autenticação
-const BACKEND_URL = 'https://inoutchi-backend.onrender.com';
+//const BACKEND_URL = 'https://inoutchi-backend.onrender.com';
+const BACKEND_URL = 'https://api.inoutchi.com';
 const CLIENT_ID = 'myclientid';
 const CLIENT_SECRET = 'myclientsecret';
 
