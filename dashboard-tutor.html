@@ -4175,7 +4175,6 @@
                                 body: JSON.stringify(naoLidasIds)
                             });
 
-                            // Verificar se a resposta tem conteúdo antes de tentar parsear JSON
                             const textResponse = await markResponse.text();
                             console.log('🔍 Resposta bruta do backend:', textResponse);
 
@@ -4200,22 +4199,14 @@
 
                             console.log(`✅ Marcadas ${naoLidasIds.length} mensagens como lidas`);
 
-                            // SALVAR NO SESSIONSTORAGE COMO FALLBACK
-                            const lidasSalvas = getMensagensLidas();
-                            naoLidasIds.forEach(id => {
-                                lidasSalvas[id] = true;
-                            });
-                            salvarMensagensLidas(naoLidasIds);
-                            console.log('💾 IDs salvos no sessionStorage:', naoLidasIds);
+                            // REMOVA ESTA LINHA - NÃO SALVAR EM SESSIONSTORAGE QUANDO BACKEND FUNCIONA
+                            // salvarMensagensLidas(naoLidasIds);  <--- REMOVER
 
-                            // VERIFICAR SE REALMENTE MARCOU (opcional, pode remover se estiver lento)
+                            // VERIFICAR SE REALMENTE MARCOU
                             try {
                                 const checkResponse = await fetchWithAuth(endpoint);
                                 const checkData = await checkResponse.json();
-                                console.log('📊 Mensagens DEPOIS de marcar:', checkData.map(m => ({
-                                    id: m.id,
-                                    lida: m.lida
-                                })));
+                                console.log('📊 Mensagens DEPOIS de marcar:', checkData.map(m => ({ id: m.id, lida: m.lida })));
                             } catch (e) {
                                 console.warn('Não foi possível verificar estado após marcar:', e);
                             }
@@ -4235,7 +4226,7 @@
                             const badgeSpan = cardElement?.querySelector('.badge-count');
                             if (badgeSpan) badgeSpan.remove();
 
-                            // RECALCULAR TOTAL DE NÃO LIDAS (adicione isto)
+                            // RECALCULAR TOTAL DE NÃO LIDAS
                             totalNaoLidas = 0;
                             for (const [_, item] of materiasUnicas) {
                                 const naoLidasItem = item.mensagens?.filter(m => !m.lida).length || 0;
@@ -4245,11 +4236,7 @@
 
                         } catch (error) {
                             console.error('❌ Erro ao marcar mensagens como lidas:', error);
-                            // Mesmo com erro, salvar no sessionStorage para não mostrar o badge novamente
-                            const lidasSalvas = getMensagensLidas();
-                            naoLidasIds.forEach(id => {
-                                lidasSalvas[id] = true;
-                            });
+                            // Só salvar no sessionStorage quando o backend falhar (FALLBACK)
                             salvarMensagensLidas(naoLidasIds);
                             showToast(`Erro ao marcar mensagens, mas estado salvo localmente.`, 'warning');
                         }
@@ -4348,17 +4335,19 @@
                     const lidasSalvas = getMensagensLidas();
                     console.log('💾 IDs lidos do sessionStorage:', Object.keys(lidasSalvas));
 
-                    // Aplicar estado salvo nas mensagens institucionais
+                    // NÃO SOBRESCREVER - apenas marcar como lidas se o backend ainda não marcou
+                    // e se existir no sessionStorage (fallback)
                     institucionais.forEach(msg => {
-                        if (lidasSalvas[msg.id]) {
+                        // Só usa o fallback se o backend diz que NÃO está lida
+                        if (!msg.lida && lidasSalvas[msg.id]) {
                             msg.lida = true;
-                            console.log(`📌 Marcando como lida via sessionStorage: msg ${msg.id}`);
+                            console.log(`📌 Fallback: marcando msg ${msg.id} como lida via storage`);
                         }
                     });
 
                     // Aplicar estado salvo nas mensagens coletivas
                     coletivasDaSala.forEach(msg => {
-                        if (lidasSalvas[msg.id]) {
+                        if (!msg.lida && lidasSalvas[msg.id]) {
                             msg.lida = true;
                         }
                     });
@@ -4423,7 +4412,7 @@
 
                             // Aplicar estado salvo do sessionStorage
                             mensagensFiltradas.forEach(msg => {
-                                if (lidasSalvas[msg.id]) {
+                                if (!msg.lida && lidasSalvas[msg.id]) {
                                     msg.lida = true;
                                 }
                             });
