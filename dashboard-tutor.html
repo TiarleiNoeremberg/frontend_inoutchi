@@ -3255,6 +3255,22 @@
 
             let totalNaoLidas = 0;
 
+            function getModalInstance(modalId) {
+                const modalElement = document.getElementById(modalId);
+                if (!modalElement) return null;
+
+                // Verificar se Bootstrap está disponível
+                if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                    return new bootstrap.Modal(modalElement);
+                } else {
+                    // Fallback: usar API nativa
+                    console.warn('Bootstrap não disponível, usando fallback');
+                    return {
+                        show: () => { modalElement.style.display = 'flex'; modalElement.classList.add('show'); },
+                        hide: () => { modalElement.style.display = 'none'; modalElement.classList.remove('show'); }
+                    };
+                }
+            }
             // Salvar mensagens lidas em ambos os storages
             function salvarMensagensLidas(ids) {
                 // Salvar no sessionStorage
@@ -5435,13 +5451,38 @@
                 const modal = getModalInstance('dadosPessoaisModal');
                 if (!modal) return;
 
-                // Carregar dados atuais do currentUser (já vem da API)
-                document.getElementById('dadosNome').value = currentUser?.nome || '';
-                document.getElementById('dadosEmail').value = currentUser?.email || '';
-                document.getElementById('dadosCpf').value = currentUser?.cpf || 'Não informado';
-                document.getElementById('dadosFone').value = currentUser?.fone || '';
+                // Mostrar loading
+                document.getElementById('dadosNome').value = 'Carregando...';
+                document.getElementById('dadosEmail').value = 'Carregando...';
+                document.getElementById('dadosCpf').value = 'Carregando...';
+                document.getElementById('dadosFone').value = 'Carregando...';
 
                 modal.show();
+
+                // Buscar dados detalhados do perfil
+                (async () => {
+                    try {
+                        const response = await fetchWithAuth('/api/users/me/profile');
+                        if (!response.ok) throw new Error('Erro ao carregar perfil');
+
+                        const profileData = await response.json();
+
+                        document.getElementById('dadosNome').value = profileData.nome || '';
+                        document.getElementById('dadosEmail').value = profileData.email || '';
+                        document.getElementById('dadosCpf').value = profileData.cpf || 'Não informado';
+                        document.getElementById('dadosFone').value = profileData.fone || '';
+
+                        // Atualizar currentUser com os dados completos
+                        if (profileData.cpf) currentUser.cpf = profileData.cpf;
+                        if (profileData.fone) currentUser.fone = profileData.fone;
+
+                    } catch (error) {
+                        console.error('Erro ao carregar perfil detalhado:', error);
+                        document.getElementById('dadosCpf').value = 'Erro ao carregar';
+                        document.getElementById('dadosFone').value = 'Erro ao carregar';
+                        showToast('Erro ao carregar dados do perfil', 'danger');
+                    }
+                })();
             }
 
             // Salvar dados pessoais (apenas telefone por enquanto)
@@ -5589,20 +5630,24 @@
                 modal.show();
             }
 
-            // Abrir política de privacidade (LGPD)
+            // Abrir política de privacidade (LGPD) - CORRIGIDO
             function openPoliticaPrivacidadeModal() {
-                if (lgpdModal) {
-                    lgpdModal.show();
-                    loadPrivacyPolicy();
+                const modalElement = document.getElementById('lgpdModal');
+                if (!modalElement) return;
+
+                let modal;
+                if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                    modal = new bootstrap.Modal(modalElement);
+                    window.lgpdModal = modal; // Salvar globalmente
                 } else {
-                    // Inicializar se não existir
-                    const lgpdModalEl = document.getElementById('lgpdModal');
-                    if (lgpdModalEl) {
-                        lgpdModal = new bootstrap.Modal(lgpdModalEl);
-                        lgpdModal.show();
-                        loadPrivacyPolicy();
-                    }
+                    modal = {
+                        show: () => { modalElement.style.display = 'block'; modalElement.classList.add('show'); },
+                        hide: () => { modalElement.style.display = 'none'; modalElement.classList.remove('show'); }
+                    };
                 }
+
+                modal.show();
+                loadPrivacyPolicy();
             }
 
             // Abrir modal de excluir conta
@@ -5710,19 +5755,22 @@
 
             // Abrir modal de meus filhos
             function openMeusFilhosModal() {
-                const modal = new bootstrap.Modal(document.getElementById('meusFilhosModal'));
+                const modal = getModalInstance('meusFilhosModal');
+                if (!modal) return;
+
                 const container = document.getElementById('filhosList');
 
-                if (!students || students.length === 0) {
+                // Usar studentsData (já existe no seu código)
+                if (!studentsData || studentsData.length === 0) {
                     container.innerHTML = '<div class="text-center text-muted py-4">Nenhum aluno vinculado</div>';
                 } else {
-                    container.innerHTML = students.map(student => `
+                    container.innerHTML = studentsData.map(student => `
                         <div class="card mb-2 border">
                             <div class="card-body">
                                 <div class="d-flex justify-content-between align-items-center">
                                     <div>
-                                        <h6 class="mb-1">${student.nome}</h6>
-                                        <small class="text-muted">${student.salaNome || 'Sem sala'}</small>
+                                        <h6 class="mb-1">${escapeHtml(student.nome)}</h6>
+                                        <small class="text-muted">${escapeHtml(student.salaNome || 'Sem sala')}</small>
                                     </div>
                                     <span class="badge ${student.status === 'PRESENTE' ? 'bg-success' : 'bg-secondary'}">
                                         ${student.status === 'PRESENTE' ? 'Presente' : 'Ausente'}
@@ -5734,6 +5782,17 @@
                 }
 
                 modal.show();
+            }
+
+            // Função auxiliar para escapar HTML
+            function escapeHtml(text) {
+                if (!text) return '';
+                return text.replace(/[&<>]/g, function (m) {
+                    if (m === '&') return '&amp;';
+                    if (m === '<') return '&lt;';
+                    if (m === '>') return '&gt;';
+                    return m;
+                });
             }
 
             // ============== INICIALIZAÇÃO ==============
@@ -5765,6 +5824,11 @@
 
                     initBottomNavigation();
                     initConfigRows();
+                    // Inicializar modal LGPD
+                    const lgpdModalEl = document.getElementById('lgpdModal');
+                    if (lgpdModalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                        window.lgpdModal = new bootstrap.Modal(lgpdModalEl);
+                    }
 
                     // ===== ADICIONAR ESTAS LINHAS AQUI =====
                     // Event listeners para os modais de configuração
