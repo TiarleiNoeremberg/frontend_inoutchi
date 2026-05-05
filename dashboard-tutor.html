@@ -20,6 +20,8 @@
     <script src="auth.js"></script>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.5.1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
 
     <style>
         /* =========================================================
@@ -3266,6 +3268,90 @@
             let materiasUnicas = new Map();
 
             let totalNaoLidas = 0;
+            let stompClient = null;
+            let currentTutorId = null;
+
+            function connectMensagemWebSocket() {
+                if (!currentUser || !currentUser.id) {
+                    console.log('Aguardando usuário carregar para conectar WebSocket');
+                    return;
+                }
+
+                currentTutorId = currentUser.id;
+                const socket = new SockJS(`${BACKEND_URL}/ws-mensagens`);
+                stompClient = Stomp.over(socket);
+                stompClient.debug = null;
+
+                stompClient.connect(
+                    { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
+                    function (frame) {
+                        console.log('✅ Conectado ao WebSocket de mensagens');
+
+                        const topic = `/topic/tutor/${currentTutorId}/mensagens`;
+                        stompClient.subscribe(topic, function (message) {
+                            const notificacao = JSON.parse(message.body);
+                            console.log('📬 Nova mensagem recebida:', notificacao);
+
+                            if (notificacao.tipo === 'NOVA_MENSAGEM') {
+                                handleNovaMensagem(notificacao.mensagem);
+                            }
+                        });
+                    },
+                    function (error) {
+                        console.error('❌ Erro no WebSocket de mensagens:', error);
+                        setTimeout(connectMensagemWebSocket, 5000);
+                    }
+                );
+            }
+
+            function handleNovaMensagem(mensagem) {
+                // 1. Mostrar notificação toast
+                const tipoLabel = mensagem.tipo === 'INSTITUCIONAL' ? '📢 Institucional' :
+                    (mensagem.tipo === 'COLETIVA' ? '👥 Coletiva' : '👤 Individual');
+
+                showToast(`${tipoLabel}: ${mensagem.conteudo.substring(0, 100)}${mensagem.conteudo.length > 100 ? '...' : ''}`, 'success');
+
+                // 2. Atualizar badge do mural (incrementar contador)
+                totalNaoLidas++;
+                atualizarBadgeMural(totalNaoLidas);
+
+                // 3. Adicionar ao cache de mensagens
+                if (!materiasUnicas.has(mensagem.materiaId + '')) {
+                    // Criar nova entrada no cache se necessário
+                    materiasUnicas.set(mensagem.materiaId + '', {
+                        id: mensagem.materiaId,
+                        nome: mensagem.materiaNome || 'Nova Mensagem',
+                        tipo: mensagem.tipo,
+                        mensagensNaoLidas: 1,
+                        mensagens: [mensagem],
+                        salaNome: mensagem.salaNome
+                    });
+                } else {
+                    const materia = materiasUnicas.get(mensagem.materiaId + '');
+                    materia.mensagens.unshift(mensagem); // Adicionar no início
+                    materia.mensagensNaoLidas++;
+                }
+
+                // 4. Recarregar o mural se a aba estiver ativa
+                const muralTab = document.querySelector('.tab-pane[data-tab="mural"]');
+                if (muralTab && muralTab.classList.contains('active')) {
+                    renderMural();
+                }
+
+                // 5. Tocar som de notificação (opcional)
+                try {
+                    const audio = new Audio('/assets/sounds/notification.mp3');
+                    audio.play().catch(e => console.log('Som não suportado'));
+                } catch (e) { }
+            }
+
+            // Função para desconectar WebSocket (útil no logout)
+            function disconnectMensagemWebSocket() {
+                if (stompClient && stompClient.connected) {
+                    stompClient.disconnect();
+                    console.log('🔌 WebSocket de mensagens desconectado');
+                }
+            }
 
             function getModalInstance(modalId) {
                 const modalElement = document.getElementById(modalId);
@@ -3917,6 +4003,10 @@
                         }
                     }
 
+                    if (currentUser && currentUser.id) {
+                        connectMensagemWebSocket();
+                    }
+
                     return currentUser;
                 } catch (error) {
                     console.error('Erro ao carregar dados do usuário:', error);
@@ -3927,9 +4017,11 @@
             }
 
             function logout() {
+                // Desconectar WebSocket de mensagens
+                disconnectMensagemWebSocket();
+
                 // Parar monitoramento de geofence
                 if (geofenceMonitor && geofenceMonitor.activeMonitors) {
-                    // Parar todos os monitoramentos ativos
                     for (const [studentId] of geofenceMonitor.activeMonitors) {
                         geofenceMonitor.stopMonitoring(parseInt(studentId));
                     }
