@@ -3273,33 +3273,48 @@
 
             function connectMensagemWebSocket() {
                 if (!currentUser || !currentUser.id) {
-                    console.log('Aguardando usuário carregar para conectar WebSocket');
+                    console.log('⏳ Aguardando usuário carregar');
+                    setTimeout(connectMensagemWebSocket, 1000);
                     return;
                 }
 
                 currentTutorId = currentUser.id;
+                const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+
+                if (!token) {
+                    console.error('❌ Token não encontrado');
+                    return;
+                }
+
+                // Usar o mesmo padrão que funciona para outros WebSockets
                 const socket = new SockJS(`${BACKEND_URL}/ws-mensagens`);
                 stompClient = Stomp.over(socket);
                 stompClient.debug = null;
 
+                // Enviar token no header
                 stompClient.connect(
-                    { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
+                    { Authorization: `Bearer ${token}` },
                     function (frame) {
                         console.log('✅ Conectado ao WebSocket de mensagens');
 
                         const topic = `/topic/tutor/${currentTutorId}/mensagens`;
                         stompClient.subscribe(topic, function (message) {
-                            const notificacao = JSON.parse(message.body);
-                            console.log('📬 Nova mensagem recebida:', notificacao);
+                            try {
+                                const notificacao = JSON.parse(message.body);
+                                console.log('📬 Nova mensagem recebida:', notificacao);
 
-                            if (notificacao.tipo === 'NOVA_MENSAGEM') {
-                                handleNovaMensagem(notificacao.mensagem);
+                                if (notificacao.tipo === 'NOVA_MENSAGEM') {
+                                    handleNovaMensagem(notificacao.mensagem);
+                                }
+                            } catch (e) {
+                                console.error('Erro ao processar mensagem:', e);
                             }
                         });
                     },
                     function (error) {
-                        console.error('❌ Erro no WebSocket de mensagens:', error);
-                        setTimeout(connectMensagemWebSocket, 5000);
+                        console.error('❌ Erro no WebSocket:', error);
+                        // Tentar novamente após 10 segundos (mais espaçado)
+                        setTimeout(connectMensagemWebSocket, 10000);
                     }
                 );
             }
