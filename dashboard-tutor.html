@@ -3272,6 +3272,9 @@
             let currentTutorId = null;
 
             function connectMensagemWebSocket() {
+                console.log('🔌 [WS] Tentando conectar WebSocket...');
+                console.log('🔌 [WS] currentUser:', currentUser);
+
                 if (!currentUser || !currentUser.id) {
                     console.log('⏳ Aguardando usuário carregar');
                     setTimeout(connectMensagemWebSocket, 1000);
@@ -3289,31 +3292,52 @@
                 // Usar o mesmo padrão que funciona para outros WebSockets
                 const socket = new SockJS(`${BACKEND_URL}/ws-mensagens`);
                 stompClient = Stomp.over(socket);
-                stompClient.debug = null;
+                stompClient.debug = function (str) {
+                    console.log('🔌 [STOMP]', str);
+                };
 
                 // Enviar token no header
                 stompClient.connect(
                     { Authorization: `Bearer ${token}` },
                     function (frame) {
                         console.log('✅ Conectado ao WebSocket de mensagens');
+                        console.log('🔌 [WS] Frame:', frame);
 
                         const topic = `/topic/tutor/${currentTutorId}/mensagens`;
+                        console.log(`🔌 [WS] Assinando tópico: ${topic}`);
+
                         stompClient.subscribe(topic, function (message) {
+                            console.log('📬 [WS] Mensagem BRUTA recebida:', message);
+                            console.log('📬 [WS] Corpo da mensagem:', message.body);
+
                             try {
                                 const notificacao = JSON.parse(message.body);
-                                console.log('📬 Nova mensagem recebida:', notificacao);
+                                console.log('📬 [WS] Notificação parseada:', notificacao);
+                                console.log('📬 [WS] Tipo da notificação:', notificacao.tipo);
 
                                 if (notificacao.tipo === 'NOVA_MENSAGEM') {
+                                    console.log('📬 [WS] É uma NOVA_MENSAGEM!');
+                                    console.log('📬 [WS] Conteúdo da mensagem:', notificacao.mensagem);
                                     handleNovaMensagem(notificacao.mensagem);
+                                } else {
+                                    console.log('📬 [WS] Tipo não reconhecido:', notificacao.tipo);
                                 }
                             } catch (e) {
-                                console.error('Erro ao processar mensagem:', e);
+                                console.error('❌ Erro ao processar mensagem:', e);
+                                console.error('❌ Conteúdo que causou erro:', message.body);
                             }
                         });
+
+                        // Após conectar, enviar heartbeat
+                        setInterval(() => {
+                            if (stompClient && stompClient.connected) {
+                                stompClient.send("/app/heartbeat", {}, JSON.stringify({ timestamp: Date.now() }));
+                            }
+                        }, 25000);
                     },
                     function (error) {
                         console.error('❌ Erro no WebSocket:', error);
-                        // Tentar novamente após 10 segundos (mais espaçado)
+                        // Tentar novamente após 10 segundos
                         setTimeout(connectMensagemWebSocket, 10000);
                     }
                 );
@@ -3321,6 +3345,8 @@
 
             function handleNovaMensagem(mensagem) {
                 console.log('📨 [DEBUG] Mensagem recebida no WebSocket:', JSON.stringify(mensagem, null, 2));
+                console.log('🎯 [HANDLER] handleNovaMensagem foi CHAMADA!');
+                console.log('🎯 [HANDLER] Mensagem recebida:', mensagem);
 
                 // 1. Mostrar notificação toast
                 let tipoLabel = '';
