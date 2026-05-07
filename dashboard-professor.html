@@ -1720,15 +1720,27 @@
 
         async function carregarAlunosDaSala(salaId, sala) {
             try {
+                console.log(`📡 Buscando alunos da sala ${sala.nome} (ID: ${salaId})...`);
                 const response = await fetchWithAuth(`/api/materias/sala/${salaId}?page=0&size=100`);
+
                 if (!response || !response.ok) {
                     console.warn(`Falha ao carregar alunos da sala ${salaId}`);
                     sala.alunos = [];
                     return;
                 }
+
                 const data = await response.json();
-                sala.alunos = (data.content || []).map(a => ({ id: a.id, nome: a.nome, status: a.status }));
-                console.log(`👨‍🎓 Sala ${sala.nome}: ${sala.alunos.length} alunos`);
+                const alunos = data.content || [];
+
+                sala.alunos = alunos.map(aluno => ({
+                    id: aluno.id,
+                    nome: aluno.nome,
+                    status: aluno.status
+                }));
+
+                console.log(`✅ Sala ${sala.nome}: ${sala.alunos.length} alunos carregados`);
+                console.log(`📋 Alunos:`, sala.alunos.map(a => a.nome).join(', '));
+
             } catch (error) {
                 console.error(`Erro carregar alunos sala ${salaId}:`, error);
                 sala.alunos = [];
@@ -1919,13 +1931,36 @@
             const alunoSelect = document.getElementById('fAluno');
             if (!alunoSelect) return;
 
+            console.log(`🔍 Carregando alunos para sala ID: ${salaId}`);
+
             alunoSelect.innerHTML = '<option value="">Carregando alunos...</option>';
+
+            // Buscar a sala no Map
             const sala = salasDoProfessor.get(parseInt(salaId));
-            if (sala?.alunos.length) {
+
+            if (sala && sala.alunos && sala.alunos.length > 0) {
+                console.log(`✅ Encontrados ${sala.alunos.length} alunos na sala ${sala.nome}`);
                 alunoSelect.innerHTML = '<option value="">Selecione um aluno...</option>';
-                sala.alunos.forEach(a => alunoSelect.innerHTML += `<option value="${a.id}">${escapeHtml(a.nome)}</option>`);
+                sala.alunos.forEach(aluno => {
+                    alunoSelect.innerHTML += `<option value="${aluno.id}">${escapeHtml(aluno.nome)}</option>`;
+                });
             } else {
+                console.warn(`⚠️ Nenhum aluno encontrado para a sala ${salaId}`);
                 alunoSelect.innerHTML = '<option value="">Nenhum aluno nesta turma</option>';
+
+                // Tentar buscar alunos novamente da API
+                const salaParaBuscar = salasDoProfessor.get(parseInt(salaId));
+                if (salaParaBuscar) {
+                    console.log(`🔄 Tentando buscar alunos novamente para sala ${salaParaBuscar.nome}`);
+                    await carregarAlunosDaSala(salaId, salaParaBuscar);
+
+                    if (salaParaBuscar.alunos && salaParaBuscar.alunos.length > 0) {
+                        alunoSelect.innerHTML = '<option value="">Selecione um aluno...</option>';
+                        salaParaBuscar.alunos.forEach(aluno => {
+                            alunoSelect.innerHTML += `<option value="${aluno.id}">${escapeHtml(aluno.nome)}</option>`;
+                        });
+                    }
+                }
             }
         }
 
