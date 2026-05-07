@@ -3320,9 +3320,11 @@
             }
 
             function handleNovaMensagem(mensagem) {
+                console.log('📨 Processando nova mensagem:', mensagem);
+
                 // 1. Mostrar notificação toast
-                const tipoLabel = mensagem.tipo === 'INSTITUCIONAL' ? '📢 Institucional' :
-                    (mensagem.tipo === 'COLETIVA' ? '👥 Coletiva' : '👤 Individual');
+                const tipoLabel = mensagem.tipo === 'INSTITUCIONAL' ? 'Institucional' :
+                    (mensagem.tipo === 'COLETIVA' ? 'Coletiva' : 'Individual');
 
                 showToast(`${tipoLabel}: ${mensagem.conteudo.substring(0, 100)}${mensagem.conteudo.length > 100 ? '...' : ''}`, 'success');
 
@@ -3330,27 +3332,55 @@
                 totalNaoLidas++;
                 atualizarBadgeMural(totalNaoLidas);
 
-                // 3. Adicionar ao cache de mensagens
-                if (!materiasUnicas.has(mensagem.materiaId + '')) {
-                    // Criar nova entrada no cache se necessário
-                    materiasUnicas.set(mensagem.materiaId + '', {
-                        id: mensagem.materiaId,
-                        nome: mensagem.materiaNome || 'Nova Mensagem',
-                        tipo: mensagem.tipo,
+                // 3. Adicionar ao cache de mensagens (CRÍTICO)
+                let cardKey = null;
+                let cardNome = null;
+                let cardSalaNome = null;
+
+                if (mensagem.tipo === 'INSTITUCIONAL') {
+                    cardKey = 'diretoria';
+                    cardNome = 'Diretoria';
+                    cardSalaNome = 'Avisos da Direção';
+                } else if (mensagem.tipo === 'COLETIVA') {
+                    cardKey = 'turma';
+                    cardNome = 'Turma';
+                    cardSalaNome = mensagem.salaNome || 'Mensagens da Turma';
+                } else {
+                    // Mensagem de matéria (INDIVIDUAL ou COLETIVA de matéria)
+                    cardKey = String(mensagem.materiaId);
+                    cardNome = mensagem.materiaNome || 'Matéria';
+                    cardSalaNome = mensagem.salaNome || '';
+                }
+
+                // Marcar mensagem como NÃO LIDA
+                mensagem.lida = false;
+
+                if (!materiasUnicas.has(cardKey)) {
+                    // Criar nova entrada no cache
+                    materiasUnicas.set(cardKey, {
+                        id: cardKey,
+                        nome: cardNome,
+                        tipo: mensagem.tipo === 'INSTITUCIONAL' ? 'INSTITUCIONAL' :
+                            (mensagem.tipo === 'COLETIVA' ? 'COLETIVA' : 'MATERIA'),
                         mensagensNaoLidas: 1,
                         mensagens: [mensagem],
-                        salaNome: mensagem.salaNome
+                        salaNome: cardSalaNome
                     });
+                    console.log(`✅ Criado novo card no cache: ${cardKey} (${cardNome})`);
                 } else {
-                    const materia = materiasUnicas.get(mensagem.materiaId + '');
+                    const materia = materiasUnicas.get(cardKey);
                     materia.mensagens.unshift(mensagem); // Adicionar no início
                     materia.mensagensNaoLidas++;
+                    console.log(`✅ Mensagem adicionada ao card existente: ${cardKey}, total não lidas: ${materia.mensagensNaoLidas}`);
                 }
 
                 // 4. Recarregar o mural se a aba estiver ativa
                 const muralTab = document.querySelector('.tab-pane[data-tab="mural"]');
                 if (muralTab && muralTab.classList.contains('active')) {
+                    console.log('🔄 Recarregando mural...');
                     renderMural();
+                } else {
+                    console.log('📌 Aba mural não está ativa, mensagem armazenada no cache');
                 }
 
                 // 5. Tocar som de notificação (opcional)
@@ -6959,17 +6989,19 @@
                 if (!badge) return;
 
                 if (total > 0) {
-                    badge.textContent = total;
-                    badge.style.display = 'grid';
+                    badge.textContent = total > 99 ? '99+' : total;
+                    badge.style.display = 'flex';
+                    badge.style.animation = 'pulseDot 1.8s infinite';
                 } else {
                     badge.style.display = 'none';
+                    badge.style.animation = 'none';
                 }
 
-                // Salvar no localStorage
-                localStorage.setItem('totalMensagensNaoLidas', total);
-
-                // Atualizar o ponto do sino
-                atualizarBadgeSino(total);
+                // Atualizar também o badge do sino
+                const sinoDot = document.querySelector('#btn-notif .dot');
+                if (sinoDot) {
+                    sinoDot.style.display = total > 0 ? 'inline-block' : 'none';
+                }
             }
 
             // Função para atualizar o badge do sino (apenas ponto pulsante)
