@@ -3320,48 +3320,62 @@
             }
 
             function handleNovaMensagem(mensagem) {
-                console.log('📨 Processando nova mensagem:', mensagem);
+                console.log('📨 Processando nova mensagem recebida:', mensagem);
 
                 // 1. Mostrar notificação toast
-                const tipoLabel = mensagem.tipo === 'INSTITUCIONAL' ? 'Institucional' :
-                    (mensagem.tipo === 'COLETIVA' ? 'Coletiva' : 'Individual');
-
-                showToast(`${tipoLabel}: ${mensagem.conteudo.substring(0, 100)}${mensagem.conteudo.length > 100 ? '...' : ''}`, 'success');
-
-                // 2. Atualizar badge do mural (incrementar contador)
-                totalNaoLidas++;
-                atualizarBadgeMural(totalNaoLidas);
-
-                // 3. Adicionar ao cache de mensagens (CRÍTICO)
+                let tipoLabel = '';
                 let cardKey = null;
                 let cardNome = null;
                 let cardSalaNome = null;
 
                 if (mensagem.tipo === 'INSTITUCIONAL') {
+                    tipoLabel = 'Institucional';
                     cardKey = 'diretoria';
                     cardNome = 'Diretoria';
                     cardSalaNome = 'Avisos da Direção';
-                } else if (mensagem.tipo === 'COLETIVA') {
+                }
+                else if (mensagem.tipo === 'COLETIVA') {
+                    tipoLabel = 'Coletiva';
                     cardKey = 'turma';
                     cardNome = 'Turma';
                     cardSalaNome = mensagem.salaNome || 'Mensagens da Turma';
-                } else {
-                    // Mensagem de matéria (INDIVIDUAL ou COLETIVA de matéria)
-                    cardKey = String(mensagem.materiaId);
-                    cardNome = mensagem.materiaNome || 'Matéria';
-                    cardSalaNome = mensagem.salaNome || '';
+                }
+                else if (mensagem.tipo === 'INDIVIDUAL') {
+                    tipoLabel = mensagem.alunoNome ? `Para: ${mensagem.alunoNome}` : 'Individual';
+
+                    // ⚠️ CORREÇÃO CRÍTICA: Mensagem INDIVIDUAL pertence a uma MATÉRIA
+                    if (mensagem.materiaId) {
+                        cardKey = String(mensagem.materiaId);
+                        cardNome = mensagem.materiaNome || 'Mensagem Individual';
+                        cardSalaNome = mensagem.salaNome || '';
+                        console.log(`📌 Mensagem INDIVIDUAL da matéria ID: ${mensagem.materiaId} (${cardNome})`);
+                    } else {
+                        // Fallback: criar card genérico se não tiver matéria
+                        cardKey = 'mensagens_' + Date.now();
+                        cardNome = 'Mensagem';
+                        cardSalaNome = '';
+                        console.warn('⚠️ Mensagem INDIVIDUAL sem materiaId');
+                    }
                 }
 
-                // Marcar mensagem como NÃO LIDA
+                // Se não conseguiu determinar o card, não prossegue
+                if (!cardKey) {
+                    console.error('❌ Não foi possível determinar o card para a mensagem:', mensagem);
+                    return;
+                }
+
+                showToast(`${tipoLabel}: ${mensagem.conteudo.substring(0, 100)}${mensagem.conteudo.length > 100 ? '...' : ''}`, 'success');
+
+                // 2. Marcar mensagem como NÃO LIDA
                 mensagem.lida = false;
 
+                // 3. Adicionar ao cache de mensagens
                 if (!materiasUnicas.has(cardKey)) {
                     // Criar nova entrada no cache
                     materiasUnicas.set(cardKey, {
                         id: cardKey,
                         nome: cardNome,
-                        tipo: mensagem.tipo === 'INSTITUCIONAL' ? 'INSTITUCIONAL' :
-                            (mensagem.tipo === 'COLETIVA' ? 'COLETIVA' : 'MATERIA'),
+                        tipo: mensagem.tipo,
                         mensagensNaoLidas: 1,
                         mensagens: [mensagem],
                         salaNome: cardSalaNome
@@ -3370,20 +3384,28 @@
                 } else {
                     const materia = materiasUnicas.get(cardKey);
                     materia.mensagens.unshift(mensagem); // Adicionar no início
-                    materia.mensagensNaoLidas++;
+                    materia.mensagensNaoLidas = (materia.mensagensNaoLidas || 0) + 1;
                     console.log(`✅ Mensagem adicionada ao card existente: ${cardKey}, total não lidas: ${materia.mensagensNaoLidas}`);
                 }
 
-                // 4. Recarregar o mural se a aba estiver ativa
+                // 4. Recalcular total de não lidas
+                totalNaoLidas = 0;
+                for (const [_, item] of materiasUnicas) {
+                    totalNaoLidas += (item.mensagensNaoLidas || 0);
+                }
+                atualizarBadgeMural(totalNaoLidas);
+                console.log(`📊 Total de mensagens não lidas: ${totalNaoLidas}`);
+
+                // 5. Recarregar o mural se a aba estiver ativa
                 const muralTab = document.querySelector('.tab-pane[data-tab="mural"]');
                 if (muralTab && muralTab.classList.contains('active')) {
                     console.log('🔄 Recarregando mural...');
                     renderMural();
                 } else {
-                    console.log('📌 Aba mural não está ativa, mensagem armazenada no cache');
+                    console.log(`📌 Aba mural não está ativa (card ${cardKey} criado/atualizado no cache)`);
                 }
 
-                // 5. Tocar som de notificação (opcional)
+                // 6. Tocar som de notificação (opcional)
                 try {
                     const audio = new Audio('/assets/sounds/notification.mp3');
                     audio.play().catch(e => console.log('Som não suportado'));
