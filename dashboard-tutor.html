@@ -3277,8 +3277,13 @@
                 console.log('🔌 [WS] Tentando conectar WebSocket...');
                 console.log('🔌 [WS] currentUser:', currentUser);
 
-                if (!currentUser || !currentUser.id) {
-                    console.log('⏳ Aguardando usuário carregar');
+                // MUDANÇA: Se tivermos o ID do perfil (182), usamos ele. Se não, fallback pro user (230).
+                // Mas o ideal é que o loadUserData já tenha preenchido o currentTutorId correto.
+                if (!currentTutorId && currentUser && currentUser.id) {
+                    currentTutorId = currentUser.id;
+                }
+
+                if (!currentTutorId) {
                     setTimeout(connectMensagemWebSocket, 1000);
                     return;
                 }
@@ -3318,17 +3323,13 @@
 
                             try {
                                 const notificacao = JSON.parse(message.body);
-                                console.log('📬 [WS] Notificação parseada:', notificacao);
-
                                 if (notificacao.tipo === 'NOVA_MENSAGEM') {
-                                    console.log('🎉 É uma NOVA_MENSAGEM!');
                                     handleNovaMensagem(notificacao.mensagem);
                                 } else {
                                     console.log('⚠️ Tipo não reconhecido:', notificacao.tipo);
                                 }
                             } catch (e) {
-                                console.error('❌ Erro ao parsear JSON:', e);
-                                console.error('❌ Conteúdo:', message.body);
+                                console.error(e);
                             }
                         });
 
@@ -3379,7 +3380,7 @@
 
                     // ⚠️ CORREÇÃO CRÍTICA: Verifica se tem materiaId
                     if (mensagem.materiaId) {
-                        cardKey = String(mensagem.materiaId);
+                        cardKey = mensagem.materiaId ? Number(mensagem.materiaId) : null;
                         cardNome = mensagem.materiaNome || 'Matéria';
                         cardSalaNome = mensagem.salaNome || '';
                         console.log(`✅ Mensagem INDIVIDUAL da matéria ID: ${mensagem.materiaId} (${cardNome})`);
@@ -4093,6 +4094,16 @@
                     const response = await fetchWithAuth('/api/users/me');
                     if (!response.ok) throw new Error('Falha ao carregar dados do usuário');
                     currentUser = await response.json();
+
+                    // --- ADIÇÃO SEGURA: Busca o ID do Tutor para o WebSocket ---
+                    try {
+                        const tutorRes = await fetchWithAuth('/api/tutores/meu-perfil');
+                        if (tutorRes.ok) {
+                            const tutorData = await tutorRes.json();
+                            currentTutorId = tutorData.id; // Aqui pegamos o 182
+                            console.log('✅ [PERFIL] ID do Tutor para WS:', currentTutorId);
+                        }
+                    } catch (e) { console.error('Erro ao buscar perfil do tutor', e); }
 
                     console.log('👤 [USER] currentUser carregado:', currentUser);
                     console.log('👤 [USER] ID do usuário:', currentUser.id);
@@ -7162,43 +7173,7 @@
             });
             document.addEventListener('MSFullscreenChange', () => {
                 atualizarIconeFullScreen(!!document.msFullscreenElement);
-            });
-
-            console.log('🔍 [DIAG] Script carregado, verificando estado...');
-
-            // Forçar conexão após 3 segundos se não estiver conectado
-            setTimeout(() => {
-                console.log('🔍 [DIAG] Verificando após 3 segundos...');
-                console.log('🔍 [DIAG] currentUser:', currentUser);
-                console.log('🔍 [DIAG] currentUser?.id:', currentUser?.id);
-                console.log('🔍 [DIAG] stompClient:', stompClient);
-                console.log('🔍 [DIAG] stompClient?.connected:', stompClient ? stompClient.connected : 'stompClient não existe');
-
-                if (!stompClient || !stompClient.connected) {
-                    console.log('⚠️ [DIAG] WebSocket NÃO conectado! Tentando reconectar...');
-                    if (currentUser && currentUser.id) {
-                        connectMensagemWebSocket();
-                    } else {
-                        console.error('❌ [DIAG] currentUser está vazio ou sem ID! Recarregando dados...');
-                        loadUserData().then(() => {
-                            if (currentUser && currentUser.id) {
-                                connectMensagemWebSocket();
-                            }
-                        });
-                    }
-                } else {
-                    console.log('✅ [DIAG] WebSocket já está conectado!');
-                }
-            }, 3000);
-
-            // Monitorar a função loadUserData
-            const originalLoadUserData = loadUserData;
-            window.loadUserData = async function () {
-                console.log('🔍 [DIAG] loadUserData foi chamada');
-                const result = await originalLoadUserData();
-                console.log('🔍 [DIAG] loadUserData resultou em currentUser:', currentUser);
-                return result;
-            };
+            });      
 
         })();
 
