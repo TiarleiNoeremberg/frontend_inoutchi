@@ -3340,16 +3340,11 @@
             }
 
             function handleNovaMensagem(payload) {
-                console.log('🎯 [HANDLER] handleNovaMensagem foi CHAMADA!');
-
-                // 1. EXTRAÇÃO CORRETA: O Service envia um objeto com {tipo: "...", mensagem: {...}}
-                // Se 'payload.mensagem' existir, usamos ele. Se não, usamos o payload direto.
+                console.log('🎯 [HANDLER] Iniciando processamento...');
                 const mensagem = payload.mensagem || payload;
+                console.log('📨 [DEBUG] Dados recebidos:', mensagem);
 
-                console.log('📨 [DEBUG] Dados da mensagem:', mensagem);
-
-                // 2. TRAVA DE SEGURANÇA (Corrigida para usar sua variável 'materiasUnicas')
-                // Verifica se o ID da mensagem já existe em algum dos cards no seu Map
+                // 1. TRAVA DE DUPLICIDADE (Mantenha como está)
                 let mensagemJaExiste = false;
                 for (let card of materiasUnicas.values()) {
                     if (card.mensagens && card.mensagens.some(m => m.id === mensagem.id)) {
@@ -3357,16 +3352,13 @@
                         break;
                     }
                 }
+                if (mensagemJaExiste) return;
 
-                if (mensagemJaExiste) {
-                    console.warn(`⚠️ Ignorando mensagem duplicada detectada (ID: ${mensagem.id})`);
-                    return;
-                }
-
-                // 3. Lógica de Roteamento Ultra-Rigorosa
+                // 2. ROTEAMENTO E DEFINIÇÃO DE VARIÁVEIS (Onde o erro se esconde)
                 let cardKey = null;
                 let tipoLabel = "Mensagem";
                 let cardNome = "";
+                let cardSalaNome = mensagem.salaNome || "Geral";
 
                 if (mensagem.tipo === 'INSTITUCIONAL') {
                     cardKey = 'diretoria';
@@ -3374,31 +3366,36 @@
                     cardNome = "Diretoria";
                 }
                 else if (mensagem.materiaId) {
+                    // SE TEM ID DE MATÉRIA, É OBRIGATÓRIO IR PARA O CARD DA MATÉRIA
                     cardKey = String(mensagem.materiaId);
                     tipoLabel = mensagem.materiaNome || "Matéria";
                     cardNome = mensagem.materiaNome;
                 }
-                else if (mensagem.tipo === 'COLETIVA' && !mensagem.materiaId) {
-                    if (mensagem.criadoPorTipo === 'PROFESSOR') {
-                        console.warn("⚠️ Mensagem de professor sem materiaId ignorada.");
-                        return;
-                    }
+                else if (mensagem.tipo === 'COLETIVA') {
+                    // SÓ ENTRA AQUI SE NÃO TIVER MATERIA_ID (Avisos da sala)
                     cardKey = 'turma';
                     tipoLabel = "Turma";
                     cardNome = "Turma";
                 }
 
+                console.log(`📍 Roteando para o CardKey: ${cardKey}`);
+
                 if (!cardKey) {
-                    console.error('❌ Não foi possível determinar o card:', mensagem);
+                    console.error('❌ Mensagem sem destino definido:', mensagem);
                     return;
                 }
 
-                // 4. ATUALIZAÇÃO DA UI (Seu código original)
-                showToast(`${tipoLabel}: ${mensagem.conteudo.substring(0, 100)}`, 'success');
-                const cardSalaNome = mensagem.salaNome || (cardKey === 'diretoria' ? 'Avisos Oficiais' : 'Geral');
+                // 3. ATUALIZAÇÃO DA UI (Consertando as variáveis que travavam o código)
+                // Se você usa showToast ou toastr, garanta que a função existe
+                if (typeof showToast === 'function') {
+                    showToast(`${tipoLabel}: ${mensagem.conteudo.substring(0, 50)}...`, 'info');
+                } else {
+                    console.log(`📢 Alerta: ${tipoLabel} - ${mensagem.conteudo}`);
+                }
+
                 mensagem.lida = false;
 
-                // Adicionar ao Map 'materiasUnicas'
+                // 4. ATUALIZAR O MAP (Sua lógica de cache)
                 if (!materiasUnicas.has(cardKey)) {
                     materiasUnicas.set(cardKey, {
                         id: cardKey,
@@ -3414,40 +3411,29 @@
                     materia.mensagensNaoLidas = (materia.mensagensNaoLidas || 0) + 1;
                 }
 
-                // 5. RECALCULAR TOTAIS E ATUALIZAR TELA
-                let novoTotalNaoLidas = 0;
-                for (const item of materiasUnicas.values()) {
-                    novoTotalNaoLidas += (item.mensagensNaoLidas || 0);
-                }
+                // 5. RECALCULAR E ATUALIZAR TELA
+                let novoTotalNaoLidas = Array.from(materiasUnicas.values())
+                    .reduce((sum, item) => sum + (item.mensagensNaoLidas || 0), 0);
 
                 atualizarBadgeMural(novoTotalNaoLidas);
 
+                // Se o mural está aberto, re-renderiza tudo. Se não, atualiza só o badge do card
                 const muralTab = document.querySelector('.tab-pane[data-tab="mural"]');
                 if (muralTab && muralTab.classList.contains('active')) {
                     renderMural();
                 } else {
-                    // Atualiza a bolinha visualmente no card se ele já estiver lá
-                    const cardElement = document.querySelector(`.mural-card[data-card-id="${cardKey}"]`);
-                    if (cardElement) {
-                        const metaDiv = cardElement.querySelector('.meta');
-                        let badgeSpan = metaDiv.querySelector('.badge-count');
-                        const count = materiasUnicas.get(cardKey).mensagensNaoLidas;
-
-                        if (badgeSpan) {
-                            badgeSpan.textContent = count;
-                        } else if (count > 0 && metaDiv) {
-                            badgeSpan = document.createElement('span');
-                            badgeSpan.className = 'badge-count';
-                            badgeSpan.textContent = count;
-                            metaDiv.appendChild(badgeSpan);
-                        }
+                    const badge = document.querySelector(`.mural-card[data-card-id="${cardKey}"] .badge-count`);
+                    if (badge) {
+                        badge.textContent = materiasUnicas.get(cardKey).mensagensNaoLidas;
+                        badge.style.display = 'block';
+                    } else {
+                        renderMural(); // Fallback: se não achou o badge, redesenha o grid
                     }
                 }
 
-                // 6. SOM
+                // 6. SOM (Mantenha como está)
                 try {
-                    const audio = new Audio('/assets/mp3/alertas/Alerta.mp3');
-                    audio.play().catch(e => console.log('🔇 Som bloqueado pelo navegador'));
+                    new Audio('/assets/mp3/alertas/Alerta.mp3').play().catch(() => { });
                 } catch (e) { }
             }
 
