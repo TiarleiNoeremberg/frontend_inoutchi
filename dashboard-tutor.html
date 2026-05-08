@@ -3363,44 +3363,28 @@
                     return;
                 }
 
-                // 3. LÓGICA DE ROTEAMENTO (Sua lógica original que já é boa)
-                let tipoLabel = '';
+                // 3. Lógica de Roteamento Ultra-Rigorosa
                 let cardKey = null;
-                let cardNome = null;
-                let cardSalaNome = null;
 
                 if (mensagem.tipo === 'INSTITUCIONAL') {
-                    tipoLabel = 'Institucional';
                     cardKey = 'diretoria';
-                    cardNome = 'Diretoria';
-                    cardSalaNome = 'Avisos da Direção';
                 }
-                else if (mensagem.tipo === 'COLETIVA') {
-                    tipoLabel = 'Coletiva';
-                    // Se tem matéria, vai para o card da matéria. Se não, vai para Turma.
-                    if (mensagem.materiaId) {
-                        cardKey = String(mensagem.materiaId);
-                        cardNome = mensagem.materiaNome || 'Matéria';
-                        cardSalaNome = mensagem.salaNome || 'Mensagens da matéria';
-                    } else {
-                        cardKey = 'turma';
-                        cardNome = 'Turma';
-                        cardSalaNome = mensagem.salaNome || 'Avisos da Turma';
-                    }
+                else if (mensagem.materiaId) {
+                    // Se tem matéria, VAI para o card da matéria, não importa se é COLETIVA ou INDIVIDUAL
+                    cardKey = String(mensagem.materiaId);
                 }
-                else if (mensagem.tipo === 'INDIVIDUAL') {
-                    tipoLabel = mensagem.alunoNome ? `Para: ${mensagem.alunoNome}` : 'Individual';
-                    if (mensagem.materiaId) {
-                        cardKey = String(mensagem.materiaId);
-                        cardNome = mensagem.materiaNome || 'Matéria';
-                    } else {
-                        cardKey = 'turma'; // Ou outra lógica de sua preferência
-                        cardNome = 'Mensagem Individual';
+                else if (mensagem.tipo === 'COLETIVA' && !mensagem.materiaId) {
+                    // SÓ vai para o card TURMA se for COLETIVA E NÃO tiver matéria
+                    // Isso garante que mensagens de professores (que sempre devem ter materiaId) fiquem fora daqui
+                    if (mensagem.criadoPorTipo === 'PROFESSOR') {
+                        console.warn("⚠️ Mensagem de professor sem materiaId ignorada para o card Turma.");
+                        return;
                     }
+                    cardKey = 'turma';
                 }
 
                 if (!cardKey) {
-                    console.error('❌ Não foi possível determinar o card para a mensagem', mensagem);
+                    console.error('❌ Não foi possível determinar o card exclusivo para:', mensagem);
                     return;
                 }
 
@@ -3456,7 +3440,7 @@
 
                 // 6. SOM
                 try {
-                    const audio = new Audio('/assets/sounds/notification.mp3');
+                    const audio = new Audio('/assets/mp3/alertas/Alerta.mp3');
                     audio.play().catch(e => console.log('🔇 Som bloqueado pelo navegador'));
                 } catch (e) { }
             }
@@ -4607,13 +4591,17 @@
                     });
 
                     // 2. Adicionar card "Turma"
-                    const totalColetivasNaoLidas = coletivasDaSala.filter(msg => !msg.lida).length;
+                    // FILTRO CRÍTICO: Somente mensagens coletivas que NÃO possuem materiaId (Direção/Escola)
+                    const coletivasPurificadas = coletivasDaSala.filter(msg => !msg.materiaId);
+
+                    const totalColetivasNaoLidas = coletivasPurificadas.filter(msg => !msg.lida).length;
+
                     materiasUnicas.set('turma', {
                         id: 'turma',
                         nome: 'Turma',
                         tipo: 'COLETIVA',
                         mensagensNaoLidas: totalColetivasNaoLidas,
-                        mensagens: coletivasDaSala,
+                        mensagens: coletivasPurificadas, // <--- Agora usa a lista filtrada
                         salaNome: `Mensagens da ${materias[0]?.salaNome || 'Turma'}`
                     });
 
@@ -4646,8 +4634,7 @@
 
                             // Filtrar mensagens
                             const mensagensFiltradas = mensagensDaMateria.filter(msg =>
-                                msg.tipo !== 'INSTITUCIONAL' &&
-                                !(msg.tipo === 'COLETIVA' && msg.salaId === salaId)
+                                msg.tipo !== 'INSTITUCIONAL'
                             );
 
                             // Aplicar estado salvo do sessionStorage
