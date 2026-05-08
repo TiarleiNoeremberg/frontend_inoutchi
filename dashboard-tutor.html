@@ -3434,13 +3434,30 @@
 
                 atualizarBadgeMural(totalNaoLidas);
 
-                // 5. Recarregar o mural se a aba estiver ativa
+                // 5. Recarregar o mural se a aba estiver ativa, ou injetar o badge visualmente
                 const muralTab = document.querySelector('.tab-pane[data-tab="mural"]');
                 if (muralTab && muralTab.classList.contains('active')) {
-                    console.log('🔄 Recarregando mural...');
+                    console.log('🔄 Recarregando mural para exibir novos badges...');
                     renderMural();
                 } else {
-                    console.log(`📌 Aba mural não está ativa, card ${cardKey} atualizado no cache`);
+                    console.log(`📌 Aba mural não está ativa. Card ${cardKey} atualizado no cache.`);
+                    // Tenta encontrar o card (caso ele já esteja renderizado na tela) para por a bolinha
+                    const cardElement = document.querySelector(`.mural-card[data-card-id="${cardKey}"]`);
+                    if (cardElement) {
+                        const metaDiv = cardElement.querySelector('.meta');
+                        let badgeSpan = metaDiv.querySelector('.badge-count');
+                        const count = materiasUnicas.get(cardKey).mensagensNaoLidas;
+
+                        if (badgeSpan) {
+                            badgeSpan.textContent = count; // Atualiza o número
+                        } else if (count > 0 && metaDiv) {
+                            // Cria a bolinha se não existir
+                            badgeSpan = document.createElement('span');
+                            badgeSpan.className = 'badge-count';
+                            badgeSpan.textContent = count;
+                            metaDiv.appendChild(badgeSpan);
+                        }
+                    }
                 }
 
                 // 6. Tocar som de notificação (opcional)
@@ -4408,9 +4425,6 @@
 
                             console.log(`✅ Marcadas ${naoLidasIds.length} mensagens como lidas`);
 
-                            // REMOVA ESTA LINHA - NÃO SALVAR EM SESSIONSTORAGE QUANDO BACKEND FUNCIONA
-                            // salvarMensagensLidas(naoLidasIds);  <--- REMOVER
-
                             // VERIFICAR SE REALMENTE MARCOU
                             try {
                                 const checkResponse = await fetchWithAuth(endpoint);
@@ -4420,7 +4434,8 @@
                                 console.warn('Não foi possível verificar estado após marcar:', e);
                             }
 
-                            // Atualizar estado local
+                            // --- CORREÇÃO DO BADGE AQUI ---
+                            // 1. Atualizar estado local da matéria clicada
                             cardData.mensagensNaoLidas = 0;
                             if (cardData.mensagens) {
                                 cardData.mensagens.forEach(msg => {
@@ -4430,27 +4445,49 @@
                                 });
                             }
 
-                            // Remover badge do card visualmente
-                            const cardElement = document.querySelector(`.mural-card[data-card-id="${cardId}"]`);
-                            const badgeSpan = cardElement?.querySelector('.badge-count');
-                            if (badgeSpan) badgeSpan.remove();
+                            // 2. Remover badge do card visualmente (forçando busca pelo ID exato)
+                            const muralTab = document.querySelector('.tab-pane[data-tab="mural"]');
+                            if (muralTab && muralTab.classList.contains('active')) {
+                                // Se estivermos na aba do mural, o jeito mais seguro de limpar as bolinhas é re-renderizar
+                                console.log('🔄 Recarregando mural para limpar os badges...');
+                                renderMural();
+                            } else {
+                                // Se não, tenta caçar no DOM
+                                const cardElement = document.querySelector(`.mural-card[data-card-id="${cardId}"]`);
+                                const badgeSpan = cardElement?.querySelector('.badge-count');
+                                if (badgeSpan) badgeSpan.remove();
+                            }
 
-                            // RECALCULAR TOTAL DE NÃO LIDAS
+                            // 3. RECALCULAR TOTAL DE NÃO LIDAS (Sino e Rodapé)
                             totalNaoLidas = 0;
                             for (const [_, item] of materiasUnicas) {
-                                const naoLidasItem = item.mensagens?.filter(m => !m.lida).length || 0;
-                                totalNaoLidas += naoLidasItem;
+                                // Confia no contador que atualizamos (item.mensagensNaoLidas) e não no array (que pode estar desatualizado)
+                                totalNaoLidas += (item.mensagensNaoLidas || 0);
                             }
+                            console.log(`📊 Recalculado Total Não Lidas: ${totalNaoLidas}`);
                             atualizarBadgeMural(totalNaoLidas);
+                            // --- FIM DA CORREÇÃO ---
 
                         } catch (error) {
                             console.error('❌ Erro ao marcar mensagens como lidas:', error);
-                            // Só salvar no sessionStorage quando o backend falhar (FALLBACK)
                             salvarMensagensLidas(naoLidasIds);
                             showToast(`Erro ao marcar mensagens, mas estado salvo localmente.`, 'warning');
                         }
                     } else {
                         console.log('ℹ️ Nenhuma mensagem não lida para marcar');
+
+                        // Garantir que a bolinha suma mesmo se não tiver mensagem pra marcar no backend 
+                        // (ex: leu em outro lugar mas o frontend não atualizou)
+                        cardData.mensagensNaoLidas = 0;
+                        const cardElement = document.querySelector(`.mural-card[data-card-id="${cardId}"]`);
+                        const badgeSpan = cardElement?.querySelector('.badge-count');
+                        if (badgeSpan) badgeSpan.remove();
+
+                        totalNaoLidas = 0;
+                        for (const [_, item] of materiasUnicas) {
+                            totalNaoLidas += (item.mensagensNaoLidas || 0);
+                        }
+                        atualizarBadgeMural(totalNaoLidas);
                     }
 
                     // Renderizar mensagens
@@ -4471,20 +4508,20 @@
                         }
 
                         return `
-                            <article class="thread-msg ${!isLida ? 'unread' : ''}">
-                                <div class="msg-head">
-                                    <span class="from">
-                                        ${tipoIcon}${msg.criadoPorNome || 'Sistema'}
-                                        <span class="tag ${tipoClass}" style="margin-left: 8px;">
-                                            ${msg.tipo === 'INSTITUCIONAL' ? 'Diretoria' : (msg.tipo === 'COLETIVA' ? 'Turma' : 'Individual')}
-                                        </span>
-                                    </span>
-                                    <span class="when">${new Date(msg.dataCriacao).toLocaleString('pt-BR')}</span>
-                                </div>
-                                <div class="body">${msg.conteudo}</div>
-                                ${msg.alunoNome ? `<div class="tag" style="margin-top: 8px;">👤 Para: ${msg.alunoNome}</div>` : ''}
-                            </article>
-                        `;
+                <article class="thread-msg ${!isLida ? 'unread' : ''}">
+                    <div class="msg-head">
+                        <span class="from">
+                            ${tipoIcon}${msg.criadoPorNome || 'Sistema'}
+                            <span class="tag ${tipoClass}" style="margin-left: 8px;">
+                                ${msg.tipo === 'INSTITUCIONAL' ? 'Diretoria' : (msg.tipo === 'COLETIVA' ? 'Turma' : 'Individual')}
+                            </span>
+                        </span>
+                        <span class="when">${new Date(msg.dataCriacao).toLocaleString('pt-BR')}</span>
+                    </div>
+                    <div class="body">${msg.conteudo}</div>
+                    ${msg.alunoNome ? `<div class="tag" style="margin-top: 8px;">👤 Para: ${msg.alunoNome}</div>` : ''}
+                </article>
+            `;
                     }).join('');
 
                     // Abrir modal
