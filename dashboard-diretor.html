@@ -3971,13 +3971,12 @@
          * e então gerencia a paginação no lado do cliente para garantir a consistência.
          */
         async function loadAllStudents(page = 0, searchTerm = "") {
-            currentStudentsPage = page; // Atualiza a página atual globalmente
+            currentStudentsPage = page;
             try {
                 console.log(`Buscando TODOS os alunos... Termo: "${searchTerm}"`);
 
                 const accessToken = localStorage.getItem("access_token");
 
-                // Pede um número muito grande de alunos para garantir que todos venham.
                 let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=${page}&size=${pageSize}`;
 
                 if (searchTerm) {
@@ -3989,31 +3988,22 @@
                 });
 
                 if (response.ok) {
-                    // A variável 'paginatedData' já contém o objeto de paginação da API
-                    // com 'content', 'totalPages', 'totalElements', etc.
-                    paginatedData = await response.json();
+                    const paginatedData = await response.json();
 
                     if (paginatedData.content) {
                         detailedStudentsData = paginatedData.content;
-                        console.log(
-                            `✅ Cache atualizado com ${detailedStudentsData.length} alunos`,
-                        );
+                        console.log(`✅ Cache atualizado com ${detailedStudentsData.length} alunos`);
                     }
 
-                    // Opcional, mas recomendado:
-                    // Se a verificação de status em tempo real for crucial, podemos mantê-la
-                    // para a página atual de alunos.
-                    if (paginatedData.content && paginatedData.content.length > 0) {
-                        paginatedData.content = await checkAllStudentsStatus(
-                            paginatedData.content,
-                        );
+                    // ========== ALTERAÇÃO CIRÚRGICA AQUI ==========
+                    // REMOVA ou COMENTE esta linha:
+                    // paginatedData.content = await checkAllStudentsStatus(paginatedData.content);
+                    // ================================================
 
-                        // Ordena apenas a lista da página atual para manter a consistência visual.
+                    // Mantenha APENAS a ordenação (opcional, mas não quebra nada)
+                    if (paginatedData.content && paginatedData.content.length > 0) {
                         const getStatusPriority = (status) => {
-                            if (
-                                status === "AGUARDANDO" ||
-                                status === "AGUARDANDO_CONFIRMACAO"
-                            )
+                            if (status === "AGUARDANDO" || status === "AGUARDANDO_CONFIRMACAO")
                                 return 0;
                             if (status === "PRESENTE") return 1;
                             return 2;
@@ -4026,8 +4016,6 @@
                         });
                     }
 
-                    // As funções de renderização recebem diretamente a resposta paginada da API.
-                    // Não é mais necessário fatiar (slice) ou calcular páginas no cliente.
                     renderStudentsTable(paginatedData);
                     setupStudentsPagination(paginatedData);
                 } else {
@@ -4037,9 +4025,9 @@
                 console.error("Erro ao carregar a lista de alunos:", error);
                 showAlert("Erro grave ao carregar lista de alunos.", "error");
 
-                // Em caso de erro, limpa a tabela para evitar exibir dados desatualizados.
                 const tbody = document.getElementById("studentsTableBody");
-                tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px;">Falha ao carregar alunos. Tente novamente.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px;">Falha ao carregar alunos. Tome novamente.`;
+
             }
         }
 
@@ -6628,30 +6616,15 @@
             try {
                 const accessToken = localStorage.getItem("access_token");
 
-                // ETAPA 1: Define o status base (PRESENTE ou AUSENTE)
-                const response = await fetch(
-                    `${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?size=1000`,
-                    {
-                        headers: { Authorization: `Bearer ${accessToken}` },
-                    },
-                );
+                // ========== ALTERAÇÃO CIRÚRGICA AQUI ==========
+                // ETAPA 1: Mantém o status original que veio da API
+                // NÃO substitui pelo resultado do endpoint /presentes
+                // ===============================================
 
-                if (!response.ok) {
-                    console.error(
-                        "Erro ao buscar alunos presentes, retornando status original.",
-                    );
-                    return alunos.map((a) => ({ ...a, status: "AUSENTE" })); // Retorna como ausente em caso de falha
-                }
+                let alunosComStatusBase = alunos; // Mantém o status original
 
-                const data = await response.json();
-                const alunosPresentesIds = new Set(
-                    data.content?.map((aluno) => aluno.id) || [],
-                );
-
-                let alunosComStatusBase = alunos.map((aluno) => ({
-                    ...aluno,
-                    status: alunosPresentesIds.has(aluno.id) ? "PRESENTE" : "AUSENTE",
-                }));
+                // Opcional: Log para debug
+                console.log(`📊 Status original recebido da API: ${alunos.filter(a => a.status === 'PRESENTE').length} presentes, ${alunos.filter(a => a.status === 'AGUARDANDO_CONFIRMACAO').length} aguardando, ${alunos.filter(a => a.status === 'AUSENTE').length} ausentes`);
 
                 // ETAPA 2: Verifica o status 'AGUARDANDO_CONFIRMACAO' para os alunos marcados como PRESENTES
                 console.log("Verificando saídas pendentes para alunos presentes...");
@@ -6659,8 +6632,11 @@
                 const alunosPresentes = alunosComStatusBase.filter(
                     (aluno) => aluno.status === "PRESENTE",
                 );
+
                 if (alunosPresentes.length === 0) {
-                    return alunosComStatusBase; // Se não há ninguém presente, não há o que checar.
+                    console.log("Nenhum aluno presente para verificar pendências.");
+                    detailedStudentsData = alunosComStatusBase;
+                    return alunosComStatusBase;
                 }
 
                 const statusPromises = alunosPresentes.map((aluno) =>
@@ -6672,13 +6648,8 @@
                     ).then(async (res) => {
                         if (res.ok) {
                             try {
-                                // Primeiro, pegamos a resposta completa da API.
                                 const responseData = await res.json();
-
-                                // Agora, acessamos o objeto de dados que está 'dentro' da resposta.
-                                // Usei 'dados', mas pode ser 'data', 'content' ou outro nome.
                                 const saidaAtiva = responseData.dados;
-
                                 if (
                                     saidaAtiva &&
                                     saidaAtiva.status === "AGUARDANDO_CONFIRMACAO"
@@ -6689,7 +6660,7 @@
                                     };
                                 }
                             } catch (e) {
-                                // Se o corpo não for JSON ou a resposta estiver vazia (sem saída ativa), ignora.
+                                // Ignora erros de parsing
                             }
                         }
                         return null;
