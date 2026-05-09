@@ -3611,48 +3611,67 @@
             try {
                 const accessToken = localStorage.getItem("access_token");
 
-                // 1. Obter o TOTAL de alunos da escola.
+                // 1. Obter o TOTAL de alunos da escola (endpoint correto)
                 const totalResponse = await fetch(
                     `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?size=1`,
-                    {
-                        headers: { Authorization: `Bearer ${accessToken}` },
-                    },
+                    { headers: { Authorization: `Bearer ${accessToken}` } }
                 );
-                if (!totalResponse.ok)
-                    throw new Error(
-                        `Falha ao buscar total de alunos: ${totalResponse.status}`,
-                    );
+
+                if (!totalResponse.ok) {
+                    throw new Error(`Falha ao buscar total de alunos: ${totalResponse.status}`);
+                }
+
                 const totalData = await totalResponse.json();
                 const totalCount = totalData.totalElements || 0;
                 document.getElementById("totalStudents").textContent = totalCount;
 
-                // 2. Obter TODOS os alunos PRESENTES (incluindo os que estão aguardando).
-                const presentResponse = await fetch(
-                    `${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?size=10000`,
-                    {
-                        headers: { Authorization: `Bearer ${accessToken}` },
-                    },
-                );
-                if (!presentResponse.ok)
-                    throw new Error(
-                        `Falha ao buscar alunos presentes: ${presentResponse.status}`,
+                // ========== CORREÇÃO AQUI ==========
+                // 2. Buscar TODOS os alunos e contar os que estão PRESENTES no cache
+                // Não usar o endpoint /presentes que está inconsistente!
+                // ===================================
+
+                let presentCount = 0;
+
+                // Se já temos o cache de alunos (detailedStudentsData), use ele
+                if (detailedStudentsData && detailedStudentsData.length > 0) {
+                    presentCount = detailedStudentsData.filter(
+                        student => student.status === "PRESENTE" || student.status === "AGUARDANDO_CONFIRMACAO"
+                    ).length;
+                    console.log(`✅ Usando cache: ${presentCount} alunos presentes`);
+                } else {
+                    // Fallback: Buscar todos os alunos e contar os presentes
+                    const allStudentsResponse = await fetch(
+                        `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?size=1000`,
+                        { headers: { Authorization: `Bearer ${accessToken}` } }
                     );
-                const presentData = await presentResponse.json();
-                const presentCount = presentData.content
-                    ? presentData.content.length
-                    : 0;
+
+                    if (allStudentsResponse.ok) {
+                        const allStudentsData = await allStudentsResponse.json();
+                        const allStudents = allStudentsData.content || [];
+
+                        // Conta alunos com status PRESENTE ou AGUARDANDO_CONFIRMACAO
+                        presentCount = allStudents.filter(
+                            student => student.status === "PRESENTE" || student.status === "AGUARDANDO_CONFIRMACAO"
+                        ).length;
+
+                        console.log(`✅ Busca direta: ${presentCount} alunos presentes`);
+                    } else {
+                        throw new Error("Falha ao buscar lista de alunos");
+                    }
+                }
+
                 document.getElementById("presentStudents").textContent = presentCount;
 
-                // 3. Calcular os ausentes.
+                // 3. Calcular os ausentes
                 const absentCount = totalCount - presentCount;
                 document.getElementById("absentStudents").textContent = absentCount;
 
                 console.log(
-                    `✅ Visão Geral atualizada: Total=${totalCount}, Presentes=${presentCount}, Ausentes=${absentCount}`,
+                    `✅ Visão Geral atualizada: Total=${totalCount}, Presentes=${presentCount}, Ausentes=${absentCount}`
                 );
             } catch (error) {
                 console.error("❌ Erro ao carregar dados da visão geral:", error);
-                // Em caso de erro, zera os contadores para evitar exibir dados incorretos.
+                // Em caso de erro, zera os contadores
                 document.getElementById("totalStudents").textContent = "0";
                 document.getElementById("presentStudents").textContent = "0";
                 document.getElementById("absentStudents").textContent = "0";
