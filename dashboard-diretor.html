@@ -3620,10 +3620,9 @@
                 const totalCount = totalData.totalElements || 0;
                 document.getElementById("totalStudents").textContent = totalCount;
 
-                // 2. CORREÇÃO: Buscar TOTAL de alunos com status PRESENTE
-                // Usa o endpoint que conta todos os presentes (não depende da página)
+                // 2. 🔴 USAR O NOVO ENDPOINT ESPECÍFICO PARA DIRETOR
                 const presentesResponse = await fetch(
-                    `${BACKEND_URL}/api/alunos/${currentSchoolId}/presentes?size=10000`,
+                    `${BACKEND_URL}/api/alunos/diretor/${currentSchoolId}/presentes/todos`,
                     { headers: { Authorization: `Bearer ${accessToken}` } }
                 );
 
@@ -3631,21 +3630,12 @@
 
                 if (presentesResponse.ok) {
                     const presentesData = await presentesResponse.json();
-                    // Usa totalElements do endpoint (que é o total real de presentes)
-                    presentCount = presentesData.totalElements ||
-                        (presentesData.content ? presentesData.content.length : 0);
-                    console.log(`📊 Endpoint /presentes retornou ${presentCount} alunos presentes`);
+                    presentCount = presentesData.total || presentesData.content?.length || 0;
+                    console.log(`📊 Endpoint exclusivo retornou ${presentCount} alunos presentes`);
                 } else {
-                    // Fallback: contar manualmente
-                    console.warn("⚠️ Endpoint /presentes falhou, contando manualmente...");
-                    const allResponse = await fetch(
-                        `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?size=1000`,
-                        { headers: { Authorization: `Bearer ${accessToken}` } }
-                    );
-                    if (allResponse.ok) {
-                        const allData = await allResponse.json();
-                        presentCount = allData.content?.filter(a => a.status === "PRESENTE").length || 0;
-                    }
+                    console.warn("⚠️ Endpoint exclusivo falhou, usando fallback...");
+                    // Fallback: busca página por página
+                    presentCount = await buscarTodosPresentesFallback();
                 }
 
                 document.getElementById("presentStudents").textContent = presentCount;
@@ -3657,10 +3647,30 @@
                 console.log(`✅ Visão Geral: Total=${totalCount}, Presentes=${presentCount}, Ausentes=${absentCount}`);
             } catch (error) {
                 console.error("❌ Erro ao carregar visão geral:", error);
-                document.getElementById("totalStudents").textContent = "0";
-                document.getElementById("presentStudents").textContent = "0";
-                document.getElementById("absentStudents").textContent = "0";
             }
+        }
+
+        // Função de fallback (caso o endpoint novo não exista)
+        async function buscarTodosPresentesFallback() {
+            const token = localStorage.getItem('access_token');
+            const escolaId = localStorage.getItem('escolaId');
+            let allStudents = [];
+            let page = 0;
+            const size = 100;
+
+            while (true) {
+                const response = await fetch(
+                    `${BACKEND_URL}/api/alunos/${escolaId}/presentes?page=${page}&size=${size}`,
+                    { headers: { 'Authorization': `Bearer ${token}` } }
+                );
+                const data = await response.json();
+                allStudents = [...allStudents, ...(data.content || [])];
+
+                if (data.last || data.content?.length < size) break;
+                page++;
+            }
+
+            return allStudents.length;
         }
 
         // Carregar estatísticas
