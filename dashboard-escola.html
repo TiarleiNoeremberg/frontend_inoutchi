@@ -25,6 +25,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
         rel="stylesheet">
 
+    <link href="https://cdn.jsdelivr.net/npm/tom-select/dist/css/tom-select.bootstrap5.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/tom-select/dist/js/tom-select.complete.min.js"></script>
+
     <!-- Estilos (CSS) - REDESIGN PREMIUM -->
     <style>
         /* ====================================================================== */
@@ -2496,12 +2499,13 @@
                                             edição para não alterar.</small>
                                     </div>
 
-                                    <div class="form-group grid-col-span-2">
+                                    <div class="form-group">
                                         <label>Matérias e Salas Vinculadas</label>
-                                        <div id="professorMateriasContainer"
-                                            style="max-height: 200px; overflow-y: auto; border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 12px; background: var(--bg-card); display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                                            <div class="text-muted">Carregando matérias...</div>
-                                        </div>
+                                        <select id="professorMateriasSelect" multiple
+                                            placeholder="Selecione as matérias..." autocomplete="off">
+                                        </select>
+                                        <small class="text-muted">Dica: Digite o nome da matéria ou da sala para
+                                            filtrar.</small>
                                     </div>
                                 </div>
                             </div>
@@ -2884,6 +2888,7 @@
 
         let currentProfessoresPage = 0;
         let currentProfessorSearch = '';
+        let professorTomSelect = null;
 
         // Lógica para navegação entre as abas
         document.addEventListener('DOMContentLoaded', async function () {
@@ -6644,12 +6649,12 @@
             const pageNumber = pageData.number;
 
             paginationContainer.innerHTML = `
-        <div class="pagination-info">Página ${pageNumber + 1} de ${totalPages} (Total: ${pageData.totalElements})</div>
-        <div class="pagination-buttons">
-            <button class="btn pagination-btn" onclick="loadProfessores(${pageNumber - 1}, '${currentProfessorSearch}')" ${pageData.first ? 'disabled' : ''}><i class="fas fa-angle-left"></i> Anterior</button>
-            <button class="btn pagination-btn" onclick="loadProfessores(${pageNumber + 1}, '${currentProfessorSearch}')" ${pageData.last ? 'disabled' : ''}>Próxima <i class="fas fa-angle-right"></i></button>
-        </div>
-    `;
+                <div class="pagination-info">Página ${pageNumber + 1} de ${totalPages} (Total: ${pageData.totalElements})</div>
+                <div class="pagination-buttons">
+                    <button class="btn pagination-btn" onclick="loadProfessores(${pageNumber - 1}, '${currentProfessorSearch}')" ${pageData.first ? 'disabled' : ''}><i class="fas fa-angle-left"></i> Anterior</button>
+                    <button class="btn pagination-btn" onclick="loadProfessores(${pageNumber + 1}, '${currentProfessorSearch}')" ${pageData.last ? 'disabled' : ''}>Próxima <i class="fas fa-angle-right"></i></button>
+                </div>
+            `;
         }
 
         // ==== ABRE O MODAL E CARREGA O CHECKLIST DE MATÉRIAS ====
@@ -6657,15 +6662,12 @@
             const modal = document.getElementById('professorModal');
             const title = document.getElementById('professorModalTitle');
             const form = document.getElementById('professorForm');
-            const materiasContainer = document.getElementById('professorMateriasContainer');
 
             form.reset();
             document.getElementById('professorId').value = '';
-            materiasContainer.innerHTML = '<div class="text-muted">Carregando matérias disponíveis...</div>';
-
             modal.style.display = 'flex';
 
-            // 1. Busca todas as matérias da escola para listar os checkboxes
+            // 1. Busca todas as matérias da escola
             let allMaterias = [];
             try {
                 const response = await fetch(`${API_URL}/api/materias?size=1000`, {
@@ -6677,24 +6679,30 @@
                 }
             } catch (e) { console.error('Erro ao buscar matérias', e); }
 
-            // 2. Extrai IDs das matérias já vinculadas ao professor (se for edição)
-            const selectedMateriaIds = professorInfo && professorInfo.materias
-                ? professorInfo.materias.map(m => m.id)
-                : [];
-
-            // 3. Renderiza os checkboxes
-            if (allMaterias.length > 0) {
-                materiasContainer.innerHTML = allMaterias.map(m => `
-            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px;">
-                <input type="checkbox" class="materia-checkbox" value="${m.id}" ${selectedMateriaIds.includes(m.id) ? 'checked' : ''} style="width: 16px; height: 16px; cursor: pointer;">
-                <span>${escapeHtml(m.nome)} <small class="text-muted">(${escapeHtml(m.salaNome || 'Geral')})</small></span>
-            </label>
-        `).join('');
-            } else {
-                materiasContainer.innerHTML = '<div class="text-warning"><i class="fas fa-exclamation-triangle"></i> Cadastre matérias primeiro.</div>';
+            // 2. Gerenciar o Tom Select (Destruir o antigo e criar o novo)
+            if (professorTomSelect) {
+                professorTomSelect.destroy();
             }
 
-            // 4. Preenche os dados do professor se for Edição
+            professorTomSelect = new TomSelect("#professorMateriasSelect", {
+                plugins: ['remove_button'],
+                maxItems: null,
+                valueField: 'id',
+                labelField: 'displayText',
+                searchField: ['materia', 'sala'],
+                options: allMaterias.map(m => ({
+                    id: m.id,
+                    materia: m.nome,
+                    sala: m.salaNome || 'Geral',
+                    displayText: `${m.nome} ${m.salaNome || ''}`
+                })),
+                render: {
+                    item: (data, escape) => `<div>${escape(data.materia)} <small class="text-muted">(${escape(data.sala)})</small></div>`,
+                    option: (data, escape) => `<div><strong>${escape(data.materia)}</strong><br><small class="text-muted">${escape(data.sala)}</small></div>`
+                }
+            });
+
+            // 3. Preencher dados e Marcar as matérias já selecionadas
             if (professorInfo) {
                 title.textContent = 'Editar Professor';
                 document.getElementById('professorId').value = professorInfo.id;
@@ -6704,9 +6712,16 @@
                 document.getElementById('professorFone').value = aplicarMascaraTelefone(professorInfo.fone || '');
                 document.getElementById('professorRegistro').value = professorInfo.registroProfissional || '';
                 document.getElementById('professorSenha').required = false;
+
+                // SELECIONA AS MATÉRIAS NO COMPONENTE
+                if (professorInfo.materias) {
+                    const ids = professorInfo.materias.map(m => m.id);
+                    professorTomSelect.setValue(ids);
+                }
             } else {
                 title.textContent = 'Adicionar Novo Professor';
                 document.getElementById('professorSenha').required = true;
+                professorTomSelect.clear();
             }
         }
 
@@ -6724,9 +6739,17 @@
             const id = document.getElementById('professorId').value;
             const isEditing = !!id;
 
-            // Coleta IDs das matérias selecionadas
-            const checkboxes = document.querySelectorAll('.materia-checkbox:checked');
-            const materiasIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+            // --- MUDANÇA AQUI: Coleta IDs das matérias usando o Tom Select ---
+            // professorTomSelect é a variável global que definimos na abertura do modal
+            let materiasIds = [];
+            if (professorTomSelect) {
+                // .getValue() retorna um array de strings ou números dependendo da config
+                const values = professorTomSelect.getValue();
+                // Garantimos que sejam números inteiros
+                materiasIds = (Array.isArray(values) ? values : [values])
+                    .filter(v => v !== "")
+                    .map(v => parseInt(v));
+            }
 
             const payload = {
                 nome: document.getElementById('professorNome').value.trim(),
@@ -6734,14 +6757,14 @@
                 cpf: document.getElementById('professorCpf').value.trim(),
                 fone: document.getElementById('professorFone').value.trim(),
                 registroProfissional: document.getElementById('professorRegistro').value.trim(),
-                materiasIds: materiasIds
+                materiasIds: materiasIds // Agora vem do componente de busca
             };
 
             const senha = document.getElementById('professorSenha').value;
             if (senha) {
                 payload.senha = senha;
             } else if (!isEditing) {
-                payload.senha = "123456"; // Fallback caso o front falhe no required
+                payload.senha = "123456";
             }
 
             if (!isEditing) {
