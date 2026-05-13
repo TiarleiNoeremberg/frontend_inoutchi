@@ -1803,6 +1803,11 @@
                     </a>
                 </li>
                 <li>
+                    <a href="#" class="nav-link" data-target="professores">
+                        <i class="fas fa-chalkboard-user icon"></i> Professores
+                    </a>
+                </li>
+                <li>
                     <a href="#" class="nav-link" data-target="mural">
                         <i class="fas fa-bullhorn icon"></i> Mural
                     </a>
@@ -2412,6 +2417,105 @@
                 <div id="materiasPagination" class="pagination-container" style="display: none;"></div>
             </section>
 
+            <section id="professores-content" class="content-section">
+                <div class="section-header">
+                    <h1>Gestão de Professores</h1>
+                    <button class="btn btn-primary" onclick="openProfessorModal()">
+                        <i class="fas fa-plus"></i> Adicionar Novo Professor
+                    </button>
+                </div>
+
+                <div class="search-bar-container" style="margin-bottom: 20px; display: flex; gap: 10px;">
+                    <input type="text" id="professorSearch" class="form-control"
+                        placeholder="Buscar professor por nome..." style="flex-grow: 1;">
+                    <button class="btn btn-primary" type="button" onclick="searchProfessores()">
+                        <i class="fas fa-search"></i> Buscar
+                    </button>
+                </div>
+
+                <table class="content-table">
+                    <thead>
+                        <tr>
+                            <th>Nome</th>
+                            <th>E-mail</th>
+                            <th>CPF / Fone</th>
+                            <th>Matérias Lecionadas</th>
+                            <th style="width: 150px;">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="professoresTableBody">
+                        <tr>
+                            <td colspan="5" class="empty-state">Carregando professores...</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div id="professoresPagination" class="pagination-container" style="display: none;"></div>
+
+                <div id="professorModal" class="modal">
+                    <div class="modal-content large" style="max-width: 700px;">
+                        <div class="modal-header">
+                            <h2 id="professorModalTitle">Adicionar Novo Professor</h2>
+                            <span class="close-button" onclick="closeProfessorModal()">&times;</span>
+                        </div>
+                        <form id="professorForm" onsubmit="saveProfessor(event)">
+                            <div class="modal-body">
+                                <input type="hidden" id="professorId">
+
+                                <div class="form-grid">
+                                    <div class="form-group grid-col-span-2">
+                                        <label for="professorNome">Nome Completo</label>
+                                        <input type="text" id="professorNome" required>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="professorCpf">CPF</label>
+                                        <input type="text" id="professorCpf" required maxlength="14"
+                                            placeholder="Apenas números">
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="professorEmail">Email</label>
+                                        <input type="email" id="professorEmail" required>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="professorFone">Telefone</label>
+                                        <input type="tel" id="professorFone" maxlength="15">
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="professorRegistro">Registro Profissional (Opcional)</label>
+                                        <input type="text" id="professorRegistro" placeholder="Ex: CREA, CRM...">
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="professorSenha">Senha de Acesso</label>
+                                        <input type="text" id="professorSenha" placeholder="Padrão: 123456">
+                                        <small class="form-text" style="color: var(--text-muted);">Deixe em branco na
+                                            edição para não alterar.</small>
+                                    </div>
+
+                                    <div class="form-group grid-col-span-2">
+                                        <label>Matérias e Salas Vinculadas</label>
+                                        <div id="professorMateriasContainer"
+                                            style="max-height: 200px; overflow-y: auto; border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 12px; background: var(--bg-card); display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                            <div class="text-muted">Carregando matérias...</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary"
+                                    onclick="closeProfessorModal()">Cancelar</button>
+                                <button type="submit" class="btn btn-primary" id="saveProfessorBtn">Salvar
+                                    Professor</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
             <!-- Seção Mural (Mensagens) -->
             <section id="mural-content" class="content-section">
                 <div class="section-header">
@@ -2777,6 +2881,9 @@
         let currentMateriaSearch = '';
 
         let mensagemParaDesativar = null;
+
+        let currentProfessoresPage = 0;
+        let currentProfessorSearch = '';
 
         // Lógica para navegação entre as abas
         document.addEventListener('DOMContentLoaded', async function () {
@@ -6430,6 +6537,259 @@
                 console.error('Erro ao desativar mensagem:', error);
                 showToast(error.message, 'error');
             }
+        }
+
+        // ========================================================================
+        // ==== LÓGICA PARA CRUD DE PROFESSORES ====
+        // ========================================================================
+      
+        // Registrar o evento de clique na aba lateral
+        document.querySelector('a[data-target="professores"]').addEventListener('click', () => loadProfessores(0, ''));
+
+        // Formata input do CPF e Telefone (Reaproveitando suas funções existentes)
+        document.getElementById('professorCpf')?.addEventListener('input', (e) => e.target.value = aplicarMascaraCpf(e.target.value));
+        document.getElementById('professorFone')?.addEventListener('input', (e) => e.target.value = aplicarMascaraTelefone(e.target.value));
+
+        async function loadProfessores(page = 0, searchTerm = '') {
+            currentProfessoresPage = page;
+            currentProfessorSearch = searchTerm;
+            const tableBody = document.getElementById('professoresTableBody');
+            tableBody.innerHTML = '<tr><td colspan="5" class="empty-state">Carregando professores...</td></tr>';
+
+            try {
+                let url = `${API_URL}/api/professores/escola/${ESCOLA_ID}?page=${page}&size=10`;
+                if (searchTerm) url += `&nome=${encodeURIComponent(searchTerm)}`;
+
+                const response = await fetch(url, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+
+                if (!response.ok) throw new Error('Falha ao carregar professores');
+
+                const pageData = await response.json();
+                renderProfessoresTable(pageData.content);
+                renderProfessoresPagination(pageData);
+
+            } catch (error) {
+                console.error('Erro ao carregar professores:', error);
+                tableBody.innerHTML = '<tr><td colspan="5" class="empty-state text-danger">Erro ao carregar professores.</td></tr>';
+            }
+        }
+
+        function searchProfessores() {
+            const searchTerm = document.getElementById('professorSearch').value;
+            loadProfessores(0, searchTerm);
+        }
+
+        function renderProfessoresTable(professores) {
+            const tableBody = document.getElementById('professoresTableBody');
+            tableBody.innerHTML = '';
+
+            if (!professores || professores.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum professor encontrado.</td></tr>';
+                return;
+            }
+
+            professores.forEach(prof => {
+                const tr = document.createElement('tr');
+
+                // Mapeia as matérias para exibi-las bonitas na tabela
+                const materiasHtml = prof.materias && prof.materias.length > 0
+                    ? prof.materias.map(m => `<span class="badge" style="background: var(--primary-light); color: var(--primary); padding: 4px 10px; margin: 2px;">${escapeHtml(m.nome)} (${escapeHtml(m.salaNome || 'Geral')})</span>`).join('')
+                    : '<span class="text-muted">Nenhuma</span>';
+
+                tr.innerHTML = `
+            <td><strong>${escapeHtml(prof.nome)}</strong></td>
+            <td>${escapeHtml(prof.email)}</td>
+            <td>${escapeHtml(prof.cpf)}<br><small class="text-muted">${escapeHtml(prof.fone || '-')}</small></td>
+            <td style="max-width: 250px; flex-wrap: wrap;">${materiasHtml}</td>
+            <td class="action-buttons">
+                <button class="btn btn-edit" onclick='openProfessorModal(${JSON.stringify(prof).replace(/'/g, "&apos;")})'>
+                    <i class="fas fa-pencil-alt"></i> Editar
+                </button>
+                <button class="btn btn-delete" onclick="confirmDeleteProfessor(${prof.id}, '${escapeHtml(prof.nome).replace(/'/g, "\\'")}')">
+                    <i class="fas fa-trash"></i> Excluir
+                </button>
+            </td>
+        `;
+                tableBody.appendChild(tr);
+            });
+        }
+
+        function renderProfessoresPagination(pageData) {
+            const paginationContainer = document.getElementById('professoresPagination');
+            paginationContainer.innerHTML = '';
+            paginationContainer.className = 'pagination-container';
+
+            if (pageData.totalElements === 0) {
+                paginationContainer.style.display = 'none';
+                return;
+            }
+
+            paginationContainer.style.display = 'flex';
+            const totalPages = pageData.totalPages;
+            const pageNumber = pageData.number;
+
+            paginationContainer.innerHTML = `
+        <div class="pagination-info">Página ${pageNumber + 1} de ${totalPages} (Total: ${pageData.totalElements})</div>
+        <div class="pagination-buttons">
+            <button class="btn pagination-btn" onclick="loadProfessores(${pageNumber - 1}, '${currentProfessorSearch}')" ${pageData.first ? 'disabled' : ''}><i class="fas fa-angle-left"></i> Anterior</button>
+            <button class="btn pagination-btn" onclick="loadProfessores(${pageNumber + 1}, '${currentProfessorSearch}')" ${pageData.last ? 'disabled' : ''}>Próxima <i class="fas fa-angle-right"></i></button>
+        </div>
+    `;
+        }
+
+        // ==== ABRE O MODAL E CARREGA O CHECKLIST DE MATÉRIAS ====
+        async function openProfessorModal(professorInfo = null) {
+            const modal = document.getElementById('professorModal');
+            const title = document.getElementById('professorModalTitle');
+            const form = document.getElementById('professorForm');
+            const materiasContainer = document.getElementById('professorMateriasContainer');
+
+            form.reset();
+            document.getElementById('professorId').value = '';
+            materiasContainer.innerHTML = '<div class="text-muted">Carregando matérias disponíveis...</div>';
+
+            modal.style.display = 'flex';
+
+            // 1. Busca todas as matérias da escola para listar os checkboxes
+            let allMaterias = [];
+            try {
+                const response = await fetch(`${API_URL}/api/materias?size=1000`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    allMaterias = data.content || [];
+                }
+            } catch (e) { console.error('Erro ao buscar matérias', e); }
+
+            // 2. Extrai IDs das matérias já vinculadas ao professor (se for edição)
+            const selectedMateriaIds = professorInfo && professorInfo.materias
+                ? professorInfo.materias.map(m => m.id)
+                : [];
+
+            // 3. Renderiza os checkboxes
+            if (allMaterias.length > 0) {
+                materiasContainer.innerHTML = allMaterias.map(m => `
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px;">
+                <input type="checkbox" class="materia-checkbox" value="${m.id}" ${selectedMateriaIds.includes(m.id) ? 'checked' : ''} style="width: 16px; height: 16px; cursor: pointer;">
+                <span>${escapeHtml(m.nome)} <small class="text-muted">(${escapeHtml(m.salaNome || 'Geral')})</small></span>
+            </label>
+        `).join('');
+            } else {
+                materiasContainer.innerHTML = '<div class="text-warning"><i class="fas fa-exclamation-triangle"></i> Cadastre matérias primeiro.</div>';
+            }
+
+            // 4. Preenche os dados do professor se for Edição
+            if (professorInfo) {
+                title.textContent = 'Editar Professor';
+                document.getElementById('professorId').value = professorInfo.id;
+                document.getElementById('professorNome').value = professorInfo.nome;
+                document.getElementById('professorEmail').value = professorInfo.email;
+                document.getElementById('professorCpf').value = aplicarMascaraCpf(professorInfo.cpf);
+                document.getElementById('professorFone').value = aplicarMascaraTelefone(professorInfo.fone || '');
+                document.getElementById('professorRegistro').value = professorInfo.registroProfissional || '';
+                document.getElementById('professorSenha').required = false;
+            } else {
+                title.textContent = 'Adicionar Novo Professor';
+                document.getElementById('professorSenha').required = true;
+            }
+        }
+
+        function closeProfessorModal() {
+            document.getElementById('professorModal').style.display = 'none';
+        }
+
+        // ==== SALVA O PROFESSOR (CRIAR E EDITAR) ====
+        async function saveProfessor(event) {
+            event.preventDefault();
+            const btn = document.getElementById('saveProfessorBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+
+            const id = document.getElementById('professorId').value;
+            const isEditing = !!id;
+
+            // Coleta IDs das matérias selecionadas
+            const checkboxes = document.querySelectorAll('.materia-checkbox:checked');
+            const materiasIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+
+            const payload = {
+                nome: document.getElementById('professorNome').value.trim(),
+                email: document.getElementById('professorEmail').value.trim(),
+                cpf: document.getElementById('professorCpf').value.trim(),
+                fone: document.getElementById('professorFone').value.trim(),
+                registroProfissional: document.getElementById('professorRegistro').value.trim(),
+                materiasIds: materiasIds
+            };
+
+            const senha = document.getElementById('professorSenha').value;
+            if (senha) {
+                payload.senha = senha;
+            } else if (!isEditing) {
+                payload.senha = "123456"; // Fallback caso o front falhe no required
+            }
+
+            if (!isEditing) {
+                payload.escolaId = parseInt(ESCOLA_ID);
+            }
+
+            const url = isEditing ? `${API_URL}/api/professores/${id}` : `${API_URL}/api/professores`;
+            const method = isEditing ? 'PUT' : 'POST';
+
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AUTH_TOKEN}` },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.mensagem || error.message || 'Erro ao salvar professor.');
+                }
+
+                closeProfessorModal();
+                loadProfessores(currentProfessoresPage, currentProfessorSearch);
+                showToast(`Professor salvo com sucesso!`, 'success');
+
+            } catch (error) {
+                console.error('Erro ao salvar professor:', error);
+                showAlert(error.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Salvar Professor';
+            }
+        }
+
+        // ==== EXCLUSÃO DE PROFESSOR ====
+        function confirmDeleteProfessor(id, nome) {
+            const modal = document.getElementById('deleteConfirmModal');
+            document.getElementById('deleteConfirmMessage').textContent = `Você tem certeza que deseja excluir o professor "${nome}"? Esta ação removerá o acesso dele ao sistema.`;
+
+            document.getElementById('confirmDeleteBtn').onclick = async () => {
+                closeDeleteConfirmModal();
+                try {
+                    const response = await fetch(`${API_URL}/api/professores/${id}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.mensagem || error.message || 'Erro ao excluir professor');
+                    }
+
+                    showToast(`Professor "${nome}" excluído com sucesso!`, 'success');
+                    loadProfessores(currentProfessoresPage, currentProfessorSearch);
+
+                } catch (error) {
+                    console.error('Erro ao excluir professor:', error);
+                    showAlert(error.message, 'error');
+                }
+            };
+            modal.style.display = 'flex';
         }
 
     </script>
