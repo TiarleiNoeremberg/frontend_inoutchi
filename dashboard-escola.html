@@ -4283,7 +4283,6 @@
          */
         async function loadAllTutors(page = 0, searchTerm = '') {
             const tbody = document.getElementById('tutoresTableBody');
-            // CORREÇÃO 1: O colspan agora é 4, correspondendo às colunas da tabela.
             tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Carregando tutores...</td></tr>';
 
             const url = new URL(`${API_URL}/api/escolas/${ESCOLA_ID}/tutores`);
@@ -4304,7 +4303,6 @@
                 tbody.innerHTML = '';
 
                 if (!pageData.content || pageData.content.length === 0) {
-                    // CORREÇÃO 2: O colspan de "nenhum encontrado" também é 4.
                     tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Nenhum tutor encontrado.</td></tr>';
                     setupTutorsPagination(pageData);
                     return;
@@ -4313,16 +4311,36 @@
                 pageData.content.forEach(tutor => {
                     const tr = document.createElement('tr');
 
-                    // CORREÇÃO 3 (A MAIS IMPORTANTE): O HTML agora gera 4 CÉLULAS
-                    // e a célula de ações tem a estrutura correta (com o <div> interno).
+                    // --- AJUSTE AQUI: Usando o novo campo 'tutorados' e criando Badges ---
+                    const listaAlunos = tutor.tutorados || [];
+                    const alunosHtml = listaAlunos.length > 0
+                        ? listaAlunos.map(a => `
+                            <span class="badge" style="
+                                background: var(--primary); 
+                                color: white !important; 
+                                padding: 4px 10px; 
+                                margin: 2px; 
+                                border-radius: 4px; 
+                                font-size: 0.8rem;
+                                display: inline-block;
+                            ">
+                                <i class="fas fa-child"></i> ${escapeHtml(a.nome)}
+                            </span>
+                        `).join('')
+                        : '<span class="text-muted">Nenhum</span>';
+
                     tr.innerHTML = `
-                        <td>${tutor.nome}</td>
-                        <td>${tutor.email}</td>
-                        <td>${tutor.alunos && tutor.alunos.length > 0 ? tutor.alunos.map(a => a.nome).join(', ') : 'Nenhum'}</td>
+                        <td><strong>${escapeHtml(tutor.nome)}</strong></td>
+                        <td>${escapeHtml(tutor.email)}</td>
+                        <td style="max-width: 300px;">${alunosHtml}</td>
                         <td>
                             <div class="action-buttons">
-                                <button class="btn btn-edit" onclick="openTutorModal(${tutor.id})">Editar</button>
-                                <button class="btn btn-delete" data-id="${tutor.id}" data-nome="${tutor.nome}">Excluir</button>
+                                <button class="btn btn-edit" onclick='openTutorModal(${JSON.stringify(tutor).replace(/'/g, "&apos;")})'>
+                                    <i class="fas fa-pencil-alt"></i> Editar
+                                </button>
+                                <button class="btn btn-delete" data-id="${tutor.id}" data-nome="${escapeHtml(tutor.nome)}">
+                                    <i class="fas fa-trash"></i> Excluir
+                                </button>
                             </div>
                         </td>
                     `;
@@ -4333,7 +4351,6 @@
 
             } catch (error) {
                 console.error('Erro ao carregar tutores:', error);
-                // CORREÇÃO 4: O colspan de erro também é 4.
                 tbody.innerHTML = `<tr><td colspan="4" class="empty-state text-danger">Erro ao carregar tutores. ${error.message}</td></tr>`;
             }
         }
@@ -4351,31 +4368,41 @@
             }
 
             tutores.forEach(tutor => {
-                const row = document.createElement('tr');
-                const alunosNomes = tutor.alunos && tutor.alunos.length > 0
-                    ? tutor.alunos.map(a => a.nome).join(', ')
-                    : '<span style="color: #9CA3AF;">Nenhum</span>';
+                // Mapeia o campo que configuramos no DTO Java
+                const listaAlunos = tutor.tutorados || [];
 
-                // ===== MUDANÇA APLICADA AQUI =====
-                // Trocamos JSON.stringify(tutor) por apenas tutor.id
+                const alunosHtml = listaAlunos.length > 0
+                    ? listaAlunos.map(a => `
+                <span class="badge" style="background: var(--primary); color: white !important; padding: 4px 10px; margin: 2px; border-radius: 4px; font-size: 0.8rem; display: inline-block;">
+                    <i class="fas fa-child"></i> ${escapeHtml(a.nome)}
+                </span>
+            `).join('')
+                    : '<span class="text-muted" style="font-size: 0.85rem;">Nenhum aluno</span>';
+
+                const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td>${tutor.nome}</td>
-                        <td>${tutor.email}</td>
-                        <td>${alunosNomes}</td>
-                        <td class="action-buttons">
-                            <button class="btn btn-edit" onclick='openTutorModal(${JSON.stringify(tutor).replace(/'/g, "&apos;")})'>
-                                <i class="fas fa-pencil-alt"></i> Editar
-                            </button>
-                            <button class="btn btn-delete" data-id="${tutor.id}" data-nome="${tutor.nome}">Excluir</button>
-                        </td>
-                    `;
+                    <td>
+                        <strong>${escapeHtml(tutor.nome)}</strong><br>
+                        <small class="text-muted">${tutor.cpf ? aplicarMascaraCpf(tutor.cpf) : ''}</small>
+                    </td>
+                    <td>${escapeHtml(tutor.email)}</td>
+                    <td style="max-width: 300px;">${alunosHtml}</td>
+                    <td class="action-buttons">
+                        <button class="btn btn-edit" onclick='openTutorModal(${JSON.stringify(tutor).replace(/'/g, "&apos;")})'>
+                            <i class="fas fa-pencil-alt"></i> Editar
+                        </button>
+                        <button class="btn btn-delete" data-id="${tutor.id}" data-nome="${escapeHtml(tutor.nome)}">
+                            <i class="fas fa-trash"></i> Excluir
+                        </button>
+                    </td>
+                `;
                 tableBody.appendChild(row);
             });
         }
 
         /**
- * Configura os botões e informações da paginação dos tutores.
- */
+         * Configura os botões e informações da paginação dos tutores.
+         */
         function setupTutorsPagination(pageData) {
             const paginationContainer = document.getElementById('tutorsPagination');
             paginationContainer.innerHTML = '';
