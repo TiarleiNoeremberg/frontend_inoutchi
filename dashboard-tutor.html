@@ -3283,6 +3283,8 @@
     <script>
         let stompClient = null;
         let currentTutorId = null;
+        let backgroundWatcherId = null;
+        import { BackgroundGeolocation } from '@capacitor-community/background-geolocation';
         (function () {
             // ============== CONSTANTES ==============
             // const BACKEND_URL = 'https://inoutchi-backend.onrender.com';
@@ -3372,6 +3374,121 @@
                         setTimeout(connectMensagemWebSocket, 10000);
                     }
                 );
+            }
+
+            /**
+ * Inicializa o rastreamento em background focado em Geofence.
+ * Chame esta função logo após o login bem-sucedido do Tutor.
+ */
+            async function iniciarMonitoramentoGeofenceBackground() {
+                // 1. Recupera as regras do Tutor logado trazidas pelo backend
+                const tutorDataStr = localStorage.getItem('tutorData');
+                if (!tutorDataStr) return;
+
+                const tutorData = JSON.parse(tutorDataStr);
+                if (!tutorData.proximidades || tutorData.proximidades.length === 0) return;
+
+                // Se já houver um monitor ativo, limpa antes de criar um novo
+                if (backgroundWatcherId) {
+                    await BackgroundGeolocation.removeWatcher({ id: backgroundWatcherId });
+                }
+
+                // 2. Configura o Watcher Nativo do Android via Capacitor
+                backgroundWatcherId = await BackgroundGeolocation.addWatcher(
+                    {
+                        backgroundMessage: "Monitorando aproximação da escola para chamada automática.",
+                        backgroundTitle: "Inoutchi Ativo",
+                        requestPermissions: true,
+                        stale: false,
+                        distanceFilter: 20 // SÓ dispara o evento se o tutor se mover pelo menos 20 metros (Economiza MUITA bateria)
+                    },
+                    async (location, error) => {
+                        if (error) {
+                            if (error.code === "NOT_AUTHORIZED") {
+                                console.warn("Usuário não deu permissão de localização em background.");
+                            }
+                            return;
+                        }
+
+                        if (location) {
+                            // Dispara a lógica de validação de distância e horário
+                            await avaliarJanelaEProximidadeAutomatica(location.latitude, location.longitude, tutorData.proximidades);
+                        }
+                    }
+                );
+            }
+
+            /**
+ * Processa as coordenadas recebidas em background e valida contra as regras da Escola
+ */
+            async function avaliarJanelaEProximidadeAutomatica(latAtual, lngAtual, proximidades) {
+                // Obtém o horário atual do celular no formato "HH:mm:ss"
+                const agora = new Date();
+                const horaAtual = `${agora.getHours().toString().padStart(2, '0')}:${agora.getMinutes().toString().padStart(2, '0')}:00`;
+
+                for (const config of proximidades) {
+
+                    // REGRA 1: O Tutor ativou a Chamada Automática para este aluno?
+                    if (config.chamadaAutomatica === true) {
+
+                        // REGRA 2: A hora atual está na janela permitida pela Escola?
+                        if (horaAtual >= config.horaInicioChamada && horaAtual <= config.horaFimChamada) {
+
+                            // REGRA 3: O Tutor está de fato dentro do raio (geofence) da Escola?
+                            // Calculamos localmente no celular para não sobrecarregar o servidor
+                            const distanciaAteEscola = calcularDistanciaMetros(latAtual, lngAtual, config.latitudeEscola, config.longitudeEscola);
+
+                            if (distanciaAteEscola <= config.raioEscola) {
+                                console.log(`🎯 [Gatilho] Tutor entrou no raio. Solicitando saída automática para aluno: ${config.alunoId}`);
+
+                                await dispararApiSolicitacaoSaida(config.alunoId, latAtual, lngAtual);
+                            }
+                        }
+                    }
+                }
+            }
+
+            /**
+             * Algoritmo de Haversine para calcular distância linear em metros localmente no aparelho
+             */
+            function calcularDistanciaMetros(lat1, lon1, lat2, lon2) {
+                const R = 6371e3; // Raio da Terra em metros
+                const phi1 = lat1 * Math.PI / 180;
+                const phi2 = lat2 * Math.PI / 180;
+                const deltaPhi = (lat2 - lat1) * Math.PI / 180;
+                const deltaLambda = (lon2 - lon1) * Math.PI / 180;
+
+                const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+                    Math.cos(phi1) * Math.cos(phi2) *
+                    Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+                return R * c; // Retorna a distância em metros
+            }
+
+            /**
+ * Faz o envio do POST para o seu endpoint existente do backend
+ */
+            async function dispararApiSolicitacaoSaida(alunoId, lat, lng) {
+                try {
+                    const payload = { alunoId: alunoId, latitude: lat, longitude: lng };
+
+                    // Substitua pelo seu método padrão de fetch com token do Tutor
+                    const response = await fetch(`${API_URL}/api/chamadas/saida/solicitar`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${AUTH_TOKEN}`
+                        },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (response.ok) {
+                        console.log("Chamada automática registrada com sucesso!");
+                    }
+                } catch (error) {
+                    console.error("Erro ao enviar chamada automática:", error);
+                }
             }
 
             function handleNovaMensagem(payload) {
