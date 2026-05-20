@@ -3930,7 +3930,7 @@
                     const isChamadaAtiva = student.proximidade && student.proximidade.chamadaAutomatica === true;
 
                     return `
-                        <article class="student-card" data-student-id="${student.id}">
+                        <article class="student-card" data-student-id="${student.id}" data-status-atual="${student.status}">
                             <div class="student-head">
                                 <div class="student-info" style="width: 100%;">
                                     <div class="student-name">${student.nome}</div>
@@ -4093,17 +4093,33 @@
 
                             const studentId = btn.dataset.studentId;
                             const studentName = btn.dataset.studentName;
-                            const actionType = action;
+
+                            // ⭐ NOVO: Ler o status atual do elemento HTML em tempo real
+                            const cardAluno = document.querySelector(`.student-card[data-student-id="${studentId}"]`);
+                            const statusAtual = cardAluno ? cardAluno.getAttribute('data-status-atual') : null;
+
+                            console.log(`🎯 Status atual do aluno ${studentName}: ${statusAtual}`);
 
                             if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
 
-                            // Executar ação correspondente
-                            if (actionType === 'entry') {
+                            // ⭐ NOVO: Executar ação baseada no status atual, não no memorizado
+                            if (statusAtual === 'AUSENTE') {
                                 await handleEntry(studentId, studentName, btn);
-                            } else if (actionType === 'exit-request') {
+                            } else if (statusAtual === 'PRESENTE') {
                                 await handleExitRequest(studentId, studentName, btn);
-                            } else if (actionType === 'exit-confirm') {
+                            } else if (statusAtual === 'AGUARDANDO_CONFIRMACAO') {
                                 await handleExitConfirm(studentId, studentName, btn);
+                            } else {
+                                console.warn(`Status desconhecido: ${statusAtual}`);
+                                // Fallback para o método antigo
+                                const actionType = action;
+                                if (actionType === 'entry') {
+                                    await handleEntry(studentId, studentName, btn);
+                                } else if (actionType === 'exit-request') {
+                                    await handleExitRequest(studentId, studentName, btn);
+                                } else if (actionType === 'exit-confirm') {
+                                    await handleExitConfirm(studentId, studentName, btn);
+                                }
                             }
 
                             setTimeout(() => {
@@ -6321,6 +6337,17 @@
 
                     initBottomNavigation();
                     initConfigRows();
+
+                    // ⭐ NOVO: Listener para quando o usuário liga a tela do celular
+                    document.addEventListener('visibilitychange', function () {
+                        if (document.visibilityState === 'visible') {
+                            console.log("📱 Smartphone acordou! Atualizando dados do painel...");
+                            refreshStudentsData(); // Sua função existente que recarrega a lista de alunos
+                            renderMural(); // Também atualiza o mural
+                            loadTokens(); // Atualiza tokens se necessário
+                        }
+                    });
+                    
                     // Inicializar modal LGPD
                     const lgpdModalEl = document.getElementById('lgpdModal');
                     if (lgpdModalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
@@ -6396,6 +6423,8 @@
                     showToast('Erro ao inicializar aplicativo', 'danger');
                     setTimeout(() => logout(), 2000);
                 }
+
+
             }
 
             // Eventos
@@ -7257,6 +7286,9 @@
                             const cardAluno = document.querySelector(`.student-card[data-student-id="${alunoNovo.id}"]`);
 
                             if (cardAluno) {
+                                // Atualizar o atributo data-status-atual
+                                cardAluno.setAttribute('data-status-atual', alunoNovo.status);
+
                                 // Atualiza o status badge
                                 const statusBadge = cardAluno.querySelector('.status-badge');
                                 if (statusBadge) {
@@ -7264,14 +7296,12 @@
                                     statusBadge.innerHTML = `<i class="fas ${getStatusIcon(alunoNovo.status)}"></i>${getStatusText(alunoNovo.status)}`;
                                 }
 
-                                // Atualiza o slide button
+                                // Atualiza o slide button (apenas visual, a ação será decidida pelo data-status-atual)
                                 const slideBtn = cardAluno.querySelector('.slide-btn');
                                 if (slideBtn) {
-                                    const newAction = getSlideAction(alunoNovo.status);
                                     const newLabel = getSlideLabel(alunoNovo.status);
                                     const newIcon = getSlideIcon(alunoNovo.status);
 
-                                    slideBtn.dataset.action = newAction;
                                     const labelSpan = slideBtn.querySelector('.slide-track-label');
                                     if (labelSpan) labelSpan.textContent = newLabel;
 
