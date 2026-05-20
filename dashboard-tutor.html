@@ -5808,7 +5808,7 @@
             window.HORARIOS_SAIDA = {
                 '1° ANO': { hora: 15, minuto: 10 },
                 '2° ANO': { hora: 15, minuto: 10 },
-                '3° ANO': { hora: 12, minuto: 10 },
+                '3° ANO': { hora: 15, minuto: 10 },
                 '4° ANO': { hora: 15, minuto: 30 },
                 '5° ANO': { hora: 15, minuto: 30 }
             };
@@ -7401,8 +7401,8 @@
                         throw new Error("Dados de alunos inválidos.");
                     }
 
-                    // ========== NOVO: Buscar sessões ativas do backend em UM ÚNICO ENDPOINT ==========
-                    let sessoesAtivasMap = new Map(); // alunoId -> sessao
+                    // ========== BUSCAR SESSÕES ATIVAS ==========
+                    let sessoesAtivasMap = new Map();
                     try {
                         const sessoesResponse = await fetchWithAuth('/api/presencas/sessoes-ativas/tutor');
                         if (sessoesResponse.ok) {
@@ -7413,16 +7413,17 @@
                                 });
                                 console.log(`📊 Encontradas ${sessoesAtivasMap.size} sessões ativas no backend`);
                             }
+                        } else {
+                            console.warn(`⚠️ Endpoint sessoes-ativas/tutor retornou ${sessoesResponse.status}`);
                         }
                     } catch (error) {
                         console.warn('Não foi possível buscar sessões ativas:', error);
                     }
-                    // ========== FIM DA CORREÇÃO ==========
 
-                    // Busca status de saída ativa para cada aluno
+                    // ========== PROCESSAR ALUNOS ==========
                     const novosAlunos = await Promise.all(data.alunos.map(async (student) => {
                         try {
-                            // Verificar saída ativa (solicitação pendente)
+                            // Verificar saída ativa
                             const saidaResponse = await fetchWithAuth(`/api/presencas/aluno/${student.id}/saida-ativa`);
                             const saidaAtiva = await saidaResponse.json();
 
@@ -7430,18 +7431,35 @@
                                 student.status = 'AGUARDANDO_CONFIRMACAO';
                             }
 
-                            // ========== CORREÇÃO 3: Forçar consistência baseado na sessão ativa ==========
-                            const sessaoAtiva = sessoesAtivasMap.get(student.id);
-                            if (sessaoAtiva && student.status !== 'PRESENTE') {
-                                console.log(`🔧 CORREÇÃO AUTO: Aluno ${student.nome} tem sessão ativa mas status=${student.status}. Corrigindo para PRESENTE`);
-                                student.status = 'PRESENTE';
+                            // Só aplica correção se conseguiu buscar as sessões ativas
+                            if (sessoesAtivasMap.size > 0) {
+                                const sessaoAtiva = sessoesAtivasMap.get(student.id);
+                                if (sessaoAtiva && student.status !== 'PRESENTE') {
+                                    console.log(`🔧 CORREÇÃO: Aluno ${student.nome} tem sessão ativa → forçando PRESENTE`);
+                                    student.status = 'PRESENTE';
+                                }
+                                if (!sessaoAtiva && student.status === 'PRESENTE') {
+                                    console.log(`🔧 CORREÇÃO: Aluno ${student.nome} NÃO tem sessão ativa → forçando AUSENTE`);
+                                    student.status = 'AUSENTE';
+                                }
+                            } else {
+                                // Se não conseguiu buscar sessões, NÃO força correção
+                                console.log(`⚠️ Não foi possível buscar sessões ativas, pulando correção automática`);
                             }
 
-                            if (!sessaoAtiva && student.status === 'PRESENTE') {
-                                console.log(`🔧 CORREÇÃO AUTO: Aluno ${student.nome} NÃO tem sessão ativa mas status=PRESENTE. Corrigindo para AUSENTE`);
-                                student.status = 'AUSENTE';
+                            // 🔴 NOVO: Buscar status DIRETAMENTE do banco via endpoint específico
+                            try {
+                                const statusResponse = await fetchWithAuth(`/api/alunos/${student.id}/status`);
+                                if (statusResponse.ok) {
+                                    const statusData = await statusResponse.json();
+                                    if (statusData.status && statusData.status !== student.status) {
+                                        console.log(`🔧 CORREÇÃO: Status do backend (${statusData.status}) difere do atual (${student.status}) → corrigindo`);
+                                        student.status = statusData.status;
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn(`Não foi possível buscar status direto do aluno ${student.id}:`, e);
                             }
-                            // ========== FIM DA CORREÇÃO ==========
 
                         } catch (error) {
                             console.warn(`Erro ao buscar dados para aluno ${student.id}:`, error);
@@ -7449,63 +7467,23 @@
                         return student;
                     }));
 
-                    if (!studentsData || studentsData.length === 0) {
-                        studentsData = novosAlunos;
-                        renderStudents(studentsData);
-                        return;
-                    }
+                    // 🔴 CORREÇÃO: SEMPRE substituir o cache pelo novo, nunca manter o antigo!
+                    // Isso garante que a fonte da verdade é SEMPRE o backend
+                    studentsData = novosAlunos;
 
-                    let precisaRenderizar = false;
-
-                    for (let i = 0; i < novosAlunos.length; i++) {
-                        const alunoNovo = novosAlunos[i];
-                        const alunoAntigo = studentsData.find(a => a.id === alunoNovo.id);
-
-                        if (!alunoAntigo) {
-                            precisaRenderizar = true;
-                            break;
-                        }
-
-                        if (alunoAntigo.status !== alunoNovo.status) {
-                            console.log(`Status do aluno ${alunoNovo.nome} mudou: ${alunoAntigo.status} -> ${alunoNovo.status}`);
-
-                            // ⭐ USAR A NOVA FUNÇÃO PARA ATUALIZAR O VISUAL COMPLETO
-                            atualizarVisualDoSlider(alunoNovo.id, alunoNovo.status);
-
-                            // Atualiza o status badge
-                            const cardAluno = document.querySelector(`.student-card[data-student-id="${alunoNovo.id}"]`);
-                            if (cardAluno) {
-                                const statusBadge = cardAluno.querySelector('.status-badge');
-                                if (statusBadge) {
-                                    statusBadge.className = `status-badge ${getStatusClass(alunoNovo.status)}`;
-                                    statusBadge.innerHTML = `<i class="fas ${getStatusIcon(alunoNovo.status)}"></i>${getStatusText(alunoNovo.status)}`;
-                                }
-
-                                cardAluno.classList.add('atualizado');
-                                setTimeout(() => cardAluno.classList.remove('atualizado'), 500);
-                            }
-
-                            alunoAntigo.status = alunoNovo.status;
-                        }
-                    }
-
-                    if (precisaRenderizar) {
-                        studentsData = novosAlunos;
-                        renderStudents(studentsData);
-                    }
+                    // Renderizar com os dados mais recentes
+                    renderStudents(studentsData);
 
                     const filhosCount = document.getElementById('filhosCount');
                     if (filhosCount) filhosCount.textContent = `${studentsData.length} aluno(s) vinculado(s)`;
 
-                    // ========== CORREÇÃO 3 EXTRA: Verificação periódica de consistência ==========
-                    // Executa a cada 5 refreshs (para não sobrecarregar)
+                    // Verificação periódica de consistência (opcional, mas recomendado)
                     if (!window.contadorRefresh) window.contadorRefresh = 0;
                     window.contadorRefresh++;
                     if (window.contadorRefresh >= 5) {
                         window.contadorRefresh = 0;
                         await verificarConsistenciaTodosAlunos();
                     }
-                    // ========== FIM ==========
 
                 } catch (error) {
                     console.error('Erro ao atualizar alunos:', error);
