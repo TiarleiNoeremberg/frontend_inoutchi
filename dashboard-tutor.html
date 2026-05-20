@@ -4330,30 +4330,10 @@
                     // ✅ Atualizar visual do slider e badge
                     atualizarVisualDoSlider(studentId, 'AGUARDANDO_CONFIRMACAO');
 
-                    const cardAluno = document.querySelector(`.student-card[data-student-id="${studentId}"]`);
-                    if (cardAluno) {
-                        const statusBadge = cardAluno.querySelector('.status-badge');
-                        if (statusBadge) {
-                            statusBadge.className = 'status-badge pending';
-                            statusBadge.innerHTML = '<i class="fas fa-spinner fa-pulse"></i>AGUARDANDO';
-                        }
-                    }
-
-                    // ✅ CORREÇÃO: NÃO chamar refreshStudentsData() imediatamente!
-                    // Apenas mostra a tela de sucesso e mantém o estado local
+                    // ✅ NÃO chama refreshStudentsData() aqui!
                     await mostrarTelaSucesso('solicitacao', async () => {
-                        // ✅ Apenas renderiza com os dados já atualizados localmente
                         renderStudents(studentsData);
-
-                        if (geofenceMonitor) {
-                            geofenceMonitor.startMonitoring(studentId, studentName);
-                        }
                     });
-
-                    // ✅ Opcional: agendar um refresh para sincronizar depois (ex: após 5 segundos)
-                    setTimeout(() => {
-                        refreshStudentsData().catch(console.warn);
-                    }, 5000);
 
                 } catch (error) {
                     console.error('Erro ao solicitar saída:', error);
@@ -7558,99 +7538,32 @@
                         throw new Error("Dados de alunos inválidos.");
                     }
 
-                    // ========== BUSCAR SESSÕES ATIVAS ==========
-                    let sessoesAtivasMap = new Map();
-                    try {
-                        const sessoesResponse = await fetchWithAuth('/api/presencas/sessoes-ativas/tutor');
-                        if (sessoesResponse.ok) {
-                            const sessoesData = await sessoesResponse.json();
-                            if (sessoesData.sessoes && Array.isArray(sessoesData.sessoes)) {
-                                sessoesData.sessoes.forEach(sessao => {
-                                    sessoesAtivasMap.set(sessao.alunoId, sessao);
-                                });
-                                console.log(`📊 Encontradas ${sessoesAtivasMap.size} sessões ativas no backend`);
-                            }
-                        } else {
-                            console.warn(`⚠️ Endpoint sessoes-ativas/tutor retornou ${sessoesResponse.status}`);
-                        }
-                    } catch (error) {
-                        console.warn('Não foi possível buscar sessões ativas:', error);
-                    }
-
-                    // ========== PROCESSAR ALUNOS ==========
+                    // Processa os alunos - sem correções automáticas
                     const novosAlunos = await Promise.all(data.alunos.map(async (student) => {
                         try {
-                            // Verificar saída ativa
+                            // Apenas verifica se há saída pendente
                             const saidaResponse = await fetchWithAuth(`/api/presencas/aluno/${student.id}/saida-ativa`);
                             const saidaAtiva = await saidaResponse.json();
 
                             if (saidaAtiva.codigo === 'SAIDA_ATIVA' && saidaAtiva.dados) {
                                 student.status = 'AGUARDANDO_CONFIRMACAO';
                             }
-
-                            // Só aplica correção se conseguiu buscar as sessões ativas
-                            if (sessoesAtivasMap.size > 0) {
-                                const sessaoAtiva = sessoesAtivasMap.get(student.id);
-                                if (sessaoAtiva && student.status !== 'PRESENTE') {
-                                    console.log(`🔧 CORREÇÃO: Aluno ${student.nome} tem sessão ativa → forçando PRESENTE`);
-                                    student.status = 'PRESENTE';
-                                }
-                                if (!sessaoAtiva && student.status === 'PRESENTE') {
-                                    console.log(`🔧 CORREÇÃO: Aluno ${student.nome} NÃO tem sessão ativa → forçando AUSENTE`);
-                                    student.status = 'AUSENTE';
-                                }
-                            } else {
-                                console.log(`⚠️ Não foi possível buscar sessões ativas, pulando correção automática`);
-                            }
-
-                            // 🔴 NOVO: Buscar status DIRETAMENTE do banco via endpoint específico
-                            try {
-                                const statusResponse = await fetchWithAuth(`/api/alunos/${student.id}/status`);
-                                if (statusResponse.ok) {
-                                    const statusData = await statusResponse.json();
-                                    if (statusData.status && statusData.status !== student.status) {
-                                        console.log(`🔧 CORREÇÃO: Status do backend (${statusData.status}) difere do atual (${student.status}) → corrigindo`);
-                                        student.status = statusData.status;
-                                    }
-                                }
-                            } catch (e) {
-                                console.warn(`Não foi possível buscar status direto do aluno ${student.id}:`, e);
-                            }
-
+                            // Mantém o status que veio do backend para PRESENTE e AUSENTE
                         } catch (error) {
                             console.warn(`Erro ao buscar dados para aluno ${student.id}:`, error);
                         }
                         return student;
                     }));
 
-                    // 🔴 CORREÇÃO: SEMPRE substituir o cache pelo novo
+                    // ✅ SEMPRE substituir o cache pelo novo (fonte da verdade é o backend)
                     studentsData = novosAlunos;
-
-                    // Renderizar com os dados mais recentes
                     renderStudents(studentsData);
-
-                    // 🔴 NOVO: Recarregar horários das salas (em caso de atualização)
-                    await carregarHorariosDasSalas();
 
                     const filhosCount = document.getElementById('filhosCount');
                     if (filhosCount) filhosCount.textContent = `${studentsData.length} aluno(s) vinculado(s)`;
 
-                    // Verificação periódica de consistência
-                    if (!window.contadorRefresh) window.contadorRefresh = 0;
-                    window.contadorRefresh++;
-                    if (window.contadorRefresh >= 5) {
-                        window.contadorRefresh = 0;
-                        await verificarConsistenciaTodosAlunos();
-                    }
-
                 } catch (error) {
                     console.error('Erro ao atualizar alunos:', error);
-                    if (!studentsData || !studentsData.length) {
-                        const container = document.getElementById('studentsContainer');
-                        if (container) {
-                            container.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-child"></i></div><div class="t">Nenhum aluno vinculado</div><div class="s">Você não possui alunos cadastrados</div></div>`;
-                        }
-                    }
                 }
             }
 
