@@ -4235,17 +4235,14 @@
                         throw new Error(error.mensagem || 'Erro ao registrar entrada');
                     }
 
-                    // ⭐ ATUALIZAR VISUAL IMEDIATAMENTE para PRESENTE
-                    atualizarVisualDoSlider(studentId, 'PRESENTE');
+                    // ⭐ CORREÇÃO 1: Recarregar dados completos do backend em vez de atualizar localmente
+                    await refreshStudentsData();
 
-                    // Atualizar cache local
-                    const aluno = studentsData.find(s => s.id == studentId);
-                    if (aluno) aluno.status = 'PRESENTE';
+                    // Forçar a verificação de consistência para este aluno específico
+                    await verificarConsistenciaAluno(studentId);
 
                     // ========== MOSTRAR TELA DE SUCESSO ==========
                     await mostrarTelaSucesso('entrada', async () => {
-                        // Atualiza os dados após a tela de sucesso
-                        await refreshStudentsData();
                         renderStudents(studentsData);
                     });
                     // ============================================
@@ -4260,7 +4257,6 @@
             // Handler: SOLICITAR SAÍDA
             async function handleExitRequest(studentId, studentName, btn) {
                 try {
-                    // Validação de horário
                     const alunoAtual = studentsData.find(s => s.id == studentId);
                     const nomeSala = alunoAtual?.salaNome || '';
                     const validacao = validarHorarioSaida(nomeSala);
@@ -4288,25 +4284,17 @@
                         throw new Error(error.mensagem || 'Erro ao solicitar saída');
                     }
 
-                    // ⭐ ATUALIZAR VISUAL IMEDIATAMENTE para AGUARDANDO_CONFIRMACAO
-                    atualizarVisualDoSlider(studentId, 'AGUARDANDO_CONFIRMACAO');
+                    // ⭐ CORREÇÃO 1: Recarregar dados completos
+                    await refreshStudentsData();
+                    await verificarConsistenciaAluno(studentId);
 
-                    // Atualizar cache local
-                    const aluno = studentsData.find(s => s.id == studentId);
-                    if (aluno) aluno.status = 'AGUARDANDO_CONFIRMACAO';
-
-                    // ========== MOSTRAR TELA DE SUCESSO ==========
                     await mostrarTelaSucesso('solicitacao', async () => {
-                        // Atualiza os dados após a tela de sucesso
-                        await refreshStudentsData();
                         renderStudents(studentsData);
 
-                        // Iniciar monitoramento APÓS a tela de sucesso
                         if (geofenceMonitor) {
                             geofenceMonitor.startMonitoring(studentId, studentName);
                         }
                     });
-                    // ============================================
 
                 } catch (error) {
                     console.error('Erro ao solicitar saída:', error);
@@ -4318,7 +4306,6 @@
             // Handler: CONFIRMAR SAÍDA
             async function handleExitConfirm(studentId, studentName, btn) {
                 try {
-
                     const response = await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, {
                         method: 'POST'
                     });
@@ -4328,25 +4315,16 @@
                         throw new Error(error.mensagem || 'Erro ao confirmar saída');
                     }
 
-                    // ⭐ ATUALIZAR VISUAL IMEDIATAMENTE para AUSENTE
-                    atualizarVisualDoSlider(studentId, 'AUSENTE');
+                    // ⭐ CORREÇÃO 1: Recarregar dados completos
+                    await refreshStudentsData();
+                    await verificarConsistenciaAluno(studentId);
 
-                    // Atualizar cache local
-                    const aluno = studentsData.find(s => s.id == studentId);
-                    if (aluno) aluno.status = 'AUSENTE';
-
-                    // ========== MOSTRAR TELA DE SUCESSO ==========
                     await mostrarTelaSucesso('confirmacao', async () => {
-                        // Parar monitoramento
                         if (geofenceMonitor) {
                             geofenceMonitor.stopMonitoring(studentId);
                         }
-
-                        // Atualiza os dados após a tela de sucesso
-                        await refreshStudentsData();
                         renderStudents(studentsData);
                     });
-                    // ============================================
 
                 } catch (error) {
                     console.error('Erro ao confirmar saída:', error);
@@ -5829,8 +5807,8 @@
             // ============== CONFIGURAÇÃO DE HORÁRIOS POR SALA ==============
             window.HORARIOS_SAIDA = {
                 '1° ANO': { hora: 15, minuto: 10 },
-                '2° ANO': { hora: 15, minuto: 10 },                
-                '3° ANO': { hora: 15, minuto: 10 },
+                '2° ANO': { hora: 15, minuto: 10 },
+                '3° ANO': { hora: 12, minuto: 10 },
                 '4° ANO': { hora: 15, minuto: 30 },
                 '5° ANO': { hora: 15, minuto: 30 }
             };
@@ -7323,6 +7301,95 @@
                 }, 3000);
             }
 
+            // Função para verificar inconsistência entre aluno e sessão
+            async function verificarConsistenciaAluno(alunoId) {
+                try {
+                    // 1. Buscar status do aluno via API específica
+                    const alunoResponse = await fetchWithAuth(`/api/alunos/${alunoId}/status`);
+                    const alunoData = await alunoResponse.json();
+                    const statusAluno = alunoData.status; // PRESENTE ou AUSENTE
+
+                    // 2. Buscar sessão ativa do aluno
+                    const sessaoResponse = await fetchWithAuth(`/api/presencas/aluno/${alunoId}/sessao-ativa`);
+                    const sessaoData = await sessaoResponse.json();
+                    const temSessaoAtiva = sessaoData && sessaoData.id;
+
+                    // 3. Verificar inconsistências
+                    if (statusAluno === 'PRESENTE' && !temSessaoAtiva) {
+                        console.error(`⚠️ INCONSISTÊNCIA CRÍTICA: Aluno ${alunoId} está PRESENTE mas não tem sessão ativa!`);
+                        await corrigirInconsistencia(alunoId, 'PRESENTE_SEM_SESSAO');
+                        return false;
+                    }
+
+                    if (statusAluno === 'AUSENTE' && temSessaoAtiva) {
+                        console.error(`⚠️ INCONSISTÊNCIA CRÍTICA: Aluno ${alunoId} está AUSENTE mas tem sessão ativa (ID: ${sessaoData.id})!`);
+                        await corrigirInconsistencia(alunoId, 'AUSENTE_COM_SESSAO');
+                        return false;
+                    }
+
+                    console.log(`✅ Consistência OK para aluno ${alunoId}: ${statusAluno} - Sessão: ${temSessaoAtiva ? 'ativa' : 'inativa'}`);
+                    return true;
+
+                } catch (error) {
+                    console.error(`Erro ao verificar consistência do aluno ${alunoId}:`, error);
+                    return false;
+                }
+            }
+
+            // Função para corrigir inconsistência (chama o backend)
+            async function corrigirInconsistencia(alunoId, tipoInconsistencia) {
+                try {
+                    console.log(`🔧 Tentando corrigir inconsistência do tipo: ${tipoInconsistencia} para aluno ${alunoId}`);
+
+                    const response = await fetchWithAuth('/api/presencas/corrigir-inconsistencia', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            alunoId: alunoId,
+                            tipoInconsistencia: tipoInconsistencia,
+                            origem: 'TUTOR_DASHBOARD',
+                            timestamp: new Date().toISOString()
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Falha na correção: ${response.status}`);
+                    }
+
+                    const resultado = await response.json();
+                    console.log(`✅ Inconsistência corrigida:`, resultado);
+                    showToast(`⚠️ Inconsistência detectada e corrigida automáticamente`, 'warning');
+
+                    // Recarregar dados após correção
+                    await refreshStudentsData();
+
+                    return true;
+
+                } catch (error) {
+                    console.error(`❌ Erro ao corrigir inconsistência:`, error);
+                    showToast(`Erro crítico: Inconsistência detectada. Contate o suporte.`, 'danger');
+                    return false;
+                }
+            }
+
+            // Função para verificar TODOS os alunos (chamada periódica)
+            async function verificarConsistenciaTodosAlunos() {
+                if (!studentsData || studentsData.length === 0) return;
+
+                console.log(`🔍 Verificando consistência de ${studentsData.length} alunos...`);
+                let inconsistenciasEncontradas = 0;
+
+                for (const aluno of studentsData) {
+                    const consistente = await verificarConsistenciaAluno(aluno.id);
+                    if (!consistente) inconsistenciasEncontradas++;
+                }
+
+                if (inconsistenciasEncontradas > 0) {
+                    console.warn(`⚠️ Total de ${inconsistenciasEncontradas} inconsistências encontradas e corrigidas`);
+                } else {
+                    console.log(`✅ Todos os ${studentsData.length} alunos estão consistentes`);
+                }
+            }
+
             // ============== ATUALIZAR DADOS DOS ALUNOS (INTELIGENTE) ==============
             async function refreshStudentsData() {
                 try {
@@ -7334,17 +7401,50 @@
                         throw new Error("Dados de alunos inválidos.");
                     }
 
+                    // ========== NOVO: Buscar sessões ativas do backend em UM ÚNICO ENDPOINT ==========
+                    let sessoesAtivasMap = new Map(); // alunoId -> sessao
+                    try {
+                        const sessoesResponse = await fetchWithAuth('/api/presencas/sessoes-ativas/tutor');
+                        if (sessoesResponse.ok) {
+                            const sessoesData = await sessoesResponse.json();
+                            if (sessoesData.sessoes && Array.isArray(sessoesData.sessoes)) {
+                                sessoesData.sessoes.forEach(sessao => {
+                                    sessoesAtivasMap.set(sessao.alunoId, sessao);
+                                });
+                                console.log(`📊 Encontradas ${sessoesAtivasMap.size} sessões ativas no backend`);
+                            }
+                        }
+                    } catch (error) {
+                        console.warn('Não foi possível buscar sessões ativas:', error);
+                    }
+                    // ========== FIM DA CORREÇÃO ==========
+
                     // Busca status de saída ativa para cada aluno
                     const novosAlunos = await Promise.all(data.alunos.map(async (student) => {
                         try {
+                            // Verificar saída ativa (solicitação pendente)
                             const saidaResponse = await fetchWithAuth(`/api/presencas/aluno/${student.id}/saida-ativa`);
                             const saidaAtiva = await saidaResponse.json();
 
                             if (saidaAtiva.codigo === 'SAIDA_ATIVA' && saidaAtiva.dados) {
                                 student.status = 'AGUARDANDO_CONFIRMACAO';
                             }
+
+                            // ========== CORREÇÃO 3: Forçar consistência baseado na sessão ativa ==========
+                            const sessaoAtiva = sessoesAtivasMap.get(student.id);
+                            if (sessaoAtiva && student.status !== 'PRESENTE') {
+                                console.log(`🔧 CORREÇÃO AUTO: Aluno ${student.nome} tem sessão ativa mas status=${student.status}. Corrigindo para PRESENTE`);
+                                student.status = 'PRESENTE';
+                            }
+
+                            if (!sessaoAtiva && student.status === 'PRESENTE') {
+                                console.log(`🔧 CORREÇÃO AUTO: Aluno ${student.nome} NÃO tem sessão ativa mas status=PRESENTE. Corrigindo para AUSENTE`);
+                                student.status = 'AUSENTE';
+                            }
+                            // ========== FIM DA CORREÇÃO ==========
+
                         } catch (error) {
-                            console.warn(`Erro ao buscar saída ativa para aluno ${student.id}:`, error);
+                            console.warn(`Erro ao buscar dados para aluno ${student.id}:`, error);
                         }
                         return student;
                     }));
@@ -7396,6 +7496,16 @@
 
                     const filhosCount = document.getElementById('filhosCount');
                     if (filhosCount) filhosCount.textContent = `${studentsData.length} aluno(s) vinculado(s)`;
+
+                    // ========== CORREÇÃO 3 EXTRA: Verificação periódica de consistência ==========
+                    // Executa a cada 5 refreshs (para não sobrecarregar)
+                    if (!window.contadorRefresh) window.contadorRefresh = 0;
+                    window.contadorRefresh++;
+                    if (window.contadorRefresh >= 5) {
+                        window.contadorRefresh = 0;
+                        await verificarConsistenciaTodosAlunos();
+                    }
+                    // ========== FIM ==========
 
                 } catch (error) {
                     console.error('Erro ao atualizar alunos:', error);
