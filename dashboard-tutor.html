@@ -3751,6 +3751,64 @@
                 }, 500);
             }
 
+            function atualizarVisualDoSlider(studentId, statusAtual) {
+                const card = document.querySelector(`.student-card[data-student-id="${studentId}"]`);
+                if (!card) {
+                    console.warn(`Card do aluno ${studentId} não encontrado`);
+                    return;
+                }
+
+                const slideBtn = card.querySelector('.slide-btn');
+                const sliderText = slideBtn?.querySelector('.slide-track-label');
+                const sliderThumb = slideBtn?.querySelector('.slide-thumb');
+                const sliderFill = slideBtn?.querySelector('.slide-fill');
+
+                if (!slideBtn) return;
+
+                // Atualizar o atributo data-status-atual
+                card.setAttribute('data-status-atual', statusAtual);
+
+                // Atualizar o data-action do slide-btn
+                const newAction = getSlideAction(statusAtual);
+                slideBtn.dataset.action = newAction;
+
+                // Atualizar o texto do slider
+                if (sliderText) {
+                    sliderText.textContent = getSlideLabel(statusAtual);
+                }
+
+                // Atualizar o ícone do thumb
+                if (sliderThumb) {
+                    const icon = sliderThumb.querySelector('i');
+                    if (icon) {
+                        icon.className = `fas ${getSlideIcon(statusAtual)}`;
+                    }
+                }
+
+                // Resetar a posição do slider (forçar voltar ao início)
+                if (sliderThumb) {
+                    const isReversed = newAction === 'exit-request';
+                    if (isReversed) {
+                        sliderThumb.style.right = '4px';
+                    } else {
+                        sliderThumb.style.left = '4px';
+                    }
+                }
+
+                if (sliderFill) {
+                    sliderFill.style.width = '0%';
+                }
+
+                if (sliderText) {
+                    sliderText.style.opacity = '1';
+                }
+
+                // Remover classes de estado ativado
+                slideBtn.classList.remove('activated', 'dragging');
+
+                console.log(`✅ Visual do slider atualizado para aluno ${studentId}: ${statusAtual}`);
+            }
+
             // Buscar ID da escola do aluno logado
             async function getEscolaId() {
                 console.log('📍 getEscolaId: tentando obter escolaId');
@@ -4177,6 +4235,13 @@
                         throw new Error(error.mensagem || 'Erro ao registrar entrada');
                     }
 
+                    // ⭐ ATUALIZAR VISUAL IMEDIATAMENTE para PRESENTE
+                    atualizarVisualDoSlider(studentId, 'PRESENTE');
+
+                    // Atualizar cache local
+                    const aluno = studentsData.find(s => s.id == studentId);
+                    if (aluno) aluno.status = 'PRESENTE';
+
                     // ========== MOSTRAR TELA DE SUCESSO ==========
                     await mostrarTelaSucesso('entrada', async () => {
                         // Atualiza os dados após a tela de sucesso
@@ -4223,6 +4288,13 @@
                         throw new Error(error.mensagem || 'Erro ao solicitar saída');
                     }
 
+                    // ⭐ ATUALIZAR VISUAL IMEDIATAMENTE para AGUARDANDO_CONFIRMACAO
+                    atualizarVisualDoSlider(studentId, 'AGUARDANDO_CONFIRMACAO');
+
+                    // Atualizar cache local
+                    const aluno = studentsData.find(s => s.id == studentId);
+                    if (aluno) aluno.status = 'AGUARDANDO_CONFIRMACAO';
+
                     // ========== MOSTRAR TELA DE SUCESSO ==========
                     await mostrarTelaSucesso('solicitacao', async () => {
                         // Atualiza os dados após a tela de sucesso
@@ -4255,6 +4327,13 @@
                         const error = await response.json();
                         throw new Error(error.mensagem || 'Erro ao confirmar saída');
                     }
+
+                    // ⭐ ATUALIZAR VISUAL IMEDIATAMENTE para AUSENTE
+                    atualizarVisualDoSlider(studentId, 'AUSENTE');
+
+                    // Atualizar cache local
+                    const aluno = studentsData.find(s => s.id == studentId);
+                    if (aluno) aluno.status = 'AUSENTE';
 
                     // ========== MOSTRAR TELA DE SUCESSO ==========
                     await mostrarTelaSucesso('confirmacao', async () => {
@@ -5702,6 +5781,15 @@
 
                         if (!response.ok) throw new Error('Erro na API');
 
+                        // ⭐ ATUALIZAR VISUAL IMEDIATAMENTE (ANTES da tela de sucesso)
+                        atualizarVisualDoSlider(studentId, 'AUSENTE');
+
+                        // Atualizar também no cache local
+                        const aluno = studentsData.find(a => a.id == studentId);
+                        if (aluno) {
+                            aluno.status = 'AUSENTE';
+                        }
+
                         await mostrarTelaSucesso('confirmacao', async () => {
                             await refreshStudentsData();
                             return true;
@@ -5742,7 +5830,7 @@
             window.HORARIOS_SAIDA = {
                 '2° ANO': { hora: 15, minuto: 10 },
                 '5° ANO': { hora: 15, minuto: 30 },
-                '3° ANO': { hora: 15, minuto: 10 }
+                '3° ANO': { hora: 0o0, minuto: 10 }
             };
 
             function normalizarNomeSala(nome) {
@@ -6347,7 +6435,7 @@
                             loadTokens(); // Atualiza tokens se necessário
                         }
                     });
-                    
+
                     // Inicializar modal LGPD
                     const lgpdModalEl = document.getElementById('lgpdModal');
                     if (lgpdModalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
@@ -7259,14 +7347,12 @@
                         return student;
                     }));
 
-                    // Se não tem alunos ainda, renderiza tudo
                     if (!studentsData || studentsData.length === 0) {
                         studentsData = novosAlunos;
                         renderStudents(studentsData);
                         return;
                     }
 
-                    // === ATUALIZAÇÃO INTELIGENTE: só atualiza o que mudou ===
                     let precisaRenderizar = false;
 
                     for (let i = 0; i < novosAlunos.length; i++) {
@@ -7278,56 +7364,34 @@
                             break;
                         }
 
-                        // Verifica se o STATUS mudou (é o que importa)
                         if (alunoAntigo.status !== alunoNovo.status) {
                             console.log(`Status do aluno ${alunoNovo.nome} mudou: ${alunoAntigo.status} -> ${alunoNovo.status}`);
 
-                            // Atualiza o card específico no DOM
+                            // ⭐ USAR A NOVA FUNÇÃO PARA ATUALIZAR O VISUAL COMPLETO
+                            atualizarVisualDoSlider(alunoNovo.id, alunoNovo.status);
+
+                            // Atualiza o status badge
                             const cardAluno = document.querySelector(`.student-card[data-student-id="${alunoNovo.id}"]`);
-
                             if (cardAluno) {
-                                // Atualizar o atributo data-status-atual
-                                cardAluno.setAttribute('data-status-atual', alunoNovo.status);
-
-                                // Atualiza o status badge
                                 const statusBadge = cardAluno.querySelector('.status-badge');
                                 if (statusBadge) {
                                     statusBadge.className = `status-badge ${getStatusClass(alunoNovo.status)}`;
                                     statusBadge.innerHTML = `<i class="fas ${getStatusIcon(alunoNovo.status)}"></i>${getStatusText(alunoNovo.status)}`;
                                 }
 
-                                // Atualiza o slide button (apenas visual, a ação será decidida pelo data-status-atual)
-                                const slideBtn = cardAluno.querySelector('.slide-btn');
-                                if (slideBtn) {
-                                    const newLabel = getSlideLabel(alunoNovo.status);
-                                    const newIcon = getSlideIcon(alunoNovo.status);
-
-                                    const labelSpan = slideBtn.querySelector('.slide-track-label');
-                                    if (labelSpan) labelSpan.textContent = newLabel;
-
-                                    const thumbIcon = slideBtn.querySelector('.slide-thumb i');
-                                    if (thumbIcon) {
-                                        thumbIcon.className = `fas ${newIcon}`;
-                                    }
-                                }
-
-                                // Efeito de destaque
                                 cardAluno.classList.add('atualizado');
                                 setTimeout(() => cardAluno.classList.remove('atualizado'), 500);
                             }
 
-                            // Atualiza o objeto studentsData
                             alunoAntigo.status = alunoNovo.status;
                         }
                     }
 
-                    // Se precisou renderizar tudo por algum motivo
                     if (precisaRenderizar) {
                         studentsData = novosAlunos;
                         renderStudents(studentsData);
                     }
 
-                    // Atualizar contador de filhos na config
                     const filhosCount = document.getElementById('filhosCount');
                     if (filhosCount) filhosCount.textContent = `${studentsData.length} aluno(s) vinculado(s)`;
 
