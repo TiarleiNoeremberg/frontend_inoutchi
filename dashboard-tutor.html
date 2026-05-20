@@ -3284,6 +3284,8 @@
         let stompClient = null;
         let currentTutorId = null;
         let backgroundWatcherId = null;
+        // Variável global para cache dos horários
+        let horariosSalasCache = new Map();
 
         (function () {
             // ============== CONSTANTES ==============
@@ -3785,7 +3787,7 @@
                     }
                 }
 
-                // Resetar a posição do slider (forçar voltar ao início)
+                // Resetar a posição do slider
                 if (sliderThumb) {
                     const isReversed = newAction === 'exit-request';
                     if (isReversed) {
@@ -3803,7 +3805,6 @@
                     sliderText.style.opacity = '1';
                 }
 
-                // Remover classes de estado ativado
                 slideBtn.classList.remove('activated', 'dragging');
 
                 console.log(`✅ Visual do slider atualizado para aluno ${studentId}: ${statusAtual}`);
@@ -3924,6 +3925,35 @@
                 }, 30000);
             }
 
+            // ============== CARREGAR HORÁRIOS DAS SALAS ==============
+            async function carregarHorariosDasSalas() {
+                if (!studentsData || studentsData.length === 0) return;
+
+                // Extrai IDs únicos das salas dos alunos
+                const salasIds = [...new Set(studentsData.map(s => s.salaId).filter(id => id))];
+                console.log(`📚 Buscando horários para ${salasIds.length} sala(s):`, salasIds);
+
+                for (const salaId of salasIds) {
+                    try {
+                        const response = await fetchWithAuth(`/api/salas/${salaId}`);
+                        if (response.ok) {
+                            const sala = await response.json();
+                            if (sala.horaInicioChamada && sala.horaFimChamada) {
+                                horariosSalasCache.set(salaId, {
+                                    horaInicio: sala.horaInicioChamada,
+                                    horaFim: sala.horaFimChamada
+                                });
+                                console.log(`✅ Horários carregados para sala ID ${salaId}: ${sala.horaInicioChamada} - ${sala.horaFimChamada}`);
+                            } else {
+                                console.log(`ℹ️ Sala ID ${salaId} (${sala.nome}) não tem horários configurados`);
+                            }
+                        }
+                    } catch (error) {
+                        console.warn(`⚠️ Erro ao buscar horários da sala ${salaId}:`, error);
+                    }
+                }
+            }
+
             // ============== CARREGAR ALUNOS ==============
             async function loadStudents() {
                 const container = document.getElementById('studentsContainer');
@@ -3949,6 +3979,10 @@
                     await checkPendingExits(studentsData);
 
                     renderStudents(studentsData);
+
+                    // Carregar horários das salas após renderizar os alunos
+                    await carregarHorariosDasSalas();
+
                     // Atualizar contador de filhos na configuração
                     const filhosCount = document.getElementById('filhosCount');
                     if (filhosCount) {
@@ -4258,8 +4292,11 @@
             async function handleExitRequest(studentId, studentName, btn) {
                 try {
                     const alunoAtual = studentsData.find(s => s.id == studentId);
+                    const salaId = alunoAtual?.salaId;
                     const nomeSala = alunoAtual?.salaNome || '';
-                    const validacao = validarHorarioSaida(nomeSala);
+
+                    // Validar horário (seu código existente)
+                    const validacao = await validarHorarioSaida(salaId, nomeSala);
                     if (!validacao.permitido) {
                         resetSlideButton(btn);
                         return;
@@ -4284,11 +4321,29 @@
                         throw new Error(error.mensagem || 'Erro ao solicitar saída');
                     }
 
-                    // ⭐ CORREÇÃO 1: Recarregar dados completos
-                    await refreshStudentsData();
-                    await verificarConsistenciaAluno(studentId);
+                    // 🔴 CORREÇÃO: Atualizar o status no cache local IMEDIATAMENTE
+                    const aluno = studentsData.find(s => s.id == studentId);
+                    if (aluno) {
+                        aluno.status = 'AGUARDANDO_CONFIRMACAO';
+                        console.log(`✅ Status do aluno ${studentName} atualizado no cache para: AGUARDANDO_CONFIRMACAO`);
+                    }
+
+                    // 🔴 CORREÇÃO: Atualizar o visual do slider e o badge
+                    atualizarVisualDoSlider(studentId, 'AGUARDANDO_CONFIRMACAO');
+
+                    // Atualizar o status badge no card
+                    const cardAluno = document.querySelector(`.student-card[data-student-id="${studentId}"]`);
+                    if (cardAluno) {
+                        const statusBadge = cardAluno.querySelector('.status-badge');
+                        if (statusBadge) {
+                            statusBadge.className = 'status-badge pending';
+                            statusBadge.innerHTML = '<i class="fas fa-spinner fa-pulse"></i>AGUARDANDO';
+                        }
+                    }
 
                     await mostrarTelaSucesso('solicitacao', async () => {
+                        // Recarregar dados para garantir consistência
+                        await refreshStudentsData();
                         renderStudents(studentsData);
 
                         if (geofenceMonitor) {
@@ -4315,14 +4370,31 @@
                         throw new Error(error.mensagem || 'Erro ao confirmar saída');
                     }
 
-                    // ⭐ CORREÇÃO 1: Recarregar dados completos
-                    await refreshStudentsData();
-                    await verificarConsistenciaAluno(studentId);
+                    // 🔴 CORREÇÃO: Atualizar o status no cache local
+                    const aluno = studentsData.find(s => s.id == studentId);
+                    if (aluno) {
+                        aluno.status = 'AUSENTE';
+                        console.log(`✅ Status do aluno ${studentName} atualizado no cache para: AUSENTE`);
+                    }
+
+                    // 🔴 CORREÇÃO: Atualizar o visual do slider
+                    atualizarVisualDoSlider(studentId, 'AUSENTE');
+
+                    // Atualizar o status badge no card
+                    const cardAluno = document.querySelector(`.student-card[data-student-id="${studentId}"]`);
+                    if (cardAluno) {
+                        const statusBadge = cardAluno.querySelector('.status-badge');
+                        if (statusBadge) {
+                            statusBadge.className = 'status-badge out';
+                            statusBadge.innerHTML = '<i class="fas fa-circle"></i>AUSENTE';
+                        }
+                    }
 
                     await mostrarTelaSucesso('confirmacao', async () => {
                         if (geofenceMonitor) {
                             geofenceMonitor.stopMonitoring(studentId);
                         }
+                        await refreshStudentsData();
                         renderStudents(studentsData);
                     });
 
@@ -5965,46 +6037,70 @@
                 });
             }
 
-            function validarHorarioSaida(nomeSalaBruto) {
-                console.log("🔍 [DEBUG] Validando sala (bruto):", nomeSalaBruto);
+            // ============== VALIDAÇÃO DE HORÁRIO VIA BACKEND ==============
+            async function validarHorarioSaida(salaId, salaNome) {
+                console.log(`🔍 Validando horário para sala ID: ${salaId}, Nome: ${salaNome}`);
 
-                // NORMALIZAÇÃO
-                const nomeSala = normalizarNomeSala(nomeSalaBruto);
+                // Se não tem salaId, não consegue validar (permite por segurança)
+                if (!salaId) {
+                    console.log(`⚠️ Sala sem ID, permitindo operação por segurança`);
+                    return { permitido: true };
+                }
 
-                console.log("🔍 [DEBUG] Validando sala (normalizado):", nomeSala);
-                console.log("📋 Horários disponíveis:", window.HORARIOS_SAIDA);
+                // Buscar horários do cache
+                let horarios = horariosSalasCache.get(salaId);
 
-                if (!nomeSala || !window.HORARIOS_SAIDA[nomeSala]) {
-                    console.log("✅ Sala sem restrição:", nomeSala);
+                // Se não está em cache, busca do backend
+                if (!horarios) {
+                    try {
+                        const response = await fetchWithAuth(`/api/salas/${salaId}`);
+                        if (response.ok) {
+                            const sala = await response.json();
+                            if (sala.horaInicioChamada && sala.horaFimChamada) {
+                                horarios = {
+                                    horaInicio: sala.horaInicioChamada,
+                                    horaFim: sala.horaFimChamada
+                                };
+                                horariosSalasCache.set(salaId, horarios);
+                                console.log(`✅ Horários carregados para sala ${salaNome}:`, horarios);
+                            }
+                        }
+                    } catch (error) {
+                        console.warn(`⚠️ Erro ao buscar horários da sala ${salaNome}:`, error);
+                        // Fallback: permite a operação se não conseguir buscar
+                        return { permitido: true };
+                    }
+                }
+
+                // Se a sala não tem horários configurados, permite a qualquer hora
+                if (!horarios || !horarios.horaInicio || !horarios.horaFim) {
+                    console.log(`✅ Sala ${salaNome} sem horários configurados - permitido`);
                     return { permitido: true };
                 }
 
                 const agora = new Date();
-                const config = window.HORARIOS_SAIDA[nomeSala];
-
                 const horaAtual = agora.getHours();
                 const minutoAtual = agora.getMinutes();
-                const horaLimite = config.hora;
-                const minutoLimite = config.minuto;
 
-                console.log(`🕒 Agora: ${horaAtual}:${minutoAtual} | Limite: ${horaLimite}:${minutoLimite}`);
+                // Converter horários (formato "HH:MM:SS" ou "HH:MM")
+                const [horaInicio, minutoInicio] = horarios.horaInicio.split(':').map(Number);
+                const [horaFim, minutoFim] = horarios.horaFim.split(':').map(Number);
 
-                // Comparação numérica
-                if (horaAtual < horaLimite || (horaAtual === horaLimite && minutoAtual < minutoLimite)) {
-                    const mensagem = `A solicitação de saída para ${nomeSala} só é permitida após ${horaLimite}:${minutoLimite.toString().padStart(2, '0')}.`;
-                    console.log("🚫 BLOQUEADO:", mensagem);
+                const minutosAtual = horaAtual * 60 + minutoAtual;
+                const minutosInicio = horaInicio * 60 + minutoInicio;
+                const minutosFim = horaFim * 60 + minutoFim;
 
-                    // Mostra o modal bonitinho
-                    mostrarModalBloqueio(mensagem);
-
-                    return {
-                        permitido: false,
-                        mensagem: mensagem
-                    };
+                // Verifica se está dentro da janela de horário
+                if (minutosAtual >= minutosInicio && minutosAtual <= minutosFim) {
+                    console.log(`✅ Horário permitido para ${salaNome}: ${horaAtual}:${minutoAtual} dentro de ${horarios.horaInicio}-${horarios.horaFim}`);
+                    return { permitido: true };
                 }
 
-                console.log("✅ Horário permitido!");
-                return { permitido: true };
+                const mensagem = `A solicitação de saída para ${salaNome} só é permitida entre ${horarios.horaInicio} e ${horarios.horaFim}.`;
+                console.log(`🚫 BLOQUEADO: ${mensagem}`);
+                mostrarModalBloqueio(mensagem);
+
+                return { permitido: false, mensagem };
             }
 
             // Abrir modal de dados pessoais
@@ -7014,143 +7110,187 @@
                 const container = document.getElementById('historicoContainer');
                 if (!container) return;
 
+                // Ordena por data de entrada (mais recente primeiro)
                 const sorted = [...currentHistoryData].sort((a, b) => new Date(b.entradaAt) - new Date(a.entradaAt));
 
                 const totalPages = Math.ceil(sorted.length / HISTORY_PAGE_SIZE);
                 const start = (currentHistoryPage - 1) * HISTORY_PAGE_SIZE;
                 const pageData = sorted.slice(start, start + HISTORY_PAGE_SIZE);
 
-                // Agrupar por data
-                const groupedByDate = {};
+                // 🔴 NOVO: Construir UMA LISTA DE EVENTOS (entrada e saída como itens separados)
+                let allEvents = [];
+
                 pageData.forEach(record => {
-                    const date = new Date(record.entradaAt).toLocaleDateString('pt-BR');
-                    if (!groupedByDate[date]) groupedByDate[date] = [];
-                    groupedByDate[date].push(record);
+                    // Evento de ENTRADA
+                    allEvents.push({
+                        type: 'entry',
+                        data: record,
+                        timestamp: new Date(record.entradaAt),
+                        alunoNome: record.alunoNome,
+                        responsavelNome: record.iniciadoPor,
+                        responsavelTipo: record.iniciadoPorTipo,
+                        responsavelId: record.iniciadoPorId
+                    });
+
+                    // Evento de SAÍDA (se existir)
+                    if (record.saidaAt) {
+                        allEvents.push({
+                            type: 'exit',
+                            data: record,
+                            timestamp: new Date(record.saidaAt),
+                            alunoNome: record.alunoNome,
+                            responsavelNome: record.finalizadoPor,
+                            responsavelTipo: record.finalizadoPorTipo,
+                            responsavelId: record.finalizadoPorId
+                        });
+                    }
+                });
+
+                // 🔴 NOVO: Ordenar eventos por timestamp (mais recente primeiro)
+                allEvents.sort((a, b) => b.timestamp - a.timestamp);
+
+                // Agrupar por data para os divisores
+                const groupedByDate = new Map();
+
+                allEvents.forEach(event => {
+                    const dateKey = event.timestamp.toLocaleDateString('pt-BR');
+                    if (!groupedByDate.has(dateKey)) {
+                        groupedByDate.set(dateKey, []);
+                    }
+                    groupedByDate.get(dateKey).push(event);
                 });
 
                 let html = '<div class="timeline" style="position: relative; padding: 8px 0;">';
 
                 html += `
-        <style>
-            .timeline-corrigida {
-                position: relative;
-                padding: 8px 0;
-            }
-            .timeline-corrigida::before {
-                content: "";
-                position: absolute;
-                left: 50%;
-                transform: translateX(-50%);
-                top: 0;
-                bottom: 0;
-                width: 3px;
-                background: linear-gradient(180deg, #1a6fc4 0%, #0ea5a0 100%);
-                opacity: 0.25;
-                border-radius: 2px;
-            }
-            .tl-item-corrigido {
-                position: relative;
-                display: flex;
-                justify-content: center;
-                margin-bottom: 30px;
-            }
-            .tl-card-corrigido {
-                width: 45%;
-                background: var(--gradient-card);
-                border: 1px solid var(--border);
-                border-radius: var(--radius);
-                padding: 14px;
-                box-shadow: var(--shadow-xs);
-                position: relative;
-            }
-            .tl-card-corrigido:hover {
-                transform: translateY(-2px);
-                box-shadow: var(--shadow-md);
-            }
-            .tl-item-corrigido.entry {
-                justify-content: flex-end;
-            }
-            .tl-item-corrigido.entry .tl-card-corrigido {
-                margin-right: calc(50% + 15px);
-            }
-            .tl-item-corrigido.exit {
-                justify-content: flex-start;
-            }
-            .tl-item-corrigido.exit .tl-card-corrigido {
-                margin-left: calc(50% + 15px);
-            }
-            .tl-dot-corrigido {
-                position: absolute;
-                left: 50%;
-                transform: translateX(-50%) translateY(-50%);
-                width: 32px;
-                height: 32px;
-                border-radius: 50%;
-                background: #fff;
-                border: 3px solid;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                z-index: 2;
-                box-shadow: 0 4px 10px rgba(15, 79, 143, .2);
-                top: 50%;
-            }
-            .tl-item-corrigido.entry .tl-dot-corrigido {
-                border-color: #10b981;
-                color: #10b981;
-            }
-            .tl-item-corrigido.exit .tl-dot-corrigido {
-                border-color: #ef4444;
-                color: #ef4444;
-            }
-            .day-divider-corrigido {
-                text-align: center;
-                font-size: 0.75rem;
-                font-weight: 700;
-                letter-spacing: 0.08em;
-                text-transform: uppercase;
-                color: var(--text-muted);
-                margin: 20px 0 16px;
-                position: relative;
-                z-index: 2;
-            }
-            .day-divider-corrigido span {
-                background: var(--bg);
-                padding: 4px 14px;
-                border-radius: 999px;
-                border: 1px solid var(--border);
-                font-size: 0.7rem;
-            }
-            .tl-card-corrigido .who {
-                font-weight: 700;
-                color: var(--text);
-                font-size: 0.85rem;
-            }
-            .tl-card-corrigido .when {
-                font-size: 0.7rem;
-                color: var(--text-muted);
-                margin-top: 4px;
-                font-weight: 500;
-            }
-            .tl-card-corrigido .what {
-                font-size: 0.75rem;
-                color: var(--text-secondary);
-                margin-top: 6px;
-                font-weight: 500;
-            }
-            .tl-card-corrigido.entry-card {
-                border-left: 3px solid #10b981;
-            }
-            .tl-card-corrigido.exit-card {
-                border-left: 3px solid #1a6fc4;
-            }
-        </style>
-        <div class="timeline-corrigida">
-    `;
+                    <style>
+                        .timeline-corrigida {
+                            position: relative;
+                            padding: 8px 0;
+                        }
+                        .timeline-corrigida::before {
+                            content: "";
+                            position: absolute;
+                            left: 50%;
+                            transform: translateX(-50%);
+                            top: 0;
+                            bottom: 0;
+                            width: 3px;
+                            background: linear-gradient(180deg, #1a6fc4 0%, #0ea5a0 100%);
+                            opacity: 0.25;
+                            border-radius: 2px;
+                        }
+                        .tl-item-corrigido {
+                            position: relative;
+                            display: flex;
+                            justify-content: center;
+                            margin-bottom: 30px;
+                        }
+                        .tl-card-corrigido {
+                            width: 45%;
+                            background: var(--gradient-card);
+                            border: 1px solid var(--border);
+                            border-radius: var(--radius);
+                            padding: 14px;
+                            box-shadow: var(--shadow-xs);
+                            position: relative;
+                        }
+                        .tl-card-corrigido:hover {
+                            transform: translateY(-2px);
+                            box-shadow: var(--shadow-md);
+                        }
+                        .tl-item-corrigido.entry {
+                            justify-content: flex-end;
+                        }
+                        .tl-item-corrigido.entry .tl-card-corrigido {
+                            margin-right: calc(50% + 15px);
+                        }
+                        .tl-item-corrigido.exit {
+                            justify-content: flex-start;
+                        }
+                        .tl-item-corrigido.exit .tl-card-corrigido {
+                            margin-left: calc(50% + 15px);
+                        }
+                        .tl-dot-corrigido {
+                            position: absolute;
+                            left: 50%;
+                            transform: translateX(-50%) translateY(-50%);
+                            width: 32px;
+                            height: 32px;
+                            border-radius: 50%;
+                            background: #fff;
+                            border: 3px solid;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            z-index: 2;
+                            box-shadow: 0 4px 10px rgba(15, 79, 143, .2);
+                            top: 50%;
+                        }
+                        .tl-item-corrigido.entry .tl-dot-corrigido {
+                            border-color: #10b981;
+                            color: #10b981;
+                        }
+                        .tl-item-corrigido.exit .tl-dot-corrigido {
+                            border-color: #1a6fc4;
+                            color: #1a6fc4;
+                        }
+                        .day-divider-corrigido {
+                            text-align: center;
+                            font-size: 0.75rem;
+                            font-weight: 700;
+                            letter-spacing: 0.08em;
+                            text-transform: uppercase;
+                            color: var(--text-muted);
+                            margin: 20px 0 16px;
+                            position: relative;
+                            z-index: 2;
+                        }
+                        .day-divider-corrigido span {
+                            background: var(--bg);
+                            padding: 4px 14px;
+                            border-radius: 999px;
+                            border: 1px solid var(--border);
+                            font-size: 0.7rem;
+                        }
+                        .tl-card-corrigido .who {
+                            font-weight: 700;
+                            color: var(--text);
+                            font-size: 0.85rem;
+                        }
+                        .tl-card-corrigido .when {
+                            font-size: 0.7rem;
+                            color: var(--text-muted);
+                            margin-top: 4px;
+                            font-weight: 500;
+                        }
+                        .tl-card-corrigido .what {
+                            font-size: 0.75rem;
+                            color: var(--text-secondary);
+                            margin-top: 6px;
+                            font-weight: 500;
+                        }
+                        .tl-card-corrigido.entry-card {
+                            border-left: 3px solid #10b981;
+                        }
+                        .tl-card-corrigido.exit-card {
+                            border-left: 3px solid #1a6fc4;
+                        }
+                    </style>
+                    <div class="timeline-corrigida">
+                `;
 
+                // Iterar sobre as datas (já ordenadas)
+                const sortedDates = Array.from(groupedByDate.keys()).sort((a, b) => {
+                    // Converter string "dd/mm/yyyy" para data para comparação
+                    const [diaA, mesA, anoA] = a.split('/').map(Number);
+                    const [diaB, mesB, anoB] = b.split('/').map(Number);
+                    const dateA = new Date(anoA, mesA - 1, diaA);
+                    const dateB = new Date(anoB, mesB - 1, diaB);
+                    return dateB - dateA; // Mais recente primeiro
+                });
 
-                // Iterar sobre as datas
-                Object.keys(groupedByDate).forEach(date => {
+                sortedDates.forEach(date => {
                     // Lógica para HOJE e ONTEM
                     let dateDisplay = date;
                     const hoje = new Date().toLocaleDateString('pt-BR');
@@ -7166,38 +7306,37 @@
 
                     html += `<div class="day-divider-corrigido"><span>${dateDisplay}</span></div>`;
 
-                    groupedByDate[date].forEach(record => {
-                        const entradaDate = new Date(record.entradaAt);
-                        const entradaTime = entradaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                        const saidaTime = record.saidaAt ? new Date(record.saidaAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : null;
+                    const eventsOfDay = groupedByDate.get(date);
 
-                        const iniciadoPorTipo = formatarTipoResponsavel(record.iniciadoPorTipo);
-                        const finalizadoPorTipo = record.finalizadoPorTipo ? formatarTipoResponsavel(record.finalizadoPorTipo) : '';
+                    // Ordenar eventos do dia por timestamp (mais recente primeiro)
+                    eventsOfDay.sort((a, b) => b.timestamp - a.timestamp);
 
-                        // Formatar nome do aluno (primeiro nome + último nome)
-                        const nomeAluno = record.alunoNome || 'Aluno';
+                    eventsOfDay.forEach(event => {
+                        const time = event.timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                        const responsavelTipo = formatarTipoResponsavel(event.responsavelTipo);
+
+                        // Formatar nome do aluno
+                        const nomeAluno = event.alunoNome || 'Aluno';
                         const partesNome = nomeAluno.trim().split(' ');
                         let nomeFormatado = nomeAluno;
                         if (partesNome.length >= 2) {
                             nomeFormatado = `${partesNome[0]} ${partesNome[partesNome.length - 1]}`;
                         }
 
-                        // CARD DE ENTRADA
-                        html += `
-                            <div class="tl-item-corrigido entry">
-                                <div class="tl-dot-corrigido">
-                                    <i class="fas fa-sign-in-alt fa-xs"></i>
+                        if (event.type === 'entry') {
+                            html += `
+                                <div class="tl-item-corrigido entry">
+                                    <div class="tl-dot-corrigido">
+                                        <i class="fas fa-sign-in-alt fa-xs"></i>
+                                    </div>
+                                    <div class="tl-card-corrigido entry-card">
+                                        <div class="who">${nomeFormatado}</div>
+                                        <div class="when">${time}</div>
+                                        <div class="what"><strong>Entrada</strong> registrada por ${event.responsavelNome || 'Sistema'}${responsavelTipo ? ` (${responsavelTipo})` : ''}</div>
+                                    </div>
                                 </div>
-                                <div class="tl-card-corrigido entry-card">
-                                    <div class="who">${nomeFormatado}</div>
-                                    <div class="when">${entradaTime}</div>
-                                    <div class="what"><strong>Entrada</strong> registrada por ${record.iniciadoPor || 'Sistema'}${iniciadoPorTipo ? ` (${iniciadoPorTipo})` : ''}</div>
-                                </div>
-                            </div>
-                        `;
-
-                        // CARD DE SAÍDA (se existir)
-                        if (saidaTime) {
+                            `;
+                        } else {
                             html += `
                                 <div class="tl-item-corrigido exit">
                                     <div class="tl-dot-corrigido">
@@ -7205,8 +7344,8 @@
                                     </div>
                                     <div class="tl-card-corrigido exit-card">
                                         <div class="who">${nomeFormatado}</div>
-                                        <div class="when">${saidaTime}</div>
-                                        <div class="what"><strong>Saída</strong> registrada por ${record.finalizadoPor || 'Sistema'}${finalizadoPorTipo ? ` (${finalizadoPorTipo})` : ''}</div>
+                                        <div class="when">${time}</div>
+                                        <div class="what"><strong>Saída</strong> registrada por ${event.responsavelNome || 'Sistema'}${responsavelTipo ? ` (${responsavelTipo})` : ''}</div>
                                     </div>
                                 </div>
                             `;
@@ -7217,19 +7356,19 @@
                 html += '</div></div>';
 
                 // Paginação
-                const totalPagesCalc = Math.ceil(sorted.length / HISTORY_PAGE_SIZE);
+                const totalPagesCalc = Math.ceil(currentHistoryData.length / HISTORY_PAGE_SIZE);
                 if (totalPagesCalc > 1) {
                     html += `
-            <div class="pagination-controls">
-                <button class="pagination-btn" id="historyPrevPage" ${currentHistoryPage === 1 ? 'disabled' : ''}>
-                    <i class="fas fa-chevron-left"></i> Anterior
-                </button>
-                <span class="page-info">Página ${currentHistoryPage} de ${totalPagesCalc}</span>
-                <button class="pagination-btn" id="historyNextPage" ${currentHistoryPage === totalPagesCalc ? 'disabled' : ''}>
-                    Próxima <i class="fas fa-chevron-right"></i>
-                </button>
-            </div>
-        `;
+                        <div class="pagination-controls">
+                            <button class="pagination-btn" id="historyPrevPage" ${currentHistoryPage === 1 ? 'disabled' : ''}>
+                                <i class="fas fa-chevron-left"></i> Anterior
+                            </button>
+                            <span class="page-info">Página ${currentHistoryPage} de ${totalPagesCalc}</span>
+                            <button class="pagination-btn" id="historyNextPage" ${currentHistoryPage === totalPagesCalc ? 'disabled' : ''}>
+                                Próxima <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    `;
                 }
 
                 container.innerHTML = html;
@@ -7237,8 +7376,19 @@
                 // Eventos de paginação
                 const prevBtn = document.getElementById('historyPrevPage');
                 const nextBtn = document.getElementById('historyNextPage');
-                if (prevBtn) prevBtn.onclick = () => { if (currentHistoryPage > 1) { currentHistoryPage--; renderHistoryTimeline(); } };
-                if (nextBtn) nextBtn.onclick = () => { const total = Math.ceil(currentHistoryData.length / HISTORY_PAGE_SIZE); if (currentHistoryPage < total) { currentHistoryPage++; renderHistoryTimeline(); } };
+                if (prevBtn) prevBtn.onclick = () => {
+                    if (currentHistoryPage > 1) {
+                        currentHistoryPage--;
+                        renderHistoryTimeline();
+                    }
+                };
+                if (nextBtn) nextBtn.onclick = () => {
+                    const total = Math.ceil(currentHistoryData.length / HISTORY_PAGE_SIZE);
+                    if (currentHistoryPage < total) {
+                        currentHistoryPage++;
+                        renderHistoryTimeline();
+                    }
+                };
             }
 
             // ============== FASE 5: MONITORAMENTO DE GEOFENCE  ==============
@@ -7443,7 +7593,6 @@
                                     student.status = 'AUSENTE';
                                 }
                             } else {
-                                // Se não conseguiu buscar sessões, NÃO força correção
                                 console.log(`⚠️ Não foi possível buscar sessões ativas, pulando correção automática`);
                             }
 
@@ -7467,17 +7616,19 @@
                         return student;
                     }));
 
-                    // 🔴 CORREÇÃO: SEMPRE substituir o cache pelo novo, nunca manter o antigo!
-                    // Isso garante que a fonte da verdade é SEMPRE o backend
+                    // 🔴 CORREÇÃO: SEMPRE substituir o cache pelo novo
                     studentsData = novosAlunos;
 
                     // Renderizar com os dados mais recentes
                     renderStudents(studentsData);
 
+                    // 🔴 NOVO: Recarregar horários das salas (em caso de atualização)
+                    await carregarHorariosDasSalas();
+
                     const filhosCount = document.getElementById('filhosCount');
                     if (filhosCount) filhosCount.textContent = `${studentsData.length} aluno(s) vinculado(s)`;
 
-                    // Verificação periódica de consistência (opcional, mas recomendado)
+                    // Verificação periódica de consistência
                     if (!window.contadorRefresh) window.contadorRefresh = 0;
                     window.contadorRefresh++;
                     if (window.contadorRefresh >= 5) {
