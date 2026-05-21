@@ -3487,28 +3487,146 @@
                 return R * c; // Retorna a distância em metros
             }
 
-            /**
- * Faz o envio do POST para o seu endpoint existente do backend
- */
+            // =========================================================
+            // MONITORAMENTO DE PROXIMIDADE VIA BROWSER (navigator.geolocation)
+            // Funciona em browser e app — substitui Capacitor-only anterior
+            // =========================================================
+            let proximidadeWatcherId = null;
+
+            function iniciarWatchProximidade() {
+                if (!navigator.geolocation) {
+                    console.warn('[Proximidade] navigator.geolocation não disponível.');
+                    return;
+                }
+                // Para watcher anterior antes de criar um novo
+                if (proximidadeWatcherId !== null) {
+                    navigator.geolocation.clearWatch(proximidadeWatcherId);
+                    proximidadeWatcherId = null;
+                }
+                console.log('🛰️ [Proximidade] Iniciando watchPosition...');
+                proximidadeWatcherId = navigator.geolocation.watchPosition(
+                    async (position) => {
+                        await avaliarProximidadeNoNavegador(
+                            position.coords.latitude,
+                            position.coords.longitude
+                        );
+                    },
+                    (error) => {
+                        console.warn('[Proximidade] Erro GPS:', error.message);
+                    },
+                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+                );
+            }
+
+            async function avaliarProximidadeNoNavegador(latAtual, lngAtual) {
+                // Somente alunos PRESENTES com chamada automática ativa
+                const elegíveis = studentsData.filter(
+                    a => a.proximidade &&
+                         a.proximidade.chamadaAutomatica === true &&
+                         a.status === 'PRESENTE'
+                );
+                if (elegíveis.length === 0) return;
+
+                // Obtém coordenadas da escola
+                let coordsEscola = null;
+                if (geofenceMonitor && geofenceMonitor.schoolCoords && geofenceMonitor.schoolCoords.lat) {
+                    coordsEscola = geofenceMonitor.schoolCoords;
+                } else {
+                    try {
+                        const escolaId = await getEscolaId();
+                        const resp = await fetchWithAuth(`/api/geofences/escola/${escolaId}/coordenadas`);
+                        if (resp.ok) {
+                            const d = await resp.json();
+                            coordsEscola = { lat: d.latitude, lng: d.longitude, raio: d.raio || 200 };
+                            if (geofenceMonitor && !geofenceMonitor.schoolCoords) {
+                                geofenceMonitor.schoolCoords = coordsEscola;
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('[Proximidade] Erro ao obter coordenadas da escola:', e);
+                        return;
+                    }
+                }
+                if (!coordsEscola) return;
+
+                const raio = coordsEscola.raio || 200;
+                const distancia = calcularDistanciaMetros(latAtual, lngAtual, coordsEscola.lat, coordsEscola.lng);
+                const dentroDoRaio = distancia <= raio;
+
+                console.log(`📍 [Proximidade] Distância: ${Math.round(distancia)}m / Raio: ${raio}m → ${dentroDoRaio ? 'DENTRO ✅' : 'FORA ❌'}`);
+                if (!dentroDoRaio) return;
+
+                // Verifica janela de horário e dispara para cada aluno elegível
+                const agora = new Date();
+                const horaAtual = `${agora.getHours().toString().padStart(2,'0')}:${agora.getMinutes().toString().padStart(2,'0')}:00`;
+
+                for (const aluno of elegíveis) {
+                    if (aluno.salaId && horariosSalasCache.has(aluno.salaId)) {
+                        const h = horariosSalasCache.get(aluno.salaId);
+                        if (horaAtual < h.horaInicio || horaAtual > h.horaFim) {
+                            console.log(`⏰ [Proximidade] ${aluno.nome}: fora da janela (${h.horaInicio}–${h.horaFim}). Ignorando.`);
+                            continue;
+                        }
+                    }
+                    console.log(`🎯 [Proximidade] Dentro do raio! Disparando saída para: ${aluno.nome}`);
+                    await dispararApiSolicitacaoSaida(aluno.id, latAtual, lngAtual);
+                }
+            }
+
+            // Cooldown por aluno — evita disparos repetidos durante permanência no raio
+            const proximidadeCooldown = new Map();
+            const PROXIMIDADE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutos
+
             async function dispararApiSolicitacaoSaida(alunoId, lat, lng) {
+                // Verifica cooldown
+                const ultimo = proximidadeCooldown.get(alunoId);
+                if (ultimo && (Date.now() - ultimo) < PROXIMIDADE_COOLDOWN_MS) {
+                    console.log(`⏳ [Proximidade] Cooldown ativo para aluno ${alunoId}.`);
+                    return;
+                }
+
+                // Ignora se aluno já não está PRESENTE
+                const alunoAtual = studentsData.find(a => a.id == alunoId);
+                if (alunoAtual && alunoAtual.status !== 'PRESENTE') {
+                    console.log(`⏭️ [Proximidade] Aluno ${alunoId} já tem status ${alunoAtual.status}.`);
+                    return;
+                }
+
                 try {
                     const payload = { alunoId: alunoId, latitude: lat, longitude: lng };
 
-                    // Substitua pelo seu método padrão de fetch com token do Tutor
-                    const response = await fetch(`${API_URL}/api/chamadas/saida/solicitar`, {
+                    // ✅ CORRIGIDO: fetchWithAuth (token automático) + endpoint correto
+                    const response = await fetchWithAuth('/api/presencas/saida/solicitar', {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${AUTH_TOKEN}`
-                        },
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
                     });
 
                     if (response.ok) {
-                        console.log("Chamada automática registrada com sucesso!");
+                        // Registra cooldown
+                        proximidadeCooldown.set(alunoId, Date.now());
+
+                        // ✅ Atualiza cache e visual do card imediatamente
+                        if (alunoAtual) {
+                            alunoAtual.status = 'AGUARDANDO_CONFIRMACAO';
+                            atualizarVisualDoSlider(alunoId, 'AGUARDANDO_CONFIRMACAO');
+                        }
+
+                        const nomeAluno = alunoAtual ? alunoAtual.nome : `Aluno ${alunoId}`;
+                        console.log(`✅ [Proximidade] Chamada automática registrada para ${nomeAluno}`);
+
+                        // ✅ Toast visível ao usuário
+                        showToast(`📡 Saída solicitada automaticamente para ${nomeAluno} (chamada por proximidade)`, 'success');
+
+                    } else {
+                        const errData = await response.json().catch(() => ({}));
+                        const motivo = errData.mensagem || `Código ${response.status}`;
+                        console.warn(`⚠️ [Proximidade] Falha: ${motivo}`);
+                        showToast(`⚠️ Proximidade detectada, mas não foi possível solicitar saída: ${motivo}`, 'warning');
                     }
                 } catch (error) {
-                    console.error("Erro ao enviar chamada automática:", error);
+                    console.error('❌ [Proximidade] Erro ao enviar chamada automática:', error);
+                    showToast('❌ Erro ao solicitar saída automática por proximidade', 'danger');
                 }
             }
 
@@ -3918,7 +4036,7 @@
 
             // Iniciar monitoramento periódico
             function iniciarMonitoramentoGeofence() {
-                // Verificar imediatamente
+                // Verificar imediatamente (atualiza pill visual da geofence)
                 verificarLocalizacaoComBackend();
 
                 // Verificar a cada 30 segundos
@@ -3926,6 +4044,9 @@
                 intervaloGeofence = setInterval(() => {
                     verificarLocalizacaoComBackend();
                 }, 30000);
+
+                // ✅ CORRIGIDO: Inicia watcher contínuo de proximidade para chamada automática
+                iniciarWatchProximidade();
             }
 
             // ============== CARREGAR HORÁRIOS DAS SALAS ==============
@@ -4119,6 +4240,17 @@
                     }
 
                     console.log(`Preference updated for student ${studentId}: ${isChecked}`);
+
+                    // ✅ CORRIGIDO: Reinicia watcher para refletir nova preferência imediatamente
+                    iniciarWatchProximidade();
+
+                    // ✅ Toast informando o novo estado ao usuário
+                    showToast(
+                        isChecked
+                            ? '📡 Chamada por proximidade ativada'
+                            : '📡 Chamada por proximidade desativada',
+                        isChecked ? 'success' : 'info'
+                    );
 
                 } catch (error) {
                     console.error('Erro ao atualizar geofence preference:', error);
