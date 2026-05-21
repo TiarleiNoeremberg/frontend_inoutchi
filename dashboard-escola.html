@@ -2281,23 +2281,10 @@
                         <form id="salaForm" onsubmit="saveSala(event)">
                             <div class="modal-body">
                                 <input type="hidden" id="salaId">
-
                                 <div class="form-group">
                                     <label for="salaNome">Nome da Sala</label>
-                                    <input type="text" id="salaNome" required placeholder="Ex: 3° ano integral">
+                                    <input type="text" id="salaNome" required placeholder="Ex: Maternal II">
                                 </div>
-
-                                <div class="form-grid" style="margin-top: 15px;">
-                                    <div class="form-group">
-                                        <label for="horaInicioChamada">Início da Chamada</label>
-                                        <input type="time" id="horaInicioChamada" class="form-control" required>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="horaFimChamada">Término da Chamada</label>
-                                        <input type="time" id="horaFimChamada" class="form-control" required>
-                                    </div>
-                                </div>
-
                             </div>
                             <div class="modal-footer">
                                 <button type="button" class="btn btn-secondary"
@@ -3694,10 +3681,11 @@
                 row.innerHTML = `
                     <td>${sala.nome}</td>
                     <td class="action-buttons">
-                        <button class="btn btn-edit" onclick="openSalaModal(${sala.id}, '${sala.nome}', '${sala.horaInicioChamada || ''}', '${sala.horaFimChamada || ''}')">
+                        <button class="btn btn-edit" onclick="openSalaModal(${sala.id}, '${sala.nome}')">
                             <i class="fas fa-pencil-alt"></i> Editar
                         </button>
-                        <button class="btn btn-delete" onclick="openDeleteSalaModal(${sala.id}, '${sala.nome}')">
+                        <button class="btn btn-delete" onclick="openDeleteSalaModal(${sala.id}, '${sala.nome}')"
+>
                             <i class="fas fa-trash"></i> Excluir
                         </button>
                     </td>
@@ -3710,31 +3698,22 @@
         // Funções para controlar o Modal
         const salaModal = document.getElementById('salaModal');
 
-        function openSalaModal(id = null, nome = '', horaInicio = '', horaFim = '') {
+        function openSalaModal(id = null, nome = '') {
             const form = document.getElementById('salaForm');
             form.reset();
 
             const modalTitle = document.getElementById('salaModalTitle');
             const salaIdInput = document.getElementById('salaId');
             const salaNomeInput = document.getElementById('salaNome');
-            const horaInicioInput = document.getElementById('horaInicioChamada');
-            const horaFimInput = document.getElementById('horaFimChamada');
 
             if (id) {
                 modalTitle.textContent = 'Editar Sala';
                 salaIdInput.value = id;
                 salaNomeInput.value = nome;
-
-                // Se vier do banco no formato HH:mm:ss, pegamos apenas HH:mm usando slice(0, 5)
-                horaInicioInput.value = horaInicio ? horaInicio.slice(0, 5) : '';
-                horaFimInput.value = horaFim ? horaFim.slice(0, 5) : '';
             } else {
                 modalTitle.textContent = 'Adicionar Nova Sala';
                 salaIdInput.value = '';
-                horaInicioInput.value = '';
-                horaFimInput.value = '';
             }
-
             salaModal.style.display = 'flex';
         }
 
@@ -3750,38 +3729,37 @@
          */
         async function saveSala(event) {
             event.preventDefault();
+
             const button = document.getElementById('saveSalaButton');
-            if (button.disabled) { return; }
+            if (button.disabled) {
+                return;
+            }
 
             const form = document.getElementById('salaForm');
-            if (!form.reportValidity()) { return; }
+            if (!form.checkValidity()) {
+                form.reportValidity();
+                return;
+            }
 
             const originalButtonText = button.innerHTML;
             button.disabled = true;
             button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
 
-            const id = document.getElementById('salaId').value;
+            // --- Lógica de Edição vs. Criação ---
+            const salaId = document.getElementById('salaId').value;
+            const isEditing = !!salaId; // Converte para booleano: true se salaId existir
+
             const nome = document.getElementById('salaNome').value;
 
-            // Captura os novos campos de hora
-            const horaInicioVal = document.getElementById('horaInicioChamada').value;
-            const horaFimVal = document.getElementById('horaFimChamada').value;
+            // Define o método e a URL dinamicamente
+            const method = isEditing ? 'PUT' : 'POST';
+            const url = isEditing
+                ? `${API_URL}/api/salas/${salaId}`
+                : `${API_URL}/api/salas/escolas/${ESCOLA_ID}/salas`;
 
-            // Formata HH:mm para HH:mm:ss esperado pelo Spring LocalTime
-            const payload = {
-                nome: nome,
-                escolaId: ESCOLA_ID,
-                horaInicioChamada: horaInicioVal ? `${horaInicioVal}:00` : null,
-                horaFimChamada: horaFimVal ? `${horaFimVal}:00` : null
-            };
-
-            const method = id ? 'PUT' : 'POST';
-            // Se o endpoint de alteração de horários for separado (ex: /api/salas/{id}/horarios), 
-            // avalie se prefere usar a URL base comum ou a URL específica. Se você mapeou tudo no PUT padrão:
-            const url = id ? `${API_URL}/api/salas/${id}` : `${API_URL}/api/salas`;
-
-            // Se preferir disparar especificamente para o endpoint de horários quando for edição:
-            // const url = id ? `${API_URL}/api/salas/${id}/horarios` : `${API_URL}/api/salas`;
+            const bodyPayload = isEditing
+                ? JSON.stringify({ nome: nome })
+                : JSON.stringify({ nome: nome }); // Adapte se o payload for diferente
 
             try {
                 const response = await fetch(url, {
@@ -3790,33 +3768,30 @@
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${AUTH_TOKEN}`
                     },
-                    body: JSON.stringify(payload)
+                    body: bodyPayload
                 });
 
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    // Lança o erro capturando a mensagem de validação do Spring BusinessException
-                    throw new Error(errorData.mensagem || errorData.message || `Erro ${response.status}`);
+                // Para PUT, a resposta pode ser 204 No Content (sem corpo) ou 200 OK com o objeto.
+                // Para POST, esperamos 201 Created com o objeto.
+                if (response.status === 204) { // Sucesso na edição sem retorno de corpo
+                    // Não precisa fazer nada com responseData
+                } else if (response.ok) {
+                    const responseData = await response.json();
+                    if (method === 'POST') {
+                        showCredentialsModal(responseData); // Mostra credenciais apenas na criação
+                    }
+                } else {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || `Erro ${response.status}`);
                 }
 
                 closeSalaModal();
-
-                // Verifica se a resposta contém credenciais (caso de criação de nova sala)
-                const responseData = response.status !== 24 ? await response.json().catch(() => null) : null;
-
-                if (!id && responseData && responseData.email && responseData.senha) {
-                    // Se foi criação, exibe o modal de credenciais geradas
-                    showCredenciaisModal(nome, responseData.email, responseData.senha);
-                } else {
-                    // Se foi edição de horários, exibe o Toast comum de sucesso
-                    showToast(`Sala "${nome}" atualizada com sucesso!`, 'success');
-                }
-
+                showToast(`Sala "${nome}" salva com sucesso!`, 'success');
                 await loadSalas();
+
             } catch (error) {
                 console.error('Erro ao salvar sala:', error);
-                // Exibe o erro de validação de horário (ex: Início maior que fim) retornado pelo Spring
-                alert(`Erro ao salvar sala: ${error.message}`);
+                showToast(`Erro ao salvar sala: ${error.message}`, 'error');
             } finally {
                 button.disabled = false;
                 button.innerHTML = originalButtonText;
