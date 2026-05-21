@@ -5695,16 +5695,129 @@
                 return;
             }
 
-            // Processa diretamente, sem abrir modal para SAÍDA
-            // Para ENTRADA, ainda precisa de localização
+            // 🔴 CORREÇÃO: Para ENTRADA, obtém localização primeiro
+            if (type === "entrada") {
+                // Mostra um alerta de carregamento
+                showAlert("Obtendo sua localização para registrar entrada...", "info");
+
+                // Obtém localização
+                navigator.geolocation.getCurrentPosition(
+                    async (position) => {
+                        const { latitude, longitude } = position.coords;
+                        console.log("📍 Localização obtida:", { latitude, longitude });
+
+                        // Chama a ação com a localização
+                        await processarAcaoDiretorComLocalizacao(studentId, type, studentName, latitude, longitude);
+                    },
+                    (error) => {
+                        console.error("❌ Erro ao obter localização:", error);
+                        let errorMsg = "Não foi possível obter sua localização. ";
+                        if (error.code === 1) {
+                            errorMsg += "Permita o acesso à localização nas configurações do navegador.";
+                        } else if (error.code === 2) {
+                            errorMsg += "Verifique se o GPS está ativo e tente novamente.";
+                        } else {
+                            errorMsg += "Tente novamente.";
+                        }
+                        showAlert(errorMsg, "error");
+                    },
+                    { enableHighAccuracy: true, timeout: 10000 }
+                );
+                return;
+            }
+
+            // Para SAÍDA ou CONFIRMAR, não precisa de localização
             if (type === "saida" || type === "confirmar") {
-                // Saída ou confirmação não precisam de localização
                 processarAcaoDiretor(studentId, type, studentName);
-            } else {
-                // Entrada precisa de localização - abre modal
-                openGeofenceModal(studentId, type, studentName);
             }
         };
+
+        async function processarAcaoDiretorComLocalizacao(studentId, action, studentName, latitude, longitude) {
+            try {
+                if (directorStatus !== "PRESENTE") {
+                    showAlert("Ação não permitida. Você precisa registrar sua entrada na escola primeiro.", "error");
+                    return;
+                }
+
+                const accessToken = localStorage.getItem("access_token");
+
+                // Salva o estado atual ANTES da ação
+                const currentPage = currentStudentsPage;
+                const currentSearch = document.getElementById("studentSearch")?.value || "";
+
+                if (action === "entrada") {
+                    const endpoint = `${BACKEND_URL}/api/presencas/entrada`;
+                    const body = {
+                        alunoId: parseInt(studentId),
+                        responsavelId: currentDirectorId,
+                        responsavelNome: currentUser?.nome || "Diretor",
+                        responsavelTipo: "DIRETOR",
+                        latitude: latitude,
+                        longitude: longitude,
+                    };
+
+                    console.log("📤 Enviando requisição de ENTRADA:", { endpoint, body });
+
+                    const response = await fetch(endpoint, {
+                        method: "POST",
+                        headers: {
+                            Authorization: `Bearer ${accessToken}`,
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify(body),
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.mensagem || error.erro || `Erro ${response.status}`);
+                    }
+
+                    // Atualizar cache
+                    const alunoNoCache = detailedStudentsData.find(a => a.id === studentId);
+                    if (alunoNoCache) {
+                        alunoNoCache.status = "PRESENTE";
+                    }
+
+                    // Reordenar e renderizar
+                    const getStatusPriority = (status) => {
+                        if (status === "AGUARDANDO_CONFIRMACAO") return 0;
+                        if (status === "PRESENTE") return 1;
+                        return 2;
+                    };
+
+                    detailedStudentsData.sort((a, b) => {
+                        const priorityA = getStatusPriority(a.status);
+                        const priorityB = getStatusPriority(b.status);
+                        if (priorityA !== priorityB) return priorityA - priorityB;
+                        return (a.nome || "").localeCompare(b.nome || "");
+                    });
+
+                    const startIndex = currentPage * pageSize;
+                    const pageData = detailedStudentsData.slice(startIndex, startIndex + pageSize);
+                    const paginatedData = {
+                        content: pageData,
+                        totalPages: Math.ceil(detailedStudentsData.length / pageSize),
+                        number: currentPage,
+                        totalElements: detailedStudentsData.length
+                    };
+
+                    renderStudentsTable(paginatedData);
+                    setupStudentsPagination(paginatedData);
+                    refreshOverviewData();
+
+                    currentStudentsPage = currentPage;
+                    const searchInput = document.getElementById("studentSearch");
+                    if (searchInput && searchInput.value !== currentSearch) {
+                        searchInput.value = currentSearch;
+                    }
+
+                    showAlert(`✅ Entrada de ${studentName} registrada com sucesso!`, "success");
+                }
+            } catch (error) {
+                console.error("❌ Erro:", error);
+                showAlert(`Erro: ${error.message}`, "error");
+            }
+        }
 
         async function processarAcaoDiretor(studentId, action, studentName) {
             try {
