@@ -5735,13 +5735,11 @@
         async function processarAcaoDiretorComLocalizacao(studentId, action, studentName, latitude, longitude) {
             try {
                 if (directorStatus !== "PRESENTE") {
-                    showAlert("Ação não permitida. Você precisa registrar sua entrada na escola primeiro.", "error");
+                    showAlert("Ação não permitida...", "error");
                     return;
                 }
 
                 const accessToken = localStorage.getItem("access_token");
-
-                // Salva o estado atual ANTES da ação
                 const currentPage = currentStudentsPage;
                 const currentSearch = document.getElementById("studentSearch")?.value || "";
 
@@ -5756,14 +5754,9 @@
                         longitude: longitude,
                     };
 
-                    console.log("📤 Enviando requisição de ENTRADA:", { endpoint, body });
-
                     const response = await fetch(endpoint, {
                         method: "POST",
-                        headers: {
-                            Authorization: `Bearer ${accessToken}`,
-                            "Content-Type": "application/json",
-                        },
+                        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
                         body: JSON.stringify(body),
                     });
 
@@ -5772,19 +5765,18 @@
                         throw new Error(error.mensagem || error.erro || `Erro ${response.status}`);
                     }
 
-                    // Atualizar cache
+                    // ✅ Mantém a atualização do cache
                     const alunoNoCache = detailedStudentsData.find(a => a.id === studentId);
                     if (alunoNoCache) {
                         alunoNoCache.status = "PRESENTE";
                     }
 
-                    // Reordenar e renderizar
+                    // ✅ Mantém a reordenação
                     const getStatusPriority = (status) => {
                         if (status === "AGUARDANDO_CONFIRMACAO") return 0;
                         if (status === "PRESENTE") return 1;
                         return 2;
                     };
-
                     detailedStudentsData.sort((a, b) => {
                         const priorityA = getStatusPriority(a.status);
                         const priorityB = getStatusPriority(b.status);
@@ -5792,22 +5784,39 @@
                         return (a.nome || "").localeCompare(b.nome || "");
                     });
 
-                    const startIndex = currentPage * pageSize;
-                    const pageData = detailedStudentsData.slice(startIndex, startIndex + pageSize);
-                    const paginatedData = {
-                        content: pageData,
-                        totalPages: Math.ceil(detailedStudentsData.length / pageSize),
-                        number: currentPage,
-                        totalElements: detailedStudentsData.length
-                    };
+                    // 🔴 MUDANÇA APENAS AQUI: NÃO recriar a tabela inteira
+                    // REMOVA estas linhas:
+                    // const startIndex = currentPage * pageSize;
+                    // const pageData = detailedStudentsData.slice(...);
+                    // const paginatedData = { ... };
+                    // renderStudentsTable(paginatedData);
+                    // setupStudentsPagination(paginatedData);
 
-                    updateSingleStudentRow(studentId, action === "entrada" ? "PRESENTE" : "AUSENTE");
-                    refreshOverviewData();  // Apenas para atualizar os contadores da Visão Geral
+                    // ✅ MANTENHA apenas a atualização da linha específica
+                    updateSingleStudentRow(studentId, "PRESENTE");
+                    refreshOverviewData();
 
+                    // ✅ Mantém a restauração da página
                     currentStudentsPage = currentPage;
                     const searchInput = document.getElementById("studentSearch");
                     if (searchInput && searchInput.value !== currentSearch) {
                         searchInput.value = currentSearch;
+                    }
+
+                    // ✅ Mantém a atualização do modal da sala se estiver aberto
+                    const detailsModal = document.getElementById("detailsModal");
+                    if (detailsModal && detailsModal.style.display === "flex" && currentClassroomModal.classroomId) {
+                        await viewClassroomStudents(
+                            currentClassroomModal.classroomId,
+                            currentClassroomModal.classroomName,
+                            currentClassroomModal.onlyPresent
+                        );
+                    }
+
+                    // ✅ Mantém a atualização da aba Saídas Rápidas
+                    const quickExitsTab = document.getElementById("quick-exits-tab");
+                    if (quickExitsTab && quickExitsTab.classList.contains("active")) {
+                        await carregarAlunosParaSaidasRapidas();
                     }
 
                     showAlert(`✅ Entrada de ${studentName} registrada com sucesso!`, "success");
@@ -5820,11 +5829,11 @@
 
         function updateSingleStudentRow(studentId, newStatus) {
             const row = document.getElementById(`aluno-${studentId}`);
-            if (!row) return false;
+            if (!row) {
+                console.warn(`Linha do aluno ${studentId} não encontrada na página atual`);
+                return false;
+            }
 
-            // Atualizar o status badge
-            let statusHtml = "";
-            let actionsHtml = "";
             const student = detailedStudentsData.find(s => s.id === studentId);
             if (!student) return false;
 
@@ -5832,6 +5841,9 @@
             const isDisabled = directorStatus !== "PRESENTE";
             const disabledAttr = isDisabled ? "disabled" : "";
             const disabledTitle = isDisabled ? 'title="Você precisa registrar sua presença para realizar esta ação"' : "";
+
+            let statusHtml = "";
+            let actionsHtml = "";
 
             switch (newStatus) {
                 case "PRESENTE":
@@ -5850,7 +5862,7 @@
                     return false;
             }
 
-            // Atualiza apenas as células necessárias (status e ações)
+            // Atualiza status e ações
             if (row.cells[2]) row.cells[2].innerHTML = statusHtml;
             if (row.cells[4]) {
                 row.cells[4].innerHTML = `
@@ -5861,7 +5873,7 @@
         `;
             }
 
-            // Adiciona efeito visual de destaque
+            // Efeito visual
             row.style.transition = "background-color 0.5s ease";
             row.style.backgroundColor = "rgba(26, 111, 196, 0.15)";
             setTimeout(() => { row.style.backgroundColor = ""; }, 1000);
