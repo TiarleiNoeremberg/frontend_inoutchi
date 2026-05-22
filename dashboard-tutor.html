@@ -3529,8 +3529,8 @@
                 // Somente alunos PRESENTES com chamada automática ativa
                 const elegíveis = studentsData.filter(
                     a => a.proximidade &&
-                         a.proximidade.chamadaAutomatica === true &&
-                         a.status === 'PRESENTE'
+                        a.proximidade.chamadaAutomatica === true &&
+                        a.status === 'PRESENTE'
                 );
                 if (elegíveis.length === 0) return;
 
@@ -6176,67 +6176,72 @@
                 });
             }
 
-            // ============== VALIDAÇÃO DE HORÁRIO VIA BACKEND ==============
+            // ============== VALIDAÇÃO DE HORÁRIO VIA BACKEND (BLINDADA) ==============
             async function validarHorarioSaida(salaId, salaNome) {
-                console.log(`🔍 Validando horário para sala ID: ${salaId}, Nome: ${salaNome}`);
+                console.log(`\n========================================`);
+                console.log(`🔍 INICIANDO VALIDAÇÃO DE HORÁRIO PARA: ${salaNome} (ID: ${salaId})`);
 
-                // Se não tem salaId, não consegue validar (permite por segurança)
+                // ALÇAPÃO 1: Tem ID da sala?
                 if (!salaId) {
-                    console.log(`⚠️ Sala sem ID, permitindo operação por segurança`);
+                    console.error(`⚠️ ALÇAPÃO 1 ABERTO: salaId está nulo ou indefinido no objeto do aluno! Liberando por fallback.`);
                     return { permitido: true };
                 }
 
-                // Buscar horários do cache
                 let horarios = horariosSalasCache.get(salaId);
 
-                // Se não está em cache, busca do backend
                 if (!horarios) {
+                    console.log(`📡 Horário não está no cache. Buscando da API para a sala ${salaId}...`);
                     try {
                         const response = await fetchWithAuth(`/api/salas/${salaId}`);
                         if (response.ok) {
                             const sala = await response.json();
-                            if (sala.horaInicioChamada && sala.horaFimChamada) {
-                                horarios = {
-                                    horaInicio: sala.horaInicioChamada,
-                                    horaFim: sala.horaFimChamada
-                                };
+                            console.log(`📦 JSON recebido da API da Sala:`, sala);
+
+                            // Tenta pegar o horário lidando com variações de nomenclatura do Spring Boot
+                            const hInicio = sala.horaInicioChamada || sala.horaInicio;
+                            const hFim = sala.horaFimChamada || sala.horaFim;
+
+                            if (hInicio && hFim) {
+                                horarios = { horaInicio: hInicio, horaFim: hFim };
                                 horariosSalasCache.set(salaId, horarios);
-                                console.log(`✅ [Backend] Horários carregados para sala ${salaNome}:`, horarios);
                             }
                         }
                     } catch (error) {
-                        console.warn(`⚠️ Erro ao buscar horários da sala ${salaNome}:`, error);
-                        // Fallback: permite a operação se não conseguir buscar
-                        return { permitido: true };
+                        console.error(`⚠️ Erro ao buscar sala na API:`, error);
                     }
                 }
 
-                // Se a sala não tem horários configurados, permite a qualquer hora
+                // ALÇAPÃO 2: Tem horário configurado?
                 if (!horarios || !horarios.horaInicio || !horarios.horaFim) {
-                    console.log(`✅ Sala ${salaNome} sem horários configurados - permitido`);
+                    console.error(`⚠️ ALÇAPÃO 2 ABERTO: Objeto 'horarios' está vazio ou os campos horaInicio/horaFim não existem no JSON. Liberando por fallback.`);
                     return { permitido: true };
                 }
+
+                console.log(`⏰ Horário configurado no Banco: Início ${horarios.horaInicio} | Fim ${horarios.horaFim}`);
 
                 const agora = new Date();
                 const horaAtual = agora.getHours();
                 const minutoAtual = agora.getMinutes();
 
-                // Converter horários (formato "HH:MM:SS" ou "HH:MM")
+                // Pega apenas as horas e minutos (Ignora os segundos se vierem do banco, ex: "15:30:00")
                 const [horaInicio, minutoInicio] = horarios.horaInicio.split(':').map(Number);
                 const [horaFim, minutoFim] = horarios.horaFim.split(':').map(Number);
 
-                const minutosAtual = horaAtual * 60 + minutoAtual;
-                const minutosInicio = horaInicio * 60 + minutoInicio;
-                const minutosFim = horaFim * 60 + minutoFim;
+                const minutosAtual = (horaAtual * 60) + minutoAtual;
+                const minutosInicio = (horaInicio * 60) + minutoInicio;
+                const minutosFim = (horaFim * 60) + minutoFim;
 
-                // Verifica se está dentro da janela de horário
+                console.log(`⏱️ Minutos convertidos -> Atual: ${minutosAtual} | Início: ${minutosInicio} | Fim: ${minutosFim}`);
+
                 if (minutosAtual >= minutosInicio && minutosAtual <= minutosFim) {
-                    console.log(`✅ Horário permitido para ${salaNome}: ${horaAtual}:${minutoAtual} dentro de ${horarios.horaInicio}-${horarios.horaFim}`);
+                    console.log(`✅ MATEMÁTICA OK: ${minutosAtual} está dentro da janela permitida.`);
+                    console.log(`========================================\n`);
                     return { permitido: true };
                 }
 
-                const mensagem = `A solicitação de saída para ${salaNome} só é permitida entre ${horarios.horaInicio} e ${horarios.horaFim}.`;
-                console.log(`🚫 BLOQUEADO: ${mensagem}`);
+                const mensagem = `A solicitação de saída para ${salaNome} só é permitida entre ${horarios.horaInicio.substring(0, 5)} e ${horarios.horaFim.substring(0, 5)}.`;
+                console.log(`🚫 MATEMÁTICA BLOQUEOU: ${mensagem}`);
+                console.log(`========================================\n`);
                 mostrarModalBloqueio(mensagem);
 
                 return { permitido: false, mensagem };
