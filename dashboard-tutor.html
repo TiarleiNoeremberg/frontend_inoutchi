@@ -4416,7 +4416,13 @@
             async function handleEntry(studentId, studentName, btn) {
                 try {
                     const position = await getCurrentPosition();
-                    const { latitude, longitude } = position.coords;
+                    const { latitude, longitude, accuracy } = position.coords;
+                    const isMobile = isMobileDevice();
+
+                    // Se for PC e a precisão for muito baixa, avisar o usuário
+                    if (!isMobile && accuracy > 500) {
+                        showToast('⚠️ Localização aproximada detectada. Para maior precisão, use o aplicativo no smartphone.', 'warning');
+                    }
 
                     const payload = {
                         alunoId: parseInt(studentId),
@@ -4498,9 +4504,9 @@
                     atualizarVisualDoSlider(studentId, 'AGUARDANDO_CONFIRMACAO');
 
                     // ✅ INICIAR MONITORAMENTO DE GE OFENCE (restaurado)
-                    //if (geofenceMonitor) {
-                    //    geofenceMonitor.startMonitoring(studentId, studentName);
-                    //}
+                    if (geofenceMonitor) {
+                        geofenceMonitor.startMonitoring(studentId, studentName);
+                    }
 
                     await mostrarTelaSucesso('solicitacao', async () => {
                         renderStudents(studentsData);
@@ -4571,11 +4577,18 @@
                         return;
                     }
 
-                    navigator.geolocation.getCurrentPosition(resolve, reject, {
-                        enableHighAccuracy: true,
-                        timeout: 15000,
-                        maximumAge: 0
-                    });
+                    const isMobile = isMobileDevice();
+
+                    // Configurações diferentes para mobile vs desktop
+                    const options = {
+                        enableHighAccuracy: isMobile,  // true para mobile, false para PC
+                        timeout: isMobile ? 15000 : 20000,  // PC tem mais tempo
+                        maximumAge: isMobile ? 0 : 30000    // PC pode usar cache
+                    };
+
+                    console.log(`📍 Usando configuração ${isMobile ? 'ALTA PRECISÃO (mobile)' : 'BAIXA PRECISÃO (PC)'}`);
+
+                    navigator.geolocation.getCurrentPosition(resolve, reject, options);
                 });
             }
 
@@ -6043,6 +6056,17 @@
                 }
             }
 
+            function isMobileDevice() {
+                // Detecta se é um dispositivo móvel com GPS
+                const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+                const isMobileUA = /android|iphone|ipad|ipod|blackberry|windows phone/i.test(userAgent);
+
+                // Verifica se tem suporte a GPS de alta precisão
+                const hasHighAccuracyGPS = 'ontouchstart' in window && isMobileUA;
+
+                return hasHighAccuracyGPS;
+            }
+
             // Horários de saída carregados do backend via carregarHorariosDasSalas() → horariosSalasCache
 
             function mostrarModalBloqueio(mensagem) {
@@ -6638,7 +6662,7 @@
 
                     renderMural();
 
-                    //initGeofenceMonitor();
+                    initGeofenceMonitor();
 
                     const appShell = document.getElementById('appShell');
                     if (appShell) appShell.classList.add('visible');
