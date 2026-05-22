@@ -5925,9 +5925,30 @@
                     };
                 }
                 else if (action === "saida") {
-                    // ✅ CORREÇÃO: SAÍDA usa endpoint de CONFIRMAÇÃO, não solicitação
-                    endpoint = `${BACKEND_URL}/api/presencas/confirmar-saida?alunoId=${studentId}`;
-                    body = null; // Sem body, apenas query parameter
+                    // Diretor solicita saída (cria chamada pendente)
+                    endpoint = `${BACKEND_URL}/api/presencas/saida/solicitar`;
+
+                    // Obtém localização do diretor (obrigatória para validação de geofence)
+                    let latitude = null, longitude = null;
+                    try {
+                        const position = await new Promise((resolve, reject) => {
+                            navigator.geolocation.getCurrentPosition(resolve, reject, {
+                                enableHighAccuracy: true,
+                                timeout: 10000,
+                                maximumAge: 0,
+                            });
+                        });
+                        latitude = position.coords.latitude;
+                        longitude = position.coords.longitude;
+                    } catch (geoError) {
+                        throw new Error("Não foi possível obter sua localização para solicitar a saída.");
+                    }
+
+                    body = {
+                        alunoId: parseInt(studentId),
+                        latitude: latitude,
+                        longitude: longitude
+                    };
                 }
                 else if (action === "confirmar") {
                     // ✅ CORREÇÃO: CONFIRMAR SAÍDA (quando aluno está AGUARDANDO)
@@ -5956,8 +5977,9 @@
                 if (alunoNoCache) {
                     if (action === "entrada") {
                         alunoNoCache.status = "PRESENTE";
+                    } else if (action === "saida") {
+                        alunoNoCache.status = "AGUARDANDO_CONFIRMACAO";  // ← NOVO
                     } else {
-                        // Saída ou confirmação
                         alunoNoCache.status = "AUSENTE";
                     }
                 }
@@ -6014,7 +6036,9 @@
 
                 const successMessage = action === "entrada"
                     ? `Entrada de ${studentName} registrada com sucesso!`
-                    : `Saída de ${studentName} confirmada com sucesso!`;
+                    : (action === "saida"
+                        ? `Solicitação de saída para ${studentName} enviada com sucesso! A saída agora aguarda confirmação.`
+                        : `Saída de ${studentName} confirmada com sucesso!`);
                 showAlert(successMessage, "success");
 
             } catch (error) {
