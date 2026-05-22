@@ -3453,7 +3453,14 @@
                     if (config.chamadaAutomatica === true) {
 
                         // REGRA 2: A hora atual está na janela permitida pela Escola?
-                        if (horaAtual >= config.horaInicioChamada && horaAtual <= config.horaFimChamada) {
+                        // Validação robusta por minutos totais (aceita HH:mm e HH:mm:ss)
+                        const [hIni, mIni] = (config.horaInicioChamada || '00:00').split(':').map(Number);
+                        const [hFim, mFim] = (config.horaFimChamada || '23:59').split(':').map(Number);
+                        const agora = new Date();
+                        const minutosAgora = agora.getHours() * 60 + agora.getMinutes();
+                        const minutosIni = hIni * 60 + mIni;
+                        const minutosFim = hFim * 60 + mFim;
+                        if (minutosAgora >= minutosIni && minutosAgora <= minutosFim) {
 
                             // REGRA 3: O Tutor está de fato dentro do raio (geofence) da Escola?
                             // Calculamos localmente no celular para não sobrecarregar o servidor
@@ -3558,17 +3565,43 @@
 
                 // Verifica janela de horário e dispara para cada aluno elegível
                 const agora = new Date();
-                const horaAtual = `${agora.getHours().toString().padStart(2,'0')}:${agora.getMinutes().toString().padStart(2,'0')}:00`;
+                const minutosAtual = agora.getHours() * 60 + agora.getMinutes();
 
                 for (const aluno of elegíveis) {
-                    if (aluno.salaId && horariosSalasCache.has(aluno.salaId)) {
-                        const h = horariosSalasCache.get(aluno.salaId);
-                        if (horaAtual < h.horaInicio || horaAtual > h.horaFim) {
+                    // Busca horários do cache; se não estiver, tenta buscar do backend agora
+                    let h = horariosSalasCache.get(aluno.salaId);
+                    if (!h && aluno.salaId) {
+                        try {
+                            const resp = await fetchWithAuth(`/api/salas/${aluno.salaId}`);
+                            if (resp.ok) {
+                                const sala = await resp.json();
+                                if (sala.horaInicioChamada && sala.horaFimChamada) {
+                                    h = { horaInicio: sala.horaInicioChamada, horaFim: sala.horaFimChamada };
+                                    horariosSalasCache.set(aluno.salaId, h);
+                                    console.log(`✅ [Proximidade] Horários obtidos do backend para sala ${aluno.salaId}:`, h);
+                                }
+                            }
+                        } catch (e) {
+                            console.warn(`⚠️ [Proximidade] Erro ao buscar horário da sala ${aluno.salaId}:`, e);
+                        }
+                    }
+
+                    // Se sala tem janela configurada, valida por minutos totais (robusto a HH:mm ou HH:mm:ss)
+                    if (h && h.horaInicio && h.horaFim) {
+                        const [hIni, mIni] = h.horaInicio.split(':').map(Number);
+                        const [hFim, mFim] = h.horaFim.split(':').map(Number);
+                        const minutosInicio = hIni * 60 + mIni;
+                        const minutosFim = hFim * 60 + mFim;
+
+                        if (minutosAtual < minutosInicio || minutosAtual > minutosFim) {
                             console.log(`⏰ [Proximidade] ${aluno.nome}: fora da janela (${h.horaInicio}–${h.horaFim}). Ignorando.`);
                             continue;
                         }
+                    } else {
+                        console.log(`ℹ️ [Proximidade] Sala do aluno ${aluno.nome} sem janela configurada — permitindo.`);
                     }
-                    console.log(`🎯 [Proximidade] Dentro do raio! Disparando saída para: ${aluno.nome}`);
+
+                    console.log(`🎯 [Proximidade] Dentro do raio e dentro da janela! Disparando saída para: ${aluno.nome}`);
                     await dispararApiSolicitacaoSaida(aluno.id, latAtual, lngAtual);
                 }
             }
@@ -4059,7 +4092,7 @@
 
                 for (const salaId of salasIds) {
                     try {
-                        const response = await fetchWithAuth(`/api/salas/${salaId}/horarios-chamada`);
+                        const response = await fetchWithAuth(`/api/salas/${salaId}`);
                         if (response.ok) {
                             const sala = await response.json();
                             if (sala.horaInicioChamada && sala.horaFimChamada) {
@@ -6010,35 +6043,7 @@
                 }
             }
 
-            // ============== CONFIGURAÇÃO DE HORÁRIOS POR SALA ==============
-            window.HORARIOS_SAIDA = {
-                '1° ANO': { hora: 15, minuto: 10 },
-                '2° ANO': { hora: 15, minuto: 10 },
-                '3° ANO': { hora: 15, minuto: 10 },
-                '4° ANO': { hora: 15, minuto: 30 },
-                '5° ANO': { hora: 15, minuto: 30 }
-            };
-
-            function normalizarNomeSala(nome) {
-                if (!nome) return "";
-
-                // Remove espaços extras e converte para maiúsculas
-                let nomeLimpo = nome.trim().toUpperCase();
-
-                // Se começar com número e tiver "ANO" ou "ANOS"
-                if (nomeLimpo.match(/^\d/)) {
-                    // Troca "º" por "°"
-                    nomeLimpo = nomeLimpo.replace(/º/g, "°");
-
-                    // Garante que tenha o formato "X° ANO"
-                    const match = nomeLimpo.match(/(\d+)[°º]?\s*(ANO|ANOS)/i);
-                    if (match) {
-                        return match[1] + "° ANO";
-                    }
-                }
-
-                return nomeLimpo;
-            }
+            // Horários de saída carregados do backend via carregarHorariosDasSalas() → horariosSalasCache
 
             function mostrarModalBloqueio(mensagem) {
                 // Remove modal anterior se existir
@@ -6196,7 +6201,7 @@
                                     horaFim: sala.horaFimChamada
                                 };
                                 horariosSalasCache.set(salaId, horarios);
-                                console.log(`✅ Horários carregados para sala ${salaNome}:`, horarios);
+                                console.log(`✅ [Backend] Horários carregados para sala ${salaNome}:`, horarios);
                             }
                         }
                     } catch (error) {
