@@ -4262,29 +4262,35 @@
                         }
                     }
 
-                    // 🔴 CORREÇÃO: Se está ATIVANDO a chamada automática, verificar estado atual
+                    // 🔴 CORREÇÃO: Se está ATIVANDO a chamada automática, verificar se já está dentro da geofence
+                    // PARA DISPARAR IMEDIATAMENTE (isso é o comportamento correto)
                     if (isChecked) {
-                        // Verifica se já está fora da geofence
-                        const dentroGeofence = await verificarStatusGeofenceAtual();
+                        // Pequeno delay para garantir que o backend já salvou
+                        setTimeout(async () => {
+                            try {
+                                const dentroGeofence = await verificarStatusGeofenceAtual();
 
-                        if (!dentroGeofence) {
-                            // Se está fora, mostra aviso e desativa temporariamente
-                            showToast('⚠️ Você está fora da área da escola. A chamada por proximidade será ativada quando você retornar.', 'warning');
-
-                            // Opcional: desmarca o switch e mantém desativado até entrar na área
-                            const toggle = document.querySelector(`.auto-call-toggle[data-student-id="${studentId}"]`);
-                            if (toggle) {
-                                toggle.checked = false;
+                                if (dentroGeofence) {
+                                    // Já está dentro da geofence! Verificar se o aluno está presente e disparar
+                                    const aluno = studentsData.find(a => a.id === studentId);
+                                    if (aluno && aluno.status === 'PRESENTE') {
+                                        const card = document.querySelector(`.student-card[data-student-id="${studentId}"]`);
+                                        if (card) {
+                                            const slideBtn = card.querySelector('.slide-btn');
+                                            if (slideBtn && slideBtn.dataset.action === 'exit-request') {
+                                                console.log(`🎯 Chamada por proximidade: Disparando saída para ${aluno.nome}`);
+                                                await handleExitRequest(studentId, aluno.nome, slideBtn);
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // Fora da geofence - apenas monitora para quando entrar
+                                    console.log(`📍 Chamada por proximidade ativada para ${alunoCache?.nome || studentId}. Aguardando entrada na geofence.`);
+                                }
+                            } catch (error) {
+                                console.warn('Erro ao verificar geofence após ativação:', error);
                             }
-
-                            // Reverte no backend também
-                            await fetchWithAuth('/api/tutores/preferencias-proximidade', {
-                                method: 'PATCH',
-                                body: JSON.stringify({ alunoId: studentId, ativo: false })
-                            });
-
-                            return;
-                        }
+                        }, 500);
                     }
 
                     // 🔴 CORREÇÃO: Se está DESATIVANDO, para qualquer monitor ativo
