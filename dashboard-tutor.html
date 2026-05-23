@@ -6042,6 +6042,8 @@
                     monitor.confirming = true;
 
                     try {
+                        console.log('🔴 [DEBUG] autoConfirmExit CHAMADO para aluno:', studentId);
+
                         const response = await fetchWithAuth('/api/presencas/confirmar-saida-auto', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -6054,13 +6056,32 @@
 
                         if (!response.ok) throw new Error('Erro na API');
 
-                        // ✅ Atualizar visual IMEDIATAMENTE
-                        atualizarVisualDoSlider(studentId, 'AUSENTE');
+                        // 🔴 CORREÇÃO: Encontrar o card e o slide button
+                        const card = document.querySelector(`.student-card[data-student-id="${studentId}"]`);
+                        if (card) {
+                            const slideBtn = card.querySelector('.slide-btn');
 
-                        // Atualizar também no cache local
-                        const aluno = studentsData.find(a => a.id == studentId);
-                        if (aluno) {
-                            aluno.status = 'AUSENTE';
+                            // 🔴 FORÇAR a ativação do slider programaticamente
+                            if (slideBtn && slideBtn.dataset.action === 'exit-confirm') {
+                                const reversed = true; // exit-confirm é reverso?
+                                const thumb = slideBtn.querySelector('.slide-thumb');
+                                const fill = slideBtn.querySelector('.slide-fill');
+                                const maxDist = slideBtn.offsetWidth - thumb.offsetWidth - 8;
+
+                                // Ativa o slider
+                                slideBtn.classList.add('activated');
+                                if (reversed) {
+                                    thumb.style.right = (maxDist + 4) + 'px';
+                                } else {
+                                    thumb.style.left = (maxDist + 4) + 'px';
+                                }
+                                fill.style.width = '100%';
+
+                                // Aguarda um pouco e depois chama a confirmação
+                                setTimeout(async () => {
+                                    await handleExitConfirm(studentId, monitor.studentName, slideBtn);
+                                }, 500);
+                            }
                         }
 
                         await mostrarTelaSucesso('confirmacao', async () => {
@@ -6071,6 +6092,7 @@
                         this.stopMonitoring(studentId);
 
                     } catch (error) {
+                        console.error('Erro no autoConfirmExit:', error);
                         this.sendNotification('❌ Erro', `Não foi possível confirmar saída de ${monitor.studentName}.`, 'error');
                     } finally {
                         monitor.confirming = false;
