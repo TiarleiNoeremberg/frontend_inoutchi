@@ -1,0 +1,1649 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Inoutchi">
+    <meta name="theme-color" content="#1a6fc4">
+    <title>Inoutchi · Professor</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+
+    <!-- WebSocket para notificações -->
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.5.1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+
+    <!-- auth.js -->
+    <script src="auth.js"></script>
+
+    <style>
+        /* ===== DESIGN SYSTEM (mesmo do dashboard-tutor) ===== */
+        :root {
+            --primary: #1a6fc4;
+            --primary-light: #e8f2fc;
+            --primary-dark: #0f4f8f;
+            --cyan: #0ea5a0;
+            --cyan-light: #e6f7f6;
+            --gradient-main: linear-gradient(135deg, #1a6fc4 0%, #0ea5a0 100%);
+            --gradient-card: linear-gradient(145deg, #ffffff 0%, #f8fbff 100%);
+            --gradient-bg: linear-gradient(180deg, #f4f8fd 0%, #eef7f6 60%, #f4f8fd 100%);
+            --success: #10b981;
+            --success-bg: #ecfdf5;
+            --danger: #ef4444;
+            --danger-bg: #fef2f2;
+            --warning: #f59e0b;
+            --warning-bg: #fffbeb;
+            --text: #0b2742;
+            --text-secondary: #516583;
+            --text-muted: #8395ad;
+            --bg: #f4f8fd;
+            --surface: #ffffff;
+            --glass: rgba(255, 255, 255, .72);
+            --glass-strong: rgba(255, 255, 255, .86);
+            --border: rgba(15, 79, 143, .10);
+            --border-strong: rgba(15, 79, 143, .18);
+            --header-h: 64px;
+            --bottom-nav-h: 78px;
+            --safe-bottom: env(safe-area-inset-bottom, 0px);
+            --radius: 16px;
+            --radius-lg: 22px;
+            --shadow-sm: 0 4px 14px rgba(15, 79, 143, .08);
+            --shadow-md: 0 10px 30px -8px rgba(15, 79, 143, .18);
+            --shadow-lg: 0 24px 48px -12px rgba(15, 79, 143, .28);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html,
+        body {
+            height: 100%;
+            overflow: hidden;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            color: var(--text);
+            background: var(--bg);
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ===== APP SHELL ===== */
+        .app-shell {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            height: 100dvh;
+            width: 100%;
+            position: relative;
+            overflow: hidden;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .app-shell.visible {
+            opacity: 1;
+        }
+
+        /* ===== HEADER ===== */
+        .app-header {
+            position: sticky;
+            top: 0;
+            height: var(--header-h);
+            background: var(--glass);
+            backdrop-filter: saturate(180%) blur(20px);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 18px;
+            z-index: 50;
+        }
+
+        .app-header .brand img {
+            height: 40px;
+            width: auto;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .icon-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text);
+            display: grid;
+            place-items: center;
+            cursor: pointer;
+            transition: all .2s ease;
+            position: relative;
+        }
+
+        .icon-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-sm);
+            color: var(--primary);
+        }
+
+        .icon-btn .dot {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--danger);
+            border: 2px solid #fff;
+            animation: pulseDot 1.8s infinite;
+        }
+
+        @keyframes pulseDot {
+            0% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, .55);
+            }
+
+            70% {
+                box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+            }
+        }
+
+        /* ===== MAIN ===== */
+        .app-main {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px 18px calc(var(--bottom-nav-h) + var(--safe-bottom) + 28px);
+            scroll-behavior: smooth;
+        }
+
+        /* ===== TABS ===== */
+        .tab-pane {
+            display: none;
+            animation: fadeUp .35s ease both;
+        }
+
+        .tab-pane.active {
+            display: block;
+        }
+
+        @keyframes fadeUp {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .tab-header {
+            margin-bottom: 18px;
+        }
+
+        .tab-header h1 {
+            font-size: 1.6rem;
+            font-weight: 800;
+            letter-spacing: -.02em;
+            color: var(--text);
+        }
+
+        .tab-header .subtitle {
+            font-size: .88rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            font-weight: 500;
+        }
+
+        .tab-header .greet {
+            font-size: .78rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        /* ===== BOTTOM NAVIGATION ===== */
+        .bottom-nav {
+            position: fixed;
+            left: 12px;
+            right: 12px;
+            bottom: calc(10px + var(--safe-bottom));
+            height: var(--bottom-nav-h);
+            background: var(--glass-strong);
+            backdrop-filter: saturate(180%) blur(24px);
+            border: 1px solid var(--border-strong);
+            border-radius: 24px;
+            box-shadow: var(--shadow-lg);
+            display: flex;
+            align-items: center;
+            justify-content: space-around;
+            padding: 8px 6px;
+            z-index: 60;
+        }
+
+        .bottom-nav-item {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--text-muted);
+            padding: 6px 4px;
+            border-radius: 18px;
+            transition: all .25s cubic-bezier(.2, .9, .3, 1.2);
+        }
+
+        .bottom-nav-item .nav-ic {
+            width: 40px;
+            height: 40px;
+            border-radius: 14px;
+            display: grid;
+            place-items: center;
+            font-size: 1.05rem;
+            transition: all .25s ease;
+        }
+
+        .bottom-nav-item .nav-lbl {
+            font-size: .66rem;
+            font-weight: 600;
+            letter-spacing: .01em;
+            white-space: nowrap;
+        }
+
+        .bottom-nav-item.active {
+            color: var(--primary);
+        }
+
+        .bottom-nav-item.active .nav-ic {
+            background: var(--gradient-main);
+            color: #fff;
+            box-shadow: 0 8px 18px -4px rgba(26, 111, 196, .45);
+            transform: translateY(-4px);
+        }
+
+        .bottom-nav-item.active .nav-lbl {
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        /* ===== CARDS ===== */
+        .mural-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .mural-card {
+            background: var(--gradient-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 16px;
+            cursor: pointer;
+            transition: all .25s ease;
+        }
+
+        .mural-card:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .mural-card .icon-wrap {
+            width: 46px;
+            height: 46px;
+            border-radius: 14px;
+            background: var(--accent-bg, var(--primary-light));
+            color: var(--accent-color, var(--primary));
+            display: grid;
+            place-items: center;
+            font-size: 1.15rem;
+            margin-bottom: 10px;
+        }
+
+        .mural-card .label {
+            font-size: .95rem;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .mural-card .preview {
+            font-size: .75rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .mural-card .meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 12px;
+        }
+
+        .mural-card .time {
+            font-size: .7rem;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        .badge-count {
+            min-width: 22px;
+            height: 22px;
+            border-radius: 11px;
+            padding: 0 7px;
+            background: var(--danger);
+            color: #fff;
+            font-size: .7rem;
+            font-weight: 800;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Categorias de matérias */
+        .mural-card.cat-mat {
+            --accent-color: #8b5cf6;
+            --accent-bg: #f3efff;
+        }
+
+        .mural-card.cat-port {
+            --accent-color: #0ea5a0;
+            --accent-bg: #e6f7f6;
+        }
+
+        .mural-card.cat-geo {
+            --accent-color: #f59e0b;
+            --accent-bg: #fffbeb;
+        }
+
+        .mural-card.cat-his {
+            --accent-color: #ef4444;
+            --accent-bg: #fef2f2;
+        }
+
+        .mural-card.cat-cie {
+            --accent-color: #10b981;
+            --accent-bg: #ecfdf5;
+        }
+
+        .mural-card.cat-art {
+            --accent-color: #ec4899;
+            --accent-bg: #fdf2f8;
+        }
+
+        .mural-card.cat-edu {
+            --accent-color: #06b6d4;
+            --accent-bg: #ecfeff;
+        }
+
+        /* ===== THREAD PANEL ===== */
+        .thread-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 80;
+            background: rgba(11, 39, 66, .45);
+            backdrop-filter: blur(8px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .25s ease;
+        }
+
+        .thread-overlay.open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .thread-panel {
+            position: fixed;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            width: 100%;
+            max-width: 480px;
+            background: var(--bg);
+            z-index: 90;
+            transform: translateX(100%);
+            transition: transform .35s cubic-bezier(.2, .9, .2, 1);
+            display: flex;
+            flex-direction: column;
+            box-shadow: -20px 0 60px rgba(11, 39, 66, .25);
+        }
+
+        .thread-panel.open {
+            transform: translateX(0);
+        }
+
+        .thread-head {
+            height: var(--header-h);
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 0 16px;
+            background: var(--glass-strong);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .thread-head .icon-wrap {
+            width: 38px;
+            height: 38px;
+            border-radius: 12px;
+            background: var(--accent-bg, var(--primary-light));
+            color: var(--accent-color, var(--primary));
+            display: grid;
+            place-items: center;
+        }
+
+        .thread-head .title {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .thread-head .title strong {
+            display: block;
+            font-size: .95rem;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .thread-head .title span {
+            font-size: .72rem;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .thread-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 18px;
+        }
+
+        .thread-msg {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 14px 16px;
+            margin-bottom: 12px;
+            box-shadow: var(--shadow-xs);
+        }
+
+        .thread-msg.unread {
+            border-left: 3px solid var(--primary);
+            background: #f8fafc;
+        }
+
+        .thread-msg .msg-head {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+        }
+
+        .thread-msg .from {
+            font-size: .78rem;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .thread-msg .when {
+            font-size: .7rem;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .thread-msg .body {
+            font-size: .85rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        .tag {
+            display: inline-block;
+            font-size: .65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            padding: 3px 8px;
+            border-radius: 6px;
+            margin-top: 8px;
+        }
+
+        .tag.institucional {
+            background: #e8f2fc;
+            color: #1a6fc4;
+        }
+
+        .tag.coletiva {
+            background: #e6f7f6;
+            color: #0ea5a0;
+        }
+
+        .tag.individual {
+            background: #f3efff;
+            color: #8b5cf6;
+        }
+
+        /* ===== MODAL ===== */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(8px);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .modal-overlay.open {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal-container {
+            background: var(--surface);
+            border-radius: 28px;
+            width: 90%;
+            max-width: 520px;
+            max-height: 85vh;
+            overflow-y: auto;
+            box-shadow: var(--shadow-lg);
+            animation: slideUpModal 0.3s ease;
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 20px 24px;
+            background: var(--gradient-main);
+            border-radius: 28px 28px 0 0;
+        }
+
+        .modal-header h3 {
+            color: white;
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin: 0;
+        }
+
+        .modal-close {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            width: 32px;
+            height: 32px;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+
+        .modal-body {
+            padding: 24px;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            padding: 16px 24px;
+            border-top: 1px solid var(--border);
+        }
+
+        .form-group {
+            margin-bottom: 18px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 700;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        .form-control,
+        .form-select {
+            width: 100%;
+            padding: 12px 14px;
+            border: 1.5px solid var(--border);
+            border-radius: 12px;
+            font-size: 0.9rem;
+            font-family: inherit;
+            background: #ffffff;
+            transition: all 0.2s;
+        }
+
+        .form-control:focus,
+        .form-select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(26, 111, 196, 0.1);
+        }
+
+        textarea.form-control {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+        }
+
+        .btn-primary {
+            background: var(--gradient-main);
+            color: white;
+            box-shadow: 0 2px 8px rgba(26, 111, 196, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(26, 111, 196, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f1f5f9;
+            color: var(--text-secondary);
+        }
+
+        .btn-secondary:hover {
+            background: #e2e8f0;
+        }
+
+        .toast-tray {
+            position: fixed;
+            top: calc(var(--header-h) + 12px);
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 200;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            pointer-events: none;
+        }
+
+        .toast-msg {
+            background: var(--glass-strong);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-strong);
+            border-radius: 14px;
+            padding: 10px 16px;
+            font-size: .82rem;
+            font-weight: 600;
+            color: var(--text);
+            box-shadow: var(--shadow-md);
+            animation: toastIn .3s ease both;
+        }
+
+        .toast-msg.success {
+            color: var(--success);
+        }
+
+        .toast-msg.danger {
+            color: var(--danger);
+        }
+
+        @keyframes toastIn {
+            from {
+                opacity: 0;
+                transform: translateY(-8px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes slideUpModal {
+            from {
+                opacity: 0;
+                transform: translateY(30px) scale(0.95);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        @media (min-width: 768px) {
+            .mural-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+
+            .app-main {
+                padding-left: max(18px, calc((100vw - 720px)/2));
+                padding-right: max(18px, calc((100vw - 720px)/2));
+            }
+
+            .bottom-nav {
+                left: 50%;
+                right: auto;
+                transform: translateX(-50%);
+                width: min(640px, calc(100% - 24px));
+            }
+        }
+
+        .empty {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-muted);
+        }
+
+        .empty .ic {
+            width: 72px;
+            height: 72px;
+            border-radius: 24px;
+            background: var(--primary-light);
+            color: var(--primary);
+            display: grid;
+            place-items: center;
+            font-size: 1.6rem;
+            margin: 0 auto 14px;
+        }
+
+        .empty .t {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 6px;
+        }
+
+        .empty .s {
+            font-size: .84rem;
+            font-weight: 500;
+            line-height: 1.5;
+        }
+
+        /* Upload de arquivos */
+        .file-upload-area {
+            border: 2px dashed var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: #f8fafc;
+        }
+
+        .file-upload-area:hover {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+
+        .file-upload-area i {
+            font-size: 2rem;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        .file-list {
+            margin-top: 12px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .file-badge {
+            background: var(--primary-light);
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .file-badge button {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--danger);
+            font-size: 0.8rem;
+        }
+
+        /* Indicador de digitando */
+        .typing-indicator {
+            position: fixed;
+            bottom: 90px;
+            left: 20px;
+            background: var(--glass-strong);
+            backdrop-filter: blur(10px);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            display: none;
+            z-index: 70;
+            border: 1px solid var(--border);
+        }
+
+        .typing-indicator.show {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .typing-dots {
+            display: flex;
+            gap: 3px;
+        }
+
+        .typing-dots span {
+            width: 6px;
+            height: 6px;
+            background: var(--primary);
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+
+        .typing-dots span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-dots span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+
+            0%,
+            60%,
+            100% {
+                transform: translateY(0);
+                opacity: 0.4;
+            }
+
+            30% {
+                transform: translateY(-4px);
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="app-shell" id="appShell">
+        <!-- HEADER -->
+        <header class="app-header">
+            <div class="brand">
+                <img src="assets/images/LogoInoutchi_linha.png" alt="Inoutchi" style="height: 40px; width: auto;">
+            </div>
+            <div class="header-actions">
+                <button class="icon-btn" id="btn-notif" title="Notificações">
+                    <i class="far fa-bell"></i>
+                    <span class="dot"></span>
+                </button>
+                <button class="icon-btn" id="btn-help" title="Ajuda">
+                    <i class="far fa-circle-question"></i>
+                </button>
+                <button class="icon-btn" id="btn-header-logout" title="Sair"
+                    style="background: #ef4444; border-color: #ef4444; color: #fff;">
+                    <i class="fas fa-right-from-bracket"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- MAIN -->
+        <main class="app-main" id="appMain">
+
+            <!-- ABA: MINHAS MATÉRIAS (MURAL) -->
+            <section class="tab-pane active" data-tab="mural">
+                <div class="tab-header">
+                    <p class="greet" id="greetingText">Olá, Professor</p>
+                    <h1>Meu Mural</h1>
+                    <p class="subtitle">Acompanhe as comunicações da escola e envie mensagens.</p>
+                </div>
+
+                <button class="btn btn-primary" id="btnNovaMensagem" style="width: 100%; margin-bottom: 20px;">
+                    <i class="fas fa-plus"></i> Nova Mensagem
+                </button>
+
+                <div class="mural-grid" id="muralGrid">
+                    <!-- Cards das matérias serão carregados -->
+                </div>
+            </section>
+
+            <!-- ABA: ALUNOS -->
+            <section class="tab-pane" data-tab="alunos">
+                <div class="tab-header">
+                    <p class="greet">Turmas</p>
+                    <h1>Meus Alunos</h1>
+                    <p class="subtitle">Visualize os alunos das suas turmas.</p>
+                </div>
+                <div id="alunosContainer">
+                    <div class="empty">
+                        <div class="ic"><i class="fas fa-spinner fa-pulse"></i></div>
+                        <div class="t">Carregando...</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ABA: CONFIGURAÇÕES -->
+            <section class="tab-pane" data-tab="config">
+                <div class="tab-header">
+                    <p class="greet">Minha Conta</p>
+                    <h1>Configurações</h1>
+                    <p class="subtitle">Gerencie seu perfil e preferências.</p>
+                </div>
+
+                <div class="config-profile"
+                    style="background: var(--gradient-card); border-radius: 22px; padding: 18px; display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
+                    <div class="avatar" id="userAvatar"
+                        style="width: 54px; height: 54px; background: var(--gradient-main); border-radius: 16px; display: grid; place-items: center; color: white; font-weight: 800; font-size: 1.2rem;">
+                        P</div>
+                    <div>
+                        <div class="name" id="userName" style="font-weight: 700;">Carregando...</div>
+                        <div class="email" id="userEmail" style="font-size: 0.8rem; color: var(--text-muted);">
+                            carregando@email.com</div>
+                        <span class="role"
+                            style="font-size: 0.7rem; background: var(--primary-light); padding: 2px 8px; border-radius: 12px; color: var(--primary);">Professor</span>
+                    </div>
+                </div>
+
+                <button class="btn btn-secondary" id="btnLogoutConfig" style="width: 100%;">
+                    <i class="fas fa-sign-out-alt"></i> Sair
+                </button>
+            </section>
+        </main>
+
+        <!-- BOTTOM NAVIGATION -->
+        <nav class="bottom-nav">
+            <button class="bottom-nav-item active" data-target="mural">
+                <span class="nav-ic"><i class="fas fa-bullhorn"></i><span class="nav-badge"
+                        id="muralBadge">0</span></span>
+                <span class="nav-lbl">Mural</span>
+            </button>
+            <button class="bottom-nav-item" data-target="alunos">
+                <span class="nav-ic"><i class="fas fa-users"></i></span>
+                <span class="nav-lbl">Alunos</span>
+            </button>
+            <button class="bottom-nav-item" data-target="config">
+                <span class="nav-ic"><i class="fas fa-gear"></i></span>
+                <span class="nav-lbl">Config</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- MODAL DE NOVA MENSAGEM -->
+    <div class="modal-overlay" id="novaMensagemModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h3><i class="fas fa-pen-alt"></i> Nova Mensagem</h3>
+                <button class="modal-close" onclick="closeMensagemModal()">&times;</button>
+            </div>
+            <form id="mensagemForm" onsubmit="enviarMensagem(event)">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label class="form-label">Tipo de Mensagem</label>
+                        <select id="mensagemTipo" class="form-select" required onchange="toggleDestinatario()">
+                            <option value="COLETIVA">👥 Coletiva (Para toda turma)</option>
+                            <option value="INDIVIDUAL">👤 Individual (Para um aluno específico)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" id="materiaGroup">
+                        <label class="form-label">Matéria</label>
+                        <select id="mensagemMateria" class="form-select" required>
+                            <option value="">Selecione uma matéria...</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" id="turmaGroup">
+                        <label class="form-label">Turma</label>
+                        <select id="mensagemTurma" class="form-select" required>
+                            <option value="">Selecione uma turma...</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" id="alunoGroup" style="display: none;">
+                        <label class="form-label">Aluno</label>
+                        <select id="mensagemAluno" class="form-select">
+                            <option value="">Selecione um aluno...</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Conteúdo</label>
+                        <textarea id="mensagemConteudo" class="form-control" rows="4" required
+                            placeholder="Digite sua mensagem..."></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Anexos (Opcional)</label>
+                        <div class="file-upload-area" onclick="document.getElementById('fileInput').click()">
+                            <i class="fas fa-cloud-upload-alt"></i>
+                            <div>Clique para anexar arquivos</div>
+                            <small class="text-muted">JPG, PNG, PDF até 5MB</small>
+                        </div>
+                        <input type="file" id="fileInput" multiple style="display: none;" accept="image/*,.pdf">
+                        <div id="fileList" class="file-list"></div>
+                    </div>
+
+                    <div class="form-row" style="display: flex; gap: 12px;">
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Data de Publicação</label>
+                            <input type="datetime-local" id="mensagemDataInicio" class="form-control">
+                            <small>Deixe em branco para publicar agora</small>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Data de Expiração</label>
+                            <input type="datetime-local" id="mensagemDataFim" class="form-control">
+                            <small>Deixe em branco para não expirar</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeMensagemModal()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Publicar Mensagem</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- THREAD PANEL -->
+    <div class="thread-overlay" id="threadOverlay"></div>
+    <aside class="thread-panel" id="threadPanel">
+        <header class="thread-head">
+            <button class="icon-btn" id="threadBack"><i class="fas fa-arrow-left"></i></button>
+            <div class="icon-wrap" id="threadIcon"><i class="fas fa-chalkboard-user"></i></div>
+            <div class="title">
+                <strong id="threadTitle">Matéria</strong>
+                <span id="threadSub">Mensagens</span>
+            </div>
+        </header>
+        <div class="thread-body" id="threadBody"></div>
+    </aside>
+
+    <!-- TOAST TRAY -->
+    <div class="toast-tray" id="toastTray"></div>
+
+    <!-- INDICADOR DE DIGITANDO -->
+    <div class="typing-indicator" id="typingIndicator">
+        <i class="fas fa-edit"></i>
+        <span>Alguém está digitando</span>
+        <div class="typing-dots"><span></span><span></span><span></span></div>
+    </div>
+
+
+<script>
+    // NÃO redeclarar BACKEND_URL - usar a do auth.js
+    // BACKEND_URL já está definida em auth.js
+    
+    let currentUser = null;
+    let materiasUnicas = new Map();
+    let totalNaoLidas = 0;
+    let stompClient = null;
+    let currentMatariaId = null;
+    let arquivosParaEnvio = [];
+
+    // ========== FUNÇÕES AUXILIARES ==========
+    function showToast(msg, type = '') {
+        const tray = document.getElementById('toastTray');
+        if (!tray) return;
+        const el = document.createElement('div');
+        el.className = 'toast-msg ' + type;
+        const icon = type === 'success' ? 'fa-check-circle' : (type === 'danger' ? 'fa-triangle-exclamation' : 'fa-info-circle');
+        el.innerHTML = `<i class="fas ${icon}"></i> ${msg}`;
+        tray.appendChild(el);
+        setTimeout(() => {
+            el.style.transition = 'all .3s';
+            el.style.opacity = '0';
+            setTimeout(() => el.remove(), 300);
+        }, 3500);
+    }
+
+    function atualizarBadgeMural(total) {
+        const badge = document.getElementById('muralBadge');
+        if (badge) {
+            if (total > 0) {
+                badge.textContent = total;
+                badge.style.display = 'inline-flex';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+        const sinoDot = document.querySelector('#btn-notif .dot');
+        if (sinoDot) {
+            sinoDot.style.display = total > 0 ? 'inline-block' : 'none';
+        }
+    }
+
+    function getMateriaIcon(nome) {
+        const icones = {
+            'MATEMÁTICA': 'fa-square-root-variable', 'PORTUGUÊS': 'fa-book-open',
+            'HISTÓRIA': 'fa-landmark', 'GEOGRAFIA': 'fa-globe', 'CIÊNCIAS': 'fa-flask',
+            'ARTES': 'fa-palette', 'EDUCAÇÃO FÍSICA': 'fa-person-running'
+        };
+        const nomeUpper = (nome || '').toUpperCase();
+        for (let [key, icon] of Object.entries(icones)) {
+            if (nomeUpper.includes(key)) return icon;
+        }
+        return 'fa-chalkboard-user';
+    }
+
+    function getMateriaCssClass(nome) {
+        const classes = {
+            'MATEMÁTICA': 'cat-mat', 'PORTUGUÊS': 'cat-port',
+            'HISTÓRIA': 'cat-his', 'GEOGRAFIA': 'cat-geo',
+            'CIÊNCIAS': 'cat-cie', 'ARTES': 'cat-art',
+            'EDUCAÇÃO FÍSICA': 'cat-edu'
+        };
+        const nomeUpper = (nome || '').toUpperCase();
+        for (let [key, cssClass] of Object.entries(classes)) {
+            if (nomeUpper.includes(key)) return cssClass;
+        }
+        return 'cat-mat';
+    }
+
+    function getToken() {
+        return localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+    }
+
+    // ========== CARREGAR DADOS DO USUÁRIO ==========
+    async function loadUserData() {
+        try {
+            const token = getToken();
+            if (!token) {
+                console.error('Token não encontrado');
+                window.location.href = 'login.html';
+                return;
+            }
+
+            const response = await fetch(`${window.BACKEND_URL || BACKEND_URL}/api/users/me`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (!response.ok) {
+                if (response.status === 401 || response.status === 403) {
+                    localStorage.clear();
+                    sessionStorage.clear();
+                    window.location.href = 'login.html';
+                }
+                throw new Error('Falha ao carregar dados');
+            }
+
+            currentUser = await response.json();
+
+            const greetingEl = document.getElementById('greetingText');
+            if (greetingEl) {
+                greetingEl.textContent = `Olá, ${currentUser.nome?.split(' ')[0] || 'Professor'}`;
+            }
+            
+            const userNameEl = document.getElementById('userName');
+            if (userNameEl) userNameEl.textContent = currentUser.nome || 'Professor';
+            
+            const userEmailEl = document.getElementById('userEmail');
+            if (userEmailEl) userEmailEl.textContent = currentUser.email || '';
+            
+            const userAvatarEl = document.getElementById('userAvatar');
+            if (userAvatarEl) userAvatarEl.textContent = currentUser.nome?.charAt(0).toUpperCase() || 'P';
+
+            await conectarWebSocket();
+            await carregarMateriasEMural();
+
+        } catch (error) {
+            console.error('Erro ao carregar dados:', error);
+            showToast('Erro ao carregar perfil', 'danger');
+        }
+    }
+
+    // ========== CARREGAR MATÉRIAS DO PROFESSOR ==========
+    async function carregarMateriasEMural() {
+        try {
+            const token = getToken();
+            if (!token) return;
+
+            const response = await fetch(`${window.BACKEND_URL || BACKEND_URL}/api/professor/materias`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (!response.ok) {
+                throw new Error('Erro ao carregar matérias');
+            }
+
+            const materias = await response.json();
+
+            const materiaSelect = document.getElementById('mensagemMateria');
+            if (materiaSelect) {
+                materiaSelect.innerHTML = '<option value="">Selecione uma matéria...</option>';
+            }
+            
+            materiasUnicas.clear();
+            const turmasSet = new Map();
+
+            for (const materia of materias) {
+                if (materiaSelect) {
+                    materiaSelect.innerHTML += `<option value="${materia.id}">${materia.nome} · ${materia.salaNome}</option>`;
+                }
+
+                const msgResponse = await fetch(`${window.BACKEND_URL || BACKEND_URL}/api/mensagens/materia/${materia.id}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const mensagens = await msgResponse.json();
+
+                materiasUnicas.set(materia.id, {
+                    id: materia.id,
+                    nome: materia.nome,
+                    salaId: materia.salaId,
+                    salaNome: materia.salaNome,
+                    mensagens: mensagens,
+                    mensagensNaoLidas: mensagens.filter(m => !m.lida).length
+                });
+
+                if (!turmasSet.has(materia.salaId)) {
+                    turmasSet.set(materia.salaId, { id: materia.salaId, nome: materia.salaNome });
+                }
+            }
+
+            const turmaSelect = document.getElementById('mensagemTurma');
+            if (turmaSelect) {
+                turmaSelect.innerHTML = '<option value="">Selecione uma turma...</option>';
+                for (const turma of turmasSet.values()) {
+                    turmaSelect.innerHTML += `<option value="${turma.id}">${turma.nome}</option>`;
+                }
+            }
+
+            totalNaoLidas = Array.from(materiasUnicas.values()).reduce((total, item) => total + (item.mensagensNaoLidas || 0), 0);
+            atualizarBadgeMural(totalNaoLidas);
+            renderMural();
+
+        } catch (error) {
+            console.error('Erro ao carregar matérias:', error);
+            showToast('Erro ao carregar matérias', 'danger');
+        }
+    }
+
+    // ========== RENDERIZAR MURAL ==========
+    function renderMural() {
+        const grid = document.getElementById('muralGrid');
+        if (!grid) return;
+
+        if (materiasUnicas.size === 0) {
+            grid.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-chalkboard-user"></i></div><div class="t">Nenhuma matéria encontrada</div><div class="s">Você não está vinculado a nenhuma matéria ainda.</div></div>`;
+            return;
+        }
+
+        grid.innerHTML = Array.from(materiasUnicas.values()).map(item => {
+            const icon = getMateriaIcon(item.nome);
+            const cssClass = getMateriaCssClass(item.nome);
+            const naoLidas = item.mensagensNaoLidas || 0;
+
+            return `
+                <div class="mural-card ${cssClass}" data-materia-id="${item.id}">
+                    <div class="icon-wrap"><i class="fas ${icon}"></i></div>
+                    <div class="label">${escapeHtml(item.nome)}</div>
+                    <div class="preview">${escapeHtml(item.salaNome || 'Sem turma')}</div>
+                    <div class="meta">
+                        <span class="time"><i class="fas fa-envelope"></i> ${item.mensagens?.length || 0} msg(s)</span>
+                        ${naoLidas > 0 ? `<span class="badge-count">${naoLidas}</span>` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        document.querySelectorAll('.mural-card').forEach(card => {
+            card.addEventListener('click', () => {
+                const materiaId = parseInt(card.dataset.materiaId);
+                abrirThreadMateria(materiaId);
+            });
+        });
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // ========== ABRIR THREAD DE MATÉRIA ==========
+    async function abrirThreadMateria(materiaId) {
+        const materia = materiasUnicas.get(materiaId);
+        if (!materia) return;
+
+        const titleEl = document.getElementById('threadTitle');
+        const subEl = document.getElementById('threadSub');
+        if (titleEl) titleEl.textContent = materia.nome;
+        if (subEl) subEl.textContent = `${materia.salaNome} · ${materia.mensagens?.length || 0} mensagens`;
+
+        const iconEl = document.getElementById('threadIcon');
+        if (iconEl) iconEl.innerHTML = `<i class="fas ${getMateriaIcon(materia.nome)}"></i>`;
+
+        const body = document.getElementById('threadBody');
+        if (!body) return;
+        
+        body.innerHTML = '<div class="empty"><div class="ic"><i class="fas fa-spinner fa-pulse"></i></div><div class="t">Carregando...</div></div>';
+
+        try {
+            const token = getToken();
+            const response = await fetch(`${window.BACKEND_URL || BACKEND_URL}/api/mensagens/materia/${materiaId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const mensagens = await response.json();
+
+            if (!mensagens || mensagens.length === 0) {
+                body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-comment-dots"></i></div><div class="t">Nenhuma mensagem</div><div class="s">Ainda não há mensagens para esta matéria.</div></div>`;
+            } else {
+                body.innerHTML = mensagens.map(msg => `
+                    <article class="thread-msg ${!msg.lida ? 'unread' : ''}">
+                        <div class="msg-head">
+                            <span class="from"><i class="fas fa-user"></i> ${escapeHtml(msg.criadoPorNome || 'Sistema')} (${escapeHtml(msg.criadoPorTipo || 'ESCOLA')})</span>
+                            <span class="when">${new Date(msg.dataCriacao).toLocaleString('pt-BR')}</span>
+                        </div>
+                        <div class="body">${escapeHtml(msg.conteudo)}</div>
+                        ${msg.alunoNome ? `<div class="tag individual">👤 Para: ${escapeHtml(msg.alunoNome)}</div>` : ''}
+                        ${msg.tipo === 'COLETIVA' ? `<div class="tag coletiva">👥 Turma</div>` : ''}
+                        ${msg.tipo === 'INSTITUCIONAL' ? `<div class="tag institucional">🏛️ Diretoria</div>` : ''}
+                    </article>
+                `).join('');
+            }
+
+            const overlay = document.getElementById('threadOverlay');
+            const panel = document.getElementById('threadPanel');
+            if (overlay) overlay.classList.add('open');
+            if (panel) panel.classList.add('open');
+
+        } catch (error) {
+            console.error('Erro ao carregar mensagens:', error);
+            body.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-exclamation-triangle"></i></div><div class="t">Erro ao carregar</div><div class="s">${escapeHtml(error.message)}</div></div>`;
+        }
+    }
+
+    // ========== MODAL DE MENSAGEM ==========
+    function toggleDestinatario() {
+        const tipo = document.getElementById('mensagemTipo')?.value;
+        const alunoGroup = document.getElementById('alunoGroup');
+        if (alunoGroup) {
+            alunoGroup.style.display = tipo === 'INDIVIDUAL' ? 'block' : 'none';
+        }
+
+        if (tipo === 'INDIVIDUAL') {
+            carregarAlunosPorTurma();
+        }
+    }
+
+    async function carregarAlunosPorTurma() {
+        const turmaId = document.getElementById('mensagemTurma')?.value;
+        if (!turmaId) return;
+
+        try {
+            const token = getToken();
+            const response = await fetch(`${window.BACKEND_URL || BACKEND_URL}/api/salas/${turmaId}/alunos`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (!response.ok) {
+                throw new Error('Erro ao carregar alunos');
+            }
+            
+            const alunos = await response.json();
+
+            const alunoSelect = document.getElementById('mensagemAluno');
+            if (alunoSelect) {
+                alunoSelect.innerHTML = '<option value="">Selecione um aluno...</option>';
+                alunos.forEach(aluno => {
+                    alunoSelect.innerHTML += `<option value="${aluno.id}">${escapeHtml(aluno.nome)}</option>`;
+                });
+            }
+        } catch (error) {
+            console.error('Erro ao carregar alunos:', error);
+            showToast('Erro ao carregar alunos', 'danger');
+        }
+    }
+
+    function openMensagemModal() {
+        const modal = document.getElementById('novaMensagemModal');
+        if (modal) modal.classList.add('open');
+        
+        const form = document.getElementById('mensagemForm');
+        if (form) form.reset();
+        
+        const alunoGroup = document.getElementById('alunoGroup');
+        if (alunoGroup) alunoGroup.style.display = 'none';
+        
+        arquivosParaEnvio = [];
+        const fileList = document.getElementById('fileList');
+        if (fileList) fileList.innerHTML = '';
+    }
+
+    function closeMensagemModal() {
+        const modal = document.getElementById('novaMensagemModal');
+        if (modal) modal.classList.remove('open');
+    }
+
+    // ========== ENVIAR MENSAGEM ==========
+    async function enviarMensagem(event) {
+        event.preventDefault();
+
+        const tipo = document.getElementById('mensagemTipo')?.value;
+        const materiaId = document.getElementById('mensagemMateria')?.value;
+        const turmaId = document.getElementById('mensagemTurma')?.value;
+        const alunoId = document.getElementById('mensagemAluno')?.value;
+        const conteudo = document.getElementById('mensagemConteudo')?.value;
+        const dataInicio = document.getElementById('mensagemDataInicio')?.value;
+        const dataFim = document.getElementById('mensagemDataFim')?.value;
+
+        if (!materiaId) {
+            showToast('Selecione uma matéria', 'danger');
+            return;
+        }
+
+        if (!conteudo?.trim()) {
+            showToast('Digite o conteúdo da mensagem', 'danger');
+            return;
+        }
+
+        const payload = {
+            conteudo: conteudo,
+            materiaId: parseInt(materiaId),
+            tipo: tipo,
+            alunoId: tipo === 'INDIVIDUAL' && alunoId ? parseInt(alunoId) : null,
+            salaId: turmaId ? parseInt(turmaId) : null
+        };
+
+        if (dataInicio) payload.dataExibicaoInicio = new Date(dataInicio).toISOString();
+        if (dataFim) payload.dataExibicaoFim = new Date(dataFim).toISOString();
+
+        try {
+            const token = getToken();
+            const response = await fetch(`${window.BACKEND_URL || BACKEND_URL}/api/mensagens`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.mensagem || 'Erro ao enviar mensagem');
+            }
+
+            showToast('Mensagem enviada com sucesso!', 'success');
+            closeMensagemModal();
+            await carregarMateriasEMural();
+
+        } catch (error) {
+            console.error('Erro ao enviar mensagem:', error);
+            showToast(error.message, 'danger');
+        }
+    }
+
+    // ========== WEBSOCKET ==========
+    function conectarWebSocket() {
+        if (!currentUser?.id) return;
+
+        const token = getToken();
+        if (!token) return;
+
+        try {
+            const socket = new SockJS(`${window.BACKEND_URL || BACKEND_URL}/ws-mensagens`);
+            stompClient = Stomp.over(socket);
+            stompClient.debug = null;
+
+            stompClient.connect({ Authorization: `Bearer ${token}` },
+                function () {
+                    console.log('✅ Conectado ao WebSocket');
+                    stompClient.subscribe(`/topic/professor/${currentUser.id}/mensagens`, function (message) {
+                        const notificacao = JSON.parse(message.body);
+                        if (notificacao.tipo === 'NOVA_MENSAGEM') {
+                            showToast(`📬 Nova mensagem recebida!`, 'success');
+                            carregarMateriasEMural();
+                            try {
+                                const audio = new Audio('/assets/sounds/notification.mp3');
+                                audio.volume = 0.3;
+                                audio.play().catch(e => console.log('Som não suportado'));
+                            } catch (e) { }
+                        }
+                    });
+                },
+                function (error) {
+                    console.error('WebSocket error:', error);
+                    setTimeout(conectarWebSocket, 5000);
+                }
+            );
+        } catch (error) {
+            console.error('Erro ao conectar WebSocket:', error);
+        }
+    }
+
+    // ========== INICIALIZAR ==========
+    async function initializeApp() {
+        // Verificar se está logado
+        const token = getToken();
+        if (!token) {
+            window.location.href = 'login.html';
+            return;
+        }
+
+        await loadUserData();
+        
+        const appShell = document.getElementById('appShell');
+        if (appShell) appShell.classList.add('visible');
+
+        // Navegação entre abas
+        document.querySelectorAll('.bottom-nav-item').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const target = btn.dataset.target;
+                document.querySelectorAll('.bottom-nav-item').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+                btn.classList.add('active');
+                const activePane = document.querySelector(`.tab-pane[data-tab="${target}"]`);
+                if (activePane) activePane.classList.add('active');
+            });
+        });
+
+        const btnNovaMensagem = document.getElementById('btnNovaMensagem');
+        if (btnNovaMensagem) btnNovaMensagem.addEventListener('click', openMensagemModal);
+
+        const threadBack = document.getElementById('threadBack');
+        if (threadBack) {
+            threadBack.addEventListener('click', () => {
+                const overlay = document.getElementById('threadOverlay');
+                const panel = document.getElementById('threadPanel');
+                if (overlay) overlay.classList.remove('open');
+                if (panel) panel.classList.remove('open');
+            });
+        }
+
+        const threadOverlay = document.getElementById('threadOverlay');
+        if (threadOverlay) {
+            threadOverlay.addEventListener('click', () => {
+                threadOverlay.classList.remove('open');
+                const panel = document.getElementById('threadPanel');
+                if (panel) panel.classList.remove('open');
+            });
+        }
+
+        const btnHeaderLogout = document.getElementById('btn-header-logout');
+        if (btnHeaderLogout) {
+            btnHeaderLogout.addEventListener('click', () => {
+                localStorage.clear();
+                sessionStorage.clear();
+                window.location.href = 'login.html';
+            });
+        }
+
+        const btnLogoutConfig = document.getElementById('btnLogoutConfig');
+        if (btnLogoutConfig) {
+            btnLogoutConfig.addEventListener('click', () => {
+                localStorage.clear();
+                sessionStorage.clear();
+                window.location.href = 'login.html';
+            });
+        }
+
+        const mensagemTurma = document.getElementById('mensagemTurma');
+        if (mensagemTurma) {
+            mensagemTurma.addEventListener('change', () => {
+                if (document.getElementById('mensagemTipo')?.value === 'INDIVIDUAL') {
+                    carregarAlunosPorTurma();
+                }
+            });
+        }
+
+        const fileInput = document.getElementById('fileInput');
+        if (fileInput) {
+            fileInput.addEventListener('change', (e) => {
+                const files = Array.from(e.target.files);
+                const fileListDiv = document.getElementById('fileList');
+                if (fileListDiv) {
+                    files.forEach(file => {
+                        arquivosParaEnvio.push(file);
+                        const badge = document.createElement('div');
+                        badge.className = 'file-badge';
+                        badge.innerHTML = `<i class="fas ${file.type.includes('image') ? 'fa-image' : 'fa-file-pdf'}"></i> ${escapeHtml(file.name)} <button type="button" onclick="this.parentElement.remove()">×</button>`;
+                        fileListDiv.appendChild(badge);
+                    });
+                }
+            });
+        }
+    }
+
+    // Expor funções globalmente
+    window.closeMensagemModal = closeMensagemModal;
+    window.enviarMensagem = enviarMensagem;
+    window.toggleDestinatario = toggleDestinatario;
+
+    document.addEventListener('DOMContentLoaded', initializeApp);
+</script>
+</body>
+
+</html>
