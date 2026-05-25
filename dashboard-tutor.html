@@ -2589,6 +2589,51 @@
             background: #f3efff;
             color: #8b5cf6;
         }
+
+        .auto-switch-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .auto-switch {
+            width: 44px;
+            height: 22px;
+            background: #cbd5e1;
+            border-radius: 999px;
+            position: relative;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .auto-switch.active {
+            background: var(--success);
+        }
+
+        .auto-switch-slider {
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 16px;
+            height: 16px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s ease;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+        }
+
+        .auto-switch.active .auto-switch-slider {
+            transform: translateX(22px);
+        }
+
+        .auto-switch-text {
+            font-size: 0.65rem;
+            font-weight: 700;
+        }
     </style>
 </head>
 
@@ -3532,10 +3577,10 @@
 
 
                     },
-                        function (error) {
-                            console.error('❌❌❌ Erro no WebSocket. Tentando reconectar em 10s...', error);
-                            setTimeout(connectMensagemWebSocket, 10000);
-                        }
+                    function (error) {
+                        console.error('❌❌❌ Erro no WebSocket. Tentando reconectar em 10s...', error);
+                        setTimeout(connectMensagemWebSocket, 10000);
+                    }
                 );
             }
 
@@ -3929,9 +3974,68 @@
                         filhosCount.textContent = `${studentsData.length} aluno(s) vinculado(s)`;
                     }
 
+                    // Após carregar studentsData
+                    await loadConfiguracoesAutomaticas();
+
                 } catch (error) {
                     console.error('Erro ao carregar alunos:', error);
                     container.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-exclamation-triangle"></i></div><div class="t">Erro ao carregar</div><div class="s">${error.message}</div></div>`;
+                }
+            }
+
+            async function loadConfiguracoesAutomaticas() {
+                try {
+                    const response = await fetchWithAuth('/api/tutores/config/todos');
+                    const data = await response.json();
+
+                    if (data.sucesso && data.configuracoes) {
+                        // Mapear configurações para os alunos
+                        data.configuracoes.forEach(config => {
+                            const aluno = studentsData.find(a => a.id === config.alunoId);
+                            if (aluno) {
+                                aluno.chamadaAutomatica = config.chamadaAutomatica;
+                            }
+                        });
+                    }
+                } catch (error) {
+                    console.error('Erro ao carregar configurações:', error);
+                }
+            }
+
+            async function toggleAutoChamada(alunoId, currentState, event) {
+                if (event) event.stopPropagation(); // Evitar que o clique no card seja acionado
+
+                const novoEstado = !currentState;
+
+                try {
+                    const response = await fetchWithAuth(`/api/tutores/config/${alunoId}`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ chamadaAutomatica: novoEstado })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.sucesso) {
+                        // Atualizar visual do switch
+                        const switchElement = document.querySelector(`.auto-switch[data-aluno-id="${alunoId}"]`);
+                        if (switchElement) {
+                            if (novoEstado) {
+                                switchElement.classList.add('active');
+                            } else {
+                                switchElement.classList.remove('active');
+                            }
+                            switchElement.dataset.auto = novoEstado;
+                        }
+
+                        // Atualizar dados em memória
+                        const aluno = studentsData.find(a => a.id === alunoId);
+                        if (aluno) aluno.chamadaAutomatica = novoEstado;
+
+                        showToast(novoEstado ? '🤖 Chamada automática ativada' : '🔘 Chamada automática desativada', 'success');
+                    }
+                } catch (error) {
+                    console.error('Erro ao atualizar configuração:', error);
+                    showToast('Erro ao alterar configuração', 'danger');
                 }
             }
 
@@ -3963,13 +4067,15 @@
                             <div class="student-info" style="width: 100%;">
                                 <div class="student-name">${student.nome}</div>
                                 <div class="student-meta">${student.salaNome || 'Sem sala'}</div>
-                                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px;">
-                                    <span class="status-badge ${getStatusClass(student.status)}">
-                                        <i class="fas ${getStatusIcon(student.status)}"></i>${getStatusText(student.status)}
-                                    </span>
-                                    <button class="history-btn" data-id="${student.id}" data-name="${student.nome.replace(/'/g, "\\'")}" style="background: var(--primary-light); border: none; border-radius: 20px; padding: 6px 14px; color: var(--primary); cursor: pointer; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
-                                        <i class="fas fa-clock-rotate-left"></i> Histórico
-                                    </button>
+                                <div style="display: flex; align-items: center; justify-content: flex-end; margin-top: 8px;">
+                                    <label class="auto-switch-label" title="Chamada automática">
+                                        <span class="auto-switch-text">🤖 Auto</span>
+                                        <div class="auto-switch ${student.chamadaAutomatica ? 'active' : ''}" 
+                                            data-aluno-id="${student.id}"
+                                            data-auto="${student.chamadaAutomatica}">
+                                            <div class="auto-switch-slider"></div>
+                                        </div>
+                                    </label>
                                 </div>
                             </div>
                         </div>
@@ -3980,6 +4086,15 @@
                         </div>
                     </article>
                 `).join('');
+
+                document.querySelectorAll('.auto-switch').forEach(sw => {
+                    const alunoId = parseInt(sw.dataset.alunoId);
+                    const isActive = sw.dataset.auto === 'true';
+                    sw.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        toggleAutoChamada(alunoId, isActive, e);
+                    });
+                });
 
                 // Inicializar slide buttons
                 initSlideButtons();
@@ -5601,6 +5716,23 @@
                                 this.showIndicator(monitor.studentName);
                                 this.sendNotification('✅ Retorno à Área', `${monitor.studentName}: Você retornou à área escolar.`, 'success');
                                 await this.notifyBackendReturn(studentId);
+
+                                // ========== NOVA LÓGICA: CHAMADA AUTOMÁTICA ==========
+                                // Verificar se chamada automática está ativada para este aluno
+                                const aluno = window.studentsData?.find(a => a.id === studentId);
+                                if (aluno && aluno.chamadaAutomatica === true && aluno.status === 'PRESENTE') {
+                                    console.log(`🤖 Chamada automática ativada para ${aluno.nome} - solicitando saída...`);
+                                    // Chamar a solicitação de saída automaticamente
+                                    if (typeof window.handleExitRequest === 'function') {
+                                        // Evitar chamada duplicada se já estiver em andamento
+                                        if (aluno.status !== 'AGUARDANDO_CONFIRMACAO') {
+                                            await window.handleExitRequest(studentId, monitor.studentName, null);
+                                        } else {
+                                            console.log(`⚠️ Aluno ${aluno.nome} já está com saída pendente. Ignorando chamada automática.`);
+                                        }
+                                    }
+                                }
+                                // ========== FIM DA NOVA LÓGICA ==========
                             }
                         } else {
                             if (!monitor.isOutside) {
