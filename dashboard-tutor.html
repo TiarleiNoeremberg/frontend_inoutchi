@@ -3979,7 +3979,7 @@
 
                     // 1. Aguarda as configurações automáticas aplicarem os switches (true/false) nos alunos
                     await loadConfiguracoesAutomaticas();
-                    
+
                     // 2. Agora sim, com os dados 100% completos, expõe para o Escopo Global
                     window.studentsData = studentsData;
                     console.log("🤖 [Robô] Dados sincronizados e prontos para o monitor de perímetro.");
@@ -5342,6 +5342,9 @@
                     this.isInitialized = false;
                     this.wakeLock = null;
                     this.poorGpsCount = 0;
+                    this.backupTimer = null;        // Timer para forçar verificações periódicas
+                    this.lastKnownPosition = null;  // Última posição conhecida (para fallback)
+                    this.lastPositionTime = null;   // Timestamp da última posição
                 }
 
                 async init() {
@@ -5378,6 +5381,18 @@
 
                     this.isInitialized = true;
                     console.log('✅ GeofenceMonitor inicializado');
+
+                    // 🚀 FORÇA UMA VERIFICAÇÃO INICIAL IMEDIATA (depois de tudo inicializado)
+                    setTimeout(() => {
+                        if (navigator.geolocation) {
+                            console.log("🎯 Forçando verificação inicial de posição...");
+                            navigator.geolocation.getCurrentPosition(
+                                (position) => this.handlePositionUpdate(position),
+                                (error) => console.warn("⚠️ Verificação inicial falhou:", error),
+                                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                            );
+                        }
+                    }, 1000);
                 }
 
                 async getEscolaId() {
@@ -5730,17 +5745,79 @@
                 }
 
                 startWatching() {
-                    if (!navigator.geolocation) return;
+                    if (!navigator.geolocation) {
+                        console.error('❌ Geolocalização não suportada');
+                        return;
+                    }
 
+                    // 1. Configuração de alta precisão para celulares físicos
+                    const gpsOptions = {
+                        enableHighAccuracy: true,  // Força GPS de hardware
+                        timeout: 10000,            // 10 segundos máximo para resposta
+                        maximumAge: 0              // Não usa posição em cache
+                    };
+
+                    // 2. Escuta nativa por mudança física de coordenada
                     this.watchId = navigator.geolocation.watchPosition(
                         (position) => this.handlePositionUpdate(position),
                         (error) => this.handleLocationError(error),
-                        { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+                        gpsOptions
                     );
+
+                    // 3. 🚀 SISTEMA DE BACKUP (CRÍTICO PARA ECONOMIA DE ENERGIA DO CELULAR)
+                    //    Quando o celular entra em modo de repouso, o watchPosition para de disparar.
+                    //    Este timer força a reavaliação periódica independentemente do GPS.
+
+                    // Limpa timer anterior se existir
+                    if (this.backupTimer) {
+                        clearInterval(this.backupTimer);
+                    }
+
+                    this.backupTimer = setInterval(() => {
+                        // Se já tem uma posição recente (menos de 30 segundos), usa ela
+                        const now = Date.now();
+                        const hasRecentPosition = this.lastPositionTime && (now - this.lastPositionTime) < 30000;
+
+                        if (hasRecentPosition && this.lastKnownPosition) {
+                            console.log("🤖 [Timer Backup] Forçando reavaliação com última posição conhecida");
+                            this.handlePositionUpdate({
+                                coords: this.lastKnownPosition,
+                                timestamp: now
+                            });
+                        } else {
+                            // Se não tem posição recente, força uma busca direta do sensor GPS
+                            console.log("🔍 [Timer Backup] Buscando nova posição via getCurrentPosition");
+                            navigator.geolocation.getCurrentPosition(
+                                (position) => this.handlePositionUpdate(position),
+                                (error) => {
+                                    console.warn("⚠️ [Timer Backup] Falha ao obter posição:", error.message);
+                                    // Se falhou e tem última posição válida, tenta usar ela mesmo assim
+                                    if (this.lastKnownPosition) {
+                                        console.log("🔄 [Timer Backup] Usando última posição conhecida como fallback");
+                                        this.handlePositionUpdate({
+                                            coords: this.lastKnownPosition,
+                                            timestamp: now
+                                        });
+                                    }
+                                },
+                                gpsOptions
+                            );
+                        }
+                    }, 20000); // 20 em 20 segundos
+
+                    console.log('✅ GeofenceMonitor inicializado com loop de persistência ativa a cada 20 segundos');
                 }
 
                 async handlePositionUpdate(position) {
                     const { latitude, longitude, accuracy } = position.coords;
+
+                    // 💾 SALVA A ÚLTIMA POSIÇÃO PARA O TIMER DE BACKUP USAR
+                    this.lastKnownPosition = {
+                        latitude: latitude,
+                        longitude: longitude,
+                        accuracy: accuracy
+                    };
+                    this.lastPositionTime = Date.now();
 
                     console.log("🛰️ GPS disparou! Precisão atual:", accuracy, "metros.");
                     console.log("👥 Conteúdo de window.studentsData neste exato momento:", window.studentsData);
@@ -5900,7 +5977,18 @@
                     this.activeMonitors.delete(studentId);
 
                     if (this.activeMonitors.size === 0) {
-                        if (this.watchId) { navigator.geolocation.clearWatch(this.watchId); this.watchId = null; }
+                        if (this.watchId) {
+                            navigator.geolocation.clearWatch(this.watchId);
+                            this.watchId = null;
+                        }
+
+                        // 🧹 LIMPA O TIMER DE BACKUP QUANDO NÃO HÁ MAIS MONITORES
+                        if (this.backupTimer) {
+                            clearInterval(this.backupTimer);
+                            this.backupTimer = null;
+                            console.log('🧹 Timer de backup removido - sem monitores ativos');
+                        }
+
                         this.releaseWakeLock();
                         this.hideIndicator();
                     }
@@ -5914,6 +6002,7 @@
                     if (message) this.showToast('Erro de Localização', message, 'error');
                 }
             }
+
 
             function mostrarModalBloqueio(mensagem) {
                 // Remove modal anterior se existir
