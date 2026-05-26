@@ -1751,30 +1751,28 @@
         /* ===== GEOFENCE MONITOR - INDICADOR E TOASTS ===== */
         .geofence-indicator-pro {
             position: fixed;
-            left: 0;
-            right: 0;
+            left: 50%;
+            transform: translateX(-50%);
             bottom: calc(var(--bottom-nav-h) + var(--safe-bottom) + 20px);
-            margin: 0 auto;
-            width: auto;
-            max-width: 90%;
+            /* Distância padrão: 20px ACIMA da bottom nav */
             background: linear-gradient(135deg, #1a6fc4, #0ea5a0);
             color: white;
             padding: 10px 20px;
             border-radius: 50px;
             font-size: 0.8rem;
             font-weight: 600;
-            z-index: 10002;
-            /* MENOR - fica atrás */
+            z-index: 10000;
             display: none;
             align-items: center;
-            justify-content: center;
             gap: 12px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
             backdrop-filter: blur(10px);
             font-family: 'Inter', sans-serif;
             border: 1px solid rgba(255, 255, 255, 0.2);
             pointer-events: auto;
-            text-align: center;
+            white-space: nowrap;
+            max-width: 90%;
+            justify-content: center;
         }
 
         /* Responsivo para telas menores */
@@ -1859,7 +1857,7 @@
             position: fixed;
             bottom: 100px;
             left: 20px;
-            right: auto;
+            right: 20px;
             max-width: 350px;
             background: white;
             border-radius: 12px;
@@ -1868,8 +1866,7 @@
             align-items: center;
             gap: 12px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-            z-index: 10003;
-            /* MAIOR - fica na frente */
+            z-index: 10001;
             animation: slideInLeft 0.3s ease;
             font-family: 'Inter', sans-serif;
         }
@@ -2592,41 +2589,6 @@
             background: #f3efff;
             color: #8b5cf6;
         }
-
-        /* Custom Toggle Switch Styles */
-        .switch-btn-custom .slider-btn-custom {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: #ccc;
-            transition: .3s;
-            border-radius: 24px;
-        }
-
-        .switch-btn-custom .slider-btn-custom:before {
-            position: absolute;
-            content: "";
-            height: 18px;
-            width: 18px;
-            left: 3px;
-            bottom: 3px;
-            background-color: white;
-            transition: .3s;
-            border-radius: 50%;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-        }
-
-        .switch-btn-custom input:checked+.slider-btn-custom {
-            background-color: var(--primary, #1a6fc4);
-            /* Usa a cor primária do seu sistema */
-        }
-
-        .switch-btn-custom input:checked+.slider-btn-custom:before {
-            transform: translateX(18px);
-        }
     </style>
 </head>
 
@@ -3286,10 +3248,6 @@
     <script>
         let stompClient = null;
         let currentTutorId = null;
-        let backgroundWatcherId = null;
-        // Variável global para cache dos horários
-        let horariosSalasCache = new Map();
-
         (function () {
             // ============== CONSTANTES ==============
             // const BACKEND_URL = 'https://inoutchi-backend.onrender.com';
@@ -3312,11 +3270,6 @@
             let materiasUnicas = new Map();
 
             let totalNaoLidas = 0;
-
-            // Substitua o import antigo por esta constante:
-            const BackgroundGeolocation = window.Capacitor && window.Capacitor.Plugins
-                ? window.Capacitor.Plugins.BackgroundGeolocation
-                : null;
 
 
             function connectMensagemWebSocket() {
@@ -3384,250 +3337,6 @@
                         setTimeout(connectMensagemWebSocket, 10000);
                     }
                 );
-            }
-
-            /**
-             * Inicializa o rastreamento em background focado em Geofence.
-             * Chame esta função logo após o login bem-sucedido do Tutor.
-             */
-            async function iniciarMonitoramentoGeofenceBackground() {
-                // Usando window.Capacitor, o Windows lê como "undefined" (falso) pacificamente,
-                // enquanto o celular lê como o objeto nativo do Capacitor (verdadeiro).
-                if (!window.Capacitor || !window.Capacitor.isNativePlatform() || !BackgroundGeolocation) {
-                    console.log("💻 Executando no Navegador/Windows: O monitoramento passivo de Geofence em background não está disponível nesta plataforma.");
-                    return; // Sai sem travar a tela azul pulsante
-                }
-
-                // 2. Recupera as regras do Tutor logado trazidas pelo backend
-                const tutorDataStr = localStorage.getItem('tutorData');
-                if (!tutorDataStr) return;
-
-                const tutorData = JSON.parse(tutorDataStr);
-                if (!tutorData.proximidades || tutorData.proximidades.length === 0) return;
-
-                // Se já houver um monitor ativo, limpa antes de criar um novo
-                if (backgroundWatcherId) {
-                    try {
-                        await BackgroundGeolocation.removeWatcher({ id: backgroundWatcherId });
-                    } catch (e) {
-                        console.error("Erro ao remover watcher antigo:", e);
-                    }
-                }
-
-                // 3. Configura o Watcher Nativo do Android via Capacitor
-                try {
-                    backgroundWatcherId = await BackgroundGeolocation.addWatcher(
-                        {
-                            backgroundMessage: "Monitorando aproximação da escola para chamada automática.",
-                            backgroundTitle: "Inoutchi Ativo",
-                            requestPermissions: true,
-                            stale: false,
-                            distanceFilter: 20
-                        },
-                        async (location, error) => {
-                            if (error) {
-                                console.error("Erro no monitor de localização background:", error);
-                                return;
-                            }
-                            if (location) {
-                                await avaliarJanelaEProximidadeAutomatica(location.latitude, location.longitude, tutorData.proximidades);
-                            }
-                        }
-                    );
-                } catch (err) {
-                    console.error("Falha ao inicializar o Watcher de Geolocalização nativo:", err);
-                }
-            }
-
-            /**
- * Processa as coordenadas recebidas em background e valida contra as regras da Escola
- */
-            async function avaliarJanelaEProximidadeAutomatica(latAtual, lngAtual, proximidades) {
-                // Obtém o horário atual do celular no formato "HH:mm:ss"
-                const agora = new Date();
-                const horaAtual = `${agora.getHours().toString().padStart(2, '0')}:${agora.getMinutes().toString().padStart(2, '0')}:00`;
-
-                for (const config of proximidades) {
-
-                    // REGRA 1: O Tutor ativou a Chamada Automática para este aluno?
-                    if (config.chamadaAutomatica === true) {
-
-                        // REGRA 2: A hora atual está na janela permitida pela Escola?
-                        if (horaAtual >= config.horaInicioChamada && horaAtual <= config.horaFimChamada) {
-
-                            // REGRA 3: O Tutor está de fato dentro do raio (geofence) da Escola?
-                            // Calculamos localmente no celular para não sobrecarregar o servidor
-                            const distanciaAteEscola = calcularDistanciaMetros(latAtual, lngAtual, config.latitudeEscola, config.longitudeEscola);
-
-                            if (distanciaAteEscola <= config.raioEscola) {
-                                console.log(`🎯 [Gatilho] Tutor entrou no raio. Solicitando saída automática para aluno: ${config.alunoId}`);
-
-                                await dispararApiSolicitacaoSaida(config.alunoId, latAtual, lngAtual);
-                            }
-                        }
-                    }
-                }
-            }
-
-            /**
-             * Algoritmo de Haversine para calcular distância linear em metros localmente no aparelho
-             */
-            function calcularDistanciaMetros(lat1, lon1, lat2, lon2) {
-                const R = 6371e3; // Raio da Terra em metros
-                const phi1 = lat1 * Math.PI / 180;
-                const phi2 = lat2 * Math.PI / 180;
-                const deltaPhi = (lat2 - lat1) * Math.PI / 180;
-                const deltaLambda = (lon2 - lon1) * Math.PI / 180;
-
-                const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
-                    Math.cos(phi1) * Math.cos(phi2) *
-                    Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
-                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-                return R * c; // Retorna a distância em metros
-            }
-
-            // =========================================================
-            // MONITORAMENTO DE PROXIMIDADE VIA BROWSER (navigator.geolocation)
-            // Funciona em browser e app — substitui Capacitor-only anterior
-            // =========================================================
-            let proximidadeWatcherId = null;
-
-            function iniciarWatchProximidade() {
-                if (!navigator.geolocation) {
-                    console.warn('[Proximidade] navigator.geolocation não disponível.');
-                    return;
-                }
-                // Para watcher anterior antes de criar um novo
-                if (proximidadeWatcherId !== null) {
-                    navigator.geolocation.clearWatch(proximidadeWatcherId);
-                    proximidadeWatcherId = null;
-                }
-                console.log('🛰️ [Proximidade] Iniciando watchPosition...');
-                proximidadeWatcherId = navigator.geolocation.watchPosition(
-                    async (position) => {
-                        await avaliarProximidadeNoNavegador(
-                            position.coords.latitude,
-                            position.coords.longitude
-                        );
-                    },
-                    (error) => {
-                        console.warn('[Proximidade] Erro GPS:', error.message);
-                    },
-                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
-                );
-            }
-
-            async function avaliarProximidadeNoNavegador(latAtual, lngAtual) {
-                // Somente alunos PRESENTES com chamada automática ativa
-                const elegíveis = studentsData.filter(
-                    a => a.proximidade &&
-                         a.proximidade.chamadaAutomatica === true &&
-                         a.status === 'PRESENTE'
-                );
-                if (elegíveis.length === 0) return;
-
-                // Obtém coordenadas da escola
-                let coordsEscola = null;
-                if (geofenceMonitor && geofenceMonitor.schoolCoords && geofenceMonitor.schoolCoords.lat) {
-                    coordsEscola = geofenceMonitor.schoolCoords;
-                } else {
-                    try {
-                        const escolaId = await getEscolaId();
-                        const resp = await fetchWithAuth(`/api/geofences/escola/${escolaId}/coordenadas`);
-                        if (resp.ok) {
-                            const d = await resp.json();
-                            coordsEscola = { lat: d.latitude, lng: d.longitude, raio: d.raio || 200 };
-                            if (geofenceMonitor && !geofenceMonitor.schoolCoords) {
-                                geofenceMonitor.schoolCoords = coordsEscola;
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('[Proximidade] Erro ao obter coordenadas da escola:', e);
-                        return;
-                    }
-                }
-                if (!coordsEscola) return;
-
-                const raio = coordsEscola.raio || 200;
-                const distancia = calcularDistanciaMetros(latAtual, lngAtual, coordsEscola.lat, coordsEscola.lng);
-                const dentroDoRaio = distancia <= raio;
-
-                console.log(`📍 [Proximidade] Distância: ${Math.round(distancia)}m / Raio: ${raio}m → ${dentroDoRaio ? 'DENTRO ✅' : 'FORA ❌'}`);
-                if (!dentroDoRaio) return;
-
-                // Verifica janela de horário e dispara para cada aluno elegível
-                const agora = new Date();
-                const horaAtual = `${agora.getHours().toString().padStart(2,'0')}:${agora.getMinutes().toString().padStart(2,'0')}:00`;
-
-                for (const aluno of elegíveis) {
-                    if (aluno.salaId && horariosSalasCache.has(aluno.salaId)) {
-                        const h = horariosSalasCache.get(aluno.salaId);
-                        if (horaAtual < h.horaInicio || horaAtual > h.horaFim) {
-                            console.log(`⏰ [Proximidade] ${aluno.nome}: fora da janela (${h.horaInicio}–${h.horaFim}). Ignorando.`);
-                            continue;
-                        }
-                    }
-                    console.log(`🎯 [Proximidade] Dentro do raio! Disparando saída para: ${aluno.nome}`);
-                    await dispararApiSolicitacaoSaida(aluno.id, latAtual, lngAtual);
-                }
-            }
-
-            // Cooldown por aluno — evita disparos repetidos durante permanência no raio
-            const proximidadeCooldown = new Map();
-            const PROXIMIDADE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutos
-
-            async function dispararApiSolicitacaoSaida(alunoId, lat, lng) {
-                // Verifica cooldown
-                const ultimo = proximidadeCooldown.get(alunoId);
-                if (ultimo && (Date.now() - ultimo) < PROXIMIDADE_COOLDOWN_MS) {
-                    console.log(`⏳ [Proximidade] Cooldown ativo para aluno ${alunoId}.`);
-                    return;
-                }
-
-                // Ignora se aluno já não está PRESENTE
-                const alunoAtual = studentsData.find(a => a.id == alunoId);
-                if (alunoAtual && alunoAtual.status !== 'PRESENTE') {
-                    console.log(`⏭️ [Proximidade] Aluno ${alunoId} já tem status ${alunoAtual.status}.`);
-                    return;
-                }
-
-                try {
-                    const payload = { alunoId: alunoId, latitude: lat, longitude: lng };
-
-                    // ✅ CORRIGIDO: fetchWithAuth (token automático) + endpoint correto
-                    const response = await fetchWithAuth('/api/presencas/saida/solicitar', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-
-                    if (response.ok) {
-                        // Registra cooldown
-                        proximidadeCooldown.set(alunoId, Date.now());
-
-                        // ✅ Atualiza cache e visual do card imediatamente
-                        if (alunoAtual) {
-                            alunoAtual.status = 'AGUARDANDO_CONFIRMACAO';
-                            atualizarVisualDoSlider(alunoId, 'AGUARDANDO_CONFIRMACAO');
-                        }
-
-                        const nomeAluno = alunoAtual ? alunoAtual.nome : `Aluno ${alunoId}`;
-                        console.log(`✅ [Proximidade] Chamada automática registrada para ${nomeAluno}`);
-
-                        // ✅ Toast visível ao usuário
-                        showToast(`📡 Saída solicitada automaticamente para ${nomeAluno} (chamada por proximidade)`, 'success');
-
-                    } else {
-                        const errData = await response.json().catch(() => ({}));
-                        const motivo = errData.mensagem || `Código ${response.status}`;
-                        console.warn(`⚠️ [Proximidade] Falha: ${motivo}`);
-                        showToast(`⚠️ Proximidade detectada, mas não foi possível solicitar saída: ${motivo}`, 'warning');
-                    }
-                } catch (error) {
-                    console.error('❌ [Proximidade] Erro ao enviar chamada automática:', error);
-                    showToast('❌ Erro ao solicitar saída automática por proximidade', 'danger');
-                }
             }
 
             function handleNovaMensagem(payload) {
@@ -3874,63 +3583,6 @@
                 }, 500);
             }
 
-            function atualizarVisualDoSlider(studentId, statusAtual) {
-                const card = document.querySelector(`.student-card[data-student-id="${studentId}"]`);
-                if (!card) {
-                    console.warn(`Card do aluno ${studentId} não encontrado`);
-                    return;
-                }
-
-                const slideBtn = card.querySelector('.slide-btn');
-                const sliderText = slideBtn?.querySelector('.slide-track-label');
-                const sliderThumb = slideBtn?.querySelector('.slide-thumb');
-                const sliderFill = slideBtn?.querySelector('.slide-fill');
-
-                if (!slideBtn) return;
-
-                // Atualizar o atributo data-status-atual
-                card.setAttribute('data-status-atual', statusAtual);
-
-                // Atualizar o data-action do slide-btn
-                const newAction = getSlideAction(statusAtual);
-                slideBtn.dataset.action = newAction;
-
-                // Atualizar o texto do slider
-                if (sliderText) {
-                    sliderText.textContent = getSlideLabel(statusAtual);
-                }
-
-                // Atualizar o ícone do thumb
-                if (sliderThumb) {
-                    const icon = sliderThumb.querySelector('i');
-                    if (icon) {
-                        icon.className = `fas ${getSlideIcon(statusAtual)}`;
-                    }
-                }
-
-                // Resetar a posição do slider
-                if (sliderThumb) {
-                    const isReversed = newAction === 'exit-request';
-                    if (isReversed) {
-                        sliderThumb.style.right = '4px';
-                    } else {
-                        sliderThumb.style.left = '4px';
-                    }
-                }
-
-                if (sliderFill) {
-                    sliderFill.style.width = '0%';
-                }
-
-                if (sliderText) {
-                    sliderText.style.opacity = '1';
-                }
-
-                slideBtn.classList.remove('activated', 'dragging');
-
-                console.log(`✅ Visual do slider atualizado para aluno ${studentId}: ${statusAtual}`);
-            }
-
             // Buscar ID da escola do aluno logado
             async function getEscolaId() {
                 console.log('📍 getEscolaId: tentando obter escolaId');
@@ -4036,7 +3688,7 @@
 
             // Iniciar monitoramento periódico
             function iniciarMonitoramentoGeofence() {
-                // Verificar imediatamente (atualiza pill visual da geofence)
+                // Verificar imediatamente
                 verificarLocalizacaoComBackend();
 
                 // Verificar a cada 30 segundos
@@ -4044,38 +3696,6 @@
                 intervaloGeofence = setInterval(() => {
                     verificarLocalizacaoComBackend();
                 }, 30000);
-
-                // ✅ CORRIGIDO: Inicia watcher contínuo de proximidade para chamada automática
-                iniciarWatchProximidade();
-            }
-
-            // ============== CARREGAR HORÁRIOS DAS SALAS ==============
-            async function carregarHorariosDasSalas() {
-                if (!studentsData || studentsData.length === 0) return;
-
-                // Extrai IDs únicos das salas dos alunos
-                const salasIds = [...new Set(studentsData.map(s => s.salaId).filter(id => id))];
-                console.log(`📚 Buscando horários para ${salasIds.length} sala(s):`, salasIds);
-
-                for (const salaId of salasIds) {
-                    try {
-                        const response = await fetchWithAuth(`/api/salas/${salaId}/horarios-chamada`);
-                        if (response.ok) {
-                            const sala = await response.json();
-                            if (sala.horaInicioChamada && sala.horaFimChamada) {
-                                horariosSalasCache.set(salaId, {
-                                    horaInicio: sala.horaInicioChamada,
-                                    horaFim: sala.horaFimChamada
-                                });
-                                console.log(`✅ Horários carregados para sala ID ${salaId}: ${sala.horaInicioChamada} - ${sala.horaFimChamada}`);
-                            } else {
-                                console.log(`ℹ️ Sala ID ${salaId} (${sala.nome}) não tem horários configurados`);
-                            }
-                        }
-                    } catch (error) {
-                        console.warn(`⚠️ Erro ao buscar horários da sala ${salaId}:`, error);
-                    }
-                }
             }
 
             // ============== CARREGAR ALUNOS ==============
@@ -4103,10 +3723,6 @@
                     await checkPendingExits(studentsData);
 
                     renderStudents(studentsData);
-
-                    // Carregar horários das salas após renderizar os alunos
-                    await carregarHorariosDasSalas();
-
                     // Atualizar contador de filhos na configuração
                     const filhosCount = document.getElementById('filhosCount');
                     if (filhosCount) {
@@ -4136,56 +3752,39 @@
                 return students;
             }
 
-            // Renderizar cards dos alunos com interruptor de Chamada Automática
+            // Renderizar cards dos alunos
             function renderStudents(students) {
                 const container = document.getElementById('studentsContainer');
                 if (!container) return;
 
-                container.innerHTML = students.map(student => {
-                    // Verifica se o DTO trouxe a configuração ativa
-                    const isChamadaAtiva = student.proximidade && student.proximidade.chamadaAutomatica === true;
-
-                    return `
-                        <article class="student-card" data-student-id="${student.id}" data-status-atual="${student.status}">
-                            <div class="student-head">
-                                <div class="student-info" style="width: 100%;">
-                                    <div class="student-name">${student.nome}</div>
-                                    <div class="student-meta">${student.salaNome || 'Sem sala'}</div>
-                                    
-                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px;">
-                                        <span class="status-badge ${getStatusClass(student.status)}">
-                                            <i class="fas ${getStatusIcon(student.status)}"></i>${getStatusText(student.status)}
-                                        </span>
-                                        <button class="history-btn" data-id="${student.id}" data-name="${student.nome.replace(/'/g, "\\'")}" style="background: var(--primary-light); border: none; border-radius: 20px; padding: 6px 14px; color: var(--primary); cursor: pointer; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
-                                            <i class="fas fa-clock-rotate-left"></i> Histórico
-                                        </button>
-                                    </div>
-
-                                    <div class="geofence-toggle-row" style="display: flex; align-items: center; justify-content: space-between; margin-top: 12px; padding-top: 10px; border-top: 1px dashed rgba(0,0,0,0.08);">
-                                        <span style="font-size: 0.78rem; color: #666; font-weight: 500; display: inline-flex; align-items: center; gap: 6px;">
-                                            <i class="fas fa-satellite-dish" style="color: ${isChamadaAtiva ? 'var(--primary)' : '#999'}"></i> Chamada por Proximidade
-                                        </span>
-                                        <label class="switch-btn-custom" style="position: relative; display: inline-block; width: 42px; height: 24px;">
-                                            <input type="checkbox" class="auto-call-toggle" data-student-id="${student.id}" ${isChamadaAtiva ? 'checked' : ''} style="opacity: 0; width: 0; height: 0;">
-                                            <span class="slider-btn-custom"></span>
-                                        </label>
-                                    </div>
-
+                container.innerHTML = students.map(student => `
+                    <article class="student-card" data-student-id="${student.id}">
+                        <div class="student-head">
+                            <div class="student-info" style="width: 100%;">
+                                <div class="student-name">${student.nome}</div>
+                                <div class="student-meta">${student.salaNome || 'Sem sala'}</div>
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px;">
+                                    <span class="status-badge ${getStatusClass(student.status)}">
+                                        <i class="fas ${getStatusIcon(student.status)}"></i>${getStatusText(student.status)}
+                                    </span>
+                                    <button class="history-btn" data-id="${student.id}" data-name="${student.nome.replace(/'/g, "\\'")}" style="background: var(--primary-light); border: none; border-radius: 20px; padding: 6px 14px; color: var(--primary); cursor: pointer; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                                        <i class="fas fa-clock-rotate-left"></i> Histórico
+                                    </button>
                                 </div>
                             </div>
-                            <div class="slide-btn" data-action="${getSlideAction(student.status)}" data-student-id="${student.id}" data-student-name="${student.nome.replace(/'/g, "\\'")}">
-                                <div class="slide-fill"></div>
-                                <div class="slide-track-label">${getSlideLabel(student.status)}</div>
-                                <div class="slide-thumb"><i class="fas ${getSlideIcon(student.status)}"></i></div>
-                            </div>
-                        </article>
-                    `;
-                }).join('');
+                        </div>
+                        <div class="slide-btn" data-action="${getSlideAction(student.status)}" data-student-id="${student.id}" data-student-name="${student.nome.replace(/'/g, "\\'")}">
+                            <div class="slide-fill"></div>
+                            <div class="slide-track-label">${getSlideLabel(student.status)}</div>
+                            <div class="slide-thumb"><i class="fas ${getSlideIcon(student.status)}"></i></div>
+                        </div>
+                    </article>
+                `).join('');
 
-                // Inicializar os botões deslizantes originais
+                // Inicializar slide buttons
                 initSlideButtons();
 
-                // Eventos dos botões de histórico originais
+                // Eventos dos botões de histórico
                 document.querySelectorAll('.history-btn').forEach(btn => {
                     btn.addEventListener('click', (e) => {
                         e.stopPropagation();
@@ -4194,75 +3793,6 @@
                         openStudentHistory(studentId, studentName);
                     });
                 });
-
-                // REGRA NOVA: Evento para capturar a mudança no Switch Liga/Desliga
-                document.querySelectorAll('.auto-call-toggle').forEach(toggle => {
-                    toggle.addEventListener('change', async (e) => {
-                        const studentId = parseInt(e.target.dataset.studentId);
-                        const isChecked = e.target.checked;
-
-                        // Dispara a atualização para a nossa API e sincroniza
-                        await alterarPreferenciaProximidade(studentId, isChecked);
-                    });
-                });
-            }
-
-            // Envia a preferência de Chamada Automática do Tutor para o Banco de Dados
-            async function alterarPreferenciaProximidade(studentId, isChecked) {
-                try {
-                    const response = await fetchWithAuth('/api/tutores/preferencias-proximidade', {
-                        method: 'PATCH',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            alunoId: studentId,
-                            ativo: isChecked
-                        })
-                    });
-
-                    if (!response.ok) {
-                        throw new Error('Não foi possível salvar a configuração no servidor.');
-                    }
-
-                    // Mantém o cache local com o nome que o resto do seu front-end já usa para renderizar a tela
-                    if (studentsData) {
-                        const alunoCache = studentsData.find(a => a.id === studentId);
-                        if (alunoCache) {
-                            if (!alunoCache.proximidade) alunoCache.proximidade = {};
-                            alunoCache.proximidade.chamadaAutomatica = isChecked;
-                        }
-                    }
-
-                    // --- INTEGRAÇÃO COM A PONTE NATIVA ANDROID ---
-                    if (window.AndroidBridge && typeof window.AndroidBridge.atualizarRastreamentoBackground === 'function') {
-                        window.AndroidBridge.atualizarRastreamentoBackground(studentId, isChecked);
-                    }
-
-                    console.log(`Preference updated for student ${studentId}: ${isChecked}`);
-
-                    // ✅ CORRIGIDO: Reinicia watcher para refletir nova preferência imediatamente
-                    iniciarWatchProximidade();
-
-                    // ✅ Toast informando o novo estado ao usuário
-                    showToast(
-                        isChecked
-                            ? '📡 Chamada por proximidade ativada'
-                            : '📡 Chamada por proximidade desativada',
-                        isChecked ? 'success' : 'info'
-                    );
-
-                } catch (error) {
-                    console.error('Erro ao atualizar geofence preference:', error);
-
-                    // Reverte o switch visualmente se a requisição falhar (Evita falso positivo)
-                    const toggle = document.querySelector(`.auto-call-toggle[data-student-id="${studentId}"]`);
-                    if (toggle) {
-                        toggle.checked = !isChecked;
-                    }
-
-                    alert('Erro de conexão: Não foi possível salvar sua preferência de proximidade.');
-                }
             }
 
             // ============== SLIDE BUTTONS ==============
@@ -4320,33 +3850,17 @@
 
                             const studentId = btn.dataset.studentId;
                             const studentName = btn.dataset.studentName;
-
-                            // ⭐ NOVO: Ler o status atual do elemento HTML em tempo real
-                            const cardAluno = document.querySelector(`.student-card[data-student-id="${studentId}"]`);
-                            const statusAtual = cardAluno ? cardAluno.getAttribute('data-status-atual') : null;
-
-                            console.log(`🎯 Status atual do aluno ${studentName}: ${statusAtual}`);
+                            const actionType = action;
 
                             if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
 
-                            // ⭐ NOVO: Executar ação baseada no status atual, não no memorizado
-                            if (statusAtual === 'AUSENTE') {
+                            // Executar ação correspondente
+                            if (actionType === 'entry') {
                                 await handleEntry(studentId, studentName, btn);
-                            } else if (statusAtual === 'PRESENTE') {
+                            } else if (actionType === 'exit-request') {
                                 await handleExitRequest(studentId, studentName, btn);
-                            } else if (statusAtual === 'AGUARDANDO_CONFIRMACAO') {
+                            } else if (actionType === 'exit-confirm') {
                                 await handleExitConfirm(studentId, studentName, btn);
-                            } else {
-                                console.warn(`Status desconhecido: ${statusAtual}`);
-                                // Fallback para o método antigo
-                                const actionType = action;
-                                if (actionType === 'entry') {
-                                    await handleEntry(studentId, studentName, btn);
-                                } else if (actionType === 'exit-request') {
-                                    await handleExitRequest(studentId, studentName, btn);
-                                } else if (actionType === 'exit-confirm') {
-                                    await handleExitConfirm(studentId, studentName, btn);
-                                }
                             }
 
                             setTimeout(() => {
@@ -4404,14 +3918,10 @@
                         throw new Error(error.mensagem || 'Erro ao registrar entrada');
                     }
 
-                    // ⭐ CORREÇÃO 1: Recarregar dados completos do backend em vez de atualizar localmente
-                    await refreshStudentsData();
-
-                    // Forçar a verificação de consistência para este aluno específico
-                    await verificarConsistenciaAluno(studentId);
-
                     // ========== MOSTRAR TELA DE SUCESSO ==========
                     await mostrarTelaSucesso('entrada', async () => {
+                        // Atualiza os dados após a tela de sucesso
+                        await refreshStudentsData();
                         renderStudents(studentsData);
                     });
                     // ============================================
@@ -4426,16 +3936,10 @@
             // Handler: SOLICITAR SAÍDA
             async function handleExitRequest(studentId, studentName, btn) {
                 try {
+                    // Validação de horário
                     const alunoAtual = studentsData.find(s => s.id == studentId);
-                    const salaId = alunoAtual?.salaId;
                     const nomeSala = alunoAtual?.salaNome || '';
-
-                    const validacao = await validarHorarioSaida(salaId, nomeSala);
-                    if (!validacao.permitido) {
-                        resetSlideButton(btn);
-                        return;
-                    }
-
+                    
                     const position = await getCurrentPosition();
                     const { latitude, longitude } = position.coords;
 
@@ -4451,31 +3955,47 @@
                     });
 
                     if (!response.ok) {
-                        const error = await response.json();
-                        throw new Error(error.mensagem || 'Erro ao solicitar saída');
+                        let mensagemErro = 'Erro ao solicitar saída';
+                        try {
+                            const error = await response.json();
+                            mensagemErro = error.mensagem || error.erro || error.detalhes || 'Erro ao solicitar saída';
+                        } catch (e) {
+                            mensagemErro = response.statusText || 'Erro ao solicitar saída';
+                        }
+                        throw new Error(mensagemErro);
                     }
 
-                    // ✅ Atualiza status no cache local
-                    const aluno = studentsData.find(s => s.id == studentId);
-                    if (aluno) {
-                        aluno.status = 'AGUARDANDO_CONFIRMACAO';
-                    }
-
-                    // ✅ Atualiza visual
-                    atualizarVisualDoSlider(studentId, 'AGUARDANDO_CONFIRMACAO');
-
-                    // ✅ INICIAR MONITORAMENTO DE GE OFENCE (restaurado)
-                    if (geofenceMonitor) {
-                        geofenceMonitor.startMonitoring(studentId, studentName);
-                    }
-
+                    // ========== MOSTRAR TELA DE SUCESSO ==========
                     await mostrarTelaSucesso('solicitacao', async () => {
+                        // Atualiza os dados após a tela de sucesso
+                        await refreshStudentsData();
                         renderStudents(studentsData);
+
+                        // Iniciar monitoramento APÓS a tela de sucesso
+                        if (geofenceMonitor) {
+                            geofenceMonitor.startMonitoring(studentId, studentName);
+                        }
                     });
+                    // ============================================
 
                 } catch (error) {
                     console.error('Erro ao solicitar saída:', error);
-                    showToast(`❌ ${error.message}`, 'danger');
+
+                    let mensagemErro = error.message || "Erro ao processar solicitação";
+
+                    // Verifica se é erro de horário (pelo texto da mensagem)
+                    if (mensagemErro.includes("só é permitida") ||
+                        mensagemErro.includes("permitido entre") ||
+                        mensagemErro.includes("horário") ||
+                        mensagemErro.includes("entre") && mensagemErro.includes("e")) {
+
+                        // EXIBIR O MODAL BONITO
+                        mostrarModalBloqueio(mensagemErro);
+                    } else {
+                        // Outros erros: exibir toast
+                        showToast(`❌ ${mensagemErro}`, 'danger');
+                    }
+
                     resetSlideButton(btn);
                 }
             }
@@ -4483,6 +4003,7 @@
             // Handler: CONFIRMAR SAÍDA
             async function handleExitConfirm(studentId, studentName, btn) {
                 try {
+
                     const response = await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, {
                         method: 'POST'
                     });
@@ -4492,36 +4013,18 @@
                         throw new Error(error.mensagem || 'Erro ao confirmar saída');
                     }
 
-                    // ✅ Atualizar status no cache local
-                    const aluno = studentsData.find(s => s.id == studentId);
-                    if (aluno) {
-                        aluno.status = 'AUSENTE';
-                        console.log(`✅ Status do aluno ${studentName} atualizado no cache para: AUSENTE`);
-                    }
-
-                    // ✅ Atualizar visual do slider
-                    atualizarVisualDoSlider(studentId, 'AUSENTE');
-
-                    const cardAluno = document.querySelector(`.student-card[data-student-id="${studentId}"]`);
-                    if (cardAluno) {
-                        const statusBadge = cardAluno.querySelector('.status-badge');
-                        if (statusBadge) {
-                            statusBadge.className = 'status-badge out';
-                            statusBadge.innerHTML = '<i class="fas fa-circle"></i>AUSENTE';
-                        }
-                    }
-
+                    // ========== MOSTRAR TELA DE SUCESSO ==========
                     await mostrarTelaSucesso('confirmacao', async () => {
+                        // Parar monitoramento
                         if (geofenceMonitor) {
                             geofenceMonitor.stopMonitoring(studentId);
                         }
+
+                        // Atualiza os dados após a tela de sucesso
+                        await refreshStudentsData();
                         renderStudents(studentsData);
                     });
-
-                    // ✅ Refresh em background após 5 segundos
-                    setTimeout(() => {
-                        refreshStudentsData().catch(console.warn);
-                    }, 5000);
+                    // ============================================
 
                 } catch (error) {
                     console.error('Erro ao confirmar saída:', error);
@@ -5662,11 +5165,6 @@
                 showIndicator(studentName, timeLeft = null, status = 'info') {
                     if (!this.indicator) return;
 
-                    // Força a centralização
-                    this.indicator.style.left = '0';
-                    this.indicator.style.right = '0';
-                    this.indicator.style.margin = '0 auto';
-
                     this.indicator.style.display = 'flex';
                     this.indicator.className = `geofence-indicator-pro ${status}`;
 
@@ -5676,18 +5174,13 @@
                     if (timeLeft !== null && timeLeft > 0) {
                         const minutes = Math.floor(timeLeft / 60);
                         const seconds = timeLeft % 60;
-                        const timeString = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-
-                        timerSpan.textContent = timeString;
+                        timerSpan.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
                         timerSpan.style.display = 'inline-block';
-                        //textSpan.innerHTML = `<i class="fas fa-walking"></i> ${studentName} ${timeString}`;
-                        textSpan.innerHTML = `<i class="fas fa-walking"></i> ${studentName}`;
+                        textSpan.innerHTML = `<i class="fas fa-walking"></i> ${studentName}: ${minutes}:${seconds.toString().padStart(2, '0')}`;
                     } else {
                         timerSpan.style.display = 'none';
                         textSpan.innerHTML = `<i class="fas fa-shield-alt"></i> Monitorando ${studentName}`;
                     }
-
-                    this.indicator.style.width = 'auto';
                 }
 
                 hideIndicator() {
@@ -5966,17 +5459,9 @@
 
                         if (!response.ok) throw new Error('Erro na API');
 
-                        // ✅ Atualizar visual IMEDIATAMENTE
-                        atualizarVisualDoSlider(studentId, 'AUSENTE');
-
-                        // Atualizar também no cache local
-                        const aluno = studentsData.find(a => a.id == studentId);
-                        if (aluno) {
-                            aluno.status = 'AUSENTE';
-                        }
-
                         await mostrarTelaSucesso('confirmacao', async () => {
                             await refreshStudentsData();
+                            return true;
                         });
 
                         this.sendNotification('✅ Saída Confirmada', `${monitor.studentName}: Saída confirmada automaticamente.`, 'success');
@@ -6008,36 +5493,6 @@
                     else if (error.code === error.TIMEOUT) message = 'Tempo limite excedido.';
                     if (message) this.showToast('Erro de Localização', message, 'error');
                 }
-            }
-
-            // ============== CONFIGURAÇÃO DE HORÁRIOS POR SALA ==============
-            window.HORARIOS_SAIDA = {
-                '1° ANO': { hora: 15, minuto: 10 },
-                '2° ANO': { hora: 15, minuto: 10 },
-                '3° ANO': { hora: 15, minuto: 10 },
-                '4° ANO': { hora: 15, minuto: 30 },
-                '5° ANO': { hora: 15, minuto: 30 }
-            };
-
-            function normalizarNomeSala(nome) {
-                if (!nome) return "";
-
-                // Remove espaços extras e converte para maiúsculas
-                let nomeLimpo = nome.trim().toUpperCase();
-
-                // Se começar com número e tiver "ANO" ou "ANOS"
-                if (nomeLimpo.match(/^\d/)) {
-                    // Troca "º" por "°"
-                    nomeLimpo = nomeLimpo.replace(/º/g, "°");
-
-                    // Garante que tenha o formato "X° ANO"
-                    const match = nomeLimpo.match(/(\d+)[°º]?\s*(ANO|ANOS)/i);
-                    if (match) {
-                        return match[1] + "° ANO";
-                    }
-                }
-
-                return nomeLimpo;
             }
 
             function mostrarModalBloqueio(mensagem) {
@@ -6169,72 +5624,6 @@
                 modal.querySelector('button').addEventListener('click', () => {
                     backdrop.remove();
                 });
-            }
-
-            // ============== VALIDAÇÃO DE HORÁRIO VIA BACKEND ==============
-            async function validarHorarioSaida(salaId, salaNome) {
-                console.log(`🔍 Validando horário para sala ID: ${salaId}, Nome: ${salaNome}`);
-
-                // Se não tem salaId, não consegue validar (permite por segurança)
-                if (!salaId) {
-                    console.log(`⚠️ Sala sem ID, permitindo operação por segurança`);
-                    return { permitido: true };
-                }
-
-                // Buscar horários do cache
-                let horarios = horariosSalasCache.get(salaId);
-
-                // Se não está em cache, busca do backend
-                if (!horarios) {
-                    try {
-                        const response = await fetchWithAuth(`/api/salas/${salaId}`);
-                        if (response.ok) {
-                            const sala = await response.json();
-                            if (sala.horaInicioChamada && sala.horaFimChamada) {
-                                horarios = {
-                                    horaInicio: sala.horaInicioChamada,
-                                    horaFim: sala.horaFimChamada
-                                };
-                                horariosSalasCache.set(salaId, horarios);
-                                console.log(`✅ Horários carregados para sala ${salaNome}:`, horarios);
-                            }
-                        }
-                    } catch (error) {
-                        console.warn(`⚠️ Erro ao buscar horários da sala ${salaNome}:`, error);
-                        // Fallback: permite a operação se não conseguir buscar
-                        return { permitido: true };
-                    }
-                }
-
-                // Se a sala não tem horários configurados, permite a qualquer hora
-                if (!horarios || !horarios.horaInicio || !horarios.horaFim) {
-                    console.log(`✅ Sala ${salaNome} sem horários configurados - permitido`);
-                    return { permitido: true };
-                }
-
-                const agora = new Date();
-                const horaAtual = agora.getHours();
-                const minutoAtual = agora.getMinutes();
-
-                // Converter horários (formato "HH:MM:SS" ou "HH:MM")
-                const [horaInicio, minutoInicio] = horarios.horaInicio.split(':').map(Number);
-                const [horaFim, minutoFim] = horarios.horaFim.split(':').map(Number);
-
-                const minutosAtual = horaAtual * 60 + minutoAtual;
-                const minutosInicio = horaInicio * 60 + minutoInicio;
-                const minutosFim = horaFim * 60 + minutoFim;
-
-                // Verifica se está dentro da janela de horário
-                if (minutosAtual >= minutosInicio && minutosAtual <= minutosFim) {
-                    console.log(`✅ Horário permitido para ${salaNome}: ${horaAtual}:${minutoAtual} dentro de ${horarios.horaInicio}-${horarios.horaFim}`);
-                    return { permitido: true };
-                }
-
-                const mensagem = `A solicitação de saída para ${salaNome} só é permitida entre ${horarios.horaInicio} e ${horarios.horaFim}.`;
-                console.log(`🚫 BLOQUEADO: ${mensagem}`);
-                mostrarModalBloqueio(mensagem);
-
-                return { permitido: false, mensagem };
             }
 
             // Abrir modal de dados pessoais
@@ -6635,17 +6024,6 @@
 
                     initBottomNavigation();
                     initConfigRows();
-
-                    // ⭐ NOVO: Listener para quando o usuário liga a tela do celular
-                    document.addEventListener('visibilitychange', function () {
-                        if (document.visibilityState === 'visible') {
-                            console.log("📱 Smartphone acordou! Atualizando dados do painel...");
-                            refreshStudentsData(); // Sua função existente que recarrega a lista de alunos
-                            renderMural(); // Também atualiza o mural
-                            loadTokens(); // Atualiza tokens se necessário
-                        }
-                    });
-
                     // Inicializar modal LGPD
                     const lgpdModalEl = document.getElementById('lgpdModal');
                     if (lgpdModalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
@@ -6721,8 +6099,6 @@
                     showToast('Erro ao inicializar aplicativo', 'danger');
                     setTimeout(() => logout(), 2000);
                 }
-
-
             }
 
             // Eventos
@@ -7231,8 +6607,6 @@
                     'TRANSPORTE': 'Transporte',
                     'MAE': 'Mãe',
                     'PAI': 'Pai',
-                    'AVO': 'Avô/Avó',
-                    'TIO': 'Tio/Tia',
                     'AMIGO': 'Amigo(a)',
                     'PARENTE': 'Parente'
                 };
@@ -7244,54 +6618,18 @@
                 const container = document.getElementById('historicoContainer');
                 if (!container) return;
 
-                // Ordena por data de entrada (mais recente primeiro)
                 const sorted = [...currentHistoryData].sort((a, b) => new Date(b.entradaAt) - new Date(a.entradaAt));
 
                 const totalPages = Math.ceil(sorted.length / HISTORY_PAGE_SIZE);
                 const start = (currentHistoryPage - 1) * HISTORY_PAGE_SIZE;
                 const pageData = sorted.slice(start, start + HISTORY_PAGE_SIZE);
 
-                // 🔴 NOVO: Construir UMA LISTA DE EVENTOS (entrada e saída como itens separados)
-                let allEvents = [];
-
+                // Agrupar por data
+                const groupedByDate = {};
                 pageData.forEach(record => {
-                    // Evento de ENTRADA
-                    allEvents.push({
-                        type: 'entry',
-                        data: record,
-                        timestamp: new Date(record.entradaAt),
-                        alunoNome: record.alunoNome,
-                        responsavelNome: record.iniciadoPor,
-                        responsavelTipo: record.iniciadoPorTipo,
-                        responsavelId: record.iniciadoPorId
-                    });
-
-                    // Evento de SAÍDA (se existir)
-                    if (record.saidaAt) {
-                        allEvents.push({
-                            type: 'exit',
-                            data: record,
-                            timestamp: new Date(record.saidaAt),
-                            alunoNome: record.alunoNome,
-                            responsavelNome: record.finalizadoPor,
-                            responsavelTipo: record.finalizadoPorTipo,
-                            responsavelId: record.finalizadoPorId
-                        });
-                    }
-                });
-
-                // 🔴 NOVO: Ordenar eventos por timestamp (mais recente primeiro)
-                allEvents.sort((a, b) => b.timestamp - a.timestamp);
-
-                // Agrupar por data para os divisores
-                const groupedByDate = new Map();
-
-                allEvents.forEach(event => {
-                    const dateKey = event.timestamp.toLocaleDateString('pt-BR');
-                    if (!groupedByDate.has(dateKey)) {
-                        groupedByDate.set(dateKey, []);
-                    }
-                    groupedByDate.get(dateKey).push(event);
+                    const date = new Date(record.entradaAt).toLocaleDateString('pt-BR');
+                    if (!groupedByDate[date]) groupedByDate[date] = [];
+                    groupedByDate[date].push(record);
                 });
 
                 let html = '<div class="timeline" style="position: relative; padding: 8px 0;">';
@@ -7408,23 +6746,14 @@
                             border-left: 3px solid #10b981;
                         }
                         .tl-card-corrigido.exit-card {
-                            border-left: 3px solid #ef4444;
+                            border-left: 3px solid #1a6fc4;
                         }
                     </style>
                     <div class="timeline-corrigida">
                 `;
 
-                // Iterar sobre as datas (já ordenadas)
-                const sortedDates = Array.from(groupedByDate.keys()).sort((a, b) => {
-                    // Converter string "dd/mm/yyyy" para data para comparação
-                    const [diaA, mesA, anoA] = a.split('/').map(Number);
-                    const [diaB, mesB, anoB] = b.split('/').map(Number);
-                    const dateA = new Date(anoA, mesA - 1, diaA);
-                    const dateB = new Date(anoB, mesB - 1, diaB);
-                    return dateB - dateA; // Mais recente primeiro
-                });
-
-                sortedDates.forEach(date => {
+                // Iterar sobre as datas
+                Object.keys(groupedByDate).forEach(date => {
                     // Lógica para HOJE e ONTEM
                     let dateDisplay = date;
                     const hoje = new Date().toLocaleDateString('pt-BR');
@@ -7440,37 +6769,39 @@
 
                     html += `<div class="day-divider-corrigido"><span>${dateDisplay}</span></div>`;
 
-                    const eventsOfDay = groupedByDate.get(date);
+                    // ========== CORREÇÃO: Ordenar por horário (mais recente primeiro) ==========
+                    const registrosDoDia = [...groupedByDate[date]].sort((a, b) => {
+                        const horarioA = new Date(a.entradaAt).getTime();
+                        const horarioB = new Date(b.entradaAt).getTime();
+                        return horarioB - horarioA;
+                    });
 
-                    // Ordenar eventos do dia por timestamp (mais recente primeiro)
-                    eventsOfDay.sort((a, b) => b.timestamp - a.timestamp);
+                    // Para cada registro, exibir APENAS o que ele representa
+                    registrosDoDia.forEach(record => {
+                        const entradaDate = new Date(record.entradaAt);
+                        const entradaTime = entradaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-                    eventsOfDay.forEach(event => {
-                        const time = event.timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                        const responsavelTipo = formatarTipoResponsavel(event.responsavelTipo);
+                        const iniciadoPorTipo = formatarTipoResponsavel(record.iniciadoPorTipo);
+                        const finalizadoPorTipo = record.finalizadoPorTipo ? formatarTipoResponsavel(record.finalizadoPorTipo) : '';
 
                         // Formatar nome do aluno
-                        const nomeAluno = event.alunoNome || 'Aluno';
+                        const nomeAluno = record.alunoNome || 'Aluno';
                         const partesNome = nomeAluno.trim().split(' ');
                         let nomeFormatado = nomeAluno;
                         if (partesNome.length >= 2) {
                             nomeFormatado = `${partesNome[0]} ${partesNome[partesNome.length - 1]}`;
                         }
 
-                        if (event.type === 'entry') {
-                            html += `
-                                <div class="tl-item-corrigido entry">
-                                    <div class="tl-dot-corrigido">
-                                        <i class="fas fa-sign-in-alt fa-xs"></i>
-                                    </div>
-                                    <div class="tl-card-corrigido entry-card">
-                                        <div class="who">${nomeFormatado}</div>
-                                        <div class="when">${time}</div>
-                                        <div class="what"><strong>Entrada</strong> registrada por ${event.responsavelNome || 'Sistema'}${responsavelTipo ? ` (${responsavelTipo})` : ''}</div>
-                                    </div>
-                                </div>
-                            `;
-                        } else {
+                        // VERIFICAR SE TEM SAÍDA REGISTRADA
+                        const temSaida = record.saidaAt !== null && record.saidaAt !== undefined;
+
+                        if (temSaida) {
+                            // Este é um registro COMPLETO (entrada E saída)
+                            // Vamos exibir PRIMEIRO a SAÍDA (mais recente) e DEPOIS a ENTRADA
+                            const saidaDate = new Date(record.saidaAt);
+                            const saidaTime = saidaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+                            // Saída (mais recente - vem primeiro)
                             html += `
                                 <div class="tl-item-corrigido exit">
                                     <div class="tl-dot-corrigido">
@@ -7478,8 +6809,36 @@
                                     </div>
                                     <div class="tl-card-corrigido exit-card">
                                         <div class="who">${nomeFormatado}</div>
-                                        <div class="when">${time}</div>
-                                        <div class="what"><strong>Saída</strong> registrada por ${event.responsavelNome || 'Sistema'}${responsavelTipo ? ` (${responsavelTipo})` : ''}</div>
+                                        <div class="when">${saidaTime}</div>
+                                        <div class="what"><strong>Saída</strong> registrada por ${record.finalizadoPor || 'Sistema'}${finalizadoPorTipo ? ` (${finalizadoPorTipo})` : ''}</div>
+                                    </div>
+                                </div>
+                            `;
+
+                            // Entrada (mais antiga - vem depois)
+                            html += `
+                                <div class="tl-item-corrigido entry">
+                                    <div class="tl-dot-corrigido">
+                                        <i class="fas fa-sign-in-alt fa-xs"></i>
+                                    </div>
+                                    <div class="tl-card-corrigido entry-card">
+                                        <div class="who">${nomeFormatado}</div>
+                                        <div class="when">${entradaTime}</div>
+                                        <div class="what"><strong>Entrada</strong> registrada por ${record.iniciadoPor || 'Sistema'}${iniciadoPorTipo ? ` (${iniciadoPorTipo})` : ''}</div>
+                                    </div>
+                                </div>
+                            `;
+                        } else {
+                            // Apenas ENTRADA (aluno entrou mas ainda não saiu - sessão aberta)
+                            html += `
+                                <div class="tl-item-corrigido entry">
+                                    <div class="tl-dot-corrigido">
+                                        <i class="fas fa-sign-in-alt fa-xs"></i>
+                                    </div>
+                                    <div class="tl-card-corrigido entry-card">
+                                        <div class="who">${nomeFormatado}</div>
+                                        <div class="when">${entradaTime}</div>
+                                        <div class="what"><strong>Entrada</strong> registrada por ${record.iniciadoPor || 'Sistema'}${iniciadoPorTipo ? ` (${iniciadoPorTipo})` : ''}</div>
                                     </div>
                                 </div>
                             `;
@@ -7490,7 +6849,7 @@
                 html += '</div></div>';
 
                 // Paginação
-                const totalPagesCalc = Math.ceil(currentHistoryData.length / HISTORY_PAGE_SIZE);
+                const totalPagesCalc = Math.ceil(sorted.length / HISTORY_PAGE_SIZE);
                 if (totalPagesCalc > 1) {
                     html += `
                         <div class="pagination-controls">
@@ -7510,19 +6869,8 @@
                 // Eventos de paginação
                 const prevBtn = document.getElementById('historyPrevPage');
                 const nextBtn = document.getElementById('historyNextPage');
-                if (prevBtn) prevBtn.onclick = () => {
-                    if (currentHistoryPage > 1) {
-                        currentHistoryPage--;
-                        renderHistoryTimeline();
-                    }
-                };
-                if (nextBtn) nextBtn.onclick = () => {
-                    const total = Math.ceil(currentHistoryData.length / HISTORY_PAGE_SIZE);
-                    if (currentHistoryPage < total) {
-                        currentHistoryPage++;
-                        renderHistoryTimeline();
-                    }
-                };
+                if (prevBtn) prevBtn.onclick = () => { if (currentHistoryPage > 1) { currentHistoryPage--; renderHistoryTimeline(); } };
+                if (nextBtn) nextBtn.onclick = () => { const total = Math.ceil(currentHistoryData.length / HISTORY_PAGE_SIZE); if (currentHistoryPage < total) { currentHistoryPage++; renderHistoryTimeline(); } };
             }
 
             // ============== FASE 5: MONITORAMENTO DE GEOFENCE  ==============
@@ -7585,95 +6933,6 @@
                 }, 3000);
             }
 
-            // Função para verificar inconsistência entre aluno e sessão
-            async function verificarConsistenciaAluno(alunoId) {
-                try {
-                    // 1. Buscar status do aluno via API específica
-                    const alunoResponse = await fetchWithAuth(`/api/alunos/${alunoId}/status`);
-                    const alunoData = await alunoResponse.json();
-                    const statusAluno = alunoData.status; // PRESENTE ou AUSENTE
-
-                    // 2. Buscar sessão ativa do aluno
-                    const sessaoResponse = await fetchWithAuth(`/api/presencas/aluno/${alunoId}/sessao-ativa`);
-                    const sessaoData = await sessaoResponse.json();
-                    const temSessaoAtiva = sessaoData && sessaoData.id;
-
-                    // 3. Verificar inconsistências
-                    if (statusAluno === 'PRESENTE' && !temSessaoAtiva) {
-                        console.error(`⚠️ INCONSISTÊNCIA CRÍTICA: Aluno ${alunoId} está PRESENTE mas não tem sessão ativa!`);
-                        await corrigirInconsistencia(alunoId, 'PRESENTE_SEM_SESSAO');
-                        return false;
-                    }
-
-                    if (statusAluno === 'AUSENTE' && temSessaoAtiva) {
-                        console.error(`⚠️ INCONSISTÊNCIA CRÍTICA: Aluno ${alunoId} está AUSENTE mas tem sessão ativa (ID: ${sessaoData.id})!`);
-                        await corrigirInconsistencia(alunoId, 'AUSENTE_COM_SESSAO');
-                        return false;
-                    }
-
-                    console.log(`✅ Consistência OK para aluno ${alunoId}: ${statusAluno} - Sessão: ${temSessaoAtiva ? 'ativa' : 'inativa'}`);
-                    return true;
-
-                } catch (error) {
-                    console.error(`Erro ao verificar consistência do aluno ${alunoId}:`, error);
-                    return false;
-                }
-            }
-
-            // Função para corrigir inconsistência (chama o backend)
-            async function corrigirInconsistencia(alunoId, tipoInconsistencia) {
-                try {
-                    console.log(`🔧 Tentando corrigir inconsistência do tipo: ${tipoInconsistencia} para aluno ${alunoId}`);
-
-                    const response = await fetchWithAuth('/api/presencas/corrigir-inconsistencia', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            alunoId: alunoId,
-                            tipoInconsistencia: tipoInconsistencia,
-                            origem: 'TUTOR_DASHBOARD',
-                            timestamp: new Date().toISOString()
-                        })
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`Falha na correção: ${response.status}`);
-                    }
-
-                    const resultado = await response.json();
-                    console.log(`✅ Inconsistência corrigida:`, resultado);
-                    showToast(`⚠️ Inconsistência detectada e corrigida automáticamente`, 'warning');
-
-                    // Recarregar dados após correção
-                    await refreshStudentsData();
-
-                    return true;
-
-                } catch (error) {
-                    console.error(`❌ Erro ao corrigir inconsistência:`, error);
-                    showToast(`Erro crítico: Inconsistência detectada. Contate o suporte.`, 'danger');
-                    return false;
-                }
-            }
-
-            // Função para verificar TODOS os alunos (chamada periódica)
-            async function verificarConsistenciaTodosAlunos() {
-                if (!studentsData || studentsData.length === 0) return;
-
-                console.log(`🔍 Verificando consistência de ${studentsData.length} alunos...`);
-                let inconsistenciasEncontradas = 0;
-
-                for (const aluno of studentsData) {
-                    const consistente = await verificarConsistenciaAluno(aluno.id);
-                    if (!consistente) inconsistenciasEncontradas++;
-                }
-
-                if (inconsistenciasEncontradas > 0) {
-                    console.warn(`⚠️ Total de ${inconsistenciasEncontradas} inconsistências encontradas e corrigidas`);
-                } else {
-                    console.log(`✅ Todos os ${studentsData.length} alunos estão consistentes`);
-                }
-            }
-
             // ============== ATUALIZAR DADOS DOS ALUNOS (INTELIGENTE) ==============
             async function refreshStudentsData() {
                 try {
@@ -7685,32 +6944,100 @@
                         throw new Error("Dados de alunos inválidos.");
                     }
 
-                    // Processa os alunos - sem correções automáticas
+                    // Busca status de saída ativa para cada aluno
                     const novosAlunos = await Promise.all(data.alunos.map(async (student) => {
                         try {
-                            // Apenas verifica se há saída pendente
                             const saidaResponse = await fetchWithAuth(`/api/presencas/aluno/${student.id}/saida-ativa`);
                             const saidaAtiva = await saidaResponse.json();
 
                             if (saidaAtiva.codigo === 'SAIDA_ATIVA' && saidaAtiva.dados) {
                                 student.status = 'AGUARDANDO_CONFIRMACAO';
                             }
-                            // Mantém o status que veio do backend para PRESENTE e AUSENTE
                         } catch (error) {
-                            console.warn(`Erro ao buscar dados para aluno ${student.id}:`, error);
+                            console.warn(`Erro ao buscar saída ativa para aluno ${student.id}:`, error);
                         }
                         return student;
                     }));
 
-                    // ✅ SEMPRE substituir o cache pelo novo (fonte da verdade é o backend)
-                    studentsData = novosAlunos;
-                    renderStudents(studentsData);
+                    // Se não tem alunos ainda, renderiza tudo
+                    if (!studentsData || studentsData.length === 0) {
+                        studentsData = novosAlunos;
+                        renderStudents(studentsData);
+                        return;
+                    }
 
+                    // === ATUALIZAÇÃO INTELIGENTE: só atualiza o que mudou ===
+                    let precisaRenderizar = false;
+
+                    for (let i = 0; i < novosAlunos.length; i++) {
+                        const alunoNovo = novosAlunos[i];
+                        const alunoAntigo = studentsData.find(a => a.id === alunoNovo.id);
+
+                        if (!alunoAntigo) {
+                            precisaRenderizar = true;
+                            break;
+                        }
+
+                        // Verifica se o STATUS mudou (é o que importa)
+                        if (alunoAntigo.status !== alunoNovo.status) {
+                            console.log(`Status do aluno ${alunoNovo.nome} mudou: ${alunoAntigo.status} -> ${alunoNovo.status}`);
+
+                            // Atualiza o card específico no DOM
+                            const cardAluno = document.querySelector(`.student-card[data-student-id="${alunoNovo.id}"]`);
+
+                            if (cardAluno) {
+                                // Atualiza o status badge
+                                const statusBadge = cardAluno.querySelector('.status-badge');
+                                if (statusBadge) {
+                                    statusBadge.className = `status-badge ${getStatusClass(alunoNovo.status)}`;
+                                    statusBadge.innerHTML = `<i class="fas ${getStatusIcon(alunoNovo.status)}"></i>${getStatusText(alunoNovo.status)}`;
+                                }
+
+                                // Atualiza o slide button
+                                const slideBtn = cardAluno.querySelector('.slide-btn');
+                                if (slideBtn) {
+                                    const newAction = getSlideAction(alunoNovo.status);
+                                    const newLabel = getSlideLabel(alunoNovo.status);
+                                    const newIcon = getSlideIcon(alunoNovo.status);
+
+                                    slideBtn.dataset.action = newAction;
+                                    const labelSpan = slideBtn.querySelector('.slide-track-label');
+                                    if (labelSpan) labelSpan.textContent = newLabel;
+
+                                    const thumbIcon = slideBtn.querySelector('.slide-thumb i');
+                                    if (thumbIcon) {
+                                        thumbIcon.className = `fas ${newIcon}`;
+                                    }
+                                }
+
+                                // Efeito de destaque
+                                cardAluno.classList.add('atualizado');
+                                setTimeout(() => cardAluno.classList.remove('atualizado'), 500);
+                            }
+
+                            // Atualiza o objeto studentsData
+                            alunoAntigo.status = alunoNovo.status;
+                        }
+                    }
+
+                    // Se precisou renderizar tudo por algum motivo
+                    if (precisaRenderizar) {
+                        studentsData = novosAlunos;
+                        renderStudents(studentsData);
+                    }
+
+                    // Atualizar contador de filhos na config
                     const filhosCount = document.getElementById('filhosCount');
                     if (filhosCount) filhosCount.textContent = `${studentsData.length} aluno(s) vinculado(s)`;
 
                 } catch (error) {
                     console.error('Erro ao atualizar alunos:', error);
+                    if (!studentsData || !studentsData.length) {
+                        const container = document.getElementById('studentsContainer');
+                        if (container) {
+                            container.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-child"></i></div><div class="t">Nenhum aluno vinculado</div><div class="s">Você não possui alunos cadastrados</div></div>`;
+                        }
+                    }
                 }
             }
 
