@@ -3339,64 +3339,85 @@
                 );
             }
 
-            function handleNovaMensagem(payload) {
-                console.log('🎯 [HANDLER] Iniciando processamento...');
-                const mensagem = payload.mensagem || payload;
-                console.log('📨 [DEBUG] Dados recebidos:', mensagem);
+            function handleNovaMensagem(mensagem) {
+                console.log('📨 [DEBUG] Mensagem recebida no WebSocket:', JSON.stringify(mensagem, null, 2));
+                console.log('🎯 [HANDLER] handleNovaMensagem foi CHAMADA!');
+                console.log('🎯 [HANDLER] Mensagem recebida:', mensagem);
 
-                // 1. TRAVA DE DUPLICIDADE (Mantenha como está)
-                let mensagemJaExiste = false;
-                for (let card of materiasUnicas.values()) {
-                    if (card.mensagens && card.mensagens.some(m => m.id === mensagem.id)) {
-                        mensagemJaExiste = true;
-                        break;
-                    }
-                }
-                if (mensagemJaExiste) return;
-
-                // 2. ROTEAMENTO E DEFINIÇÃO DE VARIÁVEIS (Onde o erro se esconde)
+                // 1. Mostrar notificação toast
+                let tipoLabel = '';
                 let cardKey = null;
-                let tipoLabel = "Mensagem";
-                let cardNome = "";
-                let cardSalaNome = mensagem.salaNome || "Geral";
+                let cardNome = null;
+                let cardSalaNome = null;
+
+                console.log(`🔍 Tipo da mensagem: ${mensagem.tipo}`);
 
                 if (mensagem.tipo === 'INSTITUCIONAL') {
+                    tipoLabel = 'Institucional';
                     cardKey = 'diretoria';
-                    tipoLabel = "Diretoria";
-                    cardNome = "Diretoria";
-                }
-                else if (mensagem.materiaId) {
-                    // SE TEM ID DE MATÉRIA, É OBRIGATÓRIO IR PARA O CARD DA MATÉRIA
-                    cardKey = String(mensagem.materiaId);
-                    tipoLabel = mensagem.materiaNome || "Matéria";
-                    cardNome = mensagem.materiaNome;
+                    cardNome = 'Diretoria';
+                    cardSalaNome = 'Avisos da Direção';
+                    console.log('✅ Mensagem INSTITUCIONAL detectada');
                 }
                 else if (mensagem.tipo === 'COLETIVA') {
-                    // SÓ ENTRA AQUI SE NÃO TIVER MATERIA_ID (Avisos da sala)
-                    cardKey = 'turma';
-                    tipoLabel = "Turma";
-                    cardNome = "Turma";
+                    tipoLabel = 'Coletiva';
+
+                    // ROTEAMENTO INTELIGENTE:
+                    // Se a mensagem coletiva tiver uma matéria (enviada por professor), vai para o card da matéria.
+                    // Se não tiver (enviada pela direção/sistema), vai para o card 'turma'.
+                    if (mensagem.materiaId) {
+                        cardKey = String(mensagem.materiaId);
+                        cardNome = mensagem.materiaNome || 'Matéria';
+                        cardSalaNome = mensagem.salaNome || 'Mensagens da matéria';
+                        console.log(`✅ Mensagem COLETIVA da matéria [${cardNome}] detectada`);
+                    } else {
+                        cardKey = 'turma';
+                        cardNome = 'Turma';
+                        cardSalaNome = mensagem.salaNome || 'Avisos da Turma';
+                        console.log('✅ Mensagem COLETIVA Geral (Turma) detectada');
+                    }
+                }
+                else if (mensagem.tipo === 'INDIVIDUAL') {
+                    tipoLabel = mensagem.alunoNome ? `Para: ${mensagem.alunoNome}` : 'Individual';
+
+                    // ⚠️ CORREÇÃO CRÍTICA: Verifica se tem materiaId
+                    if (mensagem.materiaId) {
+                        cardKey = mensagem.materiaId ? Number(mensagem.materiaId) : null;
+                        cardNome = mensagem.materiaNome || 'Matéria';
+                        cardSalaNome = mensagem.salaNome || '';
+                        console.log(`✅ Mensagem INDIVIDUAL da matéria ID: ${mensagem.materiaId} (${cardNome})`);
+                    } else if (mensagem.materiaNome) {
+                        // Fallback: usar nome da matéria
+                        cardKey = 'msg_' + Date.now();
+                        cardNome = mensagem.materiaNome;
+                        cardSalaNome = '';
+                        console.warn(`⚠️ Mensagem INDIVIDUAL sem materiaId, usando nome: ${mensagem.materiaNome}`);
+                    } else {
+                        // Último fallback
+                        cardKey = 'msg_' + Date.now();
+                        cardNome = 'Mensagem';
+                        cardSalaNome = '';
+                        console.warn('⚠️ Mensagem INDIVIDUAL sem materiaId e sem materiaNome');
+                    }
                 }
 
-                console.log(`📍 Roteando para o CardKey: ${cardKey}`);
-
+                // Se não conseguiu determinar o card, não prossegue
                 if (!cardKey) {
-                    console.error('❌ Mensagem sem destino definido:', mensagem);
+                    console.error('❌ Não foi possível determinar o card para a mensagem');
                     return;
                 }
 
-                // 3. ATUALIZAÇÃO DA UI (Consertando as variáveis que travavam o código)
-                // Se você usa showToast ou toastr, garanta que a função existe
-                if (typeof showToast === 'function') {
-                    showToast(`${tipoLabel}: ${mensagem.conteudo.substring(0, 50)}...`, 'info');
-                } else {
-                    console.log(`📢 Alerta: ${tipoLabel} - ${mensagem.conteudo}`);
-                }
+                // Mostrar toast
+                showToast(`${tipoLabel}: ${mensagem.conteudo.substring(0, 100)}${mensagem.conteudo.length > 100 ? '...' : ''}`, 'success');
 
+                // 2. Marcar mensagem como NÃO LIDA
                 mensagem.lida = false;
 
-                // 4. ATUALIZAR O MAP (Sua lógica de cache)
+                console.log(`📦 Adicionando ao card: ${cardKey} (${cardNome})`);
+
+                // 3. Adicionar ao cache de mensagens
                 if (!materiasUnicas.has(cardKey)) {
+                    // Criar nova entrada no cache
                     materiasUnicas.set(cardKey, {
                         id: cardKey,
                         nome: cardNome,
@@ -3405,35 +3426,55 @@
                         mensagens: [mensagem],
                         salaNome: cardSalaNome
                     });
+                    console.log(`✅ Criado novo card no cache: ${cardKey} (${cardNome})`);
                 } else {
                     const materia = materiasUnicas.get(cardKey);
-                    materia.mensagens.unshift(mensagem);
+                    materia.mensagens.unshift(mensagem); // Adicionar no início
                     materia.mensagensNaoLidas = (materia.mensagensNaoLidas || 0) + 1;
+                    console.log(`✅ Mensagem adicionada ao card existente: ${cardKey}, total não lidas: ${materia.mensagensNaoLidas}`);
                 }
 
-                // 5. RECALCULAR E ATUALIZAR TELA
-                let novoTotalNaoLidas = Array.from(materiasUnicas.values())
-                    .reduce((sum, item) => sum + (item.mensagensNaoLidas || 0), 0);
+                // 4. Recalcular total de não lidas
+                totalNaoLidas = 0;
+                for (const [key, item] of materiasUnicas) {
+                    const naoLidas = item.mensagensNaoLidas || 0;
+                    totalNaoLidas += naoLidas;
+                    console.log(`📊 Card ${key}: ${naoLidas} não lidas`);
+                }
+                console.log(`📊 TOTAL de mensagens não lidas: ${totalNaoLidas}`);
 
-                atualizarBadgeMural(novoTotalNaoLidas);
+                atualizarBadgeMural(totalNaoLidas);
 
-                // Se o mural está aberto, re-renderiza tudo. Se não, atualiza só o badge do card
+                // 5. Recarregar o mural se a aba estiver ativa, ou injetar o badge visualmente
                 const muralTab = document.querySelector('.tab-pane[data-tab="mural"]');
                 if (muralTab && muralTab.classList.contains('active')) {
+                    console.log('🔄 Recarregando mural para exibir novos badges...');
                     renderMural();
                 } else {
-                    const badge = document.querySelector(`.mural-card[data-card-id="${cardKey}"] .badge-count`);
-                    if (badge) {
-                        badge.textContent = materiasUnicas.get(cardKey).mensagensNaoLidas;
-                        badge.style.display = 'block';
-                    } else {
-                        renderMural(); // Fallback: se não achou o badge, redesenha o grid
+                    console.log(`📌 Aba mural não está ativa. Card ${cardKey} atualizado no cache.`);
+                    // Tenta encontrar o card (caso ele já esteja renderizado na tela) para por a bolinha
+                    const cardElement = document.querySelector(`.mural-card[data-card-id="${cardKey}"]`);
+                    if (cardElement) {
+                        const metaDiv = cardElement.querySelector('.meta');
+                        let badgeSpan = metaDiv.querySelector('.badge-count');
+                        const count = materiasUnicas.get(cardKey).mensagensNaoLidas;
+
+                        if (badgeSpan) {
+                            badgeSpan.textContent = count; // Atualiza o número
+                        } else if (count > 0 && metaDiv) {
+                            // Cria a bolinha se não existir
+                            badgeSpan = document.createElement('span');
+                            badgeSpan.className = 'badge-count';
+                            badgeSpan.textContent = count;
+                            metaDiv.appendChild(badgeSpan);
+                        }
                     }
                 }
 
-                // 6. SOM (Mantenha como está)
+                // 6. Tocar som de notificação (opcional)
                 try {
-                    new Audio('/assets/mp3/alertas/Alerta.mp3').play().catch(() => { });
+                    const audio = new Audio('/assets/sounds/notification.mp3');
+                    audio.play().catch(e => console.log('🔇 Som não suportado ou bloqueado'));
                 } catch (e) { }
             }
 
@@ -4583,23 +4624,13 @@
                     });
 
                     // 2. Adicionar card "Turma"
-                    // Filtro reforçado: Remove mensagens que tenham ID de matéria OU que venham de Professores
-                    const coletivasPurificadas = coletivasDaSala.filter(msg => {
-                        const temMateriaId = msg.materiaId !== undefined && msg.materiaId !== null;
-                        const ehProfessor = msg.criadoPorTipo === 'PROFESSOR';
-
-                        // Só entra no card "Turma" se NÃO tiver matéria e NÃO for de professor
-                        return !temMateriaId && !ehProfessor;
-                    });
-
-                    const totalColetivasNaoLidas = coletivasPurificadas.filter(msg => !msg.lida).length;
-
+                    const totalColetivasNaoLidas = coletivasDaSala.filter(msg => !msg.lida).length;
                     materiasUnicas.set('turma', {
                         id: 'turma',
                         nome: 'Turma',
                         tipo: 'COLETIVA',
                         mensagensNaoLidas: totalColetivasNaoLidas,
-                        mensagens: coletivasPurificadas,
+                        mensagens: coletivasDaSala,
                         salaNome: `Mensagens da ${materias[0]?.salaNome || 'Turma'}`
                     });
 
@@ -4632,7 +4663,8 @@
 
                             // Filtrar mensagens
                             const mensagensFiltradas = mensagensDaMateria.filter(msg =>
-                                msg.tipo !== 'INSTITUCIONAL'
+                                msg.tipo !== 'INSTITUCIONAL' &&
+                                !(msg.tipo === 'COLETIVA' && msg.salaId === salaId)
                             );
 
                             // Aplicar estado salvo do sessionStorage
