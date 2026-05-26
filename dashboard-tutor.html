@@ -5754,23 +5754,48 @@
                     // Varre a lista global. Dispara a saída contanto que o tutor esteja dentro do raio.
                     // ======================================================================
                     if (isInside && window.studentsData) {
-                        for (const aluno of window.studentsData) {
-                            if (aluno.status === 'PRESENTE' && aluno.chamadaAutomatica === false) {
-                                console.log(`🤖 [V2 - Direto] Chamada automática ativada para ${aluno.nome} (Tutor dentro do perímetro).`);
+                        console.log(`📍 [Geofence] Tutor dentro do perímetro. Verificando alunos qualificados...`);
 
-                                if (typeof window.handleExitRequest === 'function') {
-                                    // Prevenção local de flood para evitar múltiplos cliques na API no mesmo ciclo
-                                    aluno.status = 'PROCESSANDO_AUTOMATICO';
+                        // Criamos uma função assíncrona interna para lidar com os awaits com segurança
+                        const processarSaidasAutomaticas = async () => {
+                            for (const aluno of window.studentsData) {
 
-                                    try {
-                                        await window.handleExitRequest(aluno.id, aluno.nome, null);
-                                    } catch (err) {
-                                        console.error(`Erro ao processar saída automática de ${aluno.nome}:`, err);
-                                        aluno.status = 'PRESENTE'; // Desfaz em caso de falha na API
+                                // Log de diagnóstico para acompanhar no console do celular/PC
+                                console.log(`🔍 [Checagem] Aluno: ${aluno.nome} | Status: ${aluno.status} | Chamada Automática Switch: ${aluno.chamadaAutomatica}`);
+
+                                // VALIDAÇÃO CRÍTICA: Deve estar PRESENTE e com o switch ligado
+                                if (aluno.status === 'PRESENTE' && aluno.chamadaAutomatica === true) {
+
+                                    console.log(`🤖 [V2 - Direto] Aluno ${aluno.nome} qualificado. Iniciando chamada automática...`);
+
+                                    if (typeof window.handleExitRequest === 'function') {
+                                        // Prevenção local de flood para evitar múltiplos cliques na API no mesmo ciclo
+                                        aluno.status = 'PROCESSANDO_AUTOMATICO';
+
+                                        try {
+                                            // Criamos um elemento "fantoche" para que o handleExitRequest não quebre se tentar manipular o DOM
+                                            const fakeBtn = document.createElement('button');
+                                            fakeBtn.dataset.action = 'exit-request';
+
+                                            // Executa a chamada original exatamente como o botão manual faria
+                                            await window.handleExitRequest(aluno.id, aluno.nome, fakeBtn);
+
+                                            console.log(`✅ [V2 - Sucesso] Chamada automática concluída para ${aluno.nome}.`);
+                                        } catch (err) {
+                                            console.error(`❌ Erro ao processar saída automática de ${aluno.nome}:`, err);
+                                            aluno.status = 'PRESENTE'; // Desfaz em caso de falha na API para permitir nova tentativa
+                                        }
+                                    } else {
+                                        console.error("🚨 Erro: window.handleExitRequest não foi encontrada no escopo global.");
                                     }
                                 }
                             }
-                        }
+                        };
+
+                        // Executa a rotina assíncrona com tratamento global de falhas
+                        processarSaidasAutomaticas().catch(err => {
+                            console.error("🚨 Erro crítico na rotina de processamento de geofence:", err);
+                        });
                     }
                     // ======================================================================
 
