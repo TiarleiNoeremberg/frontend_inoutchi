@@ -4515,6 +4515,12 @@
                     }
                 }
 
+                // Parar o EntranceDetector
+                if (window.entranceDetector && window.entranceDetector.stopWatching) {
+                    window.entranceDetector.stopWatching();
+                    console.log('🔴 EntranceDetector parado');
+                }
+
                 if (studentRefreshInterval) clearInterval(studentRefreshInterval);
                 localStorage.clear();
                 sessionStorage.clear();
@@ -5323,6 +5329,196 @@
                     el.style.transform = 'translateY(-8px)';
                     setTimeout(() => el.remove(), 300);
                 }, 2400);
+            }
+
+            /**
+ * NOVA CLASSE: Detecta entrada na geofence e dispara chamadas automáticas
+ * Esta classe é INDEPENDENTE do GeofenceMonitorPro existente
+ */
+            class EntranceDetector {
+                constructor() {
+                    this.watchId = null;
+                    this.isRunning = false;
+                    this.lastPosition = null;
+                    this.GEOFENCE_RADIUS_METERS = 200;
+                    this.schoolCoords = null;
+                    this.checkInterval = null;
+                }
+
+                async init() {
+                    console.log('🟢 [EntranceDetector] Inicializando...');
+
+                    // Carrega coordenadas da escola
+                    try {
+                        const escolaId = await this.getEscolaId();
+                        const response = await fetchWithAuth(`/api/geofences/escola/${escolaId}/coordenadas`);
+                        const data = await response.json();
+                        this.schoolCoords = {
+                            lat: data.latitude,
+                            lng: data.longitude,
+                            raio: data.raio
+                        };
+                        this.GEOFENCE_RADIUS_METERS = data.raio || 200;
+                        console.log('📍 [EntranceDetector] Coordenadas da escola carregadas:', this.schoolCoords);
+                    } catch (error) {
+                        console.error('❌ [EntranceDetector] Erro ao carregar coordenadas:', error);
+                        return;
+                    }
+
+                    // Inicia o monitoramento de posição
+                    this.startWatching();
+                    this.isRunning = true;
+                    console.log('✅ [EntranceDetector] Monitoramento iniciado');
+                }
+
+                async getEscolaId() {
+                    // Reutiliza a lógica existente
+                    if (studentsData && studentsData.length > 0 && studentsData[0].escolaId) {
+                        return studentsData[0].escolaId;
+                    }
+
+                    try {
+                        const response = await fetchWithAuth('/api/users/me');
+                        const userData = await response.json();
+                        if (userData.escolaId) return userData.escolaId;
+                    } catch (error) {
+                        console.warn('[EntranceDetector] Erro ao buscar escolaId:', error);
+                    }
+
+                    return 1; // fallback
+                }
+
+                calculateDistance(lat1, lon1, lat2, lon2) {
+                    const R = 6371e3;
+                    const φ1 = lat1 * Math.PI / 180;
+                    const φ2 = lat2 * Math.PI / 180;
+                    const Δφ = (lat2 - lat1) * Math.PI / 180;
+                    const Δλ = (lon2 - lon1) * Math.PI / 180;
+                    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                        Math.cos(φ1) * Math.cos(φ2) *
+                        Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+                    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                    return R * c;
+                }
+
+                startWatching() {
+                    if (!navigator.geolocation) {
+                        console.error('❌ [EntranceDetector] Geolocalização não suportada');
+                        return;
+                    }
+
+                    // Opções de alta precisão
+                    const options = {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 0
+                    };
+
+                    this.watchId = navigator.geolocation.watchPosition(
+                        (position) => this.handlePositionUpdate(position),
+                        (error) => this.handleLocationError(error),
+                        options
+                    );
+
+                    console.log('🟢 [EntranceDetector] watchPosition iniciado, ID:', this.watchId);
+                }
+
+                stopWatching() {
+                    if (this.watchId) {
+                        navigator.geolocation.clearWatch(this.watchId);
+                        this.watchId = null;
+                        console.log('🔴 [EntranceDetector] watchPosition parado');
+                    }
+                    this.isRunning = false;
+                }
+
+                async handlePositionUpdate(position) {
+                    const { latitude, longitude, accuracy } = position.coords;
+
+                    // Ignora posições com baixa precisão
+                    if (accuracy > 150) {
+                        console.log(`📍 [EntranceDetector] Precisão baixa (${accuracy}m), ignorando`);
+                        return;
+                    }
+
+                    if (!this.schoolCoords) {
+                        console.warn('⚠️ [EntranceDetector] Coordenadas da escola não carregadas');
+                        return;
+                    }
+
+                    const distance = this.calculateDistance(latitude, longitude, this.schoolCoords.lat, this.schoolCoords.lng);
+                    const isInside = distance <= this.GEOFENCE_RADIUS_METERS;
+
+                    // Verifica se acabou de entrar na geofence (estava fora e agora está dentro)
+                    const wasInside = this.lastPosition ? this.lastPosition.isInside : false;
+
+                    if (isInside && !wasInside && this.lastPosition) {
+                        console.log(`🚪 [EntranceDetector] TUTOR ENTROU NA GEOFENCE! Distância: ${distance.toFixed(2)}m`);
+                        await this.onEnterGeofence();
+                    }
+
+                    this.lastPosition = { latitude, longitude, isInside, distance, timestamp: Date.now() };
+                }
+
+                async onEnterGeofence() {
+                    console.log('🎯 [EntranceDetector] Processando entrada na geofence...');
+
+                    // Verificar se studentsData está disponível
+                    if (!window.studentsData || window.studentsData.length === 0) {
+                        console.warn('⚠️ [EntranceDetector] Nenhum aluno carregado');
+                        return;
+                    }
+
+                    // Para cada aluno do tutor
+                    for (const aluno of window.studentsData) {
+                        // Condições para chamada automática:
+                        // 1. Switch de chamada automática está ativo
+                        // 2. Aluno está PRESENTE na escola
+                        // 3. Aluno NÃO tem saída pendente (campo saidaPendente do DTO)
+
+                        const autoAtivo = aluno.chamadaAutomatica === true;
+                        const alunoPresente = aluno.status === 'PRESENTE';
+                        const temSaidaPendente = aluno.saidaPendente === true;
+
+                        console.log(`🔍 [EntranceDetector] Aluno: ${aluno.nome}`, {
+                            autoAtivo,
+                            alunoPresente,
+                            temSaidaPendente
+                        });
+
+                        if (autoAtivo && alunoPresente && !temSaidaPendente) {
+                            console.log(`🚀 [EntranceDetector] Disparando chamada automática para: ${aluno.nome}`);
+
+                            // Chamar a função que cria a saída (reutilizando a existente)
+                            if (typeof handleExitRequest === 'function') {
+                                // Criamos um botão "fantoche" para a função não quebrar
+                                const fakeBtn = document.createElement('button');
+                                fakeBtn.dataset.action = 'exit-request';
+
+                                try {
+                                    await handleExitRequest(aluno.id, aluno.nome, fakeBtn);
+                                    console.log(`✅ [EntranceDetector] Chamada criada para: ${aluno.nome}`);
+
+                                    // Aguarda 2 segundos antes de processar o próximo aluno (evitar sobrecarga)
+                                    await new Promise(resolve => setTimeout(resolve, 2000));
+                                } catch (err) {
+                                    console.error(`❌ [EntranceDetector] Erro ao criar chamada para ${aluno.nome}:`, err);
+                                }
+                            } else {
+                                console.error('❌ [EntranceDetector] handleExitRequest não encontrada');
+                            }
+                        }
+                    }
+                }
+
+                handleLocationError(error) {
+                    console.warn('⚠️ [EntranceDetector] Erro de localização:', error.message);
+                    if (error.code === error.PERMISSION_DENIED) {
+                        console.warn('📍 [EntranceDetector] Permissão de localização negada');
+                    } else if (error.code === error.TIMEOUT) {
+                        console.warn('📍 [EntranceDetector] Timeout na localização');
+                    }
+                }
             }
 
             // ============================================
@@ -6527,6 +6723,13 @@
                     renderMural();
 
                     initGeofenceMonitor();
+
+                    // Inicializar o detector de entrada
+                    if (!window.entranceDetector) {
+                        window.entranceDetector = new EntranceDetector();
+                        window.entranceDetector.init();
+                        console.log('✅ EntranceDetector inicializado e monitorando');
+                    }
 
                     const appShell = document.getElementById('appShell');
                     if (appShell) appShell.classList.add('visible');
