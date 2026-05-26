@@ -3939,13 +3939,7 @@
                     // Validação de horário
                     const alunoAtual = studentsData.find(s => s.id == studentId);
                     const nomeSala = alunoAtual?.salaNome || '';
-                    //const validacao = validarHorarioSaida(nomeSala);
-                    //if (!validacao.permitido) {
-                    //    resetSlideButton(btn);
-                    //    return;
-                    //}
-                    console.log("🔧 Validação de horário do frontend ignorada - teste do backend");
-
+                    
                     const position = await getCurrentPosition();
                     const { latitude, longitude } = position.coords;
 
@@ -3961,8 +3955,14 @@
                     });
 
                     if (!response.ok) {
-                        const error = await response.json();
-                        throw new Error(error.mensagem || 'Erro ao solicitar saída');
+                        let mensagemErro = 'Erro ao solicitar saída';
+                        try {
+                            const error = await response.json();
+                            mensagemErro = error.mensagem || error.erro || error.detalhes || 'Erro ao solicitar saída';
+                        } catch (e) {
+                            mensagemErro = response.statusText || 'Erro ao solicitar saída';
+                        }
+                        throw new Error(mensagemErro);
                     }
 
                     // ========== MOSTRAR TELA DE SUCESSO ==========
@@ -3980,7 +3980,22 @@
 
                 } catch (error) {
                     console.error('Erro ao solicitar saída:', error);
-                    showToast(`❌ ${error.message}`, 'danger');
+
+                    let mensagemErro = error.message || "Erro ao processar solicitação";
+
+                    // Verifica se é erro de horário (pelo texto da mensagem)
+                    if (mensagemErro.includes("só é permitida") ||
+                        mensagemErro.includes("permitido entre") ||
+                        mensagemErro.includes("horário") ||
+                        mensagemErro.includes("entre") && mensagemErro.includes("e")) {
+
+                        // EXIBIR O MODAL BONITO
+                        mostrarModalBloqueio(mensagemErro);
+                    } else {
+                        // Outros erros: exibir toast
+                        showToast(`❌ ${mensagemErro}`, 'danger');
+                    }
+
                     resetSlideButton(btn);
                 }
             }
@@ -5480,34 +5495,6 @@
                 }
             }
 
-            // ============== CONFIGURAÇÃO DE HORÁRIOS POR SALA ==============
-            window.HORARIOS_SAIDA = {
-                '2° ANO': { hora: 15, minuto: 10 },
-                '5° ANO': { hora: 15, minuto: 30 },
-                '3° ANO': { hora: 15, minuto: 10 }
-            };
-
-            function normalizarNomeSala(nome) {
-                if (!nome) return "";
-
-                // Remove espaços extras e converte para maiúsculas
-                let nomeLimpo = nome.trim().toUpperCase();
-
-                // Se começar com número e tiver "ANO" ou "ANOS"
-                if (nomeLimpo.match(/^\d/)) {
-                    // Troca "º" por "°"
-                    nomeLimpo = nomeLimpo.replace(/º/g, "°");
-
-                    // Garante que tenha o formato "X° ANO"
-                    const match = nomeLimpo.match(/(\d+)[°º]?\s*(ANO|ANOS)/i);
-                    if (match) {
-                        return match[1] + "° ANO";
-                    }
-                }
-
-                return nomeLimpo;
-            }
-
             function mostrarModalBloqueio(mensagem) {
                 // Remove modal anterior se existir
                 const modalAnterior = document.getElementById('modalBloqueioHorario');
@@ -5637,48 +5624,6 @@
                 modal.querySelector('button').addEventListener('click', () => {
                     backdrop.remove();
                 });
-            }
-
-            function validarHorarioSaida(nomeSalaBruto) {
-                console.log("🔍 [DEBUG] Validando sala (bruto):", nomeSalaBruto);
-
-                // NORMALIZAÇÃO
-                const nomeSala = normalizarNomeSala(nomeSalaBruto);
-
-                console.log("🔍 [DEBUG] Validando sala (normalizado):", nomeSala);
-                console.log("📋 Horários disponíveis:", window.HORARIOS_SAIDA);
-
-                if (!nomeSala || !window.HORARIOS_SAIDA[nomeSala]) {
-                    console.log("✅ Sala sem restrição:", nomeSala);
-                    return { permitido: true };
-                }
-
-                const agora = new Date();
-                const config = window.HORARIOS_SAIDA[nomeSala];
-
-                const horaAtual = agora.getHours();
-                const minutoAtual = agora.getMinutes();
-                const horaLimite = config.hora;
-                const minutoLimite = config.minuto;
-
-                console.log(`🕒 Agora: ${horaAtual}:${minutoAtual} | Limite: ${horaLimite}:${minutoLimite}`);
-
-                // Comparação numérica
-                if (horaAtual < horaLimite || (horaAtual === horaLimite && minutoAtual < minutoLimite)) {
-                    const mensagem = `A solicitação de saída para ${nomeSala} só é permitida após ${horaLimite}:${minutoLimite.toString().padStart(2, '0')}.`;
-                    console.log("🚫 BLOQUEADO:", mensagem);
-
-                    // Mostra o modal bonitinho
-                    mostrarModalBloqueio(mensagem);
-
-                    return {
-                        permitido: false,
-                        mensagem: mensagem
-                    };
-                }
-
-                console.log("✅ Horário permitido!");
-                return { permitido: true };
             }
 
             // Abrir modal de dados pessoais
@@ -6662,8 +6607,6 @@
                     'TRANSPORTE': 'Transporte',
                     'MAE': 'Mãe',
                     'PAI': 'Pai',
-                    'AVO': 'Avô/Avó',
-                    'TIO': 'Tio/Tia',
                     'AMIGO': 'Amigo(a)',
                     'PARENTE': 'Parente'
                 };
@@ -6692,123 +6635,122 @@
                 let html = '<div class="timeline" style="position: relative; padding: 8px 0;">';
 
                 html += `
-        <style>
-            .timeline-corrigida {
-                position: relative;
-                padding: 8px 0;
-            }
-            .timeline-corrigida::before {
-                content: "";
-                position: absolute;
-                left: 50%;
-                transform: translateX(-50%);
-                top: 0;
-                bottom: 0;
-                width: 3px;
-                background: linear-gradient(180deg, #1a6fc4 0%, #0ea5a0 100%);
-                opacity: 0.25;
-                border-radius: 2px;
-            }
-            .tl-item-corrigido {
-                position: relative;
-                display: flex;
-                justify-content: center;
-                margin-bottom: 30px;
-            }
-            .tl-card-corrigido {
-                width: 45%;
-                background: var(--gradient-card);
-                border: 1px solid var(--border);
-                border-radius: var(--radius);
-                padding: 14px;
-                box-shadow: var(--shadow-xs);
-                position: relative;
-            }
-            .tl-card-corrigido:hover {
-                transform: translateY(-2px);
-                box-shadow: var(--shadow-md);
-            }
-            .tl-item-corrigido.entry {
-                justify-content: flex-end;
-            }
-            .tl-item-corrigido.entry .tl-card-corrigido {
-                margin-right: calc(50% + 15px);
-            }
-            .tl-item-corrigido.exit {
-                justify-content: flex-start;
-            }
-            .tl-item-corrigido.exit .tl-card-corrigido {
-                margin-left: calc(50% + 15px);
-            }
-            .tl-dot-corrigido {
-                position: absolute;
-                left: 50%;
-                transform: translateX(-50%) translateY(-50%);
-                width: 32px;
-                height: 32px;
-                border-radius: 50%;
-                background: #fff;
-                border: 3px solid;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                z-index: 2;
-                box-shadow: 0 4px 10px rgba(15, 79, 143, .2);
-                top: 50%;
-            }
-            .tl-item-corrigido.entry .tl-dot-corrigido {
-                border-color: #10b981;
-                color: #10b981;
-            }
-            .tl-item-corrigido.exit .tl-dot-corrigido {
-                border-color: #ef4444;
-                color: #ef4444;
-            }
-            .day-divider-corrigido {
-                text-align: center;
-                font-size: 0.75rem;
-                font-weight: 700;
-                letter-spacing: 0.08em;
-                text-transform: uppercase;
-                color: var(--text-muted);
-                margin: 20px 0 16px;
-                position: relative;
-                z-index: 2;
-            }
-            .day-divider-corrigido span {
-                background: var(--bg);
-                padding: 4px 14px;
-                border-radius: 999px;
-                border: 1px solid var(--border);
-                font-size: 0.7rem;
-            }
-            .tl-card-corrigido .who {
-                font-weight: 700;
-                color: var(--text);
-                font-size: 0.85rem;
-            }
-            .tl-card-corrigido .when {
-                font-size: 0.7rem;
-                color: var(--text-muted);
-                margin-top: 4px;
-                font-weight: 500;
-            }
-            .tl-card-corrigido .what {
-                font-size: 0.75rem;
-                color: var(--text-secondary);
-                margin-top: 6px;
-                font-weight: 500;
-            }
-            .tl-card-corrigido.entry-card {
-                border-left: 3px solid #10b981;
-            }
-            .tl-card-corrigido.exit-card {
-                border-left: 3px solid #1a6fc4;
-            }
-        </style>
-        <div class="timeline-corrigida">
-    `;
-
+                    <style>
+                        .timeline-corrigida {
+                            position: relative;
+                            padding: 8px 0;
+                        }
+                        .timeline-corrigida::before {
+                            content: "";
+                            position: absolute;
+                            left: 50%;
+                            transform: translateX(-50%);
+                            top: 0;
+                            bottom: 0;
+                            width: 3px;
+                            background: linear-gradient(180deg, #1a6fc4 0%, #0ea5a0 100%);
+                            opacity: 0.25;
+                            border-radius: 2px;
+                        }
+                        .tl-item-corrigido {
+                            position: relative;
+                            display: flex;
+                            justify-content: center;
+                            margin-bottom: 30px;
+                        }
+                        .tl-card-corrigido {
+                            width: 45%;
+                            background: var(--gradient-card);
+                            border: 1px solid var(--border);
+                            border-radius: var(--radius);
+                            padding: 14px;
+                            box-shadow: var(--shadow-xs);
+                            position: relative;
+                        }
+                        .tl-card-corrigido:hover {
+                            transform: translateY(-2px);
+                            box-shadow: var(--shadow-md);
+                        }
+                        .tl-item-corrigido.entry {
+                            justify-content: flex-end;
+                        }
+                        .tl-item-corrigido.entry .tl-card-corrigido {
+                            margin-right: calc(50% + 15px);
+                        }
+                        .tl-item-corrigido.exit {
+                            justify-content: flex-start;
+                        }
+                        .tl-item-corrigido.exit .tl-card-corrigido {
+                            margin-left: calc(50% + 15px);
+                        }
+                        .tl-dot-corrigido {
+                            position: absolute;
+                            left: 50%;
+                            transform: translateX(-50%) translateY(-50%);
+                            width: 32px;
+                            height: 32px;
+                            border-radius: 50%;
+                            background: #fff;
+                            border: 3px solid;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            z-index: 2;
+                            box-shadow: 0 4px 10px rgba(15, 79, 143, .2);
+                            top: 50%;
+                        }
+                        .tl-item-corrigido.entry .tl-dot-corrigido {
+                            border-color: #10b981;
+                            color: #10b981;
+                        }
+                        .tl-item-corrigido.exit .tl-dot-corrigido {
+                            border-color: #ef4444;
+                            color: #ef4444;
+                        }
+                        .day-divider-corrigido {
+                            text-align: center;
+                            font-size: 0.75rem;
+                            font-weight: 700;
+                            letter-spacing: 0.08em;
+                            text-transform: uppercase;
+                            color: var(--text-muted);
+                            margin: 20px 0 16px;
+                            position: relative;
+                            z-index: 2;
+                        }
+                        .day-divider-corrigido span {
+                            background: var(--bg);
+                            padding: 4px 14px;
+                            border-radius: 999px;
+                            border: 1px solid var(--border);
+                            font-size: 0.7rem;
+                        }
+                        .tl-card-corrigido .who {
+                            font-weight: 700;
+                            color: var(--text);
+                            font-size: 0.85rem;
+                        }
+                        .tl-card-corrigido .when {
+                            font-size: 0.7rem;
+                            color: var(--text-muted);
+                            margin-top: 4px;
+                            font-weight: 500;
+                        }
+                        .tl-card-corrigido .what {
+                            font-size: 0.75rem;
+                            color: var(--text-secondary);
+                            margin-top: 6px;
+                            font-weight: 500;
+                        }
+                        .tl-card-corrigido.entry-card {
+                            border-left: 3px solid #10b981;
+                        }
+                        .tl-card-corrigido.exit-card {
+                            border-left: 3px solid #1a6fc4;
+                        }
+                    </style>
+                    <div class="timeline-corrigida">
+                `;
 
                 // Iterar sobre as datas
                 Object.keys(groupedByDate).forEach(date => {
@@ -6827,15 +6769,22 @@
 
                     html += `<div class="day-divider-corrigido"><span>${dateDisplay}</span></div>`;
 
-                    groupedByDate[date].forEach(record => {
+                    // ========== CORREÇÃO: Ordenar por horário (mais recente primeiro) ==========
+                    const registrosDoDia = [...groupedByDate[date]].sort((a, b) => {
+                        const horarioA = new Date(a.entradaAt).getTime();
+                        const horarioB = new Date(b.entradaAt).getTime();
+                        return horarioB - horarioA;
+                    });
+
+                    // Para cada registro, exibir APENAS o que ele representa
+                    registrosDoDia.forEach(record => {
                         const entradaDate = new Date(record.entradaAt);
                         const entradaTime = entradaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                        const saidaTime = record.saidaAt ? new Date(record.saidaAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : null;
 
                         const iniciadoPorTipo = formatarTipoResponsavel(record.iniciadoPorTipo);
                         const finalizadoPorTipo = record.finalizadoPorTipo ? formatarTipoResponsavel(record.finalizadoPorTipo) : '';
 
-                        // Formatar nome do aluno (primeiro nome + último nome)
+                        // Formatar nome do aluno
                         const nomeAluno = record.alunoNome || 'Aluno';
                         const partesNome = nomeAluno.trim().split(' ');
                         let nomeFormatado = nomeAluno;
@@ -6843,22 +6792,16 @@
                             nomeFormatado = `${partesNome[0]} ${partesNome[partesNome.length - 1]}`;
                         }
 
-                        // CARD DE ENTRADA
-                        html += `
-                            <div class="tl-item-corrigido entry">
-                                <div class="tl-dot-corrigido">
-                                    <i class="fas fa-sign-in-alt fa-xs"></i>
-                                </div>
-                                <div class="tl-card-corrigido entry-card">
-                                    <div class="who">${nomeFormatado}</div>
-                                    <div class="when">${entradaTime}</div>
-                                    <div class="what"><strong>Entrada</strong> registrada por ${record.iniciadoPor || 'Sistema'}${iniciadoPorTipo ? ` (${iniciadoPorTipo})` : ''}</div>
-                                </div>
-                            </div>
-                        `;
+                        // VERIFICAR SE TEM SAÍDA REGISTRADA
+                        const temSaida = record.saidaAt !== null && record.saidaAt !== undefined;
 
-                        // CARD DE SAÍDA (se existir)
-                        if (saidaTime) {
+                        if (temSaida) {
+                            // Este é um registro COMPLETO (entrada E saída)
+                            // Vamos exibir PRIMEIRO a SAÍDA (mais recente) e DEPOIS a ENTRADA
+                            const saidaDate = new Date(record.saidaAt);
+                            const saidaTime = saidaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+                            // Saída (mais recente - vem primeiro)
                             html += `
                                 <div class="tl-item-corrigido exit">
                                     <div class="tl-dot-corrigido">
@@ -6868,6 +6811,34 @@
                                         <div class="who">${nomeFormatado}</div>
                                         <div class="when">${saidaTime}</div>
                                         <div class="what"><strong>Saída</strong> registrada por ${record.finalizadoPor || 'Sistema'}${finalizadoPorTipo ? ` (${finalizadoPorTipo})` : ''}</div>
+                                    </div>
+                                </div>
+                            `;
+
+                            // Entrada (mais antiga - vem depois)
+                            html += `
+                                <div class="tl-item-corrigido entry">
+                                    <div class="tl-dot-corrigido">
+                                        <i class="fas fa-sign-in-alt fa-xs"></i>
+                                    </div>
+                                    <div class="tl-card-corrigido entry-card">
+                                        <div class="who">${nomeFormatado}</div>
+                                        <div class="when">${entradaTime}</div>
+                                        <div class="what"><strong>Entrada</strong> registrada por ${record.iniciadoPor || 'Sistema'}${iniciadoPorTipo ? ` (${iniciadoPorTipo})` : ''}</div>
+                                    </div>
+                                </div>
+                            `;
+                        } else {
+                            // Apenas ENTRADA (aluno entrou mas ainda não saiu - sessão aberta)
+                            html += `
+                                <div class="tl-item-corrigido entry">
+                                    <div class="tl-dot-corrigido">
+                                        <i class="fas fa-sign-in-alt fa-xs"></i>
+                                    </div>
+                                    <div class="tl-card-corrigido entry-card">
+                                        <div class="who">${nomeFormatado}</div>
+                                        <div class="when">${entradaTime}</div>
+                                        <div class="what"><strong>Entrada</strong> registrada por ${record.iniciadoPor || 'Sistema'}${iniciadoPorTipo ? ` (${iniciadoPorTipo})` : ''}</div>
                                     </div>
                                 </div>
                             `;
@@ -6881,16 +6852,16 @@
                 const totalPagesCalc = Math.ceil(sorted.length / HISTORY_PAGE_SIZE);
                 if (totalPagesCalc > 1) {
                     html += `
-            <div class="pagination-controls">
-                <button class="pagination-btn" id="historyPrevPage" ${currentHistoryPage === 1 ? 'disabled' : ''}>
-                    <i class="fas fa-chevron-left"></i> Anterior
-                </button>
-                <span class="page-info">Página ${currentHistoryPage} de ${totalPagesCalc}</span>
-                <button class="pagination-btn" id="historyNextPage" ${currentHistoryPage === totalPagesCalc ? 'disabled' : ''}>
-                    Próxima <i class="fas fa-chevron-right"></i>
-                </button>
-            </div>
-        `;
+                        <div class="pagination-controls">
+                            <button class="pagination-btn" id="historyPrevPage" ${currentHistoryPage === 1 ? 'disabled' : ''}>
+                                <i class="fas fa-chevron-left"></i> Anterior
+                            </button>
+                            <span class="page-info">Página ${currentHistoryPage} de ${totalPagesCalc}</span>
+                            <button class="pagination-btn" id="historyNextPage" ${currentHistoryPage === totalPagesCalc ? 'disabled' : ''}>
+                                Próxima <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    `;
                 }
 
                 container.innerHTML = html;
