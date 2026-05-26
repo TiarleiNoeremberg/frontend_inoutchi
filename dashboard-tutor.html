@@ -3246,6 +3246,8 @@
     </div>
 
     <script>
+        let stompClient = null;
+        let currentTutorId = null;
         (function () {
             // ============== CONSTANTES ==============
             // const BACKEND_URL = 'https://inoutchi-backend.onrender.com';
@@ -3268,95 +3270,170 @@
             let materiasUnicas = new Map();
 
             let totalNaoLidas = 0;
-            let stompClient = null;
-            let currentTutorId = null;
+
 
             function connectMensagemWebSocket() {
-                if (!currentUser || !currentUser.id) {
-                    console.log('⏳ Aguardando usuário carregar');
+                console.log('🔌 [WS] Tentando conectar WebSocket de mensagens...');
+
+                // IMPORTANTE: Se o loadUserData ainda não definiu o ID do Tutor (ex: 182), 
+                // esperamos um pouco. Não usamos o ID do User (230) aqui de jeito nenhum.
+                if (!currentTutorId) {
+                    console.warn('⚠️ [WS] currentTutorId ainda não definido. Aguardando...');
                     setTimeout(connectMensagemWebSocket, 1000);
                     return;
                 }
 
-                currentTutorId = currentUser.id;
-                const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+                console.log('🔌 [WS] Iniciando conexão para o Tutor ID:', currentTutorId);
 
+                const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
                 if (!token) {
-                    console.error('❌ Token não encontrado');
+                    console.error('❌ [WS] Token não encontrado. Conexão abortada.');
                     return;
                 }
 
-                // Usar o mesmo padrão que funciona para outros WebSockets
                 const socket = new SockJS(`${BACKEND_URL}/ws-mensagens`);
                 stompClient = Stomp.over(socket);
-                stompClient.debug = null;
 
-                // Enviar token no header
+                // Configura os logs do STOMP
+                stompClient.debug = function (str) {
+                    console.log('🔌 [STOMP]', str);
+                };
+
                 stompClient.connect(
                     { Authorization: `Bearer ${token}` },
                     function (frame) {
-                        console.log('✅ Conectado ao WebSocket de mensagens');
+                        console.log('✅✅✅ CONECTADO AO WEBSOCKET DE MENSAGENS ✅✅✅');
 
+                        // Aqui garantimos que o tópico use o ID do Perfil (ex: 182)
                         const topic = `/topic/tutor/${currentTutorId}/mensagens`;
+                        console.log(`🔌 [WS] 🔥 Assinando tópico: ${topic}`);
+
                         stompClient.subscribe(topic, function (message) {
+                            console.log('🎉🎉🎉 MENSAGEM RECEBIDA NO WEBSOCKET! 🎉🎉🎉');
                             try {
                                 const notificacao = JSON.parse(message.body);
-                                console.log('📬 Nova mensagem recebida:', notificacao);
-
                                 if (notificacao.tipo === 'NOVA_MENSAGEM') {
                                     handleNovaMensagem(notificacao.mensagem);
+                                } else {
+                                    console.log('⚠️ Tipo de notificação desconhecido:', notificacao.tipo);
                                 }
                             } catch (e) {
-                                console.error('Erro ao processar mensagem:', e);
+                                console.error('❌ Erro ao processar mensagem do socket:', e);
                             }
                         });
+
+                        // Heartbeat para manter a conexão ativa
+                        if (!window.heartbeatInterval) {
+                            window.heartbeatInterval = setInterval(() => {
+                                if (stompClient && stompClient.connected) {
+                                    stompClient.send("/app/heartbeat", {}, JSON.stringify({ timestamp: Date.now() }));
+                                    console.log('💓 Heartbeat enviado');
+                                }
+                            }, 25000);
+                        }
                     },
                     function (error) {
-                        console.error('❌ Erro no WebSocket:', error);
-                        // Tentar novamente após 10 segundos (mais espaçado)
+                        console.error('❌❌❌ Erro no WebSocket. Tentando reconectar em 10s...', error);
                         setTimeout(connectMensagemWebSocket, 10000);
                     }
                 );
             }
 
-            function handleNovaMensagem(mensagem) {
-                // 1. Mostrar notificação toast
-                const tipoLabel = mensagem.tipo === 'INSTITUCIONAL' ? '📢 Institucional' :
-                    (mensagem.tipo === 'COLETIVA' ? '👥 Coletiva' : '👤 Individual');
+            function handleNovaMensagem(payload) {
+                console.log('🎯 [HANDLER] Iniciando processamento...');
+                const mensagem = payload.mensagem || payload;
+                console.log('📨 [DEBUG] Dados recebidos:', mensagem);
 
-                showToast(`${tipoLabel}: ${mensagem.conteudo.substring(0, 100)}${mensagem.conteudo.length > 100 ? '...' : ''}`, 'success');
+                // 1. TRAVA DE DUPLICIDADE (Mantenha como está)
+                let mensagemJaExiste = false;
+                for (let card of materiasUnicas.values()) {
+                    if (card.mensagens && card.mensagens.some(m => m.id === mensagem.id)) {
+                        mensagemJaExiste = true;
+                        break;
+                    }
+                }
+                if (mensagemJaExiste) return;
 
-                // 2. Atualizar badge do mural (incrementar contador)
-                totalNaoLidas++;
-                atualizarBadgeMural(totalNaoLidas);
+                // 2. ROTEAMENTO E DEFINIÇÃO DE VARIÁVEIS (Onde o erro se esconde)
+                let cardKey = null;
+                let tipoLabel = "Mensagem";
+                let cardNome = "";
+                let cardSalaNome = mensagem.salaNome || "Geral";
 
-                // 3. Adicionar ao cache de mensagens
-                if (!materiasUnicas.has(mensagem.materiaId + '')) {
-                    // Criar nova entrada no cache se necessário
-                    materiasUnicas.set(mensagem.materiaId + '', {
-                        id: mensagem.materiaId,
-                        nome: mensagem.materiaNome || 'Nova Mensagem',
+                if (mensagem.tipo === 'INSTITUCIONAL') {
+                    cardKey = 'diretoria';
+                    tipoLabel = "Diretoria";
+                    cardNome = "Diretoria";
+                }
+                else if (mensagem.materiaId) {
+                    // SE TEM ID DE MATÉRIA, É OBRIGATÓRIO IR PARA O CARD DA MATÉRIA
+                    cardKey = String(mensagem.materiaId);
+                    tipoLabel = mensagem.materiaNome || "Matéria";
+                    cardNome = mensagem.materiaNome;
+                }
+                else if (mensagem.tipo === 'COLETIVA') {
+                    // SÓ ENTRA AQUI SE NÃO TIVER MATERIA_ID (Avisos da sala)
+                    cardKey = 'turma';
+                    tipoLabel = "Turma";
+                    cardNome = "Turma";
+                }
+
+                console.log(`📍 Roteando para o CardKey: ${cardKey}`);
+
+                if (!cardKey) {
+                    console.error('❌ Mensagem sem destino definido:', mensagem);
+                    return;
+                }
+
+                // 3. ATUALIZAÇÃO DA UI (Consertando as variáveis que travavam o código)
+                // Se você usa showToast ou toastr, garanta que a função existe
+                if (typeof showToast === 'function') {
+                    showToast(`${tipoLabel}: ${mensagem.conteudo.substring(0, 50)}...`, 'info');
+                } else {
+                    console.log(`📢 Alerta: ${tipoLabel} - ${mensagem.conteudo}`);
+                }
+
+                mensagem.lida = false;
+
+                // 4. ATUALIZAR O MAP (Sua lógica de cache)
+                if (!materiasUnicas.has(cardKey)) {
+                    materiasUnicas.set(cardKey, {
+                        id: cardKey,
+                        nome: cardNome,
                         tipo: mensagem.tipo,
                         mensagensNaoLidas: 1,
                         mensagens: [mensagem],
-                        salaNome: mensagem.salaNome
+                        salaNome: cardSalaNome
                     });
                 } else {
-                    const materia = materiasUnicas.get(mensagem.materiaId + '');
-                    materia.mensagens.unshift(mensagem); // Adicionar no início
-                    materia.mensagensNaoLidas++;
+                    const materia = materiasUnicas.get(cardKey);
+                    materia.mensagens.unshift(mensagem);
+                    materia.mensagensNaoLidas = (materia.mensagensNaoLidas || 0) + 1;
                 }
 
-                // 4. Recarregar o mural se a aba estiver ativa
+                // 5. RECALCULAR E ATUALIZAR TELA
+                let novoTotalNaoLidas = Array.from(materiasUnicas.values())
+                    .reduce((sum, item) => sum + (item.mensagensNaoLidas || 0), 0);
+
+                atualizarBadgeMural(novoTotalNaoLidas);
+
+                // Se o mural está aberto, re-renderiza tudo. Se não, atualiza só o badge do card
                 const muralTab = document.querySelector('.tab-pane[data-tab="mural"]');
                 if (muralTab && muralTab.classList.contains('active')) {
                     renderMural();
+                } else {
+                    const badge = document.querySelector(`.mural-card[data-card-id="${cardKey}"] .badge-count`);
+                    if (badge) {
+                        badge.textContent = materiasUnicas.get(cardKey).mensagensNaoLidas;
+                        badge.style.display = 'block';
+                    } else {
+                        renderMural(); // Fallback: se não achou o badge, redesenha o grid
+                    }
                 }
 
-                // 5. Tocar som de notificação (opcional)
+                // 6. SOM (Mantenha como está)
                 try {
-                    const audio = new Audio('/assets/sounds/notification.mp3');
-                    audio.play().catch(e => console.log('Som não suportado'));
+                    new Audio('/assets/mp3/alertas/Alerta.mp3').play().catch(() => { });
                 } catch (e) { }
             }
 
@@ -3862,11 +3939,12 @@
                     // Validação de horário
                     const alunoAtual = studentsData.find(s => s.id == studentId);
                     const nomeSala = alunoAtual?.salaNome || '';
-                    const validacao = validarHorarioSaida(nomeSala);
-                    if (!validacao.permitido) {
-                        resetSlideButton(btn);
-                        return;
-                    }
+                    //const validacao = validarHorarioSaida(nomeSala);
+                    //if (!validacao.permitido) {
+                    //    resetSlideButton(btn);
+                    //    return;
+                    //}
+                    console.log("🔧 Validação de horário do frontend ignorada - teste do backend");
 
                     const position = await getCurrentPosition();
                     const { latitude, longitude } = position.coords;
@@ -3990,11 +4068,29 @@
 
             // ============== LOAD USER DATA ==============
             async function loadUserData() {
+                console.log('🚨 [CRÍTICO] loadUserData foi CHAMADA!');
                 try {
+                    // 1. Busca dados da conta do usuário (ID 230)
                     const response = await fetchWithAuth('/api/users/me');
                     if (!response.ok) throw new Error('Falha ao carregar dados do usuário');
                     currentUser = await response.json();
+                    console.log('👤 [USER] Usuário logado:', currentUser.nome, '(ID:', currentUser.id, ')');
 
+                    // 2. Busca o perfil do Tutor para obter o ID correto do canal (ID 182)
+                    try {
+                        const tutorRes = await fetchWithAuth('/api/tutores/meu-perfil');
+                        if (tutorRes.ok) {
+                            const tutorData = await tutorRes.json();
+                            currentTutorId = tutorData.id; // Aqui pegamos o ID 182
+                            console.log('✅ [PERFIL] ID do Tutor para WebSocket definido como:', currentTutorId);
+                        } else {
+                            console.error('⚠️ Não foi possível localizar o perfil de tutor para este usuário.');
+                        }
+                    } catch (e) {
+                        console.error('❌ Erro ao buscar perfil do tutor:', e);
+                    }
+
+                    // 3. Atualiza elementos da interface
                     const primeiroNome = currentUser.nome?.split(' ')[0] || 'Tutor';
                     const greetingEl = document.getElementById('greetingText');
                     if (greetingEl) greetingEl.textContent = `Olá, ${primeiroNome}`;
@@ -4008,23 +4104,17 @@
                     const avatarEl = document.getElementById('userAvatarInitials');
                     if (avatarEl) avatarEl.textContent = formatarNomeParaAvatar(currentUser.nome);
 
-                    const filhosCount = document.getElementById('filhosCount');
-                    if (filhosCount) {
-                        // Se studentsData já tiver dados, usa eles, senão mostra loading
-                        if (studentsData && studentsData.length > 0) {
-                            filhosCount.textContent = `${studentsData.length} aluno(s) vinculado(s)`;
-                        } else {
-                            filhosCount.textContent = 'Carregando...';
-                        }
-                    }
-
-                    if (currentUser && currentUser.id) {
+                    // 4. Dispara a conexão do WebSocket apenas se tivermos o ID do tutor
+                    if (currentTutorId) {
                         connectMensagemWebSocket();
+                    } else {
+                        console.error('🚫 WebSocket não iniciado: currentTutorId está vazio.');
                     }
 
                     return currentUser;
+
                 } catch (error) {
-                    console.error('Erro ao carregar dados do usuário:', error);
+                    console.error('❌ Erro fatal no loadUserData:', error);
                     showToast('Erro ao carregar perfil. Faça login novamente.', 'danger');
                     setTimeout(() => logout(), 2000);
                     return null;
@@ -4306,9 +4396,6 @@
 
                             console.log(`✅ Marcadas ${naoLidasIds.length} mensagens como lidas`);
 
-                            // REMOVA ESTA LINHA - NÃO SALVAR EM SESSIONSTORAGE QUANDO BACKEND FUNCIONA
-                            // salvarMensagensLidas(naoLidasIds);  <--- REMOVER
-
                             // VERIFICAR SE REALMENTE MARCOU
                             try {
                                 const checkResponse = await fetchWithAuth(endpoint);
@@ -4318,7 +4405,8 @@
                                 console.warn('Não foi possível verificar estado após marcar:', e);
                             }
 
-                            // Atualizar estado local
+                            // --- CORREÇÃO DO BADGE AQUI ---
+                            // 1. Atualizar estado local da matéria clicada
                             cardData.mensagensNaoLidas = 0;
                             if (cardData.mensagens) {
                                 cardData.mensagens.forEach(msg => {
@@ -4328,27 +4416,49 @@
                                 });
                             }
 
-                            // Remover badge do card visualmente
-                            const cardElement = document.querySelector(`.mural-card[data-card-id="${cardId}"]`);
-                            const badgeSpan = cardElement?.querySelector('.badge-count');
-                            if (badgeSpan) badgeSpan.remove();
+                            // 2. Remover badge do card visualmente (forçando busca pelo ID exato)
+                            const muralTab = document.querySelector('.tab-pane[data-tab="mural"]');
+                            if (muralTab && muralTab.classList.contains('active')) {
+                                // Se estivermos na aba do mural, o jeito mais seguro de limpar as bolinhas é re-renderizar
+                                console.log('🔄 Recarregando mural para limpar os badges...');
+                                renderMural();
+                            } else {
+                                // Se não, tenta caçar no DOM
+                                const cardElement = document.querySelector(`.mural-card[data-card-id="${cardId}"]`);
+                                const badgeSpan = cardElement?.querySelector('.badge-count');
+                                if (badgeSpan) badgeSpan.remove();
+                            }
 
-                            // RECALCULAR TOTAL DE NÃO LIDAS
+                            // 3. RECALCULAR TOTAL DE NÃO LIDAS (Sino e Rodapé)
                             totalNaoLidas = 0;
                             for (const [_, item] of materiasUnicas) {
-                                const naoLidasItem = item.mensagens?.filter(m => !m.lida).length || 0;
-                                totalNaoLidas += naoLidasItem;
+                                // Confia no contador que atualizamos (item.mensagensNaoLidas) e não no array (que pode estar desatualizado)
+                                totalNaoLidas += (item.mensagensNaoLidas || 0);
                             }
+                            console.log(`📊 Recalculado Total Não Lidas: ${totalNaoLidas}`);
                             atualizarBadgeMural(totalNaoLidas);
+                            // --- FIM DA CORREÇÃO ---
 
                         } catch (error) {
                             console.error('❌ Erro ao marcar mensagens como lidas:', error);
-                            // Só salvar no sessionStorage quando o backend falhar (FALLBACK)
                             salvarMensagensLidas(naoLidasIds);
                             showToast(`Erro ao marcar mensagens, mas estado salvo localmente.`, 'warning');
                         }
                     } else {
                         console.log('ℹ️ Nenhuma mensagem não lida para marcar');
+
+                        // Garantir que a bolinha suma mesmo se não tiver mensagem pra marcar no backend 
+                        // (ex: leu em outro lugar mas o frontend não atualizou)
+                        cardData.mensagensNaoLidas = 0;
+                        const cardElement = document.querySelector(`.mural-card[data-card-id="${cardId}"]`);
+                        const badgeSpan = cardElement?.querySelector('.badge-count');
+                        if (badgeSpan) badgeSpan.remove();
+
+                        totalNaoLidas = 0;
+                        for (const [_, item] of materiasUnicas) {
+                            totalNaoLidas += (item.mensagensNaoLidas || 0);
+                        }
+                        atualizarBadgeMural(totalNaoLidas);
                     }
 
                     // Renderizar mensagens
@@ -4369,20 +4479,20 @@
                         }
 
                         return `
-                            <article class="thread-msg ${!isLida ? 'unread' : ''}">
-                                <div class="msg-head">
-                                    <span class="from">
-                                        ${tipoIcon}${msg.criadoPorNome || 'Sistema'}
-                                        <span class="tag ${tipoClass}" style="margin-left: 8px;">
-                                            ${msg.tipo === 'INSTITUCIONAL' ? 'Diretoria' : (msg.tipo === 'COLETIVA' ? 'Turma' : 'Individual')}
-                                        </span>
-                                    </span>
-                                    <span class="when">${new Date(msg.dataCriacao).toLocaleString('pt-BR')}</span>
-                                </div>
-                                <div class="body">${msg.conteudo}</div>
-                                ${msg.alunoNome ? `<div class="tag" style="margin-top: 8px;">👤 Para: ${msg.alunoNome}</div>` : ''}
-                            </article>
-                        `;
+                <article class="thread-msg ${!isLida ? 'unread' : ''}">
+                    <div class="msg-head">
+                        <span class="from">
+                            ${tipoIcon}${msg.criadoPorNome || 'Sistema'}
+                            <span class="tag ${tipoClass}" style="margin-left: 8px;">
+                                ${msg.tipo === 'INSTITUCIONAL' ? 'Diretoria' : (msg.tipo === 'COLETIVA' ? 'Turma' : 'Individual')}
+                            </span>
+                        </span>
+                        <span class="when">${new Date(msg.dataCriacao).toLocaleString('pt-BR')}</span>
+                    </div>
+                    <div class="body">${msg.conteudo}</div>
+                    ${msg.alunoNome ? `<div class="tag" style="margin-top: 8px;">👤 Para: ${msg.alunoNome}</div>` : ''}
+                </article>
+            `;
                     }).join('');
 
                     // Abrir modal
@@ -4474,13 +4584,23 @@
                     });
 
                     // 2. Adicionar card "Turma"
-                    const totalColetivasNaoLidas = coletivasDaSala.filter(msg => !msg.lida).length;
+                    // Filtro reforçado: Remove mensagens que tenham ID de matéria OU que venham de Professores
+                    const coletivasPurificadas = coletivasDaSala.filter(msg => {
+                        const temMateriaId = msg.materiaId !== undefined && msg.materiaId !== null;
+                        const ehProfessor = msg.criadoPorTipo === 'PROFESSOR';
+
+                        // Só entra no card "Turma" se NÃO tiver matéria e NÃO for de professor
+                        return !temMateriaId && !ehProfessor;
+                    });
+
+                    const totalColetivasNaoLidas = coletivasPurificadas.filter(msg => !msg.lida).length;
+
                     materiasUnicas.set('turma', {
                         id: 'turma',
                         nome: 'Turma',
                         tipo: 'COLETIVA',
                         mensagensNaoLidas: totalColetivasNaoLidas,
-                        mensagens: coletivasDaSala,
+                        mensagens: coletivasPurificadas,
                         salaNome: `Mensagens da ${materias[0]?.salaNome || 'Turma'}`
                     });
 
@@ -4513,8 +4633,7 @@
 
                             // Filtrar mensagens
                             const mensagensFiltradas = mensagensDaMateria.filter(msg =>
-                                msg.tipo !== 'INSTITUCIONAL' &&
-                                !(msg.tipo === 'COLETIVA' && msg.salaId === salaId)
+                                msg.tipo !== 'INSTITUCIONAL'
                             );
 
                             // Aplicar estado salvo do sessionStorage
@@ -6959,17 +7078,19 @@
                 if (!badge) return;
 
                 if (total > 0) {
-                    badge.textContent = total;
-                    badge.style.display = 'grid';
+                    badge.textContent = total > 99 ? '99+' : total;
+                    badge.style.display = 'flex';
+                    badge.style.animation = 'pulseDot 1.8s infinite';
                 } else {
                     badge.style.display = 'none';
+                    badge.style.animation = 'none';
                 }
 
-                // Salvar no localStorage
-                localStorage.setItem('totalMensagensNaoLidas', total);
-
-                // Atualizar o ponto do sino
-                atualizarBadgeSino(total);
+                // Atualizar também o badge do sino
+                const sinoDot = document.querySelector('#btn-notif .dot');
+                if (sinoDot) {
+                    sinoDot.style.display = total > 0 ? 'inline-block' : 'none';
+                }
             }
 
             // Função para atualizar o badge do sino (apenas ponto pulsante)
