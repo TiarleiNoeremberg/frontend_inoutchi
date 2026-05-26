@@ -3330,10 +3330,42 @@
                         slideAction = 'entry';
                         slideLabel = 'Deslize para registrar entrada →';
                         slideIcon = 'fa-chevron-right';
+                        if (slideBtn) {
+                            // Remover classes de estado "deslizado"
+                            slideBtn.classList.remove('activated', 'dragging');
+                            // Resetar o preenchimento visual
+                            const fill = slideBtn.querySelector('.slide-fill');
+                            if (fill) fill.style.width = '0%';
+                            // Resetar a posição do thumb
+                            const thumb = slideBtn.querySelector('.slide-thumb');
+                            if (thumb) {
+                                // Para ação 'exit-request' o thumb fica à direita, para 'entry' à esquerda
+                                thumb.style.left = '4px';
+                                thumb.style.right = 'auto';
+                            }
+                            // Resetar o dataset action
+                            slideBtn.dataset.action = slideAction;
+                            // Restaurar o texto da label
+                            const labelSpan = slideBtn.querySelector('.slide-track-label');
+                            if (labelSpan) labelSpan.textContent = slideLabel;
+                            // Restaurar o ícone
+                            const thumbIcon = thumb?.querySelector('i');
+                            if (thumbIcon) {
+                                thumbIcon.className = `fas ${slideIcon}`;
+                            }
+                        }
                         break;
                     default:
                         console.warn(`⚠️ Evento desconhecido: ${eventType}`);
                         return;
+                }
+
+                // Re-inicializar os event listeners dos slide buttons
+                if (typeof initSlideButtons === 'function') {
+                    setTimeout(() => {
+                        initSlideButtons();
+                        console.log('🔄 Slide buttons reinicializados após atualização');
+                    }, 50);
                 }
 
                 // Atualizar o badge de status
@@ -3343,21 +3375,46 @@
                     statusBadge.innerHTML = `<i class="fas ${statusIcon}"></i>${statusText}`;
                 }
 
+                /*
                 // Atualizar o slide button
                 const slideBtn = targetCard.querySelector('.slide-btn');
                 if (slideBtn) {
+                    // Remover classes de estado "deslizado"
+                    slideBtn.classList.remove('activated', 'dragging');
+                    // Resetar o preenchimento visual
+                    const fill = slideBtn.querySelector('.slide-fill');
+                    if (fill) fill.style.width = '0%';
+                    // Resetar a posição do thumb
+                    const thumb = slideBtn.querySelector('.slide-thumb');
+                    if (thumb) {
+                        // Para ação 'exit-request' o thumb fica à direita, para 'entry' à esquerda
+                        thumb.style.left = '4px';
+                        thumb.style.right = 'auto';
+                    }
+                    // Resetar o dataset action
                     slideBtn.dataset.action = slideAction;
+                    // Restaurar o texto da label
                     const labelSpan = slideBtn.querySelector('.slide-track-label');
                     if (labelSpan) labelSpan.textContent = slideLabel;
-                    const thumbIcon = slideBtn.querySelector('.slide-thumb i');
+                    // Restaurar o ícone
+                    const thumbIcon = thumb?.querySelector('i');
                     if (thumbIcon) {
                         thumbIcon.className = `fas ${slideIcon}`;
                     }
                 }
+                */
 
                 // Efeito de destaque
                 targetCard.classList.add('atualizado');
                 setTimeout(() => targetCard.classList.remove('atualizado'), 500);
+
+                if (typeof initSlideButtons === 'function') {
+                    // Aguardar um pouco para garantir que o DOM foi atualizado
+                    setTimeout(() => {
+                        initSlideButtons();
+                        console.log('🔄 Slide buttons reinicializados após atualização');
+                    }, 50);
+                }
 
                 console.log(`✅ Card do aluno atualizado para: ${novoStatus}`);
             }
@@ -3423,16 +3480,34 @@
                                 const evento = JSON.parse(message.body);
                                 console.log('📨 Evento do diretor:', evento);
 
-                                // Atualizar o status do aluno no card
-                                if (typeof updateStudentCardStatus === 'function') {
-                                    updateStudentCardStatus(evento.alunoId, evento.tipo);
-                                } else {
-                                    console.warn('⚠️ Função updateStudentCardStatus não encontrada');
-                                    // Fallback: recarregar lista de alunos
-                                    if (typeof refreshStudentsData === 'function') {
-                                        refreshStudentsData();
+                                // ========== CORREÇÃO: Forçar atualização completa ==========
+                                // 1. Atualizar o array studentsData em memória
+                                if (studentsData && Array.isArray(studentsData)) {
+                                    const alunoIndex = studentsData.findIndex(a => a.id === evento.alunoId);
+                                    if (alunoIndex !== -1) {
+                                        // Atualizar o status baseado no evento
+                                        switch (evento.tipo) {
+                                            case 'ENTRADA_ALUNO':
+                                                studentsData[alunoIndex].status = 'PRESENTE';
+                                                break;
+                                            case 'SAIDA_PENDENTE':
+                                                studentsData[alunoIndex].status = 'AGUARDANDO_CONFIRMACAO';
+                                                break;
+                                            case 'SAIDA_CONFIRMADA':
+                                                studentsData[alunoIndex].status = 'AUSENTE';
+                                                break;
+                                        }
                                     }
                                 }
+
+                                // 2. RECONSTRUIR A LISTA INTEIRA (Isso resolve o slider travado)
+                                if (typeof renderStudents === 'function') {
+                                    renderStudents(studentsData);
+                                    console.log('✅ Lista de alunos re-renderizada completamente');
+                                } else if (typeof refreshStudentsData === 'function') {
+                                    refreshStudentsData();
+                                }
+
                             } catch (e) {
                                 console.error('❌ Erro ao processar evento do diretor:', e);
                             }
@@ -3448,11 +3523,19 @@
                                 }
                             }, 25000);
                         }
+
+                        // Toda vez que o WebSocket for conectado (ou RE-conectado após uma falha de rede),
+                        // forçamos a busca do estado real na API para evitar que um evento tenha sido perdido no "limbo"
+                        if (typeof refreshStudentsData === 'function') {
+                            refreshStudentsData();
+                        }
+
+
                     },
-                    function (error) {
-                        console.error('❌❌❌ Erro no WebSocket. Tentando reconectar em 10s...', error);
-                        setTimeout(connectMensagemWebSocket, 10000);
-                    }
+                        function (error) {
+                            console.error('❌❌❌ Erro no WebSocket. Tentando reconectar em 10s...', error);
+                            setTimeout(connectMensagemWebSocket, 10000);
+                        }
                 );
             }
 
@@ -7275,6 +7358,29 @@
             document.addEventListener('MSFullscreenChange', () => {
                 atualizarIconeFullScreen(!!document.msFullscreenElement);
             });
+
+            // ========== VISIBILITY API - RECUPERAÇÃO DE CONEXÃO ==========
+            document.addEventListener('visibilitychange', function () {
+                if (!document.hidden) {
+                    console.log("📱 Dashboard reativado. Validando sincronismo com a API...");
+
+                    // 1. Forçar atualização dos alunos da API
+                    if (typeof refreshStudentsData === 'function') {
+                        refreshStudentsData();
+                    } else if (typeof loadStudents === 'function') {
+                        loadStudents();
+                    }
+
+                    // 2. Verificar e reconectar WebSocket se necessário
+                    if (typeof stompClient !== 'undefined' && (!stompClient || !stompClient.connected)) {
+                        console.warn("🔄 WebSocket desconectado em segundo plano. Reconectando...");
+                        if (typeof connectMensagemWebSocket === 'function') {
+                            connectMensagemWebSocket();
+                        }
+                    }
+                }
+            });
+            // ========== FIM DA VISIBILITY API ==========
 
         })();
 
