@@ -3271,151 +3271,249 @@
 
             let totalNaoLidas = 0;
 
+            function updateStudentCardStatus(alunoId, eventType) {
+                console.log(`🔄 Atualizando card do aluno ${alunoId} para evento: ${eventType}`);
 
-            function connectMensagemWebSocket() {
-                console.log('🚨 [CRÍTICO] connectMensagemWebSocket foi CHAMADA!');
-                console.log('🔌 [WS] Tentando conectar WebSocket...');
-                console.log('🔌 [WS] currentUser:', currentUser);
+                // Encontrar o card do aluno
+                const cards = document.querySelectorAll('.student-card');
+                let targetCard = null;
 
-                // MUDANÇA: Se tivermos o ID do perfil (182), usamos ele. Se não, fallback pro user (230).
-                // Mas o ideal é que o loadUserData já tenha preenchido o currentTutorId correto.
-                if (!currentTutorId && currentUser && currentUser.id) {
-                    currentTutorId = currentUser.id;
+                for (const card of cards) {
+                    if (card.getAttribute('data-student-id') == alunoId) {
+                        targetCard = card;
+                        break;
+                    }
                 }
 
+                if (!targetCard) {
+                    console.warn(`⚠️ Card do aluno ${alunoId} não encontrado na página atual`);
+                    // Fallback: recarregar lista de alunos
+                    if (typeof refreshStudentsData === 'function') {
+                        refreshStudentsData();
+                    }
+                    return;
+                }
+
+                // Determinar novo status baseado no evento
+                let novoStatus = '';
+                let statusClass = '';
+                let statusIcon = '';
+                let statusText = '';
+                let slideAction = '';
+                let slideLabel = '';
+                let slideIcon = '';
+
+                switch (eventType) {
+                    case 'ENTRADA_ALUNO':
+                        novoStatus = 'PRESENTE';
+                        statusClass = 'in';
+                        statusIcon = 'fa-circle';
+                        statusText = 'PRESENTE';
+                        slideAction = 'exit-request';
+                        slideLabel = '← Deslize para solicitar saída';
+                        slideIcon = 'fa-chevron-left';
+                        break;
+                    case 'SAIDA_PENDENTE':
+                        novoStatus = 'AGUARDANDO_CONFIRMACAO';
+                        statusClass = 'pending';
+                        statusIcon = 'fa-spinner fa-pulse';
+                        statusText = 'AGUARDANDO';
+                        slideAction = 'exit-confirm';
+                        slideLabel = 'Deslize para confirmar saída →';
+                        slideIcon = 'fa-chevron-right';
+                        break;
+                    case 'SAIDA_CONFIRMADA':
+                        novoStatus = 'AUSENTE';
+                        statusClass = 'out';
+                        statusIcon = 'fa-circle';
+                        statusText = 'AUSENTE';
+                        slideAction = 'entry';
+                        slideLabel = 'Deslize para registrar entrada →';
+                        slideIcon = 'fa-chevron-right';
+                        break;
+                    default:
+                        console.warn(`⚠️ Evento desconhecido: ${eventType}`);
+                        return;
+                }
+
+                // Atualizar o badge de status
+                const statusBadge = targetCard.querySelector('.status-badge');
+                if (statusBadge) {
+                    statusBadge.className = `status-badge ${statusClass}`;
+                    statusBadge.innerHTML = `<i class="fas ${statusIcon}"></i>${statusText}`;
+                }
+
+                // Atualizar o slide button
+                const slideBtn = targetCard.querySelector('.slide-btn');
+                if (slideBtn) {
+                    slideBtn.dataset.action = slideAction;
+                    const labelSpan = slideBtn.querySelector('.slide-track-label');
+                    if (labelSpan) labelSpan.textContent = slideLabel;
+                    const thumbIcon = slideBtn.querySelector('.slide-thumb i');
+                    if (thumbIcon) {
+                        thumbIcon.className = `fas ${slideIcon}`;
+                    }
+                }
+
+                // Efeito de destaque
+                targetCard.classList.add('atualizado');
+                setTimeout(() => targetCard.classList.remove('atualizado'), 500);
+
+                console.log(`✅ Card do aluno atualizado para: ${novoStatus}`);
+            }
+
+
+            function connectMensagemWebSocket() {
+                console.log('🔌 [WS] Tentando conectar WebSocket de mensagens...');
+
+                // IMPORTANTE: Se o loadUserData ainda não definiu o ID do Tutor (ex: 182), 
+                // esperamos um pouco. Não usamos o ID do User (230) aqui de jeito nenhum.
                 if (!currentTutorId) {
+                    console.warn('⚠️ [WS] currentTutorId ainda não definido. Aguardando...');
                     setTimeout(connectMensagemWebSocket, 1000);
                     return;
                 }
 
-                currentTutorId = currentUser.id;
-                console.log('🔌 [WS] currentTutorId =', currentTutorId);
+                console.log('🔌 [WS] Iniciando conexão para o Tutor ID:', currentTutorId);
 
                 const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
-                console.log('🔌 [WS] Token existe?', !!token);
-
                 if (!token) {
-                    console.error('❌ Token não encontrado');
+                    console.error('❌ [WS] Token não encontrado. Conexão abortada.');
                     return;
                 }
 
-                // Usar o mesmo padrão que funciona para outros WebSockets
                 const socket = new SockJS(`${BACKEND_URL}/ws-mensagens`);
                 stompClient = Stomp.over(socket);
+
+                // Configura os logs do STOMP
                 stompClient.debug = function (str) {
                     console.log('🔌 [STOMP]', str);
                 };
 
-                // Enviar token no header
                 stompClient.connect(
                     { Authorization: `Bearer ${token}` },
                     function (frame) {
-                        console.log('✅✅✅ Conectado ao WebSocket de mensagens ✅✅✅');
-                        console.log('🔌 [WS] Frame:', frame);
+                        console.log('✅✅✅ CONECTADO AO WEBSOCKET DE MENSAGENS ✅✅✅');
 
+                        // Aqui garantimos que o tópico use o ID do Perfil (ex: 182)
                         const topic = `/topic/tutor/${currentTutorId}/mensagens`;
-                        console.log(`🔌 [WS] 🔥🔥🔥 Assinando tópico: ${topic} 🔥🔥🔥`);
+                        console.log(`🔌 [WS] 🔥 Assinando tópico: ${topic}`);
 
                         stompClient.subscribe(topic, function (message) {
                             console.log('🎉🎉🎉 MENSAGEM RECEBIDA NO WEBSOCKET! 🎉🎉🎉');
-                            console.log('📬 [WS] Mensagem BRUTA:', message);
-                            console.log('📬 [WS] Corpo:', message.body);
-
                             try {
                                 const notificacao = JSON.parse(message.body);
                                 if (notificacao.tipo === 'NOVA_MENSAGEM') {
                                     handleNovaMensagem(notificacao.mensagem);
                                 } else {
-                                    console.log('⚠️ Tipo não reconhecido:', notificacao.tipo);
+                                    console.log('⚠️ Tipo de notificação desconhecido:', notificacao.tipo);
                                 }
                             } catch (e) {
-                                console.error(e);
+                                console.error('❌ Erro ao processar mensagem do socket:', e);
                             }
                         });
 
-                        // Enviar heartbeat para manter conexão
-                        setInterval(() => {
-                            if (stompClient && stompClient.connected) {
-                                stompClient.send("/app/heartbeat", {}, JSON.stringify({ timestamp: Date.now() }));
-                                console.log('💓 Heartbeat enviado');
+                        // ========== NOVO: Tópico para eventos de alunos (Diretor) ==========
+                        const alunoTopic = `/topic/tutor/${currentTutorId}/alunos`;
+                        console.log(`🔌 [WS] 🔥 Assinando tópico de eventos: ${alunoTopic}`);
+
+                        stompClient.subscribe(alunoTopic, function (message) {
+                            console.log('🎯🎯🎯 EVENTO DE ALUNO RECEBIDO! 🎯🎯🎯');
+                            try {
+                                const evento = JSON.parse(message.body);
+                                console.log('📨 Evento do diretor:', evento);
+
+                                // Atualizar o status do aluno no card
+                                if (typeof updateStudentCardStatus === 'function') {
+                                    updateStudentCardStatus(evento.alunoId, evento.tipo);
+                                } else {
+                                    console.warn('⚠️ Função updateStudentCardStatus não encontrada');
+                                    // Fallback: recarregar lista de alunos
+                                    if (typeof refreshStudentsData === 'function') {
+                                        refreshStudentsData();
+                                    }
+                                }
+                            } catch (e) {
+                                console.error('❌ Erro ao processar evento do diretor:', e);
                             }
-                        }, 25000);
+                        });
+                        // ========== FIM DO NOVO CÓDIGO ==========
+
+                        // Heartbeat para manter a conexão ativa
+                        if (!window.heartbeatInterval) {
+                            window.heartbeatInterval = setInterval(() => {
+                                if (stompClient && stompClient.connected) {
+                                    stompClient.send("/app/heartbeat", {}, JSON.stringify({ timestamp: Date.now() }));
+                                    console.log('💓 Heartbeat enviado');
+                                }
+                            }, 25000);
+                        }
                     },
                     function (error) {
-                        console.error('❌❌❌ Erro no WebSocket:', error);
+                        console.error('❌❌❌ Erro no WebSocket. Tentando reconectar em 10s...', error);
                         setTimeout(connectMensagemWebSocket, 10000);
                     }
                 );
             }
 
-            function handleNovaMensagem(mensagem) {
-                console.log('📨 [DEBUG] Mensagem recebida no WebSocket:', JSON.stringify(mensagem, null, 2));
-                console.log('🎯 [HANDLER] handleNovaMensagem foi CHAMADA!');
-                console.log('🎯 [HANDLER] Mensagem recebida:', mensagem);
+            function handleNovaMensagem(payload) {
+                console.log('🎯 [HANDLER] Iniciando processamento...');
+                const mensagem = payload.mensagem || payload;
+                console.log('📨 [DEBUG] Dados recebidos:', mensagem);
 
-                // 1. Mostrar notificação toast
-                let tipoLabel = '';
-                let cardKey = null;
-                let cardNome = null;
-                let cardSalaNome = null;
-
-                console.log(`🔍 Tipo da mensagem: ${mensagem.tipo}`);
-
-                if (mensagem.tipo === 'INSTITUCIONAL') {
-                    tipoLabel = 'Institucional';
-                    cardKey = 'diretoria';
-                    cardNome = 'Diretoria';
-                    cardSalaNome = 'Avisos da Direção';
-                    console.log('✅ Mensagem INSTITUCIONAL detectada');
-                }
-                else if (mensagem.tipo === 'COLETIVA') {
-                    tipoLabel = 'Coletiva';
-                    cardKey = 'turma';
-                    cardNome = 'Turma';
-                    cardSalaNome = mensagem.salaNome || 'Mensagens da Turma';
-                    console.log('✅ Mensagem COLETIVA detectada');
-                }
-                else if (mensagem.tipo === 'INDIVIDUAL') {
-                    tipoLabel = mensagem.alunoNome ? `Para: ${mensagem.alunoNome}` : 'Individual';
-
-                    // ⚠️ CORREÇÃO CRÍTICA: Verifica se tem materiaId
-                    if (mensagem.materiaId) {
-                        cardKey = mensagem.materiaId ? Number(mensagem.materiaId) : null;
-                        cardNome = mensagem.materiaNome || 'Matéria';
-                        cardSalaNome = mensagem.salaNome || '';
-                        console.log(`✅ Mensagem INDIVIDUAL da matéria ID: ${mensagem.materiaId} (${cardNome})`);
-                    } else if (mensagem.materiaNome) {
-                        // Fallback: usar nome da matéria
-                        cardKey = 'msg_' + Date.now();
-                        cardNome = mensagem.materiaNome;
-                        cardSalaNome = '';
-                        console.warn(`⚠️ Mensagem INDIVIDUAL sem materiaId, usando nome: ${mensagem.materiaNome}`);
-                    } else {
-                        // Último fallback
-                        cardKey = 'msg_' + Date.now();
-                        cardNome = 'Mensagem';
-                        cardSalaNome = '';
-                        console.warn('⚠️ Mensagem INDIVIDUAL sem materiaId e sem materiaNome');
+                // 1. TRAVA DE DUPLICIDADE (Mantenha como está)
+                let mensagemJaExiste = false;
+                for (let card of materiasUnicas.values()) {
+                    if (card.mensagens && card.mensagens.some(m => m.id === mensagem.id)) {
+                        mensagemJaExiste = true;
+                        break;
                     }
                 }
+                if (mensagemJaExiste) return;
 
-                // Se não conseguiu determinar o card, não prossegue
+                // 2. ROTEAMENTO E DEFINIÇÃO DE VARIÁVEIS (Onde o erro se esconde)
+                let cardKey = null;
+                let tipoLabel = "Mensagem";
+                let cardNome = "";
+                let cardSalaNome = mensagem.salaNome || "Geral";
+
+                if (mensagem.tipo === 'INSTITUCIONAL') {
+                    cardKey = 'diretoria';
+                    tipoLabel = "Diretoria";
+                    cardNome = "Diretoria";
+                }
+                else if (mensagem.materiaId) {
+                    // SE TEM ID DE MATÉRIA, É OBRIGATÓRIO IR PARA O CARD DA MATÉRIA
+                    cardKey = String(mensagem.materiaId);
+                    tipoLabel = mensagem.materiaNome || "Matéria";
+                    cardNome = mensagem.materiaNome;
+                }
+                else if (mensagem.tipo === 'COLETIVA') {
+                    // SÓ ENTRA AQUI SE NÃO TIVER MATERIA_ID (Avisos da sala)
+                    cardKey = 'turma';
+                    tipoLabel = "Turma";
+                    cardNome = "Turma";
+                }
+
+                console.log(`📍 Roteando para o CardKey: ${cardKey}`);
+
                 if (!cardKey) {
-                    console.error('❌ Não foi possível determinar o card para a mensagem');
+                    console.error('❌ Mensagem sem destino definido:', mensagem);
                     return;
                 }
 
-                // Mostrar toast
-                showToast(`${tipoLabel}: ${mensagem.conteudo.substring(0, 100)}${mensagem.conteudo.length > 100 ? '...' : ''}`, 'success');
+                // 3. ATUALIZAÇÃO DA UI (Consertando as variáveis que travavam o código)
+                // Se você usa showToast ou toastr, garanta que a função existe
+                if (typeof showToast === 'function') {
+                    showToast(`${tipoLabel}: ${mensagem.conteudo.substring(0, 50)}...`, 'info');
+                } else {
+                    console.log(`📢 Alerta: ${tipoLabel} - ${mensagem.conteudo}`);
+                }
 
-                // 2. Marcar mensagem como NÃO LIDA
                 mensagem.lida = false;
 
-                console.log(`📦 Adicionando ao card: ${cardKey} (${cardNome})`);
-
-                // 3. Adicionar ao cache de mensagens
+                // 4. ATUALIZAR O MAP (Sua lógica de cache)
                 if (!materiasUnicas.has(cardKey)) {
-                    // Criar nova entrada no cache
                     materiasUnicas.set(cardKey, {
                         id: cardKey,
                         nome: cardNome,
@@ -3424,38 +3522,35 @@
                         mensagens: [mensagem],
                         salaNome: cardSalaNome
                     });
-                    console.log(`✅ Criado novo card no cache: ${cardKey} (${cardNome})`);
                 } else {
                     const materia = materiasUnicas.get(cardKey);
-                    materia.mensagens.unshift(mensagem); // Adicionar no início
+                    materia.mensagens.unshift(mensagem);
                     materia.mensagensNaoLidas = (materia.mensagensNaoLidas || 0) + 1;
-                    console.log(`✅ Mensagem adicionada ao card existente: ${cardKey}, total não lidas: ${materia.mensagensNaoLidas}`);
                 }
 
-                // 4. Recalcular total de não lidas
-                totalNaoLidas = 0;
-                for (const [key, item] of materiasUnicas) {
-                    const naoLidas = item.mensagensNaoLidas || 0;
-                    totalNaoLidas += naoLidas;
-                    console.log(`📊 Card ${key}: ${naoLidas} não lidas`);
-                }
-                console.log(`📊 TOTAL de mensagens não lidas: ${totalNaoLidas}`);
+                // 5. RECALCULAR E ATUALIZAR TELA
+                let novoTotalNaoLidas = Array.from(materiasUnicas.values())
+                    .reduce((sum, item) => sum + (item.mensagensNaoLidas || 0), 0);
 
-                atualizarBadgeMural(totalNaoLidas);
+                atualizarBadgeMural(novoTotalNaoLidas);
 
-                // 5. Recarregar o mural se a aba estiver ativa
+                // Se o mural está aberto, re-renderiza tudo. Se não, atualiza só o badge do card
                 const muralTab = document.querySelector('.tab-pane[data-tab="mural"]');
                 if (muralTab && muralTab.classList.contains('active')) {
-                    console.log('🔄 Recarregando mural...');
                     renderMural();
                 } else {
-                    console.log(`📌 Aba mural não está ativa, card ${cardKey} atualizado no cache`);
+                    const badge = document.querySelector(`.mural-card[data-card-id="${cardKey}"] .badge-count`);
+                    if (badge) {
+                        badge.textContent = materiasUnicas.get(cardKey).mensagensNaoLidas;
+                        badge.style.display = 'block';
+                    } else {
+                        renderMural(); // Fallback: se não achou o badge, redesenha o grid
+                    }
                 }
 
-                // 6. Tocar som de notificação (opcional)
+                // 6. SOM (Mantenha como está)
                 try {
-                    const audio = new Audio('/assets/sounds/notification.mp3');
-                    audio.play().catch(e => console.log('🔇 Som não suportado ou bloqueado'));
+                    new Audio('/assets/mp3/alertas/Alerta.mp3').play().catch(() => { });
                 } catch (e) { }
             }
 
@@ -3961,11 +4056,6 @@
                     // Validação de horário
                     const alunoAtual = studentsData.find(s => s.id == studentId);
                     const nomeSala = alunoAtual?.salaNome || '';
-                    const validacao = validarHorarioSaida(nomeSala);
-                    if (!validacao.permitido) {
-                        resetSlideButton(btn);
-                        return;
-                    }
 
                     const position = await getCurrentPosition();
                     const { latitude, longitude } = position.coords;
@@ -3982,8 +4072,14 @@
                     });
 
                     if (!response.ok) {
-                        const error = await response.json();
-                        throw new Error(error.mensagem || 'Erro ao solicitar saída');
+                        let mensagemErro = 'Erro ao solicitar saída';
+                        try {
+                            const error = await response.json();
+                            mensagemErro = error.mensagem || error.erro || error.detalhes || 'Erro ao solicitar saída';
+                        } catch (e) {
+                            mensagemErro = response.statusText || 'Erro ao solicitar saída';
+                        }
+                        throw new Error(mensagemErro);
                     }
 
                     // ========== MOSTRAR TELA DE SUCESSO ==========
@@ -4001,7 +4097,22 @@
 
                 } catch (error) {
                     console.error('Erro ao solicitar saída:', error);
-                    showToast(`❌ ${error.message}`, 'danger');
+
+                    let mensagemErro = error.message || "Erro ao processar solicitação";
+
+                    // Verifica se é erro de horário (pelo texto da mensagem)
+                    if (mensagemErro.includes("só é permitida") ||
+                        mensagemErro.includes("permitido entre") ||
+                        mensagemErro.includes("horário") ||
+                        mensagemErro.includes("entre") && mensagemErro.includes("e")) {
+
+                        // EXIBIR O MODAL BONITO
+                        mostrarModalBloqueio(mensagemErro);
+                    } else {
+                        // Outros erros: exibir toast
+                        showToast(`❌ ${mensagemErro}`, 'danger');
+                    }
+
                     resetSlideButton(btn);
                 }
             }
@@ -4091,24 +4202,27 @@
             async function loadUserData() {
                 console.log('🚨 [CRÍTICO] loadUserData foi CHAMADA!');
                 try {
+                    // 1. Busca dados da conta do usuário (ID 230)
                     const response = await fetchWithAuth('/api/users/me');
                     if (!response.ok) throw new Error('Falha ao carregar dados do usuário');
                     currentUser = await response.json();
+                    console.log('👤 [USER] Usuário logado:', currentUser.nome, '(ID:', currentUser.id, ')');
 
-                    // --- ADIÇÃO SEGURA: Busca o ID do Tutor para o WebSocket ---
+                    // 2. Busca o perfil do Tutor para obter o ID correto do canal (ID 182)
                     try {
                         const tutorRes = await fetchWithAuth('/api/tutores/meu-perfil');
                         if (tutorRes.ok) {
                             const tutorData = await tutorRes.json();
-                            currentTutorId = tutorData.id; // Aqui pegamos o 182
-                            console.log('✅ [PERFIL] ID do Tutor para WS:', currentTutorId);
+                            currentTutorId = tutorData.id; // Aqui pegamos o ID 182
+                            console.log('✅ [PERFIL] ID do Tutor para WebSocket definido como:', currentTutorId);
+                        } else {
+                            console.error('⚠️ Não foi possível localizar o perfil de tutor para este usuário.');
                         }
-                    } catch (e) { console.error('Erro ao buscar perfil do tutor', e); }
+                    } catch (e) {
+                        console.error('❌ Erro ao buscar perfil do tutor:', e);
+                    }
 
-                    console.log('👤 [USER] currentUser carregado:', currentUser);
-                    console.log('👤 [USER] ID do usuário:', currentUser.id);
-                    console.log('👤 [USER] Nome:', currentUser.nome);
-
+                    // 3. Atualiza elementos da interface
                     const primeiroNome = currentUser.nome?.split(' ')[0] || 'Tutor';
                     const greetingEl = document.getElementById('greetingText');
                     if (greetingEl) greetingEl.textContent = `Olá, ${primeiroNome}`;
@@ -4122,23 +4236,17 @@
                     const avatarEl = document.getElementById('userAvatarInitials');
                     if (avatarEl) avatarEl.textContent = formatarNomeParaAvatar(currentUser.nome);
 
-                    const filhosCount = document.getElementById('filhosCount');
-                    if (filhosCount) {
-                        // Se studentsData já tiver dados, usa eles, senão mostra loading
-                        if (studentsData && studentsData.length > 0) {
-                            filhosCount.textContent = `${studentsData.length} aluno(s) vinculado(s)`;
-                        } else {
-                            filhosCount.textContent = 'Carregando...';
-                        }
-                    }
-
-                    if (currentUser && currentUser.id) {
+                    // 4. Dispara a conexão do WebSocket apenas se tivermos o ID do tutor
+                    if (currentTutorId) {
                         connectMensagemWebSocket();
+                    } else {
+                        console.error('🚫 WebSocket não iniciado: currentTutorId está vazio.');
                     }
 
                     return currentUser;
+
                 } catch (error) {
-                    console.error('Erro ao carregar dados do usuário:', error);
+                    console.error('❌ Erro fatal no loadUserData:', error);
                     showToast('Erro ao carregar perfil. Faça login novamente.', 'danger');
                     setTimeout(() => logout(), 2000);
                     return null;
@@ -4420,9 +4528,6 @@
 
                             console.log(`✅ Marcadas ${naoLidasIds.length} mensagens como lidas`);
 
-                            // REMOVA ESTA LINHA - NÃO SALVAR EM SESSIONSTORAGE QUANDO BACKEND FUNCIONA
-                            // salvarMensagensLidas(naoLidasIds);  <--- REMOVER
-
                             // VERIFICAR SE REALMENTE MARCOU
                             try {
                                 const checkResponse = await fetchWithAuth(endpoint);
@@ -4432,7 +4537,8 @@
                                 console.warn('Não foi possível verificar estado após marcar:', e);
                             }
 
-                            // Atualizar estado local
+                            // --- CORREÇÃO DO BADGE AQUI ---
+                            // 1. Atualizar estado local da matéria clicada
                             cardData.mensagensNaoLidas = 0;
                             if (cardData.mensagens) {
                                 cardData.mensagens.forEach(msg => {
@@ -4442,27 +4548,49 @@
                                 });
                             }
 
-                            // Remover badge do card visualmente
-                            const cardElement = document.querySelector(`.mural-card[data-card-id="${cardId}"]`);
-                            const badgeSpan = cardElement?.querySelector('.badge-count');
-                            if (badgeSpan) badgeSpan.remove();
+                            // 2. Remover badge do card visualmente (forçando busca pelo ID exato)
+                            const muralTab = document.querySelector('.tab-pane[data-tab="mural"]');
+                            if (muralTab && muralTab.classList.contains('active')) {
+                                // Se estivermos na aba do mural, o jeito mais seguro de limpar as bolinhas é re-renderizar
+                                console.log('🔄 Recarregando mural para limpar os badges...');
+                                renderMural();
+                            } else {
+                                // Se não, tenta caçar no DOM
+                                const cardElement = document.querySelector(`.mural-card[data-card-id="${cardId}"]`);
+                                const badgeSpan = cardElement?.querySelector('.badge-count');
+                                if (badgeSpan) badgeSpan.remove();
+                            }
 
-                            // RECALCULAR TOTAL DE NÃO LIDAS
+                            // 3. RECALCULAR TOTAL DE NÃO LIDAS (Sino e Rodapé)
                             totalNaoLidas = 0;
                             for (const [_, item] of materiasUnicas) {
-                                const naoLidasItem = item.mensagens?.filter(m => !m.lida).length || 0;
-                                totalNaoLidas += naoLidasItem;
+                                // Confia no contador que atualizamos (item.mensagensNaoLidas) e não no array (que pode estar desatualizado)
+                                totalNaoLidas += (item.mensagensNaoLidas || 0);
                             }
+                            console.log(`📊 Recalculado Total Não Lidas: ${totalNaoLidas}`);
                             atualizarBadgeMural(totalNaoLidas);
+                            // --- FIM DA CORREÇÃO ---
 
                         } catch (error) {
                             console.error('❌ Erro ao marcar mensagens como lidas:', error);
-                            // Só salvar no sessionStorage quando o backend falhar (FALLBACK)
                             salvarMensagensLidas(naoLidasIds);
                             showToast(`Erro ao marcar mensagens, mas estado salvo localmente.`, 'warning');
                         }
                     } else {
                         console.log('ℹ️ Nenhuma mensagem não lida para marcar');
+
+                        // Garantir que a bolinha suma mesmo se não tiver mensagem pra marcar no backend 
+                        // (ex: leu em outro lugar mas o frontend não atualizou)
+                        cardData.mensagensNaoLidas = 0;
+                        const cardElement = document.querySelector(`.mural-card[data-card-id="${cardId}"]`);
+                        const badgeSpan = cardElement?.querySelector('.badge-count');
+                        if (badgeSpan) badgeSpan.remove();
+
+                        totalNaoLidas = 0;
+                        for (const [_, item] of materiasUnicas) {
+                            totalNaoLidas += (item.mensagensNaoLidas || 0);
+                        }
+                        atualizarBadgeMural(totalNaoLidas);
                     }
 
                     // Renderizar mensagens
@@ -4483,20 +4611,20 @@
                         }
 
                         return `
-                            <article class="thread-msg ${!isLida ? 'unread' : ''}">
-                                <div class="msg-head">
-                                    <span class="from">
-                                        ${tipoIcon}${msg.criadoPorNome || 'Sistema'}
-                                        <span class="tag ${tipoClass}" style="margin-left: 8px;">
-                                            ${msg.tipo === 'INSTITUCIONAL' ? 'Diretoria' : (msg.tipo === 'COLETIVA' ? 'Turma' : 'Individual')}
-                                        </span>
-                                    </span>
-                                    <span class="when">${new Date(msg.dataCriacao).toLocaleString('pt-BR')}</span>
-                                </div>
-                                <div class="body">${msg.conteudo}</div>
-                                ${msg.alunoNome ? `<div class="tag" style="margin-top: 8px;">👤 Para: ${msg.alunoNome}</div>` : ''}
-                            </article>
-                        `;
+                <article class="thread-msg ${!isLida ? 'unread' : ''}">
+                    <div class="msg-head">
+                        <span class="from">
+                            ${tipoIcon}${msg.criadoPorNome || 'Sistema'}
+                            <span class="tag ${tipoClass}" style="margin-left: 8px;">
+                                ${msg.tipo === 'INSTITUCIONAL' ? 'Diretoria' : (msg.tipo === 'COLETIVA' ? 'Turma' : 'Individual')}
+                            </span>
+                        </span>
+                        <span class="when">${new Date(msg.dataCriacao).toLocaleString('pt-BR')}</span>
+                    </div>
+                    <div class="body">${msg.conteudo}</div>
+                    ${msg.alunoNome ? `<div class="tag" style="margin-top: 8px;">👤 Para: ${msg.alunoNome}</div>` : ''}
+                </article>
+            `;
                     }).join('');
 
                     // Abrir modal
@@ -4588,13 +4716,23 @@
                     });
 
                     // 2. Adicionar card "Turma"
-                    const totalColetivasNaoLidas = coletivasDaSala.filter(msg => !msg.lida).length;
+                    // Filtro reforçado: Remove mensagens que tenham ID de matéria OU que venham de Professores
+                    const coletivasPurificadas = coletivasDaSala.filter(msg => {
+                        const temMateriaId = msg.materiaId !== undefined && msg.materiaId !== null;
+                        const ehProfessor = msg.criadoPorTipo === 'PROFESSOR';
+
+                        // Só entra no card "Turma" se NÃO tiver matéria e NÃO for de professor
+                        return !temMateriaId && !ehProfessor;
+                    });
+
+                    const totalColetivasNaoLidas = coletivasPurificadas.filter(msg => !msg.lida).length;
+
                     materiasUnicas.set('turma', {
                         id: 'turma',
                         nome: 'Turma',
                         tipo: 'COLETIVA',
                         mensagensNaoLidas: totalColetivasNaoLidas,
-                        mensagens: coletivasDaSala,
+                        mensagens: coletivasPurificadas,
                         salaNome: `Mensagens da ${materias[0]?.salaNome || 'Turma'}`
                     });
 
@@ -4627,8 +4765,7 @@
 
                             // Filtrar mensagens
                             const mensagensFiltradas = mensagensDaMateria.filter(msg =>
-                                msg.tipo !== 'INSTITUCIONAL' &&
-                                !(msg.tipo === 'COLETIVA' && msg.salaId === salaId)
+                                msg.tipo !== 'INSTITUCIONAL'
                             );
 
                             // Aplicar estado salvo do sessionStorage
@@ -5475,34 +5612,6 @@
                 }
             }
 
-            // ============== CONFIGURAÇÃO DE HORÁRIOS POR SALA ==============
-            window.HORARIOS_SAIDA = {
-                '2° ANO': { hora: 15, minuto: 10 },
-                '5° ANO': { hora: 15, minuto: 30 },
-                '3° ANO': { hora: 15, minuto: 10 }
-            };
-
-            function normalizarNomeSala(nome) {
-                if (!nome) return "";
-
-                // Remove espaços extras e converte para maiúsculas
-                let nomeLimpo = nome.trim().toUpperCase();
-
-                // Se começar com número e tiver "ANO" ou "ANOS"
-                if (nomeLimpo.match(/^\d/)) {
-                    // Troca "º" por "°"
-                    nomeLimpo = nomeLimpo.replace(/º/g, "°");
-
-                    // Garante que tenha o formato "X° ANO"
-                    const match = nomeLimpo.match(/(\d+)[°º]?\s*(ANO|ANOS)/i);
-                    if (match) {
-                        return match[1] + "° ANO";
-                    }
-                }
-
-                return nomeLimpo;
-            }
-
             function mostrarModalBloqueio(mensagem) {
                 // Remove modal anterior se existir
                 const modalAnterior = document.getElementById('modalBloqueioHorario');
@@ -5632,48 +5741,6 @@
                 modal.querySelector('button').addEventListener('click', () => {
                     backdrop.remove();
                 });
-            }
-
-            function validarHorarioSaida(nomeSalaBruto) {
-                console.log("🔍 [DEBUG] Validando sala (bruto):", nomeSalaBruto);
-
-                // NORMALIZAÇÃO
-                const nomeSala = normalizarNomeSala(nomeSalaBruto);
-
-                console.log("🔍 [DEBUG] Validando sala (normalizado):", nomeSala);
-                console.log("📋 Horários disponíveis:", window.HORARIOS_SAIDA);
-
-                if (!nomeSala || !window.HORARIOS_SAIDA[nomeSala]) {
-                    console.log("✅ Sala sem restrição:", nomeSala);
-                    return { permitido: true };
-                }
-
-                const agora = new Date();
-                const config = window.HORARIOS_SAIDA[nomeSala];
-
-                const horaAtual = agora.getHours();
-                const minutoAtual = agora.getMinutes();
-                const horaLimite = config.hora;
-                const minutoLimite = config.minuto;
-
-                console.log(`🕒 Agora: ${horaAtual}:${minutoAtual} | Limite: ${horaLimite}:${minutoLimite}`);
-
-                // Comparação numérica
-                if (horaAtual < horaLimite || (horaAtual === horaLimite && minutoAtual < minutoLimite)) {
-                    const mensagem = `A solicitação de saída para ${nomeSala} só é permitida após ${horaLimite}:${minutoLimite.toString().padStart(2, '0')}.`;
-                    console.log("🚫 BLOQUEADO:", mensagem);
-
-                    // Mostra o modal bonitinho
-                    mostrarModalBloqueio(mensagem);
-
-                    return {
-                        permitido: false,
-                        mensagem: mensagem
-                    };
-                }
-
-                console.log("✅ Horário permitido!");
-                return { permitido: true };
             }
 
             // Abrir modal de dados pessoais
@@ -6522,6 +6589,14 @@
 
                     tokenSuccessModalInstance.style.display = 'flex';
 
+                    // Aguarda o modal de sucesso fechar e recarrega a lista
+                    const checkModalClose = setInterval(() => {
+                        if (tokenSuccessModalInstance.style.display === 'none') {
+                            clearInterval(checkModalClose);
+                            loadTokens(); // Recarrega a lista de tokens
+                        }
+                    }, 500);
+
                 } catch (error) {
                     console.error('Erro ao gerar token:', error);
                     errorDiv.textContent = error.message || 'Erro ao gerar token. Tente novamente.';
@@ -6657,8 +6732,6 @@
                     'TRANSPORTE': 'Transporte',
                     'MAE': 'Mãe',
                     'PAI': 'Pai',
-                    'AVO': 'Avô/Avó',
-                    'TIO': 'Tio/Tia',
                     'AMIGO': 'Amigo(a)',
                     'PARENTE': 'Parente'
                 };
@@ -6687,123 +6760,122 @@
                 let html = '<div class="timeline" style="position: relative; padding: 8px 0;">';
 
                 html += `
-        <style>
-            .timeline-corrigida {
-                position: relative;
-                padding: 8px 0;
-            }
-            .timeline-corrigida::before {
-                content: "";
-                position: absolute;
-                left: 50%;
-                transform: translateX(-50%);
-                top: 0;
-                bottom: 0;
-                width: 3px;
-                background: linear-gradient(180deg, #1a6fc4 0%, #0ea5a0 100%);
-                opacity: 0.25;
-                border-radius: 2px;
-            }
-            .tl-item-corrigido {
-                position: relative;
-                display: flex;
-                justify-content: center;
-                margin-bottom: 30px;
-            }
-            .tl-card-corrigido {
-                width: 45%;
-                background: var(--gradient-card);
-                border: 1px solid var(--border);
-                border-radius: var(--radius);
-                padding: 14px;
-                box-shadow: var(--shadow-xs);
-                position: relative;
-            }
-            .tl-card-corrigido:hover {
-                transform: translateY(-2px);
-                box-shadow: var(--shadow-md);
-            }
-            .tl-item-corrigido.entry {
-                justify-content: flex-end;
-            }
-            .tl-item-corrigido.entry .tl-card-corrigido {
-                margin-right: calc(50% + 15px);
-            }
-            .tl-item-corrigido.exit {
-                justify-content: flex-start;
-            }
-            .tl-item-corrigido.exit .tl-card-corrigido {
-                margin-left: calc(50% + 15px);
-            }
-            .tl-dot-corrigido {
-                position: absolute;
-                left: 50%;
-                transform: translateX(-50%) translateY(-50%);
-                width: 32px;
-                height: 32px;
-                border-radius: 50%;
-                background: #fff;
-                border: 3px solid;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                z-index: 2;
-                box-shadow: 0 4px 10px rgba(15, 79, 143, .2);
-                top: 50%;
-            }
-            .tl-item-corrigido.entry .tl-dot-corrigido {
-                border-color: #10b981;
-                color: #10b981;
-            }
-            .tl-item-corrigido.exit .tl-dot-corrigido {
-                border-color: #ef4444;
-                color: #ef4444;
-            }
-            .day-divider-corrigido {
-                text-align: center;
-                font-size: 0.75rem;
-                font-weight: 700;
-                letter-spacing: 0.08em;
-                text-transform: uppercase;
-                color: var(--text-muted);
-                margin: 20px 0 16px;
-                position: relative;
-                z-index: 2;
-            }
-            .day-divider-corrigido span {
-                background: var(--bg);
-                padding: 4px 14px;
-                border-radius: 999px;
-                border: 1px solid var(--border);
-                font-size: 0.7rem;
-            }
-            .tl-card-corrigido .who {
-                font-weight: 700;
-                color: var(--text);
-                font-size: 0.85rem;
-            }
-            .tl-card-corrigido .when {
-                font-size: 0.7rem;
-                color: var(--text-muted);
-                margin-top: 4px;
-                font-weight: 500;
-            }
-            .tl-card-corrigido .what {
-                font-size: 0.75rem;
-                color: var(--text-secondary);
-                margin-top: 6px;
-                font-weight: 500;
-            }
-            .tl-card-corrigido.entry-card {
-                border-left: 3px solid #10b981;
-            }
-            .tl-card-corrigido.exit-card {
-                border-left: 3px solid #1a6fc4;
-            }
-        </style>
-        <div class="timeline-corrigida">
-    `;
-
+                    <style>
+                        .timeline-corrigida {
+                            position: relative;
+                            padding: 8px 0;
+                        }
+                        .timeline-corrigida::before {
+                            content: "";
+                            position: absolute;
+                            left: 50%;
+                            transform: translateX(-50%);
+                            top: 0;
+                            bottom: 0;
+                            width: 3px;
+                            background: linear-gradient(180deg, #1a6fc4 0%, #0ea5a0 100%);
+                            opacity: 0.25;
+                            border-radius: 2px;
+                        }
+                        .tl-item-corrigido {
+                            position: relative;
+                            display: flex;
+                            justify-content: center;
+                            margin-bottom: 30px;
+                        }
+                        .tl-card-corrigido {
+                            width: 45%;
+                            background: var(--gradient-card);
+                            border: 1px solid var(--border);
+                            border-radius: var(--radius);
+                            padding: 14px;
+                            box-shadow: var(--shadow-xs);
+                            position: relative;
+                        }
+                        .tl-card-corrigido:hover {
+                            transform: translateY(-2px);
+                            box-shadow: var(--shadow-md);
+                        }
+                        .tl-item-corrigido.entry {
+                            justify-content: flex-end;
+                        }
+                        .tl-item-corrigido.entry .tl-card-corrigido {
+                            margin-right: calc(50% + 15px);
+                        }
+                        .tl-item-corrigido.exit {
+                            justify-content: flex-start;
+                        }
+                        .tl-item-corrigido.exit .tl-card-corrigido {
+                            margin-left: calc(50% + 15px);
+                        }
+                        .tl-dot-corrigido {
+                            position: absolute;
+                            left: 50%;
+                            transform: translateX(-50%) translateY(-50%);
+                            width: 32px;
+                            height: 32px;
+                            border-radius: 50%;
+                            background: #fff;
+                            border: 3px solid;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            z-index: 2;
+                            box-shadow: 0 4px 10px rgba(15, 79, 143, .2);
+                            top: 50%;
+                        }
+                        .tl-item-corrigido.entry .tl-dot-corrigido {
+                            border-color: #10b981;
+                            color: #10b981;
+                        }
+                        .tl-item-corrigido.exit .tl-dot-corrigido {
+                            border-color: #ef4444;
+                            color: #ef4444;
+                        }
+                        .day-divider-corrigido {
+                            text-align: center;
+                            font-size: 0.75rem;
+                            font-weight: 700;
+                            letter-spacing: 0.08em;
+                            text-transform: uppercase;
+                            color: var(--text-muted);
+                            margin: 20px 0 16px;
+                            position: relative;
+                            z-index: 2;
+                        }
+                        .day-divider-corrigido span {
+                            background: var(--bg);
+                            padding: 4px 14px;
+                            border-radius: 999px;
+                            border: 1px solid var(--border);
+                            font-size: 0.7rem;
+                        }
+                        .tl-card-corrigido .who {
+                            font-weight: 700;
+                            color: var(--text);
+                            font-size: 0.85rem;
+                        }
+                        .tl-card-corrigido .when {
+                            font-size: 0.7rem;
+                            color: var(--text-muted);
+                            margin-top: 4px;
+                            font-weight: 500;
+                        }
+                        .tl-card-corrigido .what {
+                            font-size: 0.75rem;
+                            color: var(--text-secondary);
+                            margin-top: 6px;
+                            font-weight: 500;
+                        }
+                        .tl-card-corrigido.entry-card {
+                            border-left: 3px solid #10b981;
+                        }
+                        .tl-card-corrigido.exit-card {
+                            border-left: 3px solid #1a6fc4;
+                        }
+                    </style>
+                    <div class="timeline-corrigida">
+                `;
 
                 // Iterar sobre as datas
                 Object.keys(groupedByDate).forEach(date => {
@@ -6822,15 +6894,22 @@
 
                     html += `<div class="day-divider-corrigido"><span>${dateDisplay}</span></div>`;
 
-                    groupedByDate[date].forEach(record => {
+                    // ========== CORREÇÃO: Ordenar por horário (mais recente primeiro) ==========
+                    const registrosDoDia = [...groupedByDate[date]].sort((a, b) => {
+                        const horarioA = new Date(a.entradaAt).getTime();
+                        const horarioB = new Date(b.entradaAt).getTime();
+                        return horarioB - horarioA;
+                    });
+
+                    // Para cada registro, exibir APENAS o que ele representa
+                    registrosDoDia.forEach(record => {
                         const entradaDate = new Date(record.entradaAt);
                         const entradaTime = entradaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                        const saidaTime = record.saidaAt ? new Date(record.saidaAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : null;
 
                         const iniciadoPorTipo = formatarTipoResponsavel(record.iniciadoPorTipo);
                         const finalizadoPorTipo = record.finalizadoPorTipo ? formatarTipoResponsavel(record.finalizadoPorTipo) : '';
 
-                        // Formatar nome do aluno (primeiro nome + último nome)
+                        // Formatar nome do aluno
                         const nomeAluno = record.alunoNome || 'Aluno';
                         const partesNome = nomeAluno.trim().split(' ');
                         let nomeFormatado = nomeAluno;
@@ -6838,22 +6917,16 @@
                             nomeFormatado = `${partesNome[0]} ${partesNome[partesNome.length - 1]}`;
                         }
 
-                        // CARD DE ENTRADA
-                        html += `
-                            <div class="tl-item-corrigido entry">
-                                <div class="tl-dot-corrigido">
-                                    <i class="fas fa-sign-in-alt fa-xs"></i>
-                                </div>
-                                <div class="tl-card-corrigido entry-card">
-                                    <div class="who">${nomeFormatado}</div>
-                                    <div class="when">${entradaTime}</div>
-                                    <div class="what"><strong>Entrada</strong> registrada por ${record.iniciadoPor || 'Sistema'}${iniciadoPorTipo ? ` (${iniciadoPorTipo})` : ''}</div>
-                                </div>
-                            </div>
-                        `;
+                        // VERIFICAR SE TEM SAÍDA REGISTRADA
+                        const temSaida = record.saidaAt !== null && record.saidaAt !== undefined;
 
-                        // CARD DE SAÍDA (se existir)
-                        if (saidaTime) {
+                        if (temSaida) {
+                            // Este é um registro COMPLETO (entrada E saída)
+                            // Vamos exibir PRIMEIRO a SAÍDA (mais recente) e DEPOIS a ENTRADA
+                            const saidaDate = new Date(record.saidaAt);
+                            const saidaTime = saidaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+                            // Saída (mais recente - vem primeiro)
                             html += `
                                 <div class="tl-item-corrigido exit">
                                     <div class="tl-dot-corrigido">
@@ -6863,6 +6936,34 @@
                                         <div class="who">${nomeFormatado}</div>
                                         <div class="when">${saidaTime}</div>
                                         <div class="what"><strong>Saída</strong> registrada por ${record.finalizadoPor || 'Sistema'}${finalizadoPorTipo ? ` (${finalizadoPorTipo})` : ''}</div>
+                                    </div>
+                                </div>
+                            `;
+
+                            // Entrada (mais antiga - vem depois)
+                            html += `
+                                <div class="tl-item-corrigido entry">
+                                    <div class="tl-dot-corrigido">
+                                        <i class="fas fa-sign-in-alt fa-xs"></i>
+                                    </div>
+                                    <div class="tl-card-corrigido entry-card">
+                                        <div class="who">${nomeFormatado}</div>
+                                        <div class="when">${entradaTime}</div>
+                                        <div class="what"><strong>Entrada</strong> registrada por ${record.iniciadoPor || 'Sistema'}${iniciadoPorTipo ? ` (${iniciadoPorTipo})` : ''}</div>
+                                    </div>
+                                </div>
+                            `;
+                        } else {
+                            // Apenas ENTRADA (aluno entrou mas ainda não saiu - sessão aberta)
+                            html += `
+                                <div class="tl-item-corrigido entry">
+                                    <div class="tl-dot-corrigido">
+                                        <i class="fas fa-sign-in-alt fa-xs"></i>
+                                    </div>
+                                    <div class="tl-card-corrigido entry-card">
+                                        <div class="who">${nomeFormatado}</div>
+                                        <div class="when">${entradaTime}</div>
+                                        <div class="what"><strong>Entrada</strong> registrada por ${record.iniciadoPor || 'Sistema'}${iniciadoPorTipo ? ` (${iniciadoPorTipo})` : ''}</div>
                                     </div>
                                 </div>
                             `;
@@ -6876,16 +6977,16 @@
                 const totalPagesCalc = Math.ceil(sorted.length / HISTORY_PAGE_SIZE);
                 if (totalPagesCalc > 1) {
                     html += `
-            <div class="pagination-controls">
-                <button class="pagination-btn" id="historyPrevPage" ${currentHistoryPage === 1 ? 'disabled' : ''}>
-                    <i class="fas fa-chevron-left"></i> Anterior
-                </button>
-                <span class="page-info">Página ${currentHistoryPage} de ${totalPagesCalc}</span>
-                <button class="pagination-btn" id="historyNextPage" ${currentHistoryPage === totalPagesCalc ? 'disabled' : ''}>
-                    Próxima <i class="fas fa-chevron-right"></i>
-                </button>
-            </div>
-        `;
+                        <div class="pagination-controls">
+                            <button class="pagination-btn" id="historyPrevPage" ${currentHistoryPage === 1 ? 'disabled' : ''}>
+                                <i class="fas fa-chevron-left"></i> Anterior
+                            </button>
+                            <span class="page-info">Página ${currentHistoryPage} de ${totalPagesCalc}</span>
+                            <button class="pagination-btn" id="historyNextPage" ${currentHistoryPage === totalPagesCalc ? 'disabled' : ''}>
+                                Próxima <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    `;
                 }
 
                 container.innerHTML = html;
@@ -7173,9 +7274,10 @@
             });
             document.addEventListener('MSFullscreenChange', () => {
                 atualizarIconeFullScreen(!!document.msFullscreenElement);
-            });      
+            });
 
         })();
+
 
     </script>
 
