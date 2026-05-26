@@ -4010,7 +4010,7 @@
                 } catch (error) {
                     console.error('❌ Erro ao carregar configurações:', error);
                 }
-            }           
+            }
 
             async function toggleAutoChamada(alunoId, currentState, event) {
                 if (event) event.stopPropagation();
@@ -5743,6 +5743,32 @@
                         await this.notifyBackendPosition(latitude, longitude, isInside, distance);
                     }
 
+                    // ======================================================================
+                    // 🔓 VERSÃO 2: FORA DO LAÇO (DIRETO E IMEDIATO)
+                    // Varre a lista global. Dispara a saída contanto que o tutor esteja dentro do raio.
+                    // ======================================================================
+                    if (isInside && window.studentsData) {
+                        for (const aluno of window.studentsData) {
+                            if (aluno.status === 'PRESENTE' && aluno.chamadaAutomatica === true) {
+                                console.log(`🤖 [V2 - Direto] Chamada automática ativada para ${aluno.nome} (Tutor dentro do perímetro).`);
+
+                                if (typeof window.handleExitRequest === 'function') {
+                                    // Prevenção local de flood para evitar múltiplos cliques na API no mesmo ciclo
+                                    aluno.status = 'PROCESSANDO_AUTOMATICO';
+
+                                    try {
+                                        await window.handleExitRequest(aluno.id, aluno.nome, null);
+                                    } catch (err) {
+                                        console.error(`Erro ao processar saída automática de ${aluno.nome}:`, err);
+                                        aluno.status = 'PRESENTE'; // Desfaz em caso de falha na API
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // ======================================================================
+
+                    // Loop original apenas gerenciando os timers de quem já está fora/retornando
                     for (const [studentId, monitor] of this.activeMonitors) {
                         if (isInside) {
                             if (monitor.isOutside) {
@@ -5751,23 +5777,6 @@
                                 this.showIndicator(monitor.studentName);
                                 this.sendNotification('✅ Retorno à Área', `${monitor.studentName}: Você retornou à área escolar.`, 'success');
                                 await this.notifyBackendReturn(studentId);
-
-                                // ========== NOVA LÓGICA: CHAMADA AUTOMÁTICA ==========
-                                // Verificar se chamada automática está ativada para este aluno
-                                const aluno = window.studentsData?.find(a => a.id === studentId);
-                                if (aluno && aluno.chamadaAutomatica === true && aluno.status === 'PRESENTE') {
-                                    console.log(`🤖 Chamada automática ativada para ${aluno.nome} - solicitando saída...`);
-                                    // Chamar a solicitação de saída automaticamente
-                                    if (typeof window.handleExitRequest === 'function') {
-                                        // Evitar chamada duplicada se já estiver em andamento
-                                        if (aluno.status !== 'AGUARDANDO_CONFIRMACAO') {
-                                            await window.handleExitRequest(studentId, monitor.studentName, null);
-                                        } else {
-                                            console.log(`⚠️ Aluno ${aluno.nome} já está com saída pendente. Ignorando chamada automática.`);
-                                        }
-                                    }
-                                }
-                                // ========== FIM DA NOVA LÓGICA ==========
                             }
                         } else {
                             if (!monitor.isOutside) {
@@ -5778,7 +5787,6 @@
                                 this.sendNotification('🚶 Saída Detectada',
                                     `${monitor.studentName}: Fora da área. Se ficar ${this.TIMEOUT_MINUTES} minutos fora, a saída será confirmada.`, 'warning');
 
-                                // Timer visual
                                 let timeLeft = this.TIMEOUT_MINUTES * 60;
                                 const visualInterval = setInterval(() => {
                                     if (!monitor.isOutside) { clearInterval(visualInterval); return; }
@@ -5791,7 +5799,6 @@
                                     }
                                 }, 1000);
 
-                                // Timer real
                                 const checkTimeout = () => {
                                     const elapsed = (Date.now() - monitor.startTimeOutside) / 1000;
                                     if (elapsed >= this.TIMEOUT_MINUTES * 60 && monitor.isOutside) {
