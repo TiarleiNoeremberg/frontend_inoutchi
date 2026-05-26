@@ -3271,6 +3271,105 @@
 
             let totalNaoLidas = 0;
 
+            function updateStudentCardStatus(alunoId, eventType) {
+                console.log(`🔄 Atualizando card do aluno ${alunoId} para evento: ${eventType}`);
+
+                // Encontrar o card do aluno
+                const cards = document.querySelectorAll('.student-card');
+                let targetCard = null;
+
+                for (const card of cards) {
+                    if (card.getAttribute('data-student-id') == alunoId) {
+                        targetCard = card;
+                        break;
+                    }
+                }
+
+                if (!targetCard) {
+                    console.warn(`⚠️ Card do aluno ${alunoId} não encontrado na página atual`);
+                    // Fallback: recarregar lista de alunos
+                    if (typeof refreshStudentsData === 'function') {
+                        refreshStudentsData();
+                    }
+                    return;
+                }
+
+                // Determinar novo status baseado no evento
+                let novoStatus = '';
+                let statusClass = '';
+                let statusIcon = '';
+                let statusText = '';
+                let slideAction = '';
+                let slideLabel = '';
+                let slideIcon = '';
+
+                switch (eventType) {
+                    case 'ENTRADA_ALUNO':
+                        novoStatus = 'PRESENTE';
+                        statusClass = 'in';
+                        statusIcon = 'fa-circle';
+                        statusText = 'PRESENTE';
+                        slideAction = 'exit-request';
+                        slideLabel = '← Deslize para solicitar saída';
+                        slideIcon = 'fa-chevron-left';
+                        break;
+                    case 'SAIDA_PENDENTE':
+                        novoStatus = 'AGUARDANDO_CONFIRMACAO';
+                        statusClass = 'pending';
+                        statusIcon = 'fa-spinner fa-pulse';
+                        statusText = 'AGUARDANDO';
+                        slideAction = 'exit-confirm';
+                        slideLabel = 'Deslize para confirmar saída →';
+                        slideIcon = 'fa-chevron-right';
+                        break;
+                    case 'SAIDA_CONFIRMADA':
+                        novoStatus = 'AUSENTE';
+                        statusClass = 'out';
+                        statusIcon = 'fa-circle';
+                        statusText = 'AUSENTE';
+                        slideAction = 'entry';
+                        slideLabel = 'Deslize para registrar entrada →';
+                        slideIcon = 'fa-chevron-right';
+                        break;
+                    default:
+                        console.warn(`⚠️ Evento desconhecido: ${eventType}`);
+                        return;
+                }
+
+                // Atualizar o badge de status
+                const statusBadge = targetCard.querySelector('.status-badge');
+                if (statusBadge) {
+                    statusBadge.className = `status-badge ${statusClass}`;
+                    statusBadge.innerHTML = `<i class="fas ${statusIcon}"></i>${statusText}`;
+                }
+
+                // Atualizar o slide button
+                const slideBtn = targetCard.querySelector('.slide-btn');
+                if (slideBtn) {
+                    slideBtn.dataset.action = slideAction;
+                    const labelSpan = slideBtn.querySelector('.slide-track-label');
+                    if (labelSpan) labelSpan.textContent = slideLabel;
+                    const thumbIcon = slideBtn.querySelector('.slide-thumb i');
+                    if (thumbIcon) {
+                        thumbIcon.className = `fas ${slideIcon}`;
+                    }
+                }
+
+                // Efeito de destaque
+                targetCard.classList.add('atualizado');
+                setTimeout(() => targetCard.classList.remove('atualizado'), 500);
+
+                if (typeof initSlideButtons === 'function') {
+                    // Aguardar um pouco para garantir que o DOM foi atualizado
+                    setTimeout(() => {
+                        initSlideButtons();
+                        console.log('🔄 Slide buttons reinicializados após atualização');
+                    }, 50);
+                }
+
+                console.log(`✅ Card do aluno atualizado para: ${novoStatus}`);
+            }
+
 
             function connectMensagemWebSocket() {
                 console.log('🔌 [WS] Tentando conectar WebSocket de mensagens...');
@@ -3321,6 +3420,32 @@
                                 console.error('❌ Erro ao processar mensagem do socket:', e);
                             }
                         });
+
+                        // ========== NOVO: Tópico para eventos de alunos (Diretor) ==========
+                        const alunoTopic = `/topic/tutor/${currentTutorId}/alunos`;
+                        console.log(`🔌 [WS] 🔥 Assinando tópico de eventos: ${alunoTopic}`);
+
+                        stompClient.subscribe(alunoTopic, function (message) {
+                            console.log('🎯🎯🎯 EVENTO DE ALUNO RECEBIDO! 🎯🎯🎯');
+                            try {
+                                const evento = JSON.parse(message.body);
+                                console.log('📨 Evento do diretor:', evento);
+
+                                // Atualizar o status do aluno no card
+                                if (typeof updateStudentCardStatus === 'function') {
+                                    updateStudentCardStatus(evento.alunoId, evento.tipo);
+                                } else {
+                                    console.warn('⚠️ Função updateStudentCardStatus não encontrada');
+                                    // Fallback: recarregar lista de alunos
+                                    if (typeof refreshStudentsData === 'function') {
+                                        refreshStudentsData();
+                                    }
+                                }
+                            } catch (e) {
+                                console.error('❌ Erro ao processar evento do diretor:', e);
+                            }
+                        });
+                        // ========== FIM DO NOVO CÓDIGO ==========
 
                         // Heartbeat para manter a conexão ativa
                         if (!window.heartbeatInterval) {
@@ -3939,7 +4064,7 @@
                     // Validação de horário
                     const alunoAtual = studentsData.find(s => s.id == studentId);
                     const nomeSala = alunoAtual?.salaNome || '';
-                    
+
                     const position = await getCurrentPosition();
                     const { latitude, longitude } = position.coords;
 
@@ -6472,6 +6597,14 @@
 
                     tokenSuccessModalInstance.style.display = 'flex';
 
+                    // Aguarda o modal de sucesso fechar e recarrega a lista
+                    const checkModalClose = setInterval(() => {
+                        if (tokenSuccessModalInstance.style.display === 'none') {
+                            clearInterval(checkModalClose);
+                            loadTokens(); // Recarrega a lista de tokens
+                        }
+                    }, 500);
+
                 } catch (error) {
                     console.error('Erro ao gerar token:', error);
                     errorDiv.textContent = error.message || 'Erro ao gerar token. Tente novamente.';
@@ -7152,6 +7285,7 @@
             });
 
         })();
+
 
     </script>
 
