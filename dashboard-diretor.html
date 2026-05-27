@@ -4582,16 +4582,10 @@
             try {
                 const accessToken = localStorage.getItem("access_token");
 
-                // =========================================================================
-                // ==== CORREÇÃO APLICADA AQUI ====
-                // Adicionamos o "&sort=nome,asc" para que o servidor já envie a lista
-                // paginada corretamente em ordem alfabética global.
-                // =========================================================================
-                let url = `${BACKEND_URL}/api/escolas/${currentSchoolId}/tutores?page=${page}&size=${pageSize}&sort=nome,asc`;
+                // Buscar TODOS os tutores da escola (sem filtro no backend)
+                const url = `${BACKEND_URL}/api/escolas/${currentSchoolId}/tutores?page=0&size=1000&sort=nome,asc`;
 
-                if (searchTerm) {
-                    url += `&nome=${encodeURIComponent(searchTerm)}`;
-                }
+                console.log(`🔍 Buscando todos os tutores da escola ${currentSchoolId}...`);
 
                 const response = await fetch(url, {
                     headers: {
@@ -4602,23 +4596,63 @@
 
                 if (response.ok) {
                     const data = await response.json();
+                    let allTutors = data.content || [];
 
-                    // === GARANTIA EXTRA NO FRONTEND ===
-                    // Ordena a página atual em ordem alfabética caso a API não suporte o parâmetro sort
-                    if (data.content && data.content.length > 0) {
-                        data.content.sort((a, b) =>
-                            (a.nome || "").localeCompare(b.nome || ""),
+                    console.log(`📊 Total de tutores carregados: ${allTutors.length}`);
+
+                    // 🔴 FILTRA NO FRONTEND se houver termo de busca
+                    if (searchTerm && searchTerm.trim() !== "") {
+                        const term = searchTerm.toLowerCase().trim();
+                        allTutors = allTutors.filter(tutor =>
+                            (tutor.nome && tutor.nome.toLowerCase().includes(term)) ||
+                            (tutor.email && tutor.email.toLowerCase().includes(term)) ||
+                            (tutor.fone && tutor.fone.includes(term))
+                        );
+                        console.log(`🔍 Filtro "${searchTerm}": ${allTutors.length} tutores encontrados`);
+                    }
+
+                    // Aplica paginação no frontend
+                    const totalElements = allTutors.length;
+                    const totalPages = Math.ceil(totalElements / pageSize);
+                    const start = page * pageSize;
+                    const end = Math.min(start + pageSize, totalElements);
+                    const pageData = allTutors.slice(start, end);
+
+                    const paginatedData = {
+                        content: pageData,
+                        totalPages: totalPages,
+                        number: page,
+                        totalElements: totalElements,
+                        size: pageSize
+                    };
+
+                    // Ordena a página atual (garantia extra)
+                    if (paginatedData.content && paginatedData.content.length > 0) {
+                        paginatedData.content.sort((a, b) =>
+                            (a.nome || "").localeCompare(b.nome || "")
                         );
                     }
 
-                    renderTutorsTable(data);
-                    setupTutorsPagination(data);
+                    renderTutorsTable(paginatedData);
+                    setupTutorsPagination(paginatedData);
+
                 } else {
                     throw new Error(`Erro ${response.status}: ${response.statusText}`);
                 }
             } catch (error) {
                 console.error("Erro ao carregar tutores:", error);
                 showAlert("Erro ao carregar lista de tutores.", "error");
+
+                // Mostra tabela vazia em caso de erro
+                const emptyData = {
+                    content: [],
+                    totalPages: 0,
+                    number: 0,
+                    totalElements: 0,
+                    size: pageSize
+                };
+                renderTutorsTable(emptyData);
+                setupTutorsPagination(emptyData);
             }
         }
 
