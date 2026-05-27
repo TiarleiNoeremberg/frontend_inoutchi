@@ -4531,13 +4531,37 @@
 
             // Handler: SOLICITAR SAÍDA
             async function handleExitRequest(studentId, studentName, btn) {
+                const locationModal = document.getElementById('locationModal');
+                const modalTitle = document.getElementById('locationModalTitle');
+                const modalMessage = document.getElementById('locationModalMessage');
+                const coordinatesDisplay = document.getElementById('locationCoordinatesDisplay');
+                const modalLatitude = document.getElementById('modalLatitude');
+                const modalLongitude = document.getElementById('modalLongitude');
+
+                // Reset e exibe modal
+                coordinatesDisplay.style.display = 'none';
+                modalTitle.innerHTML = '<i class="fas fa-map-marker-alt fa-spin"></i> Obtendo localização...';
+                modalMessage.textContent = 'Aguardando o GPS do seu dispositivo';
+                locationModal.style.display = 'flex';
+
                 try {
+                    // Obtém localização
+                    const position = await getCurrentPosition();
+                    const { latitude, longitude } = position.coords;
+
+                    // Atualiza modal com coordenadas
+                    modalTitle.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida!';
+                    modalMessage.textContent = 'Coordenadas capturadas com sucesso';
+                    modalLatitude.textContent = latitude.toFixed(6);
+                    modalLongitude.textContent = longitude.toFixed(6);
+                    coordinatesDisplay.style.display = 'block';
+
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    locationModal.style.display = 'none';
+
                     // Validação de horário
                     const alunoAtual = studentsData.find(s => s.id == studentId);
                     const nomeSala = alunoAtual?.salaNome || '';
-
-                    const position = await getCurrentPosition();
-                    const { latitude, longitude } = position.coords;
 
                     const payload = {
                         alunoId: parseInt(studentId),
@@ -4561,35 +4585,27 @@
                         throw new Error(mensagemErro);
                     }
 
-                    // ========== MOSTRAR TELA DE SUCESSO ==========
                     await mostrarTelaSucesso('solicitacao', async () => {
-                        // Atualiza os dados após a tela de sucesso
                         await refreshStudentsData();
                         renderStudents(studentsData);
 
-                        // Iniciar monitoramento APÓS a tela de sucesso
                         if (geofenceMonitor) {
                             geofenceMonitor.startMonitoring(studentId, studentName);
                         }
-
                     });
-                    // ============================================
 
                 } catch (error) {
+                    locationModal.style.display = 'none';
                     console.error('Erro ao solicitar saída:', error);
 
                     let mensagemErro = error.message || "Erro ao processar solicitação";
 
-                    // Verifica se é erro de horário (pelo texto da mensagem)
                     if (mensagemErro.includes("só é permitida") ||
                         mensagemErro.includes("permitido entre") ||
                         mensagemErro.includes("horário") ||
                         mensagemErro.includes("entre") && mensagemErro.includes("e")) {
-
-                        // EXIBIR O MODAL BONITO
                         mostrarModalBloqueio(mensagemErro);
                     } else {
-                        // Outros erros: exibir toast
                         showToast(`❌ ${mensagemErro}`, 'danger');
                     }
 
