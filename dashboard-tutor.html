@@ -2652,6 +2652,75 @@
             font-size: 0.65rem;
             font-weight: 700;
         }
+
+        /* ===== MODAL DE LOCALIZAÇÃO (ENTRADA) ===== */
+        .location-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(8px);
+            z-index: 100000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .location-modal-container {
+            background: var(--surface);
+            border-radius: 28px;
+            width: 85%;
+            max-width: 320px;
+            padding: 32px 24px;
+            text-align: center;
+            box-shadow: var(--shadow-lg);
+            animation: fadeInUp 0.3s ease;
+            border: 1px solid var(--border);
+        }
+
+        .location-modal-icon {
+            font-size: 48px;
+            color: var(--primary);
+            margin-bottom: 16px;
+        }
+
+        .location-modal-icon i.fa-spin {
+            animation: fa-spin 1s infinite linear;
+        }
+
+        .location-modal h3 {
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: var(--text);
+        }
+
+        .location-modal p {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+        }
+
+        #locationCoordinatesDisplay {
+            background: var(--primary-light);
+            border-radius: 12px;
+            padding: 12px;
+            margin-top: 12px;
+            font-size: 0.75rem;
+            font-family: monospace;
+            text-align: left;
+        }
+
+        #locationCoordinatesDisplay div {
+            margin: 4px 0;
+        }
+
+        #locationCoordinatesDisplay span {
+            font-weight: 700;
+            color: var(--primary);
+        }
     </style>
 </head>
 
@@ -3304,6 +3373,24 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
                 </div>
+            </div>
+        </div>
+    </div>
+    <!-- ===== MODAL DE LOCALIZAÇÃO (ENTRADA) ===== -->
+    <div id="locationModal" class="location-modal">
+        <div class="location-modal-container">
+            <div class="location-modal-icon">
+                <i class="fas fa-location-arrow fa-spin"></i>
+            </div>
+            <h3 id="locationModalTitle">Obtendo localização...</h3>
+            <p id="locationModalMessage">Aguardando o GPS do seu dispositivo</p>
+            <div id="locationCoordinatesDisplay" style="display: none;">
+                <div><i class="fas fa-map-marker-alt"
+                        style="width: 14px; margin-right: 6px; color: var(--primary);"></i> Latitude: <span
+                        id="modalLatitude">-</span></div>
+                <div><i class="fas fa-map-marker-alt"
+                        style="width: 14px; margin-right: 6px; color: var(--primary);"></i> Longitude: <span
+                        id="modalLongitude">-</span></div>
             </div>
         </div>
     </div>
@@ -4281,38 +4368,71 @@
             }
 
             async function handleEntry(studentId, studentName, btn) {
+                // 1. Abrir modal de localização
+                const locationModal = document.getElementById('locationModal');
+                const modalTitle = document.getElementById('locationModalTitle');
+                const modalMessage = document.getElementById('locationModalMessage');
+                const coordinatesDisplay = document.getElementById('locationCoordinatesDisplay');
+                const modalLatitude = document.getElementById('modalLatitude');
+                const modalLongitude = document.getElementById('modalLongitude');
+
+                coordinatesDisplay.style.display = 'none';
+                modalTitle.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Obtendo localização...';
+                modalMessage.textContent = 'Aguardando o GPS do seu dispositivo';
+                locationModal.style.display = 'flex';
+
                 try {
+                    // 2. Obter localização
                     const position = await getCurrentPosition();
                     const { latitude, longitude } = position.coords;
 
-                    const payload = {
-                        alunoId: parseInt(studentId),
-                        latitude: latitude,
-                        longitude: longitude,
-                        responsavelId: currentUser.id,
-                        responsavelNome: currentUser.nome,
-                        responsavelTipo: 'TUTOR'
-                    };
+                    // 3. Atualizar modal com coordenadas
+                    modalTitle.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida!';
+                    modalMessage.textContent = 'Coordenadas capturadas com sucesso';
+                    modalLatitude.textContent = latitude.toFixed(6);
+                    modalLongitude.textContent = longitude.toFixed(6);
+                    coordinatesDisplay.style.display = 'block';
 
-                    const response = await fetchWithAuth('/api/presencas/entrada', {
-                        method: 'POST',
-                        body: JSON.stringify(payload)
-                    });
+                    await new Promise(resolve => setTimeout(resolve, 1000));
 
-                    if (!response.ok) {
-                        const error = await response.json();
-                        throw new Error(error.mensagem || 'Erro ao registrar entrada');
-                    }
+                    // 4. Fechar modal
+                    locationModal.style.display = 'none';
 
-                    // ========== MOSTRAR TELA DE SUCESSO ==========
+                    // ===========================================================
+                    // 5. MOSTRAR TELA VERDE PRIMEIRO (antes da API)
+                    // ===========================================================
                     await mostrarTelaSucesso('entrada', async () => {
-                        // Atualiza os dados após a tela de sucesso
+                        // Tudo dentro deste callback acontece enquanto a tela verde está visível
+                        // O usuário NÃO vê nada do que acontece aqui
+
+                        const payload = {
+                            alunoId: parseInt(studentId),
+                            latitude: latitude,
+                            longitude: longitude,
+                            responsavelId: currentUser.id,
+                            responsavelNome: currentUser.nome,
+                            responsavelTipo: 'TUTOR'
+                        };
+
+                        const response = await fetchWithAuth('/api/presencas/entrada', {
+                            method: 'POST',
+                            body: JSON.stringify(payload)
+                        });
+
+                        if (!response.ok) {
+                            const error = await response.json();
+                            throw new Error(error.mensagem || 'Erro ao registrar entrada');
+                        }
+
+                        // Atualiza os dados (acontece por trás da tela verde)
                         await refreshStudentsData();
                         renderStudents(studentsData);
                     });
-                    // ============================================
+                    // ===========================================================
+                    // A tela verde só vai sumir após 3 segundos, e o card já estará atualizado
 
                 } catch (error) {
+                    locationModal.style.display = 'none';
                     console.error('Erro na entrada:', error);
                     showToast(`❌ ${error.message}`, 'danger');
                     resetSlideButton(btn);
