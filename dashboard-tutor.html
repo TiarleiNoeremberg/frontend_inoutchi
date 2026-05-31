@@ -5723,6 +5723,7 @@
                         await this.onEnterGeofence();
                     }
 
+                    this.updateTopPill(isInside, distance);
                     this.lastPosition = { latitude, longitude, isInside, distance, timestamp: Date.now() };
                 }
 
@@ -5805,6 +5806,7 @@
 
             class GeofenceMonitorPro {
                 constructor() {
+                    this.lastAutoCallTime = new Map(); // alunoId -> timestamp
                     this.watchId = null;
                     this.activeMonitors = new Map();
                     this.GEOFENCE_RADIUS_METERS = 200;
@@ -6344,37 +6346,35 @@
                     if (isInside && window.studentsData) {
                         console.log(`📍 [Geofence] Tutor dentro do perímetro. Verificando alunos qualificados...`);
 
-                        // Criamos uma função assíncrona interna para lidar com os awaits com segurança
                         const processarSaidasAutomaticas = async () => {
                             for (const aluno of window.studentsData) {
-
-                                // Log de diagnóstico para acompanhar no console do celular/PC
                                 console.log(`🔍 [Checagem] Aluno: ${aluno.nome} | Status: ${aluno.status} | Chamada Automática Switch: ${aluno.chamadaAutomatica}`);
 
-                                // VALIDAÇÃO CRÍTICA: Deve estar PRESENTE e com o switch ligado
                                 if (aluno.status === 'PRESENTE' && aluno.chamadaAutomatica === true) {
+                                    const now = Date.now();
+                                    const lastCall = this.lastAutoCallTime.get(aluno.id) || 0;
 
+                                    if (now - lastCall < 60000) {
+                                        console.log(`⏱️ Cooldown ativo para ${aluno.nome} (última chamada há ${Math.round((now - lastCall) / 1000)}s). Ignorando.`);
+                                        continue;
+                                    }
+
+                                    this.lastAutoCallTime.set(aluno.id, now);
                                     console.log(`🤖 [V2 - Direto] Aluno ${aluno.nome} qualificado. Iniciando chamada automática...`);
 
                                     if (typeof window.handleExitRequest === 'function') {
-                                        // Prevenção local de flood para evitar múltiplos cliques na API no mesmo ciclo
                                         aluno.status = 'PROCESSANDO_AUTOMATICO';
-
                                         try {
-                                            // Criamos um elemento "fantoche" para que o handleExitRequest não quebre se tentar manipular o DOM
                                             const fakeBtn = document.createElement('button');
                                             fakeBtn.dataset.action = 'exit-request';
-
-                                            // Executa a chamada original exatamente como o botão manual faria
                                             await window.handleExitRequest(aluno.id, aluno.nome, fakeBtn);
-
                                             console.log(`✅ [V2 - Sucesso] Chamada automática concluída para ${aluno.nome}.`);
                                         } catch (err) {
                                             console.error(`❌ Erro ao processar saída automática de ${aluno.nome}:`, err);
-                                            aluno.status = 'PRESENTE'; // Desfaz em caso de falha na API para permitir nova tentativa
+                                            aluno.status = 'PRESENTE';
                                         }
                                     } else {
-                                        console.error("🚨 Erro: window.handleExitRequest não foi encontrada no escopo global.");
+                                        console.error("🚨 Erro: window.handleExitRequest não encontrada.");
                                     }
                                 }
                             }
@@ -6386,6 +6386,7 @@
                         });
                     }
                     // ======================================================================
+
 
                     // Loop original apenas gerenciando os timers de quem já está fora/retornando
                     for (const [studentId, monitor] of this.activeMonitors) {
@@ -6522,6 +6523,22 @@
                     else if (error.code === error.TIMEOUT) message = 'Tempo limite excedido.';
                     if (message) this.showToast('Erro de Localização', message, 'error');
                 }
+
+                updateTopPill(isInside, distance) {
+                    const pill = document.getElementById('geofencePill');
+                    const label = document.getElementById('geofenceLabel');
+                    if (!pill || !label) return;
+
+                    if (isInside) {
+                        pill.classList.remove('out');
+                        label.innerHTML = `<i class="fas fa-check-circle"></i> Dentro da área da escola (${Math.round(distance)}m)`;
+                    } else {
+                        pill.classList.add('out');
+                        label.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Fora da área da escola (${Math.round(distance)}m)`;
+                    }
+                }
+
+
             }
 
 
@@ -7040,15 +7057,18 @@
                     await loadStudents();
                     await loadTokens();
 
+                    /*
                     // Iniciar monitoramento de geofence após carregar alunos
                     if (studentsData && studentsData.length > 0) {
                         iniciarMonitoramentoGeofence();
                     }
+                    */
 
                     renderMural();
 
                     initGeofenceMonitor();
 
+                    /*
                     // Inicializar o detector de entrada
                     if (!window.entranceDetector) {
                         window.entranceDetector = new EntranceDetector();
@@ -7077,6 +7097,7 @@
 
                         console.log('✅ EntranceDetector inicializado e monitorando');
                     }
+                    */
 
                     const appShell = document.getElementById('appShell');
                     if (appShell) appShell.classList.add('visible');
