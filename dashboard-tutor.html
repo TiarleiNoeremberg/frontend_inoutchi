@@ -4398,6 +4398,7 @@
                 locationModal.style.display = 'flex';
 
                 try {
+                    // 1. Coleta a localização atual via GPS
                     const position = await getCurrentPosition();
                     const { latitude, longitude } = position.coords;
 
@@ -4407,44 +4408,55 @@
                     modalLongitude.textContent = longitude.toFixed(6);
                     coordinatesDisplay.style.display = 'block';
 
+                    // Pequena pausa apenas para o usuário ver que capturou
                     await new Promise(resolve => setTimeout(resolve, 1000));
                     locationModal.style.display = 'none';
 
-                    // ===========================================================
-                    // FAZ EXATAMENTE IGUAL À SAÍDA:
-                    // 1. Mostra a tela verde
-                    // 2. DENTRO dela, chama a API e atualiza o card
-                    // ===========================================================
+                    // 2. DISPARA PARA O BACKEND PRIMEIRO (Para validar a Geofence)
+                    const payload = {
+                        alunoId: parseInt(studentId),
+                        latitude: latitude,
+                        longitude: longitude,
+                        responsavelId: currentUser.id,
+                        responsavelNome: currentUser.nome,
+                        responsavelTipo: 'TUTOR'
+                    };
+
+                    const response = await fetchWithAuth('/api/presencas/entrada', {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                    });
+
+                    // 3. SE O BACKEND BARRAR (Tutor fora do perímetro ou outro erro)
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.mensagem || 'Você precisa estar dentro do perímetro da escola para dar entrada.');
+                    }
+
+                    // 4. SE DEU CERTO, EXIBE A TELA VERDE DE SUCESSO
                     await mostrarTelaSucesso('entrada', async () => {
-                        const payload = {
-                            alunoId: parseInt(studentId),
-                            latitude: latitude,
-                            longitude: longitude,
-                            responsavelId: currentUser.id,
-                            responsavelNome: currentUser.nome,
-                            responsavelTipo: 'TUTOR'
-                        };
-
-                        const response = await fetchWithAuth('/api/presencas/entrada', {
-                            method: 'POST',
-                            body: JSON.stringify(payload)
-                        });
-
-                        if (!response.ok) {
-                            const error = await response.json();
-                            throw new Error(error.mensagem || 'Erro ao registrar entrada');
-                        }
-
-                        // Atualiza os dados - EXATAMENTE COMO NA SAÍDA
+                        // Atualiza a listagem com os novos dados confirmados pelo servidor
                         await refreshStudentsData();
                         renderStudents(studentsData);
                     });
 
                 } catch (error) {
-                    locationModal.style.display = 'none';
-                    console.error('Erro na entrada:', error);
-                    showToast(`❌ ${error.message}`, 'danger');
-                    resetSlideButton(btn);
+                    // Garante que o modal de carregamento feche se houver falha
+                    if (locationModal) locationModal.style.display = 'none';
+
+                    // Exibe o balão vermelho de erro na tela (Toast) com a mensagem exata do porquê foi barrado
+                    showToast(`❌ Falha: ${error.message}`, 'danger');
+
+                    // Se o botão ficou travado visualmente em "ativado", força ele a voltar ao normal
+                    if (btn) {
+                        btn.classList.remove('activated');
+                        const thumb = btn.querySelector('.slide-thumb');
+                        const fill = btn.querySelector('.slide-fill');
+                        const label = btn.querySelector('.slide-track-label');
+                        if (thumb) thumb.style.left = '4px';
+                        if (fill) fill.style.width = '0%';
+                        if (label) label.style.opacity = 1;
+                    }
                 }
             }
 
