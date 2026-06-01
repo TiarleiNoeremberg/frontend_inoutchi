@@ -4554,78 +4554,82 @@
                 const modalLatitude = document.getElementById('modalLatitude');
                 const modalLongitude = document.getElementById('modalLongitude');
 
-                coordinatesDisplay.style.display = 'none';
-                modalTitle.innerHTML = '<i class="fas fa-map-marker-alt fa-spin"></i> Obtendo localização...';
-                modalMessage.textContent = 'Aguardando o GPS do seu dispositivo';
-                locationModal.style.display = 'flex';
+                if (coordinatesDisplay) coordinatesDisplay.style.display = 'none';
+                if (modalTitle) modalTitle.innerHTML = '<i class="fas fa-map-marker-alt fa-spin"></i> Obtendo localização...';
+                if (modalMessage) modalMessage.textContent = 'Aguardando o GPS do seu dispositivo';
+                if (locationModal) locationModal.style.display = 'flex';
 
                 try {
+                    // 1. Captura a geolocalização atual
                     const position = await getCurrentPosition();
                     const { latitude, longitude } = position.coords;
 
-                    modalTitle.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida!';
-                    modalMessage.textContent = 'Coordenadas capturadas com sucesso';
-                    modalLatitude.textContent = latitude.toFixed(6);
-                    modalLongitude.textContent = longitude.toFixed(6);
-                    coordinatesDisplay.style.display = 'block';
+                    if (modalTitle) modalTitle.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida!';
+                    if (modalMessage) modalMessage.textContent = 'Coordenadas capturadas com sucesso';
+                    if (modalLatitude) modalLatitude.textContent = latitude.toFixed(6);
+                    if (modalLongitude) modalLongitude.textContent = longitude.toFixed(6);
+                    if (coordinatesDisplay) coordinatesDisplay.style.display = 'block';
 
                     await new Promise(resolve => setTimeout(resolve, 1000));
-                    locationModal.style.display = 'none';
+                    if (locationModal) locationModal.style.display = 'none';
 
-                    // ===========================================================
-                    // 🔴 PRIMEIRO: MOSTRA A TELA VERMELHA
-                    // ===========================================================
+                    // 2. Monta o payload exatamente como seu ambiente de produção espera
+                    const payload = {
+                        alunoId: parseInt(studentId),
+                        latitude: latitude,
+                        longitude: longitude,
+                        responsavelId: currentUser.id,
+                        responsavelNome: currentUser.nome,
+                        responsavelTipo: 'TUTOR'
+                    };
+
+                    // 3. DISPARA PARA O BACKEND PRIMEIRO (Preservando os headers nativos cruciais)
+                    const response = await fetchWithAuth('/api/presencas/solicitar-saida', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(payload)
+                    });
+
+                    // 4. SE O BACKEND BARRAR (Fora da Geofence, fora do horário, etc.)
+                    if (!response.ok) {
+                        let dadosErro;
+                        try {
+                            dadosErro = await response.json();
+                        } catch (e) {
+                            dadosErro = { mensagem: 'Erro interno do servidor' };
+                        }
+                        throw new Error(dadosErro.mensagem || 'Erro interno do servidor');
+                    }
+
+                    // 5. SE DEU TUDO CERTO (HTTP 200), EXIBE A TELA DE SUCESSO NATIVA ('solicitacao')
                     await mostrarTelaSucesso('solicitacao', async () => {
-                        // =======================================================
-                        // DENTRO da tela vermelha: faz a requisição
-                        // =======================================================
-                        const payload = {
-                            alunoId: parseInt(studentId),
-                            latitude: latitude,
-                            longitude: longitude
-                        };
-
-                        const response = await fetchWithAuth('/api/presencas/saida/solicitar', {
-                            method: 'POST',
-                            body: JSON.stringify(payload)
-                        });
-
-                        if (!response.ok) {
-                            let mensagemErro = 'Erro ao solicitar saída';
-                            try {
-                                const error = await response.json();
-                                mensagemErro = error.mensagem || error.erro || error.detalhes || 'Erro ao solicitar saída';
-                            } catch (e) {
-                                mensagemErro = response.statusText || 'Erro ao solicitar saída';
-                            }
-                            throw new Error(mensagemErro);
-                        }
-
-                        // Atualiza os dados (acontece por trás da tela vermelha)
                         await refreshStudentsData();
-                        renderStudents(studentsData);
-
-                        // Inicia monitoramento
-                        if (geofenceMonitor) {
-                            geofenceMonitor.startMonitoring(studentId, studentName);
-                        }
+                        if (typeof renderStudents === 'function') renderStudents(studentsData);
                     });
 
                 } catch (error) {
-                    locationModal.style.display = 'none';
-                    console.error('Erro ao solicitar saída:', error);
+                    if (locationModal) locationModal.style.display = 'none';
+                    console.error('Erro na solicitação de saída:', error);
 
-                    let mensagemErro = error.message || "Erro ao processar solicitação";
+                    // Tratamento inteligente para mascarar logs brutos do servidor
+                    let msgOriginal = error.message ? String(error.message).trim() : '';
+                    let msgMinuscula = msgOriginal.toLowerCase();
 
-                    if (mensagemErro.includes("só é permitida") ||
-                        mensagemErro.includes("permitido entre") ||
-                        mensagemErro.includes("horário") ||
-                        mensagemErro.includes("entre") && mensagemErro.includes("e")) {
-                        mostrarModalBloqueio(mensagemErro);
-                    } else {
-                        showToast(`❌ ${mensagemErro}`, 'danger');
+                    let mensagemFinal = msgOriginal;
+                    if (msgOriginal === '' || msgOriginal === 'undefined' || msgMinuscula.includes('erro interno') || msgMinuscula.includes('server error') || msgMinuscula.includes('failed to fetch')) {
+                        mensagemFinal = 'Ops! Parece que você está fora da área permitida escola.';
                     }
 
+                    // Exibe o modal moderno se ele existir, senão usa o toast padrão de produção
+                    if (typeof mostrarModalErroGeofence === 'function') {
+                        mostrarModalErroGeofence(mensagemFinal);
+                    } else {
+                        showToast(`❌ ${mensagemFinal}`, 'danger');
+                    }
+
+                    // Executa o reset nativo do seu arquivo estável
                     resetSlideButton(btn);
                 }
             }
