@@ -4288,20 +4288,16 @@
             // ============== SLIDE BUTTONS ==============
             function initSlideButtons() {
                 document.querySelectorAll('.slide-btn').forEach(btn => {
-                    if (btn._listenersAttached) return; // ✅ evita duplicar listeners
-                    btn._listenersAttached = true;
-
-                    // Não captura action/reversed aqui — lemos no momento do gesto
+                    const action = btn.dataset.action;
+                    const reversed = action === 'exit-request';
                     const thumb = btn.querySelector('.slide-thumb');
                     const fill = btn.querySelector('.slide-fill');
                     const label = btn.querySelector('.slide-track-label');
 
                     let dragging = false, startX = 0, currentX = 0, maxDist = 0;
-                    let _reversed = false; // valor dinâmico do gesto atual
 
                     function start(e) {
                         if (btn.classList.contains('activated')) return;
-                        _reversed = btn.dataset.action === 'exit-request'; // ✅ lido agora
                         dragging = true;
                         btn.classList.add('dragging');
                         startX = (e.touches ? e.touches[0].clientX : e.clientX);
@@ -4313,10 +4309,10 @@
                         if (!dragging) return;
                         const x = (e.touches ? e.touches[0].clientX : e.clientX);
                         let delta = x - startX;
-                        if (_reversed) delta = -delta; // ✅ usa reversed dinâmico
+                        if (reversed) delta = -delta;
                         delta = Math.max(0, Math.min(maxDist, delta));
                         currentX = delta;
-                        if (_reversed) {
+                        if (reversed) {
                             thumb.style.right = (4 + delta) + 'px';
                             fill.style.width = (delta + 48) + 'px';
                         } else {
@@ -4334,7 +4330,7 @@
 
                         if (ratio >= 0.85) {
                             btn.classList.add('activated');
-                            if (_reversed) {
+                            if (reversed) {
                                 thumb.style.right = (maxDist + 4) + 'px';
                             } else {
                                 thumb.style.left = (maxDist + 4) + 'px';
@@ -4344,10 +4340,11 @@
 
                             const studentId = btn.dataset.studentId;
                             const studentName = btn.dataset.studentName;
-                            const actionType = btn.dataset.action; // ✅ lê o valor ATUAL
+                            const actionType = action;
 
                             if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
 
+                            // Executar ação correspondente
                             if (actionType === 'entry') {
                                 await handleEntry(studentId, studentName, btn);
                             } else if (actionType === 'exit-request') {
@@ -4358,7 +4355,7 @@
 
                             setTimeout(() => {
                                 btn.classList.remove('activated');
-                                if (_reversed) {
+                                if (reversed) {
                                     thumb.style.right = '4px';
                                 } else {
                                     thumb.style.left = '4px';
@@ -4366,9 +4363,8 @@
                                 fill.style.width = '0%';
                                 label.style.opacity = 1;
                             }, 2000);
-
                         } else {
-                            if (_reversed) {
+                            if (reversed) {
                                 thumb.style.right = '4px';
                             } else {
                                 thumb.style.left = '4px';
@@ -4558,100 +4554,78 @@
                 const modalLatitude = document.getElementById('modalLatitude');
                 const modalLongitude = document.getElementById('modalLongitude');
 
-                if (coordinatesDisplay) coordinatesDisplay.style.display = 'none';
-                if (modalTitle) modalTitle.innerHTML = '<i class="fas fa-map-marker-alt fa-spin"></i> Obtendo localização...';
-                if (modalMessage) modalMessage.textContent = 'Aguardando o GPS do seu dispositivo';
-                if (locationModal) locationModal.style.display = 'flex';
+                coordinatesDisplay.style.display = 'none';
+                modalTitle.innerHTML = '<i class="fas fa-map-marker-alt fa-spin"></i> Obtendo localização...';
+                modalMessage.textContent = 'Aguardando o GPS do seu dispositivo';
+                locationModal.style.display = 'flex';
 
-                let latitude, longitude;
-
-                // =========================================================
-                // FASE 1: CAPTURA INDEPENDENTE DA GEOLOCALIZAÇÃO (GPS)
-                // =========================================================
                 try {
                     const position = await getCurrentPosition();
-                    latitude = position.coords.latitude;
-                    longitude = position.coords.longitude;
+                    const { latitude, longitude } = position.coords;
 
-                    if (modalTitle) modalTitle.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida!';
-                    if (modalMessage) modalMessage.textContent = 'Coordenadas capturadas com sucesso';
-                    if (modalLatitude) modalLatitude.textContent = latitude.toFixed(6);
-                    if (modalLongitude) modalLongitude.textContent = longitude.toFixed(6);
-                    if (coordinatesDisplay) coordinatesDisplay.style.display = 'block';
+                    modalTitle.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida!';
+                    modalMessage.textContent = 'Coordenadas capturadas com sucesso';
+                    modalLatitude.textContent = latitude.toFixed(6);
+                    modalLongitude.textContent = longitude.toFixed(6);
+                    coordinatesDisplay.style.display = 'block';
 
-                    // Pequena pausa fluida para o utilizador ver que o GPS respondeu
                     await new Promise(resolve => setTimeout(resolve, 1000));
-                    if (locationModal) locationModal.style.display = 'none';
+                    locationModal.style.display = 'none';
 
-                } catch (gpsError) {
-                    if (locationModal) locationModal.style.display = 'none';
-                    console.error("❌ Erro de geolocalização:", gpsError);
-                    showToast("Não foi possível obter a sua localização. Ative o GPS.", "danger");
-                    resetSlideButton(btn);
-                    return; // Aborta a execução imediatamente se o GPS falhar
-                }
+                    // ===========================================================
+                    // 🔴 PRIMEIRO: MOSTRA A TELA VERMELHA
+                    // ===========================================================
+                    await mostrarTelaSucesso('solicitacao', async () => {
+                        // =======================================================
+                        // DENTRO da tela vermelha: faz a requisição
+                        // =======================================================
+                        const payload = {
+                            alunoId: parseInt(studentId),
+                            latitude: latitude,
+                            longitude: longitude
+                        };
 
-                // =========================================================
-                // FASE 2: VALIDAÇÃO ISOLADA NO BACKEND E TELA DE SUCESSO
-                // =========================================================
-                try {
-                    const payload = {
-                        alunoId: parseInt(studentId),
-                        latitude: latitude,
-                        longitude: longitude,
-                        responsavelId: currentUser.id,
-                        responsavelNome: currentUser.nome,
-                        responsavelTipo: 'TUTOR'
-                    };
+                        const response = await fetchWithAuth('/api/presencas/saida/solicitar', {
+                            method: 'POST',
+                            body: JSON.stringify(payload)
+                        });
 
-                    console.log("Enviando solicitação de saída para validação:", payload);
-
-                    // Faz a chamada nativa sem injetar cabeçalhos manuais para não corromper o Token do auth.js
-                    const response = await fetchWithAuth('/api/presencas/saida/solicitar', {
-                        method: 'POST',
-                        body: JSON.stringify(payload)
-                    });
-
-                    // Se o servidor recusar explicitamente a requisição (Fora do perímetro, horário inválido, etc.)
-                    if (!response.ok) {
-                        let servidorMensagem = '';
-                        try {
-                            const errorData = await response.json();
-                            servidorMensagem = errorData.mensagem || errorData.message || '';
-                        } catch (jsonErr) {
-                            servidorMensagem = ''; // Resposta não é um JSON válido
+                        if (!response.ok) {
+                            let mensagemErro = 'Erro ao solicitar saída';
+                            try {
+                                const error = await response.json();
+                                mensagemErro = error.mensagem || error.erro || error.detalhes || 'Erro ao solicitar saída';
+                            } catch (e) {
+                                mensagemErro = response.statusText || 'Erro ao solicitar saída';
+                            }
+                            throw new Error(mensagemErro);
                         }
 
-                        // Lança o erro com a mensagem real capturada do backend
-                        throw new Error(servidorMensagem);
-                    }
-
-                    // FASE 3: SE O SERVIDOR DEVOLVEU STATUS OK (HTTP 200), ACIONA O SUCESSO VISUAL
-                    await mostrarTelaSucesso('solicitacao', async () => {
-                        // Executa a atualização dos cartões em segundo plano conforme o seu ficheiro estável
+                        // Atualiza os dados (acontece por trás da tela vermelha)
                         await refreshStudentsData();
+                        renderStudents(studentsData);
+
+                        // Inicia monitoramento
+                        if (geofenceMonitor) {
+                            geofenceMonitor.startMonitoring(studentId, studentName);
+                        }
                     });
 
-                } catch (apiError) {
-                    console.error("❌ Erro no processamento da API de saída:", apiError);
+                } catch (error) {
+                    locationModal.style.display = 'none';
+                    console.error('Erro ao solicitar saída:', error);
 
-                    let msgOriginal = apiError.message ? String(apiError.message).trim() : '';
-                    let msgMinuscula = msgOriginal.toLowerCase();
+                    let mensagemErro = error.message || "Erro ao processar solicitação";
 
-                    // Aplica a máscara amigável apenas se o erro for vazio, genérico ou queda de rede/servidor
-                    let mensagemFinal = msgOriginal;
-                    if (msgOriginal === '' || msgOriginal === 'undefined' || msgMinuscula.includes('erro interno') || msgMinuscula.includes('server error') || msgMinuscula.includes('failed to fetch')) {
-                        mensagemFinal = 'Acesso indisponível. Para solicitar a saída do aluno, é necessário estar fisicamente dentro da área permitida da escola.';
-                    }
-
-                    // Abre o modal moderno premium se a função existir no escopo, senão faz fallback para o toast nativo
-                    if (typeof mostrarModalErroGeofence === 'function') {
-                        mostrarModalErroGeofence(mensagemFinal);
+                    if (mensagemErro.includes("só é permitida") ||
+                        mensagemErro.includes("permitido entre") ||
+                        mensagemErro.includes("horário") ||
+                        mensagemErro.includes("entre") && mensagemErro.includes("e")) {
+                        mostrarModalBloqueio(mensagemErro);
                     } else {
-                        showToast(`❌ ${mensagemFinal}`, 'danger');
+                        showToast(`❌ ${mensagemErro}`, 'danger');
                     }
 
-                    // Destrava o Slider e faz o botão recuar nativamente usando a função estável do seu ficheiro
                     resetSlideButton(btn);
                 }
             }
@@ -5711,8 +5685,6 @@
                         return;
                     }
 
-                    console.log("🟢 Iniciando watchPosition com alta precisão...");
-
                     // Opções de alta precisão
                     const options = {
                         enableHighAccuracy: true,
@@ -5726,7 +5698,6 @@
                         options
                     );
 
-                    console.log("✅ watchPosition ativo, ID:", this.watchId);
                     console.log('🟢 [EntranceDetector] watchPosition iniciado, ID:', this.watchId);
                 }
 
@@ -6244,30 +6215,20 @@
                 }
 
                 async startMonitoring(studentId, studentName) {
-                    // Se já estiver monitorando, não faz nada
-                    if (this.activeMonitors.has(parseInt(studentId))) return;
+                    await this.init();
 
-                    // Garante que as coordenadas da escola estão carregadas
-                    if (!this.schoolCoords) {
-                        console.log("⏳ Aguardando carregamento das coordenadas da escola...");
-                        await this.init();
-                        if (!this.schoolCoords) {
-                            console.error("❌ Não foi possível carregar coordenadas da escola. Monitoramento abortado.");
-                            return;
-                        }
-                    }
+                    if (this.activeMonitors.has(studentId)) return;
 
                     const aluno = window.studentsData?.find(a => a.id == studentId);
                     if (!aluno || aluno.status !== 'AGUARDANDO_CONFIRMACAO') {
-                        console.log(`🔴 [GeofenceMonitor] Aluno ${studentName} não está AGUARDANDO. Monitoramento ignorado.`);
+                        console.log(`🔴 [GeofenceMonitor] Tentativa de iniciar monitor para aluno ${studentName} que não está AGUARDANDO. Ignorando.`);
                         return;
                     }
 
                     await this.notifyBackendMonitoringStart(studentId, studentName);
 
-                    this.activeMonitors.set(parseInt(studentId), {
-                        studentId: parseInt(studentId),
-                        studentName: studentName,
+                    this.activeMonitors.set(studentId, {
+                        studentId, studentName,
                         isOutside: false,
                         startTimeOutside: null,
                         timeoutId: null
@@ -6277,7 +6238,6 @@
                     this.sendNotification('🔍 Monitoramento Ativado',
                         `${studentName}: Se você se afastar por ${this.TIMEOUT_MINUTES} minutos, a saída será confirmada.`, 'info');
 
-                    // Inicia o watch se não estiver rodando
                     if (!this.watchId) this.startWatching();
                 }
 
@@ -6386,9 +6346,6 @@
 
                     const distance = this.calculateDistance(latitude, longitude, this.schoolCoords.lat, this.schoolCoords.lng);
                     const isInside = distance <= this.GEOFENCE_RADIUS_METERS;
-
-                    // ✅ ATUALIZA A PÍLULA SUPERIOR
-                    this.updateTopPill(isInside, distance);
 
                     const now = Date.now();
                     if (now - this.lastBackendCall >= this.THROTTLE_MS) {
@@ -6580,20 +6537,6 @@
                     else if (error.code === error.POSITION_UNAVAILABLE) message = 'Localização indisponível.';
                     else if (error.code === error.TIMEOUT) message = 'Tempo limite excedido.';
                     if (message) this.showToast('Erro de Localização', message, 'error');
-                }
-
-                updateTopPill(isInside, distance) {
-                    const pill = document.getElementById('geofencePill');
-                    const label = document.getElementById('geofenceLabel');
-                    if (!pill || !label) return;
-
-                    if (isInside) {
-                        pill.classList.remove('out');
-                        label.innerHTML = `<i class="fas fa-check-circle"></i> Dentro da área da escola (${Math.round(distance)}m)`;
-                    } else {
-                        pill.classList.add('out');
-                        label.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Fora da área da escola (${Math.round(distance)}m)`;
-                    }
                 }
             }
 
@@ -7233,12 +7176,7 @@
 
                     renderMural();
 
-                    if (!geofenceMonitor) {
-                        geofenceMonitor = new GeofenceMonitorPro();
-                        geofenceMonitor.init().then(() => {
-                            console.log("✅ GeofenceMonitorPro inicializado e pronto");
-                        });
-                    }
+                    initGeofenceMonitor();
 
                     // Inicializar o detector de entrada
                     if (!window.entranceDetector) {
@@ -8278,16 +8216,14 @@
                                     if (labelSpan) labelSpan.textContent = newLabel;
 
                                     const thumbIcon = slideBtn.querySelector('.slide-thumb i');
-                                    if (thumbIcon) thumbIcon.className = `fas ${newIcon}`;
-
-                                    // ✅ ADICIONE ISTO: reseta a guarda para o initSlideButtons reanexar com novo contexto
-                                    delete slideBtn._listenersAttached;
+                                    if (thumbIcon) {
+                                        thumbIcon.className = `fas ${newIcon}`;
+                                    }
                                 }
 
                                 // Efeito de destaque
                                 cardAluno.classList.add('atualizado');
                                 setTimeout(() => cardAluno.classList.remove('atualizado'), 500);
-                                initSlideButtons();
                             }
 
                             // Atualiza o objeto studentsData
