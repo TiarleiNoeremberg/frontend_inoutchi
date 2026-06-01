@@ -4560,7 +4560,7 @@
                 if (locationModal) locationModal.style.display = 'flex';
 
                 try {
-                    // 1. Captura a geolocalização atual via GPS
+                    // 1. Coleta a localização atual via GPS de forma limpa
                     const position = await getCurrentPosition();
                     const { latitude, longitude } = position.coords;
 
@@ -4570,64 +4570,93 @@
                     if (modalLongitude) modalLongitude.textContent = longitude.toFixed(6);
                     if (coordinatesDisplay) coordinatesDisplay.style.display = 'block';
 
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    // Pausa breve para o usuário ver a captura ocorrer com sucesso
+                    await new Promise(resolve => setTimeout(resolve, 800));
                     if (locationModal) locationModal.style.display = 'none';
 
-                    // 2. Monta o payload idêntico ao esperado
+                    // Tratamento seguro do Aluno ID para evitar incompatibilidade de tipos (String/Int/NaN)
+                    const idTratado = studentId ? parseInt(studentId, 10) : null;
+                    if (!idTratado || isNaN(idTratado)) {
+                        throw new Error('Identificação do aluno inválida ou corrompida.');
+                    }
+
+                    // 2. Monta o payload limpo esperado pela API de Presenças
                     const payload = {
-                        alunoId: parseInt(studentId),
+                        alunoId: idTratado,
                         latitude: latitude,
                         longitude: longitude,
-                        responsavelId: currentUser.id,
-                        responsavelNome: currentUser.nome,
+                        responsavelId: currentUser?.id,
+                        responsavelNome: currentUser?.nome,
                         responsavelTipo: 'TUTOR'
                     };
 
-                    // 3. DISPARA PARA O BACKEND PRIMEIRO (Deixando o fetchWithAuth gerenciar os headers nativos)
+                    // 3. DISPARA PARA O BACKEND (Sem Headers manuais para não corromper o Token JWT do auth.js)
                     const response = await fetchWithAuth('/api/presencas/solicitar-saida', {
                         method: 'POST',
                         body: JSON.stringify(payload)
                     });
 
-                    // 4. SE O BACKEND BARRAR (Aqui identificamos se está fora da geofence)
+                    // 4. TRATAMENTO SEGURO DA RESPOSTA DO BACKEND
                     if (!response.ok) {
-                        let dadosErro;
+                        let mensagemErro = 'Erro ao solicitar saída do aluno.';
                         try {
-                            dadosErro = await response.json();
+                            const dadosErro = await response.json();
+                            mensagemErro = dadosErro.mensagem || dadosErro.message || mensagemErro;
                         } catch (e) {
-                            dadosErro = { mensagem: 'Erro interno do servidor' };
+                            // Caso o servidor não devolva um JSON válido
+                            mensagemErro = 'Não foi possível validar os dados junto ao servidor.';
                         }
-                        throw new Error(dadosErro.mensagem || 'Erro interno do servidor');
+                        throw new Error(mensagemErro);
                     }
 
-                    // 5. SE ESTIVER DENTRO E AUTORIZADO, ABRE A TELA VISUAL DE SUCESSO NATIVA
+                    // 5. SE TUDO DEU CERTO (HTTP 200), EXIBE A TELA VERMELHA NATIVA DE SOLICITAÇÃO
                     await mostrarTelaSucesso('solicitacao', async () => {
-                        await refreshStudentsData();
-                        if (typeof renderStudents === 'function') renderStudents(studentsData);
+                        if (typeof refreshStudentsData === 'function') {
+                            await refreshStudentsData();
+                        }
+                        if (typeof renderStudents === 'function' && typeof studentsData !== 'undefined') {
+                            renderStudents(studentsData);
+                        }
                     });
 
                 } catch (error) {
+                    // Certifica que fecha o modal cinzento de loading do GPS caso algo falhe no meio do caminho
                     if (locationModal) locationModal.style.display = 'none';
-                    console.error('Erro na solicitação de saída:', error);
 
-                    // Tratamento inteligente do erro técnico
+                    console.error('❌ [Erro Crítico] Saída recusada:', error);
+
                     let msgOriginal = error.message ? String(error.message).trim() : '';
                     let msgMinuscula = msgOriginal.toLowerCase();
 
+                    // Máscara inteligente apenas se o erro for nulo, indefinido ou queda de servidor
                     let mensagemFinal = msgOriginal;
                     if (msgOriginal === '' || msgOriginal === 'undefined' || msgMinuscula.includes('erro interno') || msgMinuscula.includes('server error') || msgMinuscula.includes('failed to fetch')) {
-                        mensagemFinal = 'Acesso indisponível. Para solicitar a saída do aluno, é necessário estar fisicamente dentro da área permitida da escola.';
+                        mensagemFinal = 'Acesso indisponível.';
                     }
 
-                    // Exibe o modal moderno configurado anteriormente
+                    // Exibe o modal premium customizado se existir, senão usa o fallback toast padrão
                     if (typeof mostrarModalErroGeofence === 'function') {
                         mostrarModalErroGeofence(mensagemFinal);
-                    } else {
+                    } else if (typeof showToast === 'function') {
                         showToast(`❌ ${mensagemFinal}`, 'danger');
+                    } else {
+                        alert(mensagemFinal);
                     }
 
-                    // Destrava e recua o botão deslizante nativamente
-                    resetSlideButton(btn);
+                    // Executa o reset visual milimétrico do botão deslizante para ele retornar ao início
+                    if (btn) {
+                        btn.classList.remove('activated');
+                        btn.classList.remove('dragging');
+                        const thumb = btn.querySelector('.slide-thumb');
+                        const fill = btn.querySelector('.slide-fill');
+                        const label = btn.querySelector('.slide-track-label');
+                        if (thumb) {
+                            thumb.style.left = '';
+                            thumb.style.right = '4px'; // Mantém no lado correto do botão de saída
+                        }
+                        if (fill) fill.style.width = '0%';
+                        if (label) label.style.opacity = 1;
+                    }
                 }
             }
 
