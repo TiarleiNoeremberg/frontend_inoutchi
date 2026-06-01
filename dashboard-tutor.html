@@ -4554,16 +4554,20 @@
                 const modalLatitude = document.getElementById('modalLatitude');
                 const modalLongitude = document.getElementById('modalLongitude');
 
-                // Validações defensivas de segurança para elementos de carregamento
                 if (coordinatesDisplay) coordinatesDisplay.style.display = 'none';
                 if (modalTitle) modalTitle.innerHTML = '<i class="fas fa-map-marker-alt fa-spin"></i> Obtendo localização...';
                 if (modalMessage) modalMessage.textContent = 'Aguardando o GPS do seu dispositivo';
                 if (locationModal) locationModal.style.display = 'flex';
 
+                let latitude, longitude;
+
+                // =========================================================
+                // FASE 1: CAPTURA INDEPENDENTE DA GEOLOCALIZAÇÃO (GPS)
+                // =========================================================
                 try {
-                    // 1. Captura a geolocalização atual via GPS do dispositivo
                     const position = await getCurrentPosition();
-                    const { latitude, longitude } = position.coords;
+                    latitude = position.coords.latitude;
+                    longitude = position.coords.longitude;
 
                     if (modalTitle) modalTitle.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida!';
                     if (modalMessage) modalMessage.textContent = 'Coordenadas capturadas com sucesso';
@@ -4571,87 +4575,80 @@
                     if (modalLongitude) modalLongitude.textContent = longitude.toFixed(6);
                     if (coordinatesDisplay) coordinatesDisplay.style.display = 'block';
 
-                    // Pausa curta e natural para que o usuário veja o carregamento do GPS sumir de forma fluida
-                    await new Promise(resolve => setTimeout(resolve, 800));
+                    // Pequena pausa fluida para o utilizador ver que o GPS respondeu
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                     if (locationModal) locationModal.style.display = 'none';
 
-                    // 2. Monta o payload exatamente como o backend de produção espera
+                } catch (gpsError) {
+                    if (locationModal) locationModal.style.display = 'none';
+                    console.error("❌ Erro de geolocalização:", gpsError);
+                    showToast("Não foi possível obter a sua localização. Ative o GPS.", "danger");
+                    resetSlideButton(btn);
+                    return; // Aborta a execução imediatamente se o GPS falhar
+                }
+
+                // =========================================================
+                // FASE 2: VALIDAÇÃO ISOLADA NO BACKEND E TELA DE SUCESSO
+                // =========================================================
+                try {
                     const payload = {
-                        alunoId: parseInt(studentId, 10),
+                        alunoId: parseInt(studentId),
                         latitude: latitude,
                         longitude: longitude,
-                        responsavelId: currentUser?.id,
-                        responsavelNome: currentUser?.nome,
+                        responsavelId: currentUser.id,
+                        responsavelNome: currentUser.nome,
                         responsavelTipo: 'TUTOR'
                     };
 
-                    // 3. DISPARA PARA O BACKEND (Permite que o fetchWithAuth injete os JWT Headers nativos)
+                    console.log("Enviando solicitação de saída para validação:", payload);
+
+                    // Faz a chamada nativa sem injetar cabeçalhos manuais para não corromper o Token do auth.js
                     const response = await fetchWithAuth('/api/presencas/solicitar-saida', {
                         method: 'POST',
                         body: JSON.stringify(payload)
                     });
 
-                    // 4. SE O BACKEND REJEITAR A SOLICITAÇÃO (Tratamento seguro e robusto do JSON)
+                    // Se o servidor recusar explicitamente a requisição (Fora do perímetro, horário inválido, etc.)
                     if (!response.ok) {
-                        let dadosErro;
+                        let servidorMensagem = '';
                         try {
-                            dadosErro = await response.json();
-                        } catch (e) {
-                            dadosErro = { mensagem: 'Erro interno do servidor' };
+                            const errorData = await response.json();
+                            servidorMensagem = errorData.mensagem || errorData.message || '';
+                        } catch (jsonErr) {
+                            servidorMensagem = ''; // Resposta não é um JSON válido
                         }
-                        throw new Error(dadosErro.mensagem || dadosErro.message || 'Erro interno do servidor');
+
+                        // Lança o erro com a mensagem real capturada do backend
+                        throw new Error(servidorMensagem);
                     }
 
-                    // 5. SE DEU TUDO CERTO (HTTP 200), ABRE A TELA VISUAL DE SUCESSO DO SISTEMA
+                    // FASE 3: SE O SERVIDOR DEVOLVEU STATUS OK (HTTP 200), ACIONA O SUCESSO VISUAL
                     await mostrarTelaSucesso('solicitacao', async () => {
-                        if (typeof refreshStudentsData === 'function') {
-                            await refreshStudentsData();
-                        }
-                        if (typeof renderStudents === 'function' && typeof studentsData !== 'undefined') {
-                            renderStudents(studentsData);
-                        }
+                        // Executa a atualização dos cartões em segundo plano conforme o seu ficheiro estável
+                        await refreshStudentsData();
                     });
 
-                } catch (error) {
-                    // Garante o fechamento do modal cinzento de localização em caso de qualquer falha
-                    if (locationModal) locationModal.style.display = 'none';
+                } catch (apiError) {
+                    console.error("❌ Erro no processamento da API de saída:", apiError);
 
-                    console.error('❌ Erro na solicitação de saída:', error);
-
-                    let msgOriginal = error.message ? String(error.message).trim() : '';
+                    let msgOriginal = apiError.message ? String(apiError.message).trim() : '';
                     let msgMinuscula = msgOriginal.toLowerCase();
 
-                    // Substitui a string técnica por uma mensagem amigável apenas se o servidor falhar
+                    // Aplica a máscara amigável apenas se o erro for vazio, genérico ou queda de rede/servidor
                     let mensagemFinal = msgOriginal;
                     if (msgOriginal === '' || msgOriginal === 'undefined' || msgMinuscula.includes('erro interno') || msgMinuscula.includes('server error') || msgMinuscula.includes('failed to fetch')) {
-                        mensagemFinal = 'Necessário estar fisicamente dentro da área permitida da escola.';
+                        mensagemFinal = 'Acesso indisponível. Para solicitar a saída do aluno, é necessário estar fisicamente dentro da área permitida da escola.';
                     }
 
-                    // Exibe o modal premium customizado se ele existir, senão usa o toast de produção
+                    // Abre o modal moderno premium se a função existir no escopo, senão faz fallback para o toast nativo
                     if (typeof mostrarModalErroGeofence === 'function') {
                         mostrarModalErroGeofence(mensagemFinal);
-                    } else if (typeof showToast === 'function') {
-                        showToast(`❌ ${mensagemFinal}`, 'danger');
                     } else {
-                        alert(mensagemFinal);
+                        showToast(`❌ ${mensagemFinal}`, 'danger');
                     }
 
-                    // 6. RESET VISUAL SEGURO DO BOTÃO DESLIZANTE (Proteção contra botões fantoches da automação)
-                    if (btn && typeof btn.classList !== 'undefined') {
-                        btn.classList.remove('activated');
-                        btn.classList.remove('dragging');
-
-                        const thumb = btn.querySelector('.slide-thumb');
-                        const fill = btn.querySelector('.slide-fill');
-                        const label = btn.querySelector('.slide-track-label');
-
-                        if (thumb) {
-                            thumb.style.left = '';
-                            thumb.style.right = '4px'; // Mantém o alinhamento adequado para o botão de saída
-                        }
-                        if (fill) fill.style.width = '0%';
-                        if (label) label.style.opacity = '1';
-                    }
+                    // Destrava o Slider e faz o botão recuar nativamente usando a função estável do seu ficheiro
+                    resetSlideButton(btn);
                 }
             }
 
