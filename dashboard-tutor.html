@@ -4560,7 +4560,6 @@
                 locationModal.style.display = 'flex';
 
                 try {
-                    // 1. Coleta a localização atual via GPS
                     const position = await getCurrentPosition();
                     const { latitude, longitude } = position.coords;
 
@@ -4570,59 +4569,64 @@
                     modalLongitude.textContent = longitude.toFixed(6);
                     coordinatesDisplay.style.display = 'block';
 
-                    // Pequena pausa apenas para o usuário ver que capturou
                     await new Promise(resolve => setTimeout(resolve, 1000));
                     locationModal.style.display = 'none';
 
-                    // 2. DISPARA PARA O BACKEND PRIMEIRO (Para validar a Geofence e Janela Horária)
-                    const payload = {
-                        alunoId: parseInt(studentId),
-                        latitude: latitude,
-                        longitude: longitude,
-                        responsavelId: currentUser.id,
-                        responsavelNome: currentUser.nome,
-                        responsavelTipo: 'TUTOR'
-                    };
+                    // ===========================================================
+                    // 🔴 PRIMEIRO: MOSTRA A TELA VERMELHA
+                    // ===========================================================
+                    await mostrarTelaSucesso('solicitacao', async () => {
+                        // =======================================================
+                        // DENTRO da tela vermelha: faz a requisição
+                        // =======================================================
+                        const payload = {
+                            alunoId: parseInt(studentId),
+                            latitude: latitude,
+                            longitude: longitude
+                        };
 
-                    const response = await fetchWithAuth('/api/presencas/solicitar-saida', {
-                        method: 'POST',
-                        body: JSON.stringify(payload)
-                    });
+                        const response = await fetchWithAuth('/api/presencas/saida/solicitar', {
+                            method: 'POST',
+                            body: JSON.stringify(payload)
+                        });
 
-                    // 3. SE O BACKEND BARRAR (Tutor fora do perímetro, fora do horário da sala, etc.)
-                    if (!response.ok) {
-                        const error = await response.json();
-                        throw new Error(error.mensagem || 'Não foi possível solicitar a saída do aluno neste momento.');
-                    }
+                        if (!response.ok) {
+                            let mensagemErro = 'Erro ao solicitar saída';
+                            try {
+                                const error = await response.json();
+                                mensagemErro = error.mensagem || error.erro || error.detalhes || 'Erro ao solicitar saída';
+                            } catch (e) {
+                                mensagemErro = response.statusText || 'Erro ao solicitar saída';
+                            }
+                            throw new Error(mensagemErro);
+                        }
 
-                    // 4. SE DEU CERTO, EXIBE A TELA VERDE DE SUCESSO COBRINDO A TELA
-                    await mostrarTelaSucesso('saida', async () => {
-                        // Atualiza a listagem com os novos dados confirmados pelo servidor (muda para AGUARDANDO_CONFIRMACAO)
+                        // Atualiza os dados (acontece por trás da tela vermelha)
                         await refreshStudentsData();
                         renderStudents(studentsData);
+
+                        // Inicia monitoramento
+                        if (geofenceMonitor) {
+                            geofenceMonitor.startMonitoring(studentId, studentName);
+                        }
                     });
 
                 } catch (error) {
-                    // Garante que o modal cinzento de carregamento do GPS feche se houver falha
-                    if (locationModal) locationModal.style.display = 'none';
+                    locationModal.style.display = 'none';
+                    console.error('Erro ao solicitar saída:', error);
 
-                    console.error('Erro na solicitação de saída:', error);
+                    let mensagemErro = error.message || "Erro ao processar solicitação";
 
-                    // =========================================================
-                    // CORREÇÃO: ABRE O MODAL MODERNO EM VEZ DO TOAST GENÉRICO
-                    // =========================================================
-                    mostrarModalErroGeofence(error.message);
-
-                    // Se o botão de slide ficou travado visualmente em "ativado", força ele a voltar
-                    if (btn) {
-                        btn.classList.remove('activated');
-                        const thumb = btn.querySelector('.slide-thumb');
-                        const fill = btn.querySelector('.slide-fill');
-                        const label = btn.querySelector('.slide-track-label');
-                        if (thumb) thumb.style.left = '4px';
-                        if (fill) fill.style.width = '0%';
-                        if (label) label.style.opacity = 1;
+                    if (mensagemErro.includes("só é permitida") ||
+                        mensagemErro.includes("permitido entre") ||
+                        mensagemErro.includes("horário") ||
+                        mensagemErro.includes("entre") && mensagemErro.includes("e")) {
+                        mostrarModalBloqueio(mensagemErro);
+                    } else {
+                        showToast(`❌ ${mensagemErro}`, 'danger');
                     }
+
+                    resetSlideButton(btn);
                 }
             }
 
