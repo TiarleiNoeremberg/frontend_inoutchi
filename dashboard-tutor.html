@@ -5711,6 +5711,8 @@
                         return;
                     }
 
+                    console.log("🟢 Iniciando watchPosition com alta precisão...");
+
                     // Opções de alta precisão
                     const options = {
                         enableHighAccuracy: true,
@@ -5724,6 +5726,7 @@
                         options
                     );
 
+                    console.log("✅ watchPosition ativo, ID:", this.watchId);
                     console.log('🟢 [EntranceDetector] watchPosition iniciado, ID:', this.watchId);
                 }
 
@@ -6241,20 +6244,30 @@
                 }
 
                 async startMonitoring(studentId, studentName) {
-                    await this.init();
+                    // Se já estiver monitorando, não faz nada
+                    if (this.activeMonitors.has(parseInt(studentId))) return;
 
-                    if (this.activeMonitors.has(studentId)) return;
+                    // Garante que as coordenadas da escola estão carregadas
+                    if (!this.schoolCoords) {
+                        console.log("⏳ Aguardando carregamento das coordenadas da escola...");
+                        await this.init();
+                        if (!this.schoolCoords) {
+                            console.error("❌ Não foi possível carregar coordenadas da escola. Monitoramento abortado.");
+                            return;
+                        }
+                    }
 
                     const aluno = window.studentsData?.find(a => a.id == studentId);
                     if (!aluno || aluno.status !== 'AGUARDANDO_CONFIRMACAO') {
-                        console.log(`🔴 [GeofenceMonitor] Tentativa de iniciar monitor para aluno ${studentName} que não está AGUARDANDO. Ignorando.`);
+                        console.log(`🔴 [GeofenceMonitor] Aluno ${studentName} não está AGUARDANDO. Monitoramento ignorado.`);
                         return;
                     }
 
                     await this.notifyBackendMonitoringStart(studentId, studentName);
 
-                    this.activeMonitors.set(studentId, {
-                        studentId, studentName,
+                    this.activeMonitors.set(parseInt(studentId), {
+                        studentId: parseInt(studentId),
+                        studentName: studentName,
                         isOutside: false,
                         startTimeOutside: null,
                         timeoutId: null
@@ -6264,6 +6277,7 @@
                     this.sendNotification('🔍 Monitoramento Ativado',
                         `${studentName}: Se você se afastar por ${this.TIMEOUT_MINUTES} minutos, a saída será confirmada.`, 'info');
 
+                    // Inicia o watch se não estiver rodando
                     if (!this.watchId) this.startWatching();
                 }
 
@@ -6372,6 +6386,9 @@
 
                     const distance = this.calculateDistance(latitude, longitude, this.schoolCoords.lat, this.schoolCoords.lng);
                     const isInside = distance <= this.GEOFENCE_RADIUS_METERS;
+
+                    // ✅ ATUALIZA A PÍLULA SUPERIOR
+                    this.updateTopPill(isInside, distance);
 
                     const now = Date.now();
                     if (now - this.lastBackendCall >= this.THROTTLE_MS) {
@@ -6563,6 +6580,20 @@
                     else if (error.code === error.POSITION_UNAVAILABLE) message = 'Localização indisponível.';
                     else if (error.code === error.TIMEOUT) message = 'Tempo limite excedido.';
                     if (message) this.showToast('Erro de Localização', message, 'error');
+                }
+
+                updateTopPill(isInside, distance) {
+                    const pill = document.getElementById('geofencePill');
+                    const label = document.getElementById('geofenceLabel');
+                    if (!pill || !label) return;
+
+                    if (isInside) {
+                        pill.classList.remove('out');
+                        label.innerHTML = `<i class="fas fa-check-circle"></i> Dentro da área da escola (${Math.round(distance)}m)`;
+                    } else {
+                        pill.classList.add('out');
+                        label.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Fora da área da escola (${Math.round(distance)}m)`;
+                    }
                 }
             }
 
@@ -7202,7 +7233,12 @@
 
                     renderMural();
 
-                    initGeofenceMonitor();
+                    if (!geofenceMonitor) {
+                        geofenceMonitor = new GeofenceMonitorPro();
+                        geofenceMonitor.init().then(() => {
+                            console.log("✅ GeofenceMonitorPro inicializado e pronto");
+                        });
+                    }
 
                     // Inicializar o detector de entrada
                     if (!window.entranceDetector) {
