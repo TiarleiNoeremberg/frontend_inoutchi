@@ -4560,7 +4560,7 @@
                 if (locationModal) locationModal.style.display = 'flex';
 
                 try {
-                    // 1. Captura a geolocalização atual
+                    // 1. Captura a geolocalização atual via GPS
                     const position = await getCurrentPosition();
                     const { latitude, longitude } = position.coords;
 
@@ -4573,7 +4573,7 @@
                     await new Promise(resolve => setTimeout(resolve, 1000));
                     if (locationModal) locationModal.style.display = 'none';
 
-                    // 2. Monta o payload exatamente como seu ambiente de produção espera
+                    // 2. Monta o payload idêntico ao esperado
                     const payload = {
                         alunoId: parseInt(studentId),
                         latitude: latitude,
@@ -4583,16 +4583,13 @@
                         responsavelTipo: 'TUTOR'
                     };
 
-                    // 3. DISPARA PARA O BACKEND PRIMEIRO (Preservando os headers nativos cruciais)
+                    // 3. DISPARA PARA O BACKEND PRIMEIRO (Deixando o fetchWithAuth gerenciar os headers nativos)
                     const response = await fetchWithAuth('/api/presencas/solicitar-saida', {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
                         body: JSON.stringify(payload)
                     });
 
-                    // 4. SE O BACKEND BARRAR (Fora da Geofence, fora do horário, etc.)
+                    // 4. SE O BACKEND BARRAR (Aqui identificamos se está fora da geofence)
                     if (!response.ok) {
                         let dadosErro;
                         try {
@@ -4603,7 +4600,7 @@
                         throw new Error(dadosErro.mensagem || 'Erro interno do servidor');
                     }
 
-                    // 5. SE DEU TUDO CERTO (HTTP 200), EXIBE A TELA DE SUCESSO NATIVA ('solicitacao')
+                    // 5. SE ESTIVER DENTRO E AUTORIZADO, ABRE A TELA VISUAL DE SUCESSO NATIVA
                     await mostrarTelaSucesso('solicitacao', async () => {
                         await refreshStudentsData();
                         if (typeof renderStudents === 'function') renderStudents(studentsData);
@@ -4613,23 +4610,23 @@
                     if (locationModal) locationModal.style.display = 'none';
                     console.error('Erro na solicitação de saída:', error);
 
-                    // Tratamento inteligente para mascarar logs brutos do servidor
+                    // Tratamento inteligente do erro técnico
                     let msgOriginal = error.message ? String(error.message).trim() : '';
                     let msgMinuscula = msgOriginal.toLowerCase();
 
                     let mensagemFinal = msgOriginal;
                     if (msgOriginal === '' || msgOriginal === 'undefined' || msgMinuscula.includes('erro interno') || msgMinuscula.includes('server error') || msgMinuscula.includes('failed to fetch')) {
-                        mensagemFinal = 'Ops! Parece que você está fora da área permitida escola.';
+                        mensagemFinal = 'Acesso indisponível. Para solicitar a saída do aluno, é necessário estar fisicamente dentro da área permitida da escola.';
                     }
 
-                    // Exibe o modal moderno se ele existir, senão usa o toast padrão de produção
+                    // Exibe o modal moderno configurado anteriormente
                     if (typeof mostrarModalErroGeofence === 'function') {
                         mostrarModalErroGeofence(mensagemFinal);
                     } else {
                         showToast(`❌ ${mensagemFinal}`, 'danger');
                     }
 
-                    // Executa o reset nativo do seu arquivo estável
+                    // Destrava e recua o botão deslizante nativamente
                     resetSlideButton(btn);
                 }
             }
