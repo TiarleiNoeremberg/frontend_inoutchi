@@ -4554,13 +4554,14 @@
                 const modalLatitude = document.getElementById('modalLatitude');
                 const modalLongitude = document.getElementById('modalLongitude');
 
+                // Validações defensivas de segurança para elementos de carregamento
                 if (coordinatesDisplay) coordinatesDisplay.style.display = 'none';
                 if (modalTitle) modalTitle.innerHTML = '<i class="fas fa-map-marker-alt fa-spin"></i> Obtendo localização...';
                 if (modalMessage) modalMessage.textContent = 'Aguardando o GPS do seu dispositivo';
                 if (locationModal) locationModal.style.display = 'flex';
 
                 try {
-                    // 1. Coleta a localização atual via GPS de forma limpa
+                    // 1. Captura a geolocalização atual via GPS do dispositivo
                     const position = await getCurrentPosition();
                     const { latitude, longitude } = position.coords;
 
@@ -4570,19 +4571,13 @@
                     if (modalLongitude) modalLongitude.textContent = longitude.toFixed(6);
                     if (coordinatesDisplay) coordinatesDisplay.style.display = 'block';
 
-                    // Pausa breve para o usuário ver a captura ocorrer com sucesso
+                    // Pausa curta e natural para que o usuário veja o carregamento do GPS sumir de forma fluida
                     await new Promise(resolve => setTimeout(resolve, 800));
                     if (locationModal) locationModal.style.display = 'none';
 
-                    // Tratamento seguro do Aluno ID para evitar incompatibilidade de tipos (String/Int/NaN)
-                    const idTratado = studentId ? parseInt(studentId, 10) : null;
-                    if (!idTratado || isNaN(idTratado)) {
-                        throw new Error('Identificação do aluno inválida ou corrompida.');
-                    }
-
-                    // 2. Monta o payload limpo esperado pela API de Presenças
+                    // 2. Monta o payload exatamente como o backend de produção espera
                     const payload = {
-                        alunoId: idTratado,
+                        alunoId: parseInt(studentId, 10),
                         latitude: latitude,
                         longitude: longitude,
                         responsavelId: currentUser?.id,
@@ -4590,26 +4585,24 @@
                         responsavelTipo: 'TUTOR'
                     };
 
-                    // 3. DISPARA PARA O BACKEND (Sem Headers manuais para não corromper o Token JWT do auth.js)
+                    // 3. DISPARA PARA O BACKEND (Permite que o fetchWithAuth injete os JWT Headers nativos)
                     const response = await fetchWithAuth('/api/presencas/solicitar-saida', {
                         method: 'POST',
                         body: JSON.stringify(payload)
                     });
 
-                    // 4. TRATAMENTO SEGURO DA RESPOSTA DO BACKEND
+                    // 4. SE O BACKEND REJEITAR A SOLICITAÇÃO (Tratamento seguro e robusto do JSON)
                     if (!response.ok) {
-                        let mensagemErro = 'Erro ao solicitar saída do aluno.';
+                        let dadosErro;
                         try {
-                            const dadosErro = await response.json();
-                            mensagemErro = dadosErro.mensagem || dadosErro.message || mensagemErro;
+                            dadosErro = await response.json();
                         } catch (e) {
-                            // Caso o servidor não devolva um JSON válido
-                            mensagemErro = 'Não foi possível validar os dados junto ao servidor.';
+                            dadosErro = { mensagem: 'Erro interno do servidor' };
                         }
-                        throw new Error(mensagemErro);
+                        throw new Error(dadosErro.mensagem || dadosErro.message || 'Erro interno do servidor');
                     }
 
-                    // 5. SE TUDO DEU CERTO (HTTP 200), EXIBE A TELA VERMELHA NATIVA DE SOLICITAÇÃO
+                    // 5. SE DEU TUDO CERTO (HTTP 200), ABRE A TELA VISUAL DE SUCESSO DO SISTEMA
                     await mostrarTelaSucesso('solicitacao', async () => {
                         if (typeof refreshStudentsData === 'function') {
                             await refreshStudentsData();
@@ -4620,21 +4613,21 @@
                     });
 
                 } catch (error) {
-                    // Certifica que fecha o modal cinzento de loading do GPS caso algo falhe no meio do caminho
+                    // Garante o fechamento do modal cinzento de localização em caso de qualquer falha
                     if (locationModal) locationModal.style.display = 'none';
 
-                    console.error('❌ [Erro Crítico] Saída recusada:', error);
+                    console.error('❌ Erro na solicitação de saída:', error);
 
                     let msgOriginal = error.message ? String(error.message).trim() : '';
                     let msgMinuscula = msgOriginal.toLowerCase();
 
-                    // Máscara inteligente apenas se o erro for nulo, indefinido ou queda de servidor
+                    // Substitui a string técnica por uma mensagem amigável apenas se o servidor falhar
                     let mensagemFinal = msgOriginal;
                     if (msgOriginal === '' || msgOriginal === 'undefined' || msgMinuscula.includes('erro interno') || msgMinuscula.includes('server error') || msgMinuscula.includes('failed to fetch')) {
-                        mensagemFinal = 'Acesso indisponível.';
+                        mensagemFinal = 'Necessário estar fisicamente dentro da área permitida da escola.';
                     }
 
-                    // Exibe o modal premium customizado se existir, senão usa o fallback toast padrão
+                    // Exibe o modal premium customizado se ele existir, senão usa o toast de produção
                     if (typeof mostrarModalErroGeofence === 'function') {
                         mostrarModalErroGeofence(mensagemFinal);
                     } else if (typeof showToast === 'function') {
@@ -4643,19 +4636,21 @@
                         alert(mensagemFinal);
                     }
 
-                    // Executa o reset visual milimétrico do botão deslizante para ele retornar ao início
-                    if (btn) {
+                    // 6. RESET VISUAL SEGURO DO BOTÃO DESLIZANTE (Proteção contra botões fantoches da automação)
+                    if (btn && typeof btn.classList !== 'undefined') {
                         btn.classList.remove('activated');
                         btn.classList.remove('dragging');
+
                         const thumb = btn.querySelector('.slide-thumb');
                         const fill = btn.querySelector('.slide-fill');
                         const label = btn.querySelector('.slide-track-label');
+
                         if (thumb) {
                             thumb.style.left = '';
-                            thumb.style.right = '4px'; // Mantém no lado correto do botão de saída
+                            thumb.style.right = '4px'; // Mantém o alinhamento adequado para o botão de saída
                         }
                         if (fill) fill.style.width = '0%';
-                        if (label) label.style.opacity = 1;
+                        if (label) label.style.opacity = '1';
                     }
                 }
             }
