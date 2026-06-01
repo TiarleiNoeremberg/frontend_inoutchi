@@ -4559,15 +4559,10 @@
                 if (modalMessage) modalMessage.textContent = 'Aguardando o GPS do seu dispositivo';
                 if (locationModal) locationModal.style.display = 'flex';
 
-                let latitude, longitude;
-
-                // =========================================================
-                // FASE 1: CAPTURA INDEPENDENTE DA GEOLOCALIZAÇÃO (GPS)
-                // =========================================================
                 try {
+                    // 1. Captura a geolocalização atual
                     const position = await getCurrentPosition();
-                    latitude = position.coords.latitude;
-                    longitude = position.coords.longitude;
+                    const { latitude, longitude } = position.coords;
 
                     if (modalTitle) modalTitle.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida!';
                     if (modalMessage) modalMessage.textContent = 'Coordenadas capturadas com sucesso';
@@ -4575,22 +4570,10 @@
                     if (modalLongitude) modalLongitude.textContent = longitude.toFixed(6);
                     if (coordinatesDisplay) coordinatesDisplay.style.display = 'block';
 
-                    // Pequena pausa fluida para o utilizador ver que o GPS respondeu
                     await new Promise(resolve => setTimeout(resolve, 1000));
                     if (locationModal) locationModal.style.display = 'none';
 
-                } catch (gpsError) {
-                    if (locationModal) locationModal.style.display = 'none';
-                    console.error("❌ Erro de geolocalização:", gpsError);
-                    showToast("Não foi possível obter a sua localização. Ative o GPS.", "danger");
-                    resetSlideButton(btn);
-                    return; // Aborta a execução imediatamente se o GPS falhar
-                }
-
-                // =========================================================
-                // FASE 2: VALIDAÇÃO ISOLADA NO BACKEND E TELA DE SUCESSO
-                // =========================================================
-                try {
+                    // 2. Monta o payload exatamente como esperado
                     const payload = {
                         alunoId: parseInt(studentId),
                         latitude: latitude,
@@ -4600,54 +4583,73 @@
                         responsavelTipo: 'TUTOR'
                     };
 
-                    console.log("Enviando solicitação de saída para validação:", payload);
-
-                    // Faz a chamada nativa sem injetar cabeçalhos manuais para não corromper o Token do auth.js
+                    // 3. DISPARA PARA O BACKEND
                     const response = await fetchWithAuth('/api/presencas/solicitar-saida', {
                         method: 'POST',
                         body: JSON.stringify(payload)
                     });
 
-                    // Se o servidor recusar explicitamente a requisição (Fora do perímetro, horário inválido, etc.)
-                    if (!response.ok) {
-                        let servidorMensagem = '';
-                        try {
-                            const errorData = await response.json();
-                            servidorMensagem = errorData.mensagem || errorData.message || '';
-                        } catch (jsonErr) {
-                            servidorMensagem = ''; // Resposta não é um JSON válido
-                        }
+                    // =================================================================
+                    // TRATAMENTO INTELIGENTE DE TIPO (RESOLVE O BLOQUEIO GERAL)
+                    // =================================================================
+                    let dadosObtidos = response;
+                    let temErroDeValidacao = false;
+                    let mensagemDoServidor = '';
 
-                        // Lança o erro com a mensagem real capturada do backend
-                        throw new Error(servidorMensagem);
+                    // Se for um objeto Response nativo do navegador (possui a função .json())
+                    if (response && typeof response.json === 'function') {
+                        if (!response.ok) {
+                            temErroDeValidacao = true;
+                            try {
+                                const jsonErro = await response.json();
+                                mensagemDoServidor = jsonErro.mensagem || jsonErro.message || '';
+                            } catch (e) {
+                                mensagemDoServidor = '';
+                            }
+                        } else {
+                            try { dadosObtidos = await response.json(); } catch (e) { }
+                        }
                     }
 
-                    // FASE 3: SE O SERVIDOR DEVOLVEU STATUS OK (HTTP 200), ACIONA O SUCESSO VISUAL
+                    // ELIMINAÇÃO DO FALSO POSITIVO: Se o fetchWithAuth retornou o JSON mastigado,
+                    // mas o backend sinalizou recusa de negócio (ex: tutor fora do perímetro mapeado)
+                    if (!temErroDeValidacao && dadosObtidos) {
+                        if (dadosObtidos.sucesso === false || dadosObtidos.status === 'ERRO' || dadosObtidos.error === true) {
+                            temErroDeValidacao = true;
+                            mensagemDoServidor = dadosObtidos.mensagem || dadosObtidos.message || 'Acesso indisponível por validação de perímetro.';
+                        }
+                    }
+
+                    // Se uma falha real foi encontrada, ejeta para o bloco catch
+                    if (temErroDeValidacao) {
+                        throw new Error(mensagemDoServidor);
+                    }
+
+                    // 4. SE PASSOU NAS VALIDAÇÕES (TUTOR DENTRO DA ESCOLA), EXIBE A TELA DE SUCESSO NATIVA
                     await mostrarTelaSucesso('solicitacao', async () => {
-                        // Executa a atualização dos cartões em segundo plano conforme o seu ficheiro estável
                         await refreshStudentsData();
+                        if (typeof renderStudents === 'function') renderStudents(studentsData);
                     });
 
-                } catch (apiError) {
-                    console.error("❌ Erro no processamento da API de saída:", apiError);
+                } catch (error) {
+                    if (locationModal) locationModal.style.display = 'none';
+                    console.error('Erro na solicitação de saída:', error);
 
-                    let msgOriginal = apiError.message ? String(apiError.message).trim() : '';
+                    let msgOriginal = error.message ? String(error.message).trim() : '';
                     let msgMinuscula = msgOriginal.toLowerCase();
 
-                    // Aplica a máscara amigável apenas se o erro for vazio, genérico ou queda de rede/servidor
                     let mensagemFinal = msgOriginal;
-                    if (msgOriginal === '' || msgOriginal === 'undefined' || msgMinuscula.includes('erro interno') || msgMinuscula.includes('server error') || msgMinuscula.includes('failed to fetch')) {
-                        mensagemFinal = 'Acesso indisponível. Para solicitar a saída do aluno, é necessário estar fisicamente dentro da área permitida da escola.';
+                    // Mascara apenas erros brutos de queda de servidor, mantendo as mensagens de negócio limpas
+                    if (msgOriginal === '' || msgOriginal === 'undefined' || msgMinuscula.includes('erro interno') || msgMinuscula.includes('server error') || msgMinuscula.includes('failed to fetch') || msgMinuscula.includes('typeerror')) {
+                        mensagemFinal = 'Teste.';
                     }
 
-                    // Abre o modal moderno premium se a função existir no escopo, senão faz fallback para o toast nativo
                     if (typeof mostrarModalErroGeofence === 'function') {
                         mostrarModalErroGeofence(mensagemFinal);
                     } else {
                         showToast(`❌ ${mensagemFinal}`, 'danger');
                     }
 
-                    // Destrava o Slider e faz o botão recuar nativamente usando a função estável do seu ficheiro
                     resetSlideButton(btn);
                 }
             }
