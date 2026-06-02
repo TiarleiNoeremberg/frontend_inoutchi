@@ -4288,16 +4288,20 @@
             // ============== SLIDE BUTTONS ==============
             function initSlideButtons() {
                 document.querySelectorAll('.slide-btn').forEach(btn => {
-                    const action = btn.dataset.action;
-                    const reversed = action === 'exit-request';
+                    // Guard: evita duplicar listeners no mesmo botão
+                    if (btn._listenersAttached) return;
+                    btn._listenersAttached = true;
+
                     const thumb = btn.querySelector('.slide-thumb');
                     const fill = btn.querySelector('.slide-fill');
                     const label = btn.querySelector('.slide-track-label');
 
                     let dragging = false, startX = 0, currentX = 0, maxDist = 0;
+                    let _reversed = false; // calculado dinamicamente no início de cada gesto
 
                     function start(e) {
                         if (btn.classList.contains('activated')) return;
+                        _reversed = btn.dataset.action === 'exit-request'; // lê o valor ATUAL
                         dragging = true;
                         btn.classList.add('dragging');
                         startX = (e.touches ? e.touches[0].clientX : e.clientX);
@@ -4309,10 +4313,10 @@
                         if (!dragging) return;
                         const x = (e.touches ? e.touches[0].clientX : e.clientX);
                         let delta = x - startX;
-                        if (reversed) delta = -delta;
+                        if (_reversed) delta = -delta;
                         delta = Math.max(0, Math.min(maxDist, delta));
                         currentX = delta;
-                        if (reversed) {
+                        if (_reversed) {
                             thumb.style.right = (4 + delta) + 'px';
                             fill.style.width = (delta + 48) + 'px';
                         } else {
@@ -4330,7 +4334,7 @@
 
                         if (ratio >= 0.85) {
                             btn.classList.add('activated');
-                            if (reversed) {
+                            if (_reversed) {
                                 thumb.style.right = (maxDist + 4) + 'px';
                             } else {
                                 thumb.style.left = (maxDist + 4) + 'px';
@@ -4340,7 +4344,7 @@
 
                             const studentId = btn.dataset.studentId;
                             const studentName = btn.dataset.studentName;
-                            const actionType = action;
+                            const actionType = btn.dataset.action; // lê o valor ATUAL do atributo
 
                             if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
 
@@ -4355,7 +4359,7 @@
 
                             setTimeout(() => {
                                 btn.classList.remove('activated');
-                                if (reversed) {
+                                if (_reversed) {
                                     thumb.style.right = '4px';
                                 } else {
                                     thumb.style.left = '4px';
@@ -4364,7 +4368,7 @@
                                 label.style.opacity = 1;
                             }, 2000);
                         } else {
-                            if (reversed) {
+                            if (_reversed) {
                                 thumb.style.right = '4px';
                             } else {
                                 thumb.style.left = '4px';
@@ -6636,9 +6640,11 @@
 
                 stopMonitoring(studentId) {
                     const idNum = typeof studentId === 'string' ? parseInt(studentId) : studentId;
-                    const idStr = String(idNum); // normaliza para string
+                    const idStr = String(idNum);
 
                     console.log(`🔴 [stopMonitoring] Chamado para aluno ${idNum} (original: ${studentId})`);
+                    console.log(`🔴 [stopMonitoring] activeMonitors.size antes: ${this.activeMonitors.size}`);
+                    console.log(`🔴 [stopMonitoring] Chaves no Map:`, Array.from(this.activeMonitors.keys()));
 
                     // Tenta encontrar o monitor com qualquer um dos dois tipos de chave
                     const monitor = this.activeMonitors.get(idNum) || this.activeMonitors.get(idStr);
@@ -8356,6 +8362,10 @@
                                 // Efeito de destaque
                                 cardAluno.classList.add('atualizado');
                                 setTimeout(() => cardAluno.classList.remove('atualizado'), 500);
+
+                                // Reseta a guarda para que initSlideButtons reanexe com o novo action
+                                if (slideBtn) delete slideBtn._listenersAttached;
+                                initSlideButtons();
                             }
 
                             // Atualiza o objeto studentsData
