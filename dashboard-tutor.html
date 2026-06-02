@@ -4545,6 +4545,7 @@
                 }
             }
 
+            /*
             // Handler: SOLICITAR SAÍDA
             async function handleExitRequest(studentId, studentName, btn) {
                 const locationModal = document.getElementById('locationModal');
@@ -4585,7 +4586,7 @@
                             longitude: longitude
                         };
 
-                        const response = await fetchWithAuth('/api/presencas/saida/solicitar', {
+                        const response = await fetchWithAuth('/api/presencas/saida', {
                             method: 'POST',
                             body: JSON.stringify(payload)
                         });
@@ -4626,6 +4627,119 @@
                         showToast(`❌ ${mensagemErro}`, 'danger');
                     }
 
+                    resetSlideButton(btn);
+                }
+            }
+            */
+
+            // Handler: SOLICITAR SAÍDA
+            async function handleExitRequest(studentId, studentName, btn) {
+                const locationModal = document.getElementById('locationModal');
+                const modalTitle = document.getElementById('locationModalTitle');
+                const modalMessage = document.getElementById('locationModalMessage');
+                const coordinatesDisplay = document.getElementById('locationCoordinatesDisplay');
+                const modalLatitude = document.getElementById('modalLatitude');
+                const modalLongitude = document.getElementById('modalLongitude');
+
+                if (coordinatesDisplay) coordinatesDisplay.style.display = 'none';
+                if (modalTitle) modalTitle.innerHTML = '<i class="fas fa-map-marker-alt fa-spin"></i> Obtendo localização...';
+                if (modalMessage) modalMessage.textContent = 'Aguardando o GPS do seu dispositivo';
+                if (locationModal) locationModal.style.display = 'flex';
+
+                let latitude, longitude;
+
+                // =========================================================
+                // FASE 1: CAPTURA INDEPENDENTE DA GEOLOCALIZAÇÃO (GPS)
+                // =========================================================
+                try {
+                    const position = await getCurrentPosition();
+                    latitude = position.coords.latitude;
+                    longitude = position.coords.longitude;
+
+                    if (modalTitle) modalTitle.innerHTML = '<i class="fas fa-check-circle"></i> Localização obtida!';
+                    if (modalMessage) modalMessage.textContent = 'Coordenadas capturadas com sucesso';
+                    if (modalLatitude) modalLatitude.textContent = latitude.toFixed(6);
+                    if (modalLongitude) modalLongitude.textContent = longitude.toFixed(6);
+                    if (coordinatesDisplay) coordinatesDisplay.style.display = 'block';
+
+                    // Pequena pausa para o usuário ver que o GPS respondeu
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    if (locationModal) locationModal.style.display = 'none';
+
+                } catch (gpsError) {
+                    if (locationModal) locationModal.style.display = 'none';
+                    console.error("❌ Erro de geolocalização:", gpsError);
+                    mostrarModalErroGeofence("Não foi possível obter a sua localização. Ative o GPS.");
+                    resetSlideButton(btn);
+                    return; // Aborta a execução imediatamente se o GPS falhar
+                }
+
+                // =========================================================
+                // FASE 2: VALIDAÇÃO NO BACKEND (SEM MOSTRAR TELA DE SUCESSO AINDA)
+                // =========================================================
+                try {
+                    const payload = {
+                        alunoId: parseInt(studentId),
+                        latitude: latitude,
+                        longitude: longitude
+                    };
+
+                    console.log("Enviando solicitação de saída para validação:", payload);
+
+                    const response = await fetchWithAuth('/api/presencas/saida/solicitar', {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                    });
+
+                    // Se o servidor recusar a requisição (fora do perímetro, horário inválido, etc.)
+                    if (!response.ok) {
+                        let servidorMensagem = '';
+                        try {
+                            const errorData = await response.json();
+                            servidorMensagem = errorData.mensagem || errorData.message || '';
+                        } catch (jsonErr) {
+                            servidorMensagem = response.statusText || 'Erro desconhecido';
+                        }
+
+                        // Exibe o modal de erro geofence (sem nunca ter mostrado a tela vermelha)
+                        if (servidorMensagem.toLowerCase().includes('geofence') ||
+                            servidorMensagem.toLowerCase().includes('fora da área') ||
+                            response.status === 403) {
+                            mostrarModalErroGeofence(servidorMensagem || "Você não está na área permitida para solicitar a saída.");
+                        } else {
+                            mostrarModalBloqueio(servidorMensagem);
+                        }
+
+                        resetSlideButton(btn);
+                        return; // 🔴 SAI DA FUNÇÃO AQUI - NÃO MOSTRA TELA VERMELHA
+                    }
+
+                    // =========================================================
+                    // FASE 3: SÓ CHEGA AQUI SE O BACKEND DEVOLVEU SUCESSO (HTTP 200)
+                    // =========================================================
+                    await mostrarTelaSucesso('solicitacao', async () => {
+                        // Executa a atualização dos cartões em segundo plano
+                        await refreshStudentsData();
+                        // Inicia monitoramento após sucesso na solicitação
+                        if (geofenceMonitor) {
+                            geofenceMonitor.startMonitoring(studentId, studentName);
+                        }
+                    });
+
+                } catch (apiError) {
+                    console.error("❌ Erro no processamento da API de saída:", apiError);
+
+                    let msgOriginal = apiError.message ? String(apiError.message).trim() : '';
+                    let msgMinuscula = msgOriginal.toLowerCase();
+
+                    let mensagemFinal = msgOriginal;
+                    if (msgOriginal === '' || msgOriginal === 'undefined' ||
+                        msgMinuscula.includes('erro interno') || msgMinuscula.includes('server error') ||
+                        msgMinuscula.includes('failed to fetch')) {
+                        mensagemFinal = 'Acesso indisponível. Para solicitar a saída do aluno, é necessário estar fisicamente dentro da área permitida da escola.';
+                    }
+
+                    mostrarModalErroGeofence(mensagemFinal);
                     resetSlideButton(btn);
                 }
             }
@@ -4678,6 +4792,7 @@
                     resetSlideButton(btn);
                 }
             }
+
 
             // ============== FUNÇÕES AUXILIARES DE GEOLOCALIZAÇÃO ==============
             function getCurrentPosition() {
