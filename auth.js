@@ -124,6 +124,10 @@ async function fetchWithAuth(url, options = {}) {
     }
 }
 
+// ========== EXPOR CONFIGURAÇÕES GLOBALMENTE ==========
+window.BACKEND_URL = BACKEND_URL;
+window.CLIENT_ID = CLIENT_ID;
+
 // Função de renovação automática (separada)
 function iniciarRenovacaoAutomatica() {
     setInterval(async () => {
