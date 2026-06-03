@@ -4226,7 +4226,32 @@
 
                 container.innerHTML = students.map(student => `
                     <article class="student-card" data-student-id="${student.id}">
-                        <!-- todo o HTML existente, NÃO ALTERAR -->
+                        <div class="student-head">
+                            <div class="student-info" style="width: 100%;">
+                                <div class="student-name">${student.nome}</div>
+                                <div class="student-meta">${student.salaNome || 'Sem sala'}</div>
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px;">
+                                    <span class="status-badge ${getStatusClass(student.status)}">
+                                        <i class="fas ${getStatusIcon(student.status)}"></i>${getStatusText(student.status)}
+                                    </span>
+                                    <button class="history-btn" data-id="${student.id}" data-name="${student.nome.replace(/'/g, "\\'")}" style="background: var(--primary-light); border: none; border-radius: 20px; padding: 6px 14px; color: var(--primary); cursor: pointer; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                                        <i class="fas fa-clock-rotate-left"></i> Histórico
+                                    </button>
+                                </div>
+                                <div style="display: flex; align-items: center; justify-content: flex-end; margin-top: 8px;">
+                                    <label class="auto-switch-label" title="Chamada por aproximação">
+                                        <span class="auto-switch-text">
+                                            <i class="fas fa-satellite-dish"></i> Chamada por Aproximação
+                                        </span>
+                                        <div class="auto-switch ${student.chamadaAutomatica ? 'active' : ''}" 
+                                            data-aluno-id="${student.id}"
+                                            data-auto="${student.chamadaAutomatica}">
+                                            <div class="auto-switch-slider"></div>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
                         <div class="slide-btn" data-action="${getSlideAction(student.status)}" data-student-id="${student.id}" data-student-name="${student.nome.replace(/'/g, "\\'")}">
                             <div class="slide-fill"></div>
                             <div class="slide-track-label">${getSlideLabel(student.status)}</div>
@@ -4235,20 +4260,19 @@
                     </article>
                 `).join('');
 
-                // ========== EVENTOS DO SWITCH (ADICIONAR) ==========
+                // Eventos do switch
                 document.querySelectorAll('.auto-switch').forEach(sw => {
                     const alunoId = parseInt(sw.dataset.alunoId);
                     sw.addEventListener('click', (e) => {
                         e.stopPropagation();
-                        // Lê o estado atual DO SWITCH no momento do clique
                         const isActive = sw.classList.contains('active');
                         toggleAutoChamada(alunoId, isActive, e);
                     });
                 });
-                // ========== FIM EVENTOS DO SWITCH ==========
 
-                // Inicializar slide buttons
+                // Inicializar slide buttons - USAR A FUNÇÃO ORIGINAL
                 //initSlideButtons();
+                initSlideButtonsSafe();
 
                 // Eventos dos botões de histórico
                 document.querySelectorAll('.history-btn').forEach(btn => {
@@ -4381,22 +4405,27 @@
                     if (this.isInitialized) return;
                     this.isInitialized = true;
 
-                    // Apenas 4 listeners GLOBAIS para TODOS os botões
+                    // ✅ ADICIONAR ESTA LINDA: Não interferir se o botão já está sendo manipulado
+                    // Usamos um flag para evitar conflito com o handler original
+
+                    // Listeners com verificação para não conflitar
                     window.addEventListener('touchstart', this.onTouchStart.bind(this), { passive: false });
                     window.addEventListener('touchmove', this.onTouchMove.bind(this), { passive: false });
                     window.addEventListener('touchend', this.onTouchEnd.bind(this));
-                    window.addEventListener('touchcancel', this.onTouchEnd.bind(this));
 
-                    // Suporte a mouse (para debug no desktop)
-                    window.addEventListener('mousedown', this.onMouseDown.bind(this));
-                    window.addEventListener('mousemove', this.onMouseMove.bind(this));
-                    window.addEventListener('mouseup', this.onMouseUp.bind(this));
-
-                    console.log('✅ SlideButtonManagerGlobal inicializado (sem memory leak)');
+                    console.log('✅ SlideButtonManagerGlobal inicializado (modo complementar)');
                 }
 
                 getButtonFromTarget(target) {
-                    return target.closest('.slide-btn');
+                    // Verificar se o target está dentro de um slide-btn
+                    const btn = target.closest('.slide-btn');
+
+                    // ✅ ADICIONAR: Verificar se o botão não está sendo manipulado pelo handler original
+                    if (btn && btn._listenersAttached) {
+                        // Botão já tem o handler original, deixar o original cuidar
+                        return null;
+                    }
+                    return btn;
                 }
 
                 onTouchStart(e) {
@@ -4589,10 +4618,17 @@
             // Instanciar o gerenciador global
             let slideButtonManager = null;
 
-            function initGlobalSlideButtons() {
+            function initSlideButtonsSafe() {
+                // Primeiro, chama o original (já funcionava)
+                if (typeof initSlideButtons === 'function') {
+                    initSlideButtons();
+                }
+
+                // Depois, inicializa o novo gerenciador (apenas como complemento)
                 if (!slideButtonManager) {
                     slideButtonManager = new SlideButtonManagerGlobal();
                     slideButtonManager.init();
+                    console.log('✅ SlideButtonManagerGlobal iniciado como complemento');
                 }
             }
 
