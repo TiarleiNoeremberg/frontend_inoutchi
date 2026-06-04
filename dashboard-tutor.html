@@ -4238,6 +4238,7 @@
                                         <i class="fas fa-clock-rotate-left"></i> Histórico
                                     </button>
                                 </div>
+                                <!-- ========== SWITCH ADICIONADO AQUI ========== -->
                                 <div style="display: flex; align-items: center; justify-content: flex-end; margin-top: 8px;">
                                     <label class="auto-switch-label" title="Chamada por aproximação">
                                         <span class="auto-switch-text">
@@ -4250,6 +4251,7 @@
                                         </div>
                                     </label>
                                 </div>
+                                <!-- ========== FIM DO SWITCH ========== -->
                             </div>
                         </div>
                         <div class="slide-btn" data-action="${getSlideAction(student.status)}" data-student-id="${student.id}" data-student-name="${student.nome.replace(/'/g, "\\'")}">
@@ -4260,19 +4262,20 @@
                     </article>
                 `).join('');
 
-                // Eventos do switch
+                // ========== EVENTOS DO SWITCH (ADICIONAR) ==========
                 document.querySelectorAll('.auto-switch').forEach(sw => {
                     const alunoId = parseInt(sw.dataset.alunoId);
                     sw.addEventListener('click', (e) => {
                         e.stopPropagation();
+                        // Lê o estado atual DO SWITCH no momento do clique
                         const isActive = sw.classList.contains('active');
                         toggleAutoChamada(alunoId, isActive, e);
                     });
                 });
+                // ========== FIM EVENTOS DO SWITCH ==========
 
-                // Inicializar slide buttons - USAR A FUNÇÃO ORIGINAL
-                //initSlideButtons();
-                initSlideButtonsSafe();
+                // Inicializar slide buttons
+                initSlideButtons();
 
                 // Eventos dos botões de histórico
                 document.querySelectorAll('.history-btn').forEach(btn => {
@@ -4385,251 +4388,6 @@
                     window.addEventListener('mouseup', end);
                     window.addEventListener('touchend', end);
                 });
-            }
-
-            // ========== NOVO GERENCIADOR GLOBAL DE SLIDE BUTTONS (SEM MEMORY LEAK) ==========
-            // Para WebView/PWA - usa listeners globais em vez de listeners por botão
-
-            class SlideButtonManagerGlobal {
-                constructor() {
-                    this.activeButton = null;
-                    this.startX = 0;
-                    this.currentX = 0;
-                    this.maxDist = 0;
-                    this.reversed = false;
-                    this.dragging = false;
-                    this.isInitialized = false;
-                }
-
-                init() {
-                    if (this.isInitialized) return;
-                    this.isInitialized = true;
-
-                    // ✅ ADICIONAR ESTA LINDA: Não interferir se o botão já está sendo manipulado
-                    // Usamos um flag para evitar conflito com o handler original
-
-                    // Listeners com verificação para não conflitar
-                    window.addEventListener('touchstart', this.onTouchStart.bind(this), { passive: false });
-                    window.addEventListener('touchmove', this.onTouchMove.bind(this), { passive: false });
-                    window.addEventListener('touchend', this.onTouchEnd.bind(this));
-
-                    console.log('✅ SlideButtonManagerGlobal inicializado (modo complementar)');
-                }
-
-                getButtonFromTarget(target) {
-                    // Verificar se o target está dentro de um slide-btn
-                    const btn = target.closest('.slide-btn');
-
-                    // ✅ ADICIONAR: Verificar se o botão não está sendo manipulado pelo handler original
-                    if (btn && btn._listenersAttached) {
-                        // Botão já tem o handler original, deixar o original cuidar
-                        return null;
-                    }
-                    return btn;
-                }
-
-                onTouchStart(e) {
-                    const btn = this.getButtonFromTarget(e.target);
-                    if (!btn || btn.classList.contains('activated')) return;
-
-                    e.preventDefault();
-                    this.activeButton = btn;
-                    this.dragging = true;
-                    this.reversed = btn.dataset.action === 'exit-request';
-
-                    const rect = btn.getBoundingClientRect();
-                    const touch = e.touches[0];
-                    this.startX = touch.clientX;
-                    this.maxDist = rect.width - 48 - 8; // thumb width + margins
-
-                    btn.classList.add('dragging');
-                }
-
-                onTouchMove(e) {
-                    if (!this.dragging || !this.activeButton) return;
-
-                    e.preventDefault();
-                    const touch = e.touches[0];
-                    let delta = touch.clientX - this.startX;
-
-                    if (this.reversed) delta = -delta;
-                    delta = Math.max(0, Math.min(this.maxDist, delta));
-                    this.currentX = delta;
-
-                    const thumb = this.activeButton.querySelector('.slide-thumb');
-                    const fill = this.activeButton.querySelector('.slide-fill');
-                    const label = this.activeButton.querySelector('.slide-track-label');
-
-                    if (this.reversed) {
-                        thumb.style.right = (4 + delta) + 'px';
-                        fill.style.width = (delta + 48) + 'px';
-                    } else {
-                        thumb.style.left = (4 + delta) + 'px';
-                        fill.style.width = (delta + 48) + 'px';
-                    }
-
-                    if (label) label.style.opacity = Math.max(0.15, 1 - delta / this.maxDist);
-                }
-
-                async onTouchEnd(e) {
-                    if (!this.dragging || !this.activeButton) {
-                        this.cleanup();
-                        return;
-                    }
-
-                    e.preventDefault();
-                    const ratio = this.currentX / this.maxDist;
-
-                    if (ratio >= 0.85) {
-                        await this.activateButton(this.activeButton);
-                    }
-
-                    this.resetButton(this.activeButton);
-                    this.cleanup();
-                }
-
-                onMouseDown(e) {
-                    const btn = this.getButtonFromTarget(e.target);
-                    if (!btn || btn.classList.contains('activated')) return;
-
-                    this.activeButton = btn;
-                    this.dragging = true;
-                    this.reversed = btn.dataset.action === 'exit-request';
-
-                    const rect = btn.getBoundingClientRect();
-                    this.startX = e.clientX;
-                    this.maxDist = rect.width - 48 - 8;
-
-                    btn.classList.add('dragging');
-                }
-
-                onMouseMove(e) {
-                    if (!this.dragging || !this.activeButton) return;
-
-                    let delta = e.clientX - this.startX;
-                    if (this.reversed) delta = -delta;
-                    delta = Math.max(0, Math.min(this.maxDist, delta));
-                    this.currentX = delta;
-
-                    const thumb = this.activeButton.querySelector('.slide-thumb');
-                    const fill = this.activeButton.querySelector('.slide-fill');
-                    const label = this.activeButton.querySelector('.slide-track-label');
-
-                    if (this.reversed) {
-                        thumb.style.right = (4 + delta) + 'px';
-                        fill.style.width = (delta + 48) + 'px';
-                    } else {
-                        thumb.style.left = (4 + delta) + 'px';
-                        fill.style.width = (delta + 48) + 'px';
-                    }
-
-                    if (label) label.style.opacity = Math.max(0.15, 1 - delta / this.maxDist);
-                }
-
-                async onMouseUp(e) {
-                    if (!this.dragging || !this.activeButton) {
-                        this.cleanup();
-                        return;
-                    }
-
-                    const ratio = this.currentX / this.maxDist;
-
-                    if (ratio >= 0.85) {
-                        await this.activateButton(this.activeButton);
-                    }
-
-                    this.resetButton(this.activeButton);
-                    this.cleanup();
-                }
-
-                async activateButton(btn) {
-                    btn.classList.add('activated');
-
-                    const fill = btn.querySelector('.slide-fill');
-                    const thumb = btn.querySelector('.slide-thumb');
-
-                    if (this.reversed) {
-                        if (thumb) thumb.style.right = (this.maxDist + 4) + 'px';
-                    } else {
-                        if (thumb) thumb.style.left = (this.maxDist + 4) + 'px';
-                    }
-                    if (fill) fill.style.width = '100%';
-
-                    const studentId = btn.dataset.studentId;
-                    const studentName = btn.dataset.studentName;
-                    const actionType = btn.dataset.action;
-
-                    if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
-
-                    try {
-                        if (actionType === 'entry') {
-                            await handleEntry(studentId, studentName, btn);
-                        } else if (actionType === 'exit-request') {
-                            await handleExitRequest(studentId, studentName, btn);
-                        } else if (actionType === 'exit-confirm') {
-                            await handleExitConfirm(studentId, studentName, btn);
-                        }
-                    } catch (error) {
-                        console.error('Erro na ação do slide:', error);
-                    }
-
-                    setTimeout(() => {
-                        btn.classList.remove('activated');
-                        this.resetButton(btn);
-                    }, 2000);
-                }
-
-                resetButton(btn) {
-                    if (!btn) return;
-
-                    const reversed = btn.dataset.action === 'exit-request';
-                    const thumb = btn.querySelector('.slide-thumb');
-                    const fill = btn.querySelector('.slide-fill');
-                    const label = btn.querySelector('.slide-track-label');
-
-                    if (reversed) {
-                        if (thumb) thumb.style.right = '4px';
-                    } else {
-                        if (thumb) thumb.style.left = '4px';
-                    }
-                    if (fill) fill.style.width = '0%';
-                    if (label) label.style.opacity = 1;
-                }
-
-                cleanup() {
-                    if (this.activeButton) {
-                        this.activeButton.classList.remove('dragging');
-                    }
-                    this.activeButton = null;
-                    this.dragging = false;
-                    this.currentX = 0;
-                    this.startX = 0;
-                }
-
-                // Forçar reset de todos os botões (útil após atualizações)
-                resetAllButtons() {
-                    document.querySelectorAll('.slide-btn').forEach(btn => {
-                        this.resetButton(btn);
-                        btn.classList.remove('activated', 'dragging');
-                    });
-                }
-            }
-
-            // Instanciar o gerenciador global
-            let slideButtonManager = null;
-
-            function initSlideButtonsSafe() {
-                // Primeiro, chama o original (já funcionava)
-                if (typeof initSlideButtons === 'function') {
-                    initSlideButtons();
-                }
-
-                // Depois, inicializa o novo gerenciador (apenas como complemento)
-                if (!slideButtonManager) {
-                    slideButtonManager = new SlideButtonManagerGlobal();
-                    slideButtonManager.init();
-                    console.log('✅ SlideButtonManagerGlobal iniciado como complemento');
-                }
             }
 
             async function handleEntry(studentId, studentName, btn) {
