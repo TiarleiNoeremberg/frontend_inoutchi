@@ -4286,6 +4286,28 @@
                         openStudentHistory(studentId, studentName);
                     });
                 });
+
+                // GATILHO INFALÍVEL DE SINCRONISMO DO GEOFENCE
+                // Garante que se a tela for recriada por WebSockets ou APIs, 
+                // as pílulas ativas reapareçam no mesmo milissegundo
+                if (window.geofenceMonitor && typeof window.geofenceMonitor.showIndicator === 'function') {
+                    // Se houver monitores ativos, restaura a pílula
+                    if (window.geofenceMonitor.activeMonitors && window.geofenceMonitor.activeMonitors.size > 0) {
+                        for (const [_, monitor] of window.geofenceMonitor.activeMonitors) {
+                            // Se o monitor está fora, mostra o timer
+                            if (monitor.isOutside && monitor.startTimeOutside) {
+                                const elapsedSeconds = Math.floor((Date.now() - monitor.startTimeOutside) / 1000);
+                                const timeLeft = Math.max(0, window.geofenceMonitor.TIMEOUT_MINUTES * 60 - elapsedSeconds);
+                                const status = timeLeft <= 30 ? 'danger' : 'warning';
+                                window.geofenceMonitor.showIndicator(monitor.studentName, timeLeft, status);
+                            } else {
+                                // Se está dentro, mostra apenas monitorando
+                                window.geofenceMonitor.showIndicator(monitor.studentName);
+                            }
+                        }
+                    }
+                }
+                // ========== FIM DO GATILHO ==========
             }
 
             // ============== SLIDE BUTTONS ==============
@@ -6271,9 +6293,14 @@
                     if (this.activeMonitors.has(studentId)) return;
 
                     const aluno = window.studentsData?.find(a => a.id == studentId);
-                    if (!aluno || aluno.status !== 'AGUARDANDO_CONFIRMACAO') {
-                        console.log(`🔴 [GeofenceMonitor] Tentativa de iniciar monitor para aluno ${studentName} que não está AGUARDANDO. Ignorando.`);
+                    if (!aluno) {
+                        console.log(`🔴 [GeofenceMonitor] Aluno ${studentName} não encontrado no studentsData. Monitoramento abortado.`);
                         return;
+                    }
+
+                    // Log para diagnóstico - mostra o status atual sem bloquear
+                    if (aluno.status !== 'AGUARDANDO_CONFIRMACAO') {
+                        console.log(`🟡 [GeofenceMonitor] Aviso: Aluno ${studentName} está com status "${aluno.status}" (não AGUARDANDO). Monitoramento iniciado mesmo assim.`);
                     }
 
                     await this.notifyBackendMonitoringStart(studentId, studentName);
@@ -6458,7 +6485,7 @@
                     for (const [studentId, monitor] of this.activeMonitors) {
                         // Buscar o aluno atualizado no studentsData ANTES DE QUALQUER AÇÃO
                         const aluno = window.studentsData?.find(a => a.id == studentId);
-                        if (!aluno || aluno.status !== 'AGUARDANDO_CONFIRMACAO') {
+                        if (!aluno) {
                             // Se o aluno não está mais aguardando, remove do monitoramento
                             console.log(`🔴 [GeofenceMonitor] Aluno ${monitor.studentName} não está mais AGUARDANDO. Removendo monitor.`);
                             this.stopMonitoring(studentId);
@@ -6484,7 +6511,10 @@
                                 monitor.isOutside = true;
                                 monitor.startTimeOutside = Date.now();
 
-                                this.showIndicator(monitor.studentName, this.TIMEOUT_MINUTES * 60, 'warning');
+                                // 🔧 ADICIONAR LOG PARA DIAGNÓSTICO
+                                console.log(`🚶 [TIMESTAMP] Saída detectada para ${monitor.studentName} em: ${new Date(monitor.startTimeOutside).toLocaleTimeString()}`);
+
+                                this.showIndicator(monitor.studentName, 'warning');
                                 this.sendNotification('🚶 Saída Detectada',
                                     `${monitor.studentName}: Fora da área. Se ficar ${this.TIMEOUT_MINUTES} minutos fora, a saída será confirmada.`, 'warning');
 
@@ -6524,6 +6554,10 @@
                 }
 
                 async autoConfirmExit(studentId, monitor) {
+                    // 🔧 ADICIONAR LOG PARA DIAGNÓSTICO
+                    const elapsedSeconds = Math.floor((Date.now() - monitor.startTimeOutside) / 1000);
+                    console.log(`⏱️ [TIMER] Verificando saída para ${monitor.studentName}: ${elapsedSeconds} segundos decorridos de ${this.TIMEOUT_MINUTES * 60} necessários`);
+
                     if (monitor.confirming) return;
                     monitor.confirming = true;
 
