@@ -1320,9 +1320,17 @@
                         if (response.ok) {
                             const data = await response.json();
 
+                            // 🔍 LOG TEMPORÁRIO PARA DEBUG (remover depois)
+                            console.log('🔍 Resposta do BFF:', {
+                                hasAccessToken: !!data.accessToken,
+                                hasRefreshToken: !!data.refresh_token,
+                                expires_in: data.expires_in
+                            });
+
                             // O BFF retorna accessToken (camelCase) ou access_token
                             // O Spring geralmente serializa como camelCase, então vamos verificar ambos
                             const accessToken = data.accessToken || data.access_token;
+                            const refreshToken = data.refresh_token;  // ← PEGA O REFRESH TOKEN
 
                             if (!accessToken) {
                                 throw new Error('Token não recebido do servidor');
@@ -1353,8 +1361,15 @@
                                 sessionStorage.setItem('access_token', accessToken);
                                 sessionStorage.setItem('user_role', userRole);
                                 sessionStorage.setItem('user_data', JSON.stringify(userDataToStore));
-                                // O BFF não retorna refresh_token por segurança
-                                // Se precisar de refresh, o back-end pode retornar, mas não é necessário
+
+                                
+
+                                if (data.refresh_token) {
+                                    sessionStorage.setItem('refresh_token', data.refresh_token);
+                                }
+                                if (data.expires_in) {
+                                    sessionStorage.setItem('token_expiry', (Date.now() + (data.expires_in * 1000)).toString());
+                                }
                                 console.log(`✅ Login TUTOR - modo sessão (sessionStorage)`);
                             } else {
                                 // TODOS OS OUTROS (Sala, Escola, Diretor, Transporte, Tutor com "lembrar")
@@ -1365,6 +1380,10 @@
                                 // refresh_token é opcional (BFF pode não retornar)
                                 if (data.refresh_token) {
                                     localStorage.setItem('refresh_token', data.refresh_token);
+                                }
+
+                                if (data.expires_in) {
+                                    localStorage.setItem('token_expiry', (Date.now() + (data.expires_in * 1000)).toString());
                                 }
 
                                 // Salvar escolaId separadamente

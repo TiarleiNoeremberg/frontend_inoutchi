@@ -1,8 +1,6 @@
 // auth.js - Gerenciamento de autenticação
 //const BACKEND_URL = 'https://inoutchi-backend.onrender.com';
 const BACKEND_URL = 'https://api.inoutchi.com';
-const CLIENT_ID = 'myclientid';
-const CLIENT_SECRET = 'myclientsecret';
 
 // Função principal para obter o token válido
 async function getValidToken() {
@@ -30,31 +28,49 @@ async function getValidToken() {
 
 // Função para renovar o token
 async function renovarToken(refreshToken) {
+    console.log("🔄 Tentando renovar token via BFF...");
+
     try {
-        const response = await fetch(`${BACKEND_URL}/oauth2/token`, {
+        // ✅ AGORA USA O BFF, NÃO PRECISA DE CLIENT_ID/CLIENT_SECRET
+        const response = await fetch(`${BACKEND_URL}/api/bff/refresh`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Type': 'application/json',
             },
-            body: new URLSearchParams({
-                'grant_type': 'refresh_token',
-                'refresh_token': refreshToken,
-                'client_id': CLIENT_ID,
-                'client_secret': CLIENT_SECRET
+            body: JSON.stringify({
+                refresh_token: refreshToken
             })
         });
 
         if (response.ok) {
             const data = await response.json();
-            localStorage.setItem('access_token', data.access_token);
-            localStorage.setItem('token_expiry', (new Date().getTime() + (data.expires_in * 1000)).toString());
-            if (data.refresh_token) {
-                localStorage.setItem('refresh_token', data.refresh_token);
+            const accessToken = data.accessToken || data.access_token;
+            const newRefreshToken = data.refreshToken || data.refresh_token;
+            const expiresIn = data.expiresIn;
+
+            // Determina qual storage está sendo usado
+            const storage = localStorage.getItem('refresh_token') ? localStorage : sessionStorage;
+
+            // Atualiza o access_token
+            storage.setItem('access_token', accessToken);
+
+            // Se veio um novo refresh_token, atualiza também
+            if (newRefreshToken) {
+                storage.setItem('refresh_token', newRefreshToken);
             }
-            console.log("✅ Token renovado com sucesso!");
-            return data.access_token;
+
+            // Atualiza a expiração
+            if (expiresIn) {
+                storage.setItem('token_expiry', (Date.now() + (expiresIn * 1000)).toString());
+            }
+
+            console.log("✅ Token renovado com sucesso via BFF!");
+            return accessToken;
         } else {
-            console.error("❌ Falha ao renovar token");
+            const error = await response.json().catch(() => ({}));
+            console.error("❌ Falha ao renovar token:", error);
+
+            // Se o refresh falhou, faz logout
             logout();
             return null;
         }
