@@ -78,21 +78,20 @@ const BiometricManager = {
     },
 
     async authenticateAndroid() {
-        return new Promise((resolve) => {
-            // ✅ ESPERAR A BRIDGE FICAR PRONTA
-            let tentativas = 0;
-            while (typeof AndroidBiometric === 'undefined' && tentativas < 10) {
-                await new Promise(r => setTimeout(r, 100));
-                tentativas++;
-            }
+        // ✅ Aguardar a bridge ficar pronta (agora sem Promise aninhada)
+        let tentativas = 0;
+        while (typeof AndroidBiometric === 'undefined' && tentativas < 10) {
+            await new Promise(r => setTimeout(r, 100));
+            tentativas++;
+        }
 
-            if (typeof AndroidBiometric === 'undefined') {
-                resolve({ success: false, error: 'Bridge Android não disponível' });
-                return;
-            }
+        if (typeof AndroidBiometric === 'undefined') {
+            return { success: false, error: 'Bridge Android não disponível' };
+        }
+
+        return new Promise((resolve) => {
             const callbackId = 'auth_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
 
-            // ✅ REMOVER CALLBACK ANTERIOR SE EXISTIR
             if (window.biometricCallback) {
                 delete window.biometricCallback;
             }
@@ -115,15 +114,12 @@ const BiometricManager = {
                 }
             };
 
-            // ✅ TIMEOUT DE SEGURANÇA
             const timeoutId = setTimeout(() => {
-                if (window.biometricCallback === callbackFn) {
+                if (window.biometricCallback) {
                     resolve({ success: false, error: 'Tempo limite excedido' });
                     delete window.biometricCallback;
                 }
             }, 30000);
-
-            const callbackFn = window.biometricCallback;
 
             try {
                 AndroidBiometric.authenticate(callbackId);
