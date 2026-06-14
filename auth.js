@@ -1,5 +1,4 @@
 // auth.js - Gerenciamento de autenticação
-//const BACKEND_URL = 'https://inoutchi-backend.onrender.com';
 const BACKEND_URL = 'https://api.inoutchi.com';
 
 // Função principal para obter o token válido
