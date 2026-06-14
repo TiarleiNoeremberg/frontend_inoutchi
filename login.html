@@ -1042,6 +1042,17 @@
                         </span>
                     </button>
 
+                    <button type="button" class="btn-login" id="biometricLoginBtn" style="display: none; margin-top: 12px; background: linear-gradient(135deg, #4f46e5, #7c3aed);">
+                        <span>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;">
+                                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                                <line x1="12" y1="19" x2="12" y2="22"/>
+                            </svg>
+                            Entrar com Biometria
+                        </span>
+                    </button>
+
                     <div class="social-login">
                         <div class="g_id_signin" data-type="standard" data-shape="rectangular" data-theme="outline"
                             data-text="signin_with" data-size="large" data-logo_alignment="left">
@@ -1372,6 +1383,9 @@
                                     sessionStorage.setItem('token_expiry', (Date.now() + (data.expires_in * 1000)).toString());
                                 }
                                 console.log(`✅ Login TUTOR - modo sessão (sessionStorage)`);
+
+                                await salvarCredencialParaBiometria(email, password, userData.nome);
+
                             } else {
                                 // TODOS OS OUTROS (Sala, Escola, Diretor, Transporte, Tutor com "lembrar")
                                 localStorage.setItem('access_token', accessToken);
@@ -1397,6 +1411,8 @@
                                 localStorage.setItem('token_expiry', expiryTime.toString());
 
                                 console.log(`✅ Login LEGADO (${userRole}) - armazenado em localStorage com escolaId=${userDataToStore.escolaId}`);
+
+                                await salvarCredencialParaBiometria(email, password, userData.nome);
                             }
 
                             showAlert('Login realizado com sucesso!', 'success');
@@ -1478,19 +1494,22 @@
                         localStorage.clear();
                         sessionStorage.clear();
 
-                        if (isTutor && !devePermanecer) {
-                            // Tutor moderno - modo sessão
-                            sessionStorage.setItem('access_token', data.token);
-                            sessionStorage.setItem('user_role', data.role);
-                            sessionStorage.setItem('user_data', JSON.stringify(userDataToStore));
-                            if (data.refresh_token) sessionStorage.setItem('refresh_token', data.refresh_token);
-                            console.log(`✅ Login TUTOR - modo sessão (sessionStorage)`);
-                        } else {
-                            // TODOS OS OUTROS (incluindo Tutor com "lembrar", Sala, Diretor, Escola, Transporte)
-                            localStorage.setItem('access_token', data.token);
-                            localStorage.setItem('user_role', data.role);
-                            localStorage.setItem('user_data', JSON.stringify(userDataToStore));
-                            if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
+                            if (isTutor && !devePermanecer) {
+                                // Tutor moderno - modo sessão
+                                sessionStorage.setItem('access_token', data.token);
+                                sessionStorage.setItem('user_role', data.role);
+                                sessionStorage.setItem('user_data', JSON.stringify(userDataToStore));
+                                if (data.refresh_token) sessionStorage.setItem('refresh_token', data.refresh_token);
+                                console.log(`✅ Login TUTOR - modo sessão (sessionStorage)`);
+
+                                await salvarCredencialParaBiometria(email, password, userData.nome);
+
+                            } else {
+                                // TODOS OS OUTROS (incluindo Tutor com "lembrar", Sala, Diretor, Escola, Transporte)
+                                localStorage.setItem('access_token', data.token);
+                                localStorage.setItem('user_role', data.role);
+                                localStorage.setItem('user_data', JSON.stringify(userDataToStore));
+                                if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
 
                             // 🔴 CRÍTICO: Salvar escolaId separadamente (dashboards legados esperam isso)
                             if (userDataToStore.escolaId) {
@@ -1502,6 +1521,8 @@
                             localStorage.setItem('token_expiry', expiryTime.toString());
 
                             console.log(`✅ Login LEGADO (${data.role}) - armazenado em localStorage com escolaId=${userDataToStore.escolaId}`);
+
+                            await salvarCredencialParaBiometria(userData.email, userData.senha || '', userData.nome);
                         }
 
                         const roleRoutes = {
@@ -1528,6 +1549,62 @@
                     loading.style.display = 'none';
                 }
             };
+
+                        // =================================================================
+            // 4. BIOMETRIA
+            // =================================================================
+            
+            // Verificar disponibilidade da biometria ao carregar a página
+            (async function verificarBiometria() {
+                if (typeof BiometricManager !== 'undefined') {
+                    await BiometricManager.checkAvailability();
+                    
+                    const biometricBtn = document.getElementById('biometricLoginBtn');
+                    if (biometricBtn && BiometricManager.isAvailable) {
+                        biometricBtn.style.display = 'block';
+                        console.log('🔐 Biometria disponível, botão exibido');
+                        
+                        biometricBtn.addEventListener('click', async () => {
+                            // Mostrar loading
+                            loading.style.display = 'block';
+                            loginBtn.disabled = true;
+                            
+                            try {
+                                const result = await BiometricManager.authenticate();
+                                
+                                if (result.success && result.email && result.password) {
+                                    // Preencher campos do formulário
+                                    document.getElementById('email').value = result.email;
+                                    document.getElementById('password').value = result.password;
+                                    
+                                    // Disparar submit do formulário
+                                    loginForm.dispatchEvent(new Event('submit'));
+                                } else {
+                                    showAlert('Falha na autenticação biométrica: ' + (result.error || 'Tente novamente'), 'error');
+                                }
+                            } catch (error) {
+                                console.error('Erro na biometria:', error);
+                                showAlert('Erro ao usar biometria', 'error');
+                            } finally {
+                                loading.style.display = 'none';
+                                loginBtn.disabled = false;
+                            }
+                        });
+                    } else if (biometricBtn) {
+                        console.log('🔐 Biometria NÃO disponível neste dispositivo');
+                    }
+                } else {
+                    console.log('🔐 BiometricManager não encontrado (biometric.js não carregou?)');
+                }
+            })();
+            
+            // Função para salvar credencial após login bem-sucedido
+            async function salvarCredencialParaBiometria(email, password, nome) {
+                if (typeof BiometricManager !== 'undefined' && BiometricManager.isAvailable) {
+                    await BiometricManager.saveCredential(email, password, nome);
+                    console.log('🔐 Credencial salva para biometria');
+                }
+            }
 
         });
 
