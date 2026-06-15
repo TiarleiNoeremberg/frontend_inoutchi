@@ -1315,6 +1315,29 @@
                 grid-template-columns: 1fr;
             }
         }
+
+        .msg-actions {
+            margin-top: 12px;
+            display: flex;
+            gap: 8px;
+            border-top: 1px solid var(--border);
+            padding-top: 10px;
+        }
+
+        .btn-edit-msg:hover {
+            background: var(--primary) !important;
+            color: white !important;
+        }
+
+        .btn-delete-msg:hover {
+            background: var(--danger) !important;
+            color: white !important;
+        }
+
+        /* Ajuste para o modal de edição */
+        #editarMsgModal .modal-box {
+            max-width: 600px;
+        }
     </style>
 </head>
 
@@ -1662,6 +1685,11 @@
         let salasDoProfessor = new Map();
         let anexosParaEnviar = [];
         let cloudinaryWidget = null;
+        let userNome = '';
+        let userRole = '';
+        let currentMateriaId = null;
+        let currentMateriaNome = '';
+        let currentSalaId = null;
 
         // ================================================
         // FUNÇÕES DE AUTENTICAÇÃO
@@ -1801,32 +1829,287 @@
         // ================================================
         async function abrirThreadMateria(materiaId, materiaNome, salaId) {
             mostrarLoading(true);
+
+            // Armazenar contexto atual para edição
+            currentMateriaId = materiaId;
+            currentMateriaNome = materiaNome;
+            currentSalaId = salaId;
+
             try {
                 const res = await fetchWithAuth(`/api/mensagens/materia/${materiaId}`);
                 if (!res || !res.ok) throw new Error('Erro ao carregar mensagens');
                 const mensagens = await res.json();
+
                 document.getElementById('threadTitle').textContent = materiaNome;
                 document.getElementById('threadSub').textContent = `Mensagens da disciplina`;
+
                 const icone = getMateriaCategoria(materiaNome);
                 document.getElementById('threadIcon').innerHTML = `<i class="fas ${icone.icon}"></i>`;
+
                 const body = document.getElementById('threadBody');
                 if (!mensagens.length) {
                     body.innerHTML = `<div class="empty"><div class="empty-ic"><i class="fas fa-comment-dots"></i></div><div class="empty-t">Nenhuma mensagem</div><div class="empty-s">Ainda não há mensagens.</div></div>`;
                 } else {
                     body.innerHTML = mensagens.map(msg => {
                         let tipoIcon = msg.tipo === 'COLETIVA' ? '👥' : (msg.tipo === 'INSTITUCIONAL' ? '🏛️' : '👤');
-                        return `<article class="thread-msg ${!msg.lida ? 'unread' : ''}">
-                    <div class="msg-head"><span class="msg-from">${tipoIcon} ${escapeHtml(msg.criadoPorNome || 'Sistema')}</span><span class="msg-when">${new Date(msg.dataCriacao).toLocaleString('pt-BR')}</span></div>
+
+                        // Verificar se o professor pode editar/excluir (apenas mensagens que ele criou)
+                        const podeEditar = msg.criadoPorNome === userNome && userRole === 'PROFESSOR';
+                        const podeExcluir = msg.criadoPorNome === userNome && userRole === 'PROFESSOR';
+
+                        return `<article class="thread-msg ${!msg.lida ? 'unread' : ''}" data-msg-id="${msg.id}">
+                    <div class="msg-head">
+                        <span class="msg-from">${tipoIcon} ${escapeHtml(msg.criadoPorNome || 'Sistema')}</span>
+                        <span class="msg-when">${new Date(msg.dataCriacao).toLocaleString('pt-BR')}</span>
+                    </div>
                     <div class="msg-body">${formatarMensagem(msg.conteudo)}</div>
                     ${msg.alunoNome ? `<div class="msg-tag"><i class="fas fa-user"></i> Para: ${escapeHtml(msg.alunoNome)}</div>` : ''}
                     ${msg.anexos?.length ? `<div class="msg-attachments" style="margin-top:10px;"><i class="fas fa-paperclip"></i> Anexos: ${msg.anexos.map(a => `<a href="${a.caminhoArquivo}" target="_blank">${a.nomeArquivo}</a>`).join(', ')}</div>` : ''}
+                    ${(podeEditar || podeExcluir) ? `
+                    <div class="msg-actions" style="margin-top: 12px; display: flex; gap: 8px; border-top: 1px solid var(--border); padding-top: 10px;">
+                        ${podeEditar ? `<button class="btn-edit-msg" data-msg-id="${msg.id}" data-conteudo="${escapeHtml(msg.conteudo).replace(/"/g, '&quot;')}" data-tipo="${msg.tipo}" data-materia-id="${msg.materiaId || ''}" data-sala-id="${msg.salaId || ''}" data-aluno-id="${msg.alunoId || ''}" style="background: var(--primary-light); border: none; border-radius: 6px; padding: 5px 12px; font-size: 0.7rem; font-weight: 600; color: var(--primary); cursor: pointer;">
+                            <i class="fas fa-edit"></i> Editar
+                        </button>` : ''}
+                        ${podeExcluir ? `<button class="btn-delete-msg" data-msg-id="${msg.id}" style="background: var(--danger-bg); border: none; border-radius: 6px; padding: 5px 12px; font-size: 0.7rem; font-weight: 600; color: var(--danger); cursor: pointer;">
+                            <i class="fas fa-trash"></i> Excluir
+                        </button>` : ''}
+                    </div>
+                    ` : ''}
                 </article>`;
                     }).join('');
+
+                    // Adicionar event listeners para os botões
+                    document.querySelectorAll('.btn-edit-msg').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const msgId = parseInt(btn.dataset.msgId);
+                            const conteudo = btn.dataset.conteudo;
+                            const tipo = btn.dataset.tipo;
+                            const materiaId = btn.dataset.materiaId ? parseInt(btn.dataset.materiaId) : null;
+                            const salaId = btn.dataset.salaId ? parseInt(btn.dataset.salaId) : null;
+                            const alunoId = btn.dataset.alunoId ? parseInt(btn.dataset.alunoId) : null;
+                            abrirModalEditarMensagem(msgId, conteudo, tipo, materiaId, salaId, alunoId);
+                        });
+                    });
+
+                    document.querySelectorAll('.btn-delete-msg').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const msgId = parseInt(btn.dataset.msgId);
+                            confirmarExcluirMensagem(msgId);
+                        });
+                    });
                 }
+
                 document.getElementById('threadOverlay').classList.add('open');
                 document.getElementById('threadPanel').classList.add('open');
-            } catch (e) { console.error(e); showToast('Erro ao carregar mensagens', 'danger'); }
-            finally { mostrarLoading(false); }
+
+            } catch (e) {
+                console.error(e);
+                showToast('Erro ao carregar mensagens', 'danger');
+            } finally {
+                mostrarLoading(false);
+            }
+        }
+
+        // ================================================
+        // FUNÇÕES DE EDIÇÃO E EXCLUSÃO
+        // ================================================
+
+        function abrirModalEditarMensagem(msgId, conteudoAtual, tipo, materiaId, salaId, alunoId) {
+            // Criar o modal dinamicamente se não existir
+            let modal = document.getElementById('editarMsgModal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'editarMsgModal';
+                modal.className = 'modal-overlay';
+                modal.innerHTML = `
+            <div class="modal-box" style="max-width: 600px;">
+                <div class="modal-header">
+                    <h3><i class="fas fa-edit"></i> Editar Mensagem</h3>
+                    <button class="modal-close" onclick="fecharModalEditar()">&#x2715;</button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="editMsgId">
+                    <div class="form-group">
+                        <label class="form-label">Tipo de mensagem</label>
+                        <select id="editTipo" class="form-select" onchange="toggleEditCamposPorTipo()">
+                            <option value="COLETIVA">👥 Coletiva (toda a turma)</option>
+                            <option value="INDIVIDUAL">👤 Individual (um aluno)</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="editSalaGroup">
+                        <label class="form-label">Turma / Sala</label>
+                        <select id="editSalaId" class="form-select">
+                            <option value="">Selecione uma turma...</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="editAlunoGroup" style="display: none;">
+                        <label class="form-label">Aluno</label>
+                        <select id="editAlunoId" class="form-select">
+                            <option value="">Carregando alunos...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Conteúdo da Mensagem</label>
+                        <textarea id="editConteudo" class="form-control" rows="8"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="fecharModalEditar()">Cancelar</button>
+                    <button class="btn btn-primary" onclick="salvarEdicaoMensagem()">Salvar alterações</button>
+                </div>
+            </div>
+        `;
+                document.body.appendChild(modal);
+            }
+
+            // Preencher dados
+            document.getElementById('editMsgId').value = msgId;
+            document.getElementById('editTipo').value = tipo || 'COLETIVA';
+            document.getElementById('editConteudo').value = conteudoAtual;
+
+            // Preencher salas
+            const salaSelect = document.getElementById('editSalaId');
+            if (salaSelect) {
+                salaSelect.innerHTML = '<option value="">Selecione uma turma...</option>';
+                for (const [id, sala] of salasDoProfessor) {
+                    salaSelect.innerHTML += `<option value="${id}" ${salaId === id ? 'selected' : ''}>${escapeHtml(sala.nome)}</option>`;
+                }
+            }
+
+            // Carregar alunos se necessário
+            if (tipo === 'INDIVIDUAL' && salaId) {
+                const alunoGroup = document.getElementById('editAlunoGroup');
+                if (alunoGroup) alunoGroup.style.display = 'block';
+                carregarAlunosParaSelectEdicao(salaId, alunoId);
+            } else {
+                const alunoGroup = document.getElementById('editAlunoGroup');
+                if (alunoGroup) alunoGroup.style.display = 'none';
+            }
+
+            toggleEditCamposPorTipo();
+            modal.classList.add('open');
+        }
+
+        function fecharModalEditar() {
+            const modal = document.getElementById('editarMsgModal');
+            if (modal) modal.classList.remove('open');
+        }
+
+        function toggleEditCamposPorTipo() {
+            const tipo = document.getElementById('editTipo')?.value;
+            const alunoGroup = document.getElementById('editAlunoGroup');
+            const salaGroup = document.getElementById('editSalaGroup');
+
+            if (alunoGroup) alunoGroup.style.display = tipo === 'INDIVIDUAL' ? 'block' : 'none';
+            if (salaGroup) salaGroup.style.display = tipo === 'COLETIVA' ? 'block' : 'block';
+        }
+
+        async function carregarAlunosParaSelectEdicao(salaId, alunoIdSelecionado) {
+            const alunoSelect = document.getElementById('editAlunoId');
+            if (!alunoSelect) return;
+
+            alunoSelect.innerHTML = '<option value="">Carregando alunos...</option>';
+
+            const sala = salasDoProfessor.get(parseInt(salaId));
+            if (sala && sala.alunos && sala.alunos.length > 0) {
+                alunoSelect.innerHTML = '<option value="">Selecione um aluno...</option>';
+                sala.alunos.forEach(aluno => {
+                    alunoSelect.innerHTML += `<option value="${aluno.id}" ${alunoIdSelecionado === aluno.id ? 'selected' : ''}>${escapeHtml(aluno.nome)}</option>`;
+                });
+            } else {
+                alunoSelect.innerHTML = '<option value="">Nenhum aluno nesta turma</option>';
+            }
+        }
+
+        async function salvarEdicaoMensagem() {
+            const msgId = document.getElementById('editMsgId').value;
+            const tipo = document.getElementById('editTipo').value;
+            const salaId = document.getElementById('editSalaId')?.value;
+            const alunoId = document.getElementById('editAlunoId')?.value;
+            const conteudo = document.getElementById('editConteudo')?.value.trim();
+
+            if (!conteudo) {
+                showToast('Digite o conteúdo da mensagem', 'danger');
+                return;
+            }
+
+            if (tipo === 'COLETIVA' && !salaId) {
+                showToast('Selecione uma turma', 'danger');
+                return;
+            }
+
+            if (tipo === 'INDIVIDUAL' && !alunoId) {
+                showToast('Selecione um aluno', 'danger');
+                return;
+            }
+
+            mostrarLoading(true);
+
+            try {
+                const payload = {
+                    conteudo: conteudo,
+                    tipo: tipo,
+                    materiaId: currentMateriaId,
+                    salaId: tipo === 'COLETIVA' ? parseInt(salaId) : null,
+                    alunoId: tipo === 'INDIVIDUAL' ? parseInt(alunoId) : null
+                };
+
+                const res = await fetchWithAuth(`/api/mensagens/${msgId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(payload)
+                });
+
+                if (!res || !res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.mensagem || 'Erro ao atualizar mensagem');
+                }
+
+                showToast('Mensagem atualizada com sucesso!', 'success');
+                fecharModalEditar();
+
+                // Recarregar a thread
+                await abrirThreadMateria(currentMateriaId, currentMateriaNome, currentSalaId);
+
+            } catch (error) {
+                console.error('Erro ao atualizar mensagem:', error);
+                showToast(error.message, 'danger');
+            } finally {
+                mostrarLoading(false);
+            }
+        }
+
+        function confirmarExcluirMensagem(msgId) {
+            if (confirm('Tem certeza que deseja excluir esta mensagem? Esta ação não pode ser desfeita.')) {
+                excluirMensagem(msgId);
+            }
+        }
+
+        async function excluirMensagem(msgId) {
+            mostrarLoading(true);
+
+            try {
+                const res = await fetchWithAuth(`/api/mensagens/${msgId}`, {
+                    method: 'DELETE'
+                });
+
+                if (!res || !res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.mensagem || 'Erro ao excluir mensagem');
+                }
+
+                showToast('Mensagem excluída com sucesso!', 'success');
+
+                // Recarregar a thread
+                await abrirThreadMateria(currentMateriaId, currentMateriaNome, currentSalaId);
+
+            } catch (error) {
+                console.error('Erro ao excluir mensagem:', error);
+                showToast(error.message, 'danger');
+            } finally {
+                mostrarLoading(false);
+            }
         }
 
         function formatarMensagem(texto) {
@@ -2155,23 +2438,42 @@
         // INIT
         // ================================================
         document.addEventListener('DOMContentLoaded', async () => {
-            const token = await getValidToken();
-            if (!token) { window.location.href = 'login.html'; return; }
+            try {
+                const token = await getValidToken();
+                if (!token) {
+                    window.location.href = 'login.html';
+                    return;
+                }
 
-            await renderConfig();
-            await carregarMateriasDoProfessor();
-            renderAlunos();
+                // ========== 1. CARREGAR DADOS DO USUÁRIO PRIMEIRO ==========
+                const userResponse = await fetchWithAuth('/api/users/me');
+                if (userResponse && userResponse.ok) {
+                    const userData = await userResponse.json();
+                    userNome = userData.nome || '';
+                    userRole = userData.roles?.find(r => r.includes('PROFESSOR')) || 'PROFESSOR';
+                    console.log('👤 Usuário:', userNome, 'Role:', userRole);
+                }
 
-            // Configurar evento da aba alunos para recarregar
-            const alunosNav = document.querySelector('.nav-item[data-tab="alunos"]');
-            if (alunosNav) {
-                alunosNav.addEventListener('click', () => renderAlunos());
+                // ========== 2. CARREGAR DADOS DO PROFESSOR ==========
+                await renderConfig();
+                await carregarMateriasDoProfessor();
+                renderAlunos();
+
+                // ========== 3. CONFIGURAR EVENTOS ==========
+                const alunosNav = document.querySelector('.nav-item[data-tab="alunos"]');
+                if (alunosNav) {
+                    alunosNav.addEventListener('click', () => renderAlunos());
+                }
+
+                document.getElementById('threadOverlay')?.addEventListener('click', closeThread);
+                document.getElementById('threadBack')?.addEventListener('click', closeThread);
+
+                console.log('✅ Dashboard inicializado com sucesso');
+
+            } catch (error) {
+                console.error('❌ Erro na inicialização:', error);
+                showToast('Erro ao carregar dashboard', 'danger');
             }
-
-            document.getElementById('threadOverlay')?.addEventListener('click', closeThread);
-            document.getElementById('threadBack')?.addEventListener('click', closeThread);
-
-            console.log('✅ Dashboard inicializado');
         });
     </script>
 </body>
