@@ -6528,27 +6528,37 @@
                     monitor.confirming = true;
 
                     try {
-                        const response = await fetchWithAuth('/api/presencas/confirmar-saida-auto', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                alunoId: parseInt(studentId),
-                                motivo: 'Afastamento da geofence por 3 minutos',
-                                confirmadoPor: 'SISTEMA_AUTOMATICO'
-                            })
+                        // 🔧 CORREÇÃO: Chamar o endpoint que já funciona (mesmo da confirmação manual)
+                        const response = await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, {
+                            method: 'POST'
                         });
 
-                        if (!response.ok) throw new Error('Erro na API');
+                        if (!response.ok) {
+                            const error = await response.json();
+                            throw new Error(error.mensagem || 'Erro na API');
+                        }
 
-                        await mostrarTelaSucesso('confirmacao', async () => {
+                        // 🔧 CORREÇÃO: Atualizar os dados localmente imediatamente
+                        // Atualizar o aluno no array local
+                        const alunoIndex = window.studentsData?.findIndex(a => a.id == studentId);
+                        if (alunoIndex !== -1 && window.studentsData) {
+                            window.studentsData[alunoIndex].status = 'AUSENTE';
+                        }
+
+                        // Remover da lista de monitores ativos
+                        this.stopMonitoring(studentId);
+
+                        // 🔧 CORREÇÃO: Forçar re-renderização dos cards para atualizar o slider
+                        if (typeof renderStudents === 'function') {
+                            renderStudents(window.studentsData);
+                        }
+
+                        // Recarregar dados do backend para garantir consistência
+                        if (typeof refreshStudentsData === 'function') {
                             await refreshStudentsData();
-                            return true;
-                        });
+                        }
 
                         this.sendNotification('✅ Saída Confirmada', `${monitor.studentName}: Saída confirmada automaticamente.`, 'success');
-                        console.log("🔴 [autoConfirmExit] Chamando stopMonitoring para:", studentId);
-                        this.stopMonitoring(studentId);
-                        console.log("🔴 [autoConfirmExit] stopMonitoring concluído");
 
                     } catch (error) {
                         console.error("❌ [autoConfirmExit] Erro:", error);
@@ -8456,16 +8466,33 @@
                 if (!document.hidden) {
                     console.log("📱 Dashboard reativado. Validando sincronismo com a API...");
 
-                    // 1. Forçar atualização dos alunos da API
-                    if (typeof refreshStudentsData === 'function') {
-                        refreshStudentsData();
-                    } else if (typeof loadStudents === 'function') {
-                        loadStudents();
+                    // 🔧 NOVA VERIFICAÇÃO: Sincronizar estado dos monitores ativos
+                    if (window.geofenceMonitor && window.geofenceMonitor.activeMonitors.size > 0) {
+                        for (const [studentId, monitor] of window.geofenceMonitor.activeMonitors) {
+                            // Verificar no backend qual o status real do aluno
+                            fetchWithAuth(`/api/presencas/aluno/${studentId}/saida-ativa`)
+                                .then(res => res.json())
+                                .then(data => {
+                                    if (data.codigo !== 'SAIDA_ATIVA') {
+                                        // Se não tem saída ativa, remover do monitoramento
+                                        window.geofenceMonitor.stopMonitoring(studentId);
+                                        // Atualizar a lista de alunos
+                                        if (typeof refreshStudentsData === 'function') {
+                                            refreshStudentsData();
+                                        }
+                                    }
+                                })
+                                .catch(err => console.warn('Erro ao sincronizar estado:', err));
+                        }
                     }
 
-                    // 2. Verificar e reconectar WebSocket se necessário
+                    // Forçar atualização dos alunos da API
+                    if (typeof refreshStudentsData === 'function') {
+                        refreshStudentsData();
+                    }
+
+                    // Verificar e reconectar WebSocket se necessário
                     if (typeof stompClient !== 'undefined' && (!stompClient || !stompClient.connected)) {
-                        console.warn("🔄 WebSocket desconectado em segundo plano. Reconectando...");
                         if (typeof connectMensagemWebSocket === 'function') {
                             connectMensagemWebSocket();
                         }
