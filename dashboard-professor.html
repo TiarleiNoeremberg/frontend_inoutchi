@@ -1827,10 +1827,12 @@
         // ================================================
         // THREAD
         // ================================================
-        async function abrirThreadMateria(materiaId, materiaNome, salaId) {
+        // Sobrescrever a função global abrirThreadMateria
+        window.abrirThreadMateria = async function (materiaId, materiaNome, salaId) {
+            console.log('🚀 VERSÃO CORRIGIDA - Abrindo thread:', materiaNome, '(ID:', materiaId, ')');
+
             mostrarLoading(true);
 
-            // Armazenar contexto atual para edição
             currentMateriaId = materiaId;
             currentMateriaNome = materiaNome;
             currentSalaId = salaId;
@@ -1850,12 +1852,19 @@
                 if (!mensagens.length) {
                     body.innerHTML = `<div class="empty"><div class="empty-ic"><i class="fas fa-comment-dots"></i></div><div class="empty-t">Nenhuma mensagem</div><div class="empty-s">Ainda não há mensagens.</div></div>`;
                 } else {
+                    // Usar as variáveis globais
+                    const nomeProfessor = window.userNome || userNome || '';
+                    const roleProfessor = window.userRole || userRole || '';
+                    const isProfessor = roleProfessor === 'ROLE_PROFESSOR' || roleProfessor === 'PROFESSOR';
+                    const nomeNormalizado = nomeProfessor.trim();
+
+                    console.log('🔍 Nome professor:', nomeNormalizado);
+                    console.log('🔍 isProfessor:', isProfessor);
+
                     body.innerHTML = mensagens.map(msg => {
                         let tipoIcon = msg.tipo === 'COLETIVA' ? '👥' : (msg.tipo === 'INSTITUCIONAL' ? '🏛️' : '👤');
 
-                        // Verificar se o professor pode editar/excluir (apenas mensagens que ele criou)
-                        const isProfessor = userRole === 'ROLE_PROFESSOR' || userRole === 'PROFESSOR';
-                        const isCriador = msg.criadoPorNome && msg.criadoPorNome.trim() === userNome.trim();
+                        const isCriador = msg.criadoPorNome && msg.criadoPorNome.trim() === nomeNormalizado;
                         const podeEditar = isProfessor && isCriador;
                         const podeExcluir = isProfessor && isCriador;
 
@@ -1880,17 +1889,20 @@
                 </article>`;
                     }).join('');
 
-                    // Adicionar event listeners para os botões
                     document.querySelectorAll('.btn-edit-msg').forEach(btn => {
                         btn.addEventListener('click', (e) => {
                             e.stopPropagation();
                             const msgId = parseInt(btn.dataset.msgId);
                             const conteudo = btn.dataset.conteudo;
                             const tipo = btn.dataset.tipo;
-                            const materiaId = btn.dataset.materiaId ? parseInt(btn.dataset.materiaId) : null;
-                            const salaId = btn.dataset.salaId ? parseInt(btn.dataset.salaId) : null;
-                            const alunoId = btn.dataset.alunoId ? parseInt(btn.dataset.alunoId) : null;
-                            abrirModalEditarMensagem(msgId, conteudo, tipo, materiaId, salaId, alunoId);
+                            const materiaIdParam = btn.dataset.materiaId ? parseInt(btn.dataset.materiaId) : null;
+                            const salaIdParam = btn.dataset.salaId ? parseInt(btn.dataset.salaId) : null;
+                            const alunoIdParam = btn.dataset.alunoId ? parseInt(btn.dataset.alunoId) : null;
+                            if (typeof abrirModalEditarMensagem === 'function') {
+                                abrirModalEditarMensagem(msgId, conteudo, tipo, materiaIdParam, salaIdParam, alunoIdParam);
+                            } else {
+                                alert(`Editar mensagem ${msgId}\n\n${conteudo?.substring(0, 100)}`);
+                            }
                         });
                     });
 
@@ -1898,7 +1910,11 @@
                         btn.addEventListener('click', (e) => {
                             e.stopPropagation();
                             const msgId = parseInt(btn.dataset.msgId);
-                            confirmarExcluirMensagem(msgId);
+                            if (typeof confirmarExcluirMensagem === 'function') {
+                                confirmarExcluirMensagem(msgId);
+                            } else if (confirm('Tem certeza que deseja excluir esta mensagem?')) {
+                                alert(`Excluir mensagem ${msgId}`);
+                            }
                         });
                     });
                 }
@@ -1912,7 +1928,9 @@
             } finally {
                 mostrarLoading(false);
             }
-        }
+        };
+
+        console.log('✅ Função abrirThreadMateria sobrescrita com sucesso!');
 
         // ================================================
         // FUNÇÕES DE EDIÇÃO E EXCLUSÃO
@@ -2451,8 +2469,8 @@
                 const userResponse = await fetchWithAuth('/api/users/me');
                 if (userResponse && userResponse.ok) {
                     const userData = await userResponse.json();
-                    userNome = userData.nome || '';
-                    userRole = userData.roles?.find(r => r.includes('PROFESSOR')) || 'PROFESSOR';
+                    window.userNome = userData.nome || '';
+                    window.userRole = userData.roles?.find(r => r.includes('PROFESSOR')) || 'PROFESSOR';
                     console.log('👤 Usuário:', userNome, 'Role:', userRole);
                 }
 
