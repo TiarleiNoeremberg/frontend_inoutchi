@@ -1990,446 +1990,477 @@
             document.getElementById('editConteudo').value = conteudoAtual;
 
             // Preencher salas
+            // Configurar evento de mudança de sala para carregar alunos automaticamente
             const salaSelect = document.getElementById('editSalaId');
             if (salaSelect) {
-                salaSelect.innerHTML = '<option value="">Selecione uma turma...</option>';
-                for (const [id, sala] of salasDoProfessor) {
-                    salaSelect.innerHTML += `<option value="${id}" ${salaId === id ? 'selected' : ''}>${escapeHtml(sala.nome)}</option>`;
-                }
-            }
+                // Remover evento anterior se existir
+                salaSelect.removeEventListener('change', window.onSalaChangeHandler);
 
-            // Carregar alunos se necessário
-            if (tipo === 'INDIVIDUAL' && salaId) {
-                const alunoGroup = document.getElementById('editAlunoGroup');
-                if (alunoGroup) alunoGroup.style.display = 'block';
-                carregarAlunosParaSelectEdicao(salaId, alunoId);
-            } else {
-                const alunoGroup = document.getElementById('editAlunoGroup');
-                if (alunoGroup) alunoGroup.style.display = 'none';
-            }
+                // Criar novo handler
+                window.onSalaChangeHandler = async function () {
+                    const salaId = this.value;
+                    const alunoGroup = document.getElementById('editAlunoGroup');
+                    const tipoSelect = document.getElementById('editTipo');
+                    if (tipoSelect) {
+                        tipoSelect.removeEventListener('change', window.onTipoChangeHandler);
 
-            toggleEditCamposPorTipo();
-            modal.classList.add('open');
-        }
+                        window.onTipoChangeHandler = function () {
+                            const alunoGroup = document.getElementById('editAlunoGroup');
+                            const salaSelect = document.getElementById('editSalaId');
 
-        function fecharModalEditar() {
-            const modal = document.getElementById('editarMsgModal');
-            if (modal) modal.classList.remove('open');
-        }
+                            if (this.value === 'INDIVIDUAL') {
+                                if (alunoGroup) alunoGroup.style.display = 'block';
+                                // Se já tem uma sala selecionada, carregar alunos automaticamente
+                                if (salaSelect && salaSelect.value) {
+                                    carregarAlunosParaSelectEdicao(salaSelect.value, null);
+                                }
+                            } else {
+                                if (alunoGroup) alunoGroup.style.display = 'none';
+                            }
+                        };
 
-        function toggleEditCamposPorTipo() {
-            const tipo = document.getElementById('editTipo')?.value;
-            const alunoGroup = document.getElementById('editAlunoGroup');
-            const salaGroup = document.getElementById('editSalaGroup');
-
-            if (alunoGroup) alunoGroup.style.display = tipo === 'INDIVIDUAL' ? 'block' : 'none';
-            if (salaGroup) salaGroup.style.display = tipo === 'COLETIVA' ? 'block' : 'block';
-        }
-
-        async function carregarAlunosParaSelectEdicao(salaId, alunoIdSelecionado) {
-            const alunoSelect = document.getElementById('editAlunoId');
-            if (!alunoSelect) return;
-
-            alunoSelect.innerHTML = '<option value="">Carregando alunos...</option>';
-
-            const sala = salasDoProfessor.get(parseInt(salaId));
-            if (sala && sala.alunos && sala.alunos.length > 0) {
-                alunoSelect.innerHTML = '<option value="">Selecione um aluno...</option>';
-                sala.alunos.forEach(aluno => {
-                    alunoSelect.innerHTML += `<option value="${aluno.id}" ${alunoIdSelecionado === aluno.id ? 'selected' : ''}>${escapeHtml(aluno.nome)}</option>`;
-                });
-            } else {
-                alunoSelect.innerHTML = '<option value="">Nenhum aluno nesta turma</option>';
-            }
-        }
-
-        async function salvarEdicaoMensagem() {
-            const msgId = document.getElementById('editMsgId').value;
-            const tipo = document.getElementById('editTipo').value;
-            const salaId = document.getElementById('editSalaId')?.value;
-            const alunoId = document.getElementById('editAlunoId')?.value;
-            const conteudo = document.getElementById('editConteudo')?.value.trim();
-
-            if (!conteudo) {
-                showToast('Digite o conteúdo da mensagem', 'danger');
-                return;
-            }
-
-            if (tipo === 'COLETIVA' && !salaId) {
-                showToast('Selecione uma turma', 'danger');
-                return;
-            }
-
-            if (tipo === 'INDIVIDUAL' && !alunoId) {
-                showToast('Selecione um aluno', 'danger');
-                return;
-            }
-
-            mostrarLoading(true);
-
-            try {
-                const payload = {
-                    conteudo: conteudo,
-                    tipo: tipo,
-                    materiaId: currentMateriaId,
-                    salaId: tipo === 'COLETIVA' ? parseInt(salaId) : null,
-                    alunoId: tipo === 'INDIVIDUAL' ? parseInt(alunoId) : null
-                };
-
-                const res = await fetchWithAuth(`/api/mensagens/${msgId}`, {
-                    method: 'PUT',
-                    body: JSON.stringify(payload)
-                });
-
-                if (!res || !res.ok) {
-                    const err = await res.json();
-                    throw new Error(err.mensagem || 'Erro ao atualizar mensagem');
-                }
-
-                showToast('Mensagem atualizada com sucesso!', 'success');
-                fecharModalEditar();
-
-                // Recarregar a thread
-                await abrirThreadMateria(currentMateriaId, currentMateriaNome, currentSalaId);
-
-            } catch (error) {
-                console.error('Erro ao atualizar mensagem:', error);
-                showToast(error.message, 'danger');
-            } finally {
-                mostrarLoading(false);
-            }
-        }
-
-        function confirmarExcluirMensagem(msgId) {
-            if (confirm('Tem certeza que deseja excluir esta mensagem? Esta ação não pode ser desfeita.')) {
-                excluirMensagem(msgId);
-            }
-        }
-
-        async function excluirMensagem(msgId) {
-            mostrarLoading(true);
-
-            try {
-                const res = await fetchWithAuth(`/api/mensagens/${msgId}`, {
-                    method: 'DELETE'
-                });
-
-                if (!res || !res.ok) {
-                    const err = await res.json();
-                    throw new Error(err.mensagem || 'Erro ao excluir mensagem');
-                }
-
-                showToast('Mensagem excluída com sucesso!', 'success');
-
-                // Recarregar a thread
-                await abrirThreadMateria(currentMateriaId, currentMateriaNome, currentSalaId);
-
-            } catch (error) {
-                console.error('Erro ao excluir mensagem:', error);
-                showToast(error.message, 'danger');
-            } finally {
-                mostrarLoading(false);
-            }
-        }
-
-        function formatarMensagem(texto) {
-            if (!texto) return '';
-            texto = texto.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank">$1</a>');
-            texto = texto.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-            texto = texto.replace(/\*(.*?)\*/g, '<em>$1</em>');
-            return texto.replace(/\n/g, '<br>');
-        }
-
-        // ================================================
-        // MODAL NOVA MENSAGEM
-        // ================================================
-        function preencherSelectsModal() {
-            const materiaSelect = document.getElementById('fMateria');
-            const salaSelect = document.getElementById('fTurma');
-
-            if (!materiaSelect) return;
-
-            materiaSelect.innerHTML = '<option value="">Selecione uma matéria...</option>';
-            materiasDoProfessor.forEach(m => {
-                materiaSelect.innerHTML += `<option value="${m.id}" data-sala-id="${m.salaId}">${escapeHtml(m.nome)} (${escapeHtml(m.salaNome)})</option>`;
-            });
-
-            if (salaSelect) {
-                salaSelect.innerHTML = '<option value="">Selecione uma turma...</option>';
-                for (const [id, sala] of salasDoProfessor) {
-                    salaSelect.innerHTML += `<option value="${id}">${escapeHtml(sala.nome)}</option>`;
-                }
-            }
-
-            // Configurar evento de mudança da matéria
-            materiaSelect.onchange = () => {
-                const opt = materiaSelect.options[materiaSelect.selectedIndex];
-                const salaId = opt?.dataset.salaId;
-                if (salaId && salaSelect) {
-                    salaSelect.value = salaId;
-                    carregarAlunosParaSelect(salaId);
-                }
-            };
-
-            if (salaSelect) {
-                salaSelect.onchange = () => {
-                    if (salaSelect.value) carregarAlunosParaSelect(salaSelect.value);
-                };
-            }
-        }
-
-        function abrirNovaMsgModal() {
-            // Limpar formulário
-            const fConteudo = document.getElementById('fConteudo');
-            const fDataInicio = document.getElementById('fDataInicio');
-            const fDataFim = document.getElementById('fDataFim');
-            const fTipo = document.getElementById('fTipo');
-
-            if (fConteudo) fConteudo.value = '';
-            if (fDataInicio) fDataInicio.value = '';
-            if (fDataFim) fDataFim.value = '';
-            if (fTipo) fTipo.value = 'COLETIVA';
-
-            // Limpar anexos
-            anexosParaEnviar = [];
-            const anexosArea = document.getElementById('anexosArea');
-            if (anexosArea) anexosArea.style.display = 'none';
-            const anexosList = document.getElementById('anexosList');
-            if (anexosList) anexosList.innerHTML = '';
-
-            // Esconder grupo de aluno inicialmente
-            const alunoGroup = document.getElementById('alunoGroup');
-            if (alunoGroup) alunoGroup.style.display = 'none';
-
-            // Preencher selects com dados já carregados
-            if (materiasDoProfessor.length > 0) {
-                preencherSelectsModal();
-            }
-
-            // Abrir modal
-            const modal = document.getElementById('novaMsgModal');
-            if (modal) modal.classList.add('open');
-        }
-
-        function closeModal() {
-            const modal = document.getElementById('novaMsgModal');
-            if (modal) modal.classList.remove('open');
-        }
-
-        function toggleCamposPorTipo() {
-            const tipo = document.getElementById('fTipo')?.value;
-            const alunoGroup = document.getElementById('alunoGroup');
-            if (alunoGroup) alunoGroup.style.display = tipo === 'INDIVIDUAL' ? 'block' : 'none';
-            const fAluno = document.getElementById('fAluno');
-            if (fAluno) fAluno.required = tipo === 'INDIVIDUAL';
-        }
-
-        async function carregarAlunosParaSelect(salaId) {
-            const alunoSelect = document.getElementById('fAluno');
-            if (!alunoSelect) return;
-
-            console.log(`🔍 Carregando alunos para sala ID: ${salaId}`);
-
-            alunoSelect.innerHTML = '<option value="">Carregando alunos...</option>';
-
-            // Buscar a sala no Map
-            const sala = salasDoProfessor.get(parseInt(salaId));
-
-            if (sala && sala.alunos && sala.alunos.length > 0) {
-                console.log(`✅ Encontrados ${sala.alunos.length} alunos na sala ${sala.nome}`);
-                alunoSelect.innerHTML = '<option value="">Selecione um aluno...</option>';
-                sala.alunos.forEach(aluno => {
-                    alunoSelect.innerHTML += `<option value="${aluno.id}">${escapeHtml(aluno.nome)}</option>`;
-                });
-            } else {
-                console.warn(`⚠️ Nenhum aluno encontrado para a sala ${salaId}`);
-                alunoSelect.innerHTML = '<option value="">Nenhum aluno nesta turma</option>';
-
-                // Tentar buscar alunos novamente da API
-                const salaParaBuscar = salasDoProfessor.get(parseInt(salaId));
-                if (salaParaBuscar) {
-                    console.log(`🔄 Tentando buscar alunos novamente para sala ${salaParaBuscar.nome}`);
-                    await carregarAlunosDaSala(salaId, salaParaBuscar);
-
-                    if (salaParaBuscar.alunos && salaParaBuscar.alunos.length > 0) {
-                        alunoSelect.innerHTML = '<option value="">Selecione um aluno...</option>';
-                        salaParaBuscar.alunos.forEach(aluno => {
-                            alunoSelect.innerHTML += `<option value="${aluno.id}">${escapeHtml(aluno.nome)}</option>`;
-                        });
+                        tipoSelect.addEventListener('change', window.onTipoChangeHandler);
                     }
-                }
-            }
-        }
 
-        // ================================================
-        // UPLOAD E ENVIO
-        // ================================================
-        function abrirUploadAnexo() {
-            if (!cloudinaryWidget) {
-                cloudinaryWidget = cloudinary.createUploadWidget({
-                    cloudName: CONFIG.CLOUDINARY.CLOUD_NAME,
-                    uploadPreset: CONFIG.CLOUDINARY.UPLOAD_PRESET,
-                    folder: CONFIG.CLOUDINARY.FOLDER,
-                    sources: ['local', 'url', 'camera'],
-                    multiple: true, maxFiles: 5, maxFileSize: 10485760,
-                    clientAllowedFormats: ['pdf', 'jpg', 'jpeg', 'png', 'gif'],
-                    resourceType: 'auto'
-                }, (error, result) => {
-                    if (error) { console.error(error); showToast('Erro no upload', 'danger'); return; }
-                    if (result?.event === 'success') {
-                        anexosParaEnviar.push({
-                            nome: result.info.original_filename,
-                            url: result.info.secure_url,
-                            publicId: result.info.public_id,
-                            tipo: result.info.resource_type
-                        });
-                        atualizarListaAnexos();
-                        showToast(`Anexo adicionado: ${result.info.original_filename}`, 'success');
+                    function fecharModalEditar() {
+                        const modal = document.getElementById('editarMsgModal');
+                        if (modal) modal.classList.remove('open');
                     }
-                });
-            }
-            cloudinaryWidget.open();
-        }
 
-        function atualizarListaAnexos() {
-            const area = document.getElementById('anexosArea');
-            const container = document.getElementById('anexosList');
-            if (!area || !container) return;
+                    function toggleEditCamposPorTipo() {
+                        const tipo = document.getElementById('editTipo')?.value;
+                        const alunoGroup = document.getElementById('editAlunoGroup');
+                        const salaGroup = document.getElementById('editSalaGroup');
 
-            if (!anexosParaEnviar.length) { area.style.display = 'none'; return; }
-            area.style.display = 'block';
-            container.innerHTML = anexosParaEnviar.map((a, i) => `<span class="anexo-item"><i class="fas ${a.tipo === 'image' ? 'fa-image' : 'fa-file-pdf'}"></i> ${a.nome} <i class="fas fa-times" onclick="removerAnexo(${i})"></i></span>`).join('');
-        }
-
-        function removerAnexo(idx) { anexosParaEnviar.splice(idx, 1); atualizarListaAnexos(); }
-
-        async function enviarMensagem() {
-            const tipo = document.getElementById('fTipo')?.value;
-            const materiaId = document.getElementById('fMateria')?.value;
-            const salaId = document.getElementById('fTurma')?.value;
-            const alunoId = document.getElementById('fAluno')?.value;
-            const conteudo = document.getElementById('fConteudo')?.value.trim();
-            const dataInicio = document.getElementById('fDataInicio')?.value;
-            const dataFim = document.getElementById('fDataFim')?.value;
-
-            if (!materiaId) { showToast('Selecione uma matéria', 'danger'); return; }
-            if (!salaId) { showToast('Selecione uma turma', 'danger'); return; }
-            if (tipo === 'INDIVIDUAL' && !alunoId) { showToast('Selecione um aluno', 'danger'); return; }
-            if (!conteudo) { showToast('Digite o conteúdo', 'danger'); return; }
-
-            mostrarLoading(true);
-            try {
-                const payload = {
-                    conteudo,
-                    materiaId: parseInt(materiaId),
-                    tipo,
-                    salaId: tipo === 'COLETIVA' ? parseInt(salaId) : null,
-                    alunoId: tipo === 'INDIVIDUAL' ? parseInt(alunoId) : null
-                };
-                if (dataInicio) payload.dataExibicaoInicio = new Date(dataInicio).toISOString();
-                if (dataFim) payload.dataExibicaoFim = new Date(dataFim).toISOString();
-
-                const res = await fetchWithAuth('/api/mensagens', { method: 'POST', body: JSON.stringify(payload) });
-                if (!res || !res.ok) { const err = await res.json(); throw new Error(err.mensagem || 'Erro ao enviar'); }
-                const msgCriada = await res.json();
-
-                if (anexosParaEnviar.length) {
-                    for (const a of anexosParaEnviar) {
-                        await fetchWithAuth(`/api/mensagens/${msgCriada.id}/anexos`, {
-                            method: 'POST',
-                            body: JSON.stringify({ nomeArquivo: a.nome, caminhoArquivo: a.url, tipoArquivo: a.tipo, tamanho: 0 })
-                        });
+                        if (alunoGroup) alunoGroup.style.display = tipo === 'INDIVIDUAL' ? 'block' : 'none';
+                        if (salaGroup) salaGroup.style.display = tipo === 'COLETIVA' ? 'block' : 'block';
                     }
-                }
-                showToast('Mensagem enviada com sucesso!', 'success');
-                closeModal();
 
-                // Recarregar a thread se estiver aberta
-                if (document.getElementById('threadPanel')?.classList.contains('open')) {
-                    const materiaAtual = materiasDoProfessor.find(m => m.nome === document.getElementById('threadTitle')?.textContent);
-                    if (materiaAtual) await abrirThreadMateria(materiaAtual.id, materiaAtual.nome, materiaAtual.salaId);
-                }
-            } catch (e) { console.error(e); showToast(e.message, 'danger'); }
-            finally { mostrarLoading(false); }
-        }
+                    async function carregarAlunosParaSelectEdicao(salaId, alunoIdSelecionado) {
+                        const alunoSelect = document.getElementById('editAlunoId');
+                        if (!alunoSelect) {
+                            console.error('❌ Select de aluno não encontrado');
+                            return;
+                        }
 
-        // ================================================
-        // UTILITÁRIOS
-        // ================================================
-        function escapeHtml(t) { if (!t) return ''; const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+                        console.log(`🔍 Carregando alunos para sala ID: ${salaId}`);
 
-        function showToast(msg, type = '') {
-            const tray = document.getElementById('toastTray');
-            if (!tray) return;
-            const el = document.createElement('div');
-            el.className = `toast-msg ${type}`;
-            const icon = type === 'success' ? 'fa-check-circle' : (type === 'danger' ? 'fa-exclamation-triangle' : 'fa-info-circle');
-            el.innerHTML = `<i class="fas ${icon}"></i> ${msg}`;
-            tray.appendChild(el);
-            setTimeout(() => { el.style.transition = 'all .3s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3000);
-        }
+                        alunoSelect.innerHTML = '<option value="">Carregando alunos...</option>';
 
-        function mostrarLoading(show) {
-            const loader = document.getElementById('loadingOverlay');
-            if (loader) loader.style.display = show ? 'flex' : 'none';
-        }
+                        try {
+                            const response = await fetchWithAuth(`/api/professores/sala/${salaId}/alunos`);
 
-        function handleLogout() {
-            if (confirm('Deseja sair?')) {
-                localStorage.clear();
-                sessionStorage.clear();
-                window.location.href = 'login.html';
-            }
-        }
+                            if (!response || !response.ok) {
+                                throw new Error(`HTTP ${response?.status}`);
+                            }
 
-        function switchTab(tab) {
-            document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-            document.getElementById(`tab-${tab}`)?.classList.add('active');
-            document.querySelectorAll('.nav-item[data-tab]').forEach(b => b.classList.remove('active'));
-            document.querySelector(`.nav-item[data-tab="${tab}"]`)?.classList.add('active');
-            const titles = { mural: ['Meu Mural', 'Acompanhe as comunicações'], alunos: ['Meus Alunos', 'Visualize seus alunos'], config: ['Configurações', 'Gerencie seu perfil'] };
-            document.getElementById('topbarTitle').textContent = titles[tab]?.[0] || 'Dashboard';
-            document.getElementById('topbarSub').textContent = titles[tab]?.[1] || '';
-            closeSidebar();
-        }
+                            const alunos = await response.json();
+                            console.log(`✅ Encontrados ${alunos.length} alunos para a sala ${salaId}`);
 
-        function openSidebar() { document.getElementById('sidebar').classList.add('mobile-open'); document.getElementById('sidebarOverlay').classList.add('open'); }
-        function closeSidebar() { document.getElementById('sidebar').classList.remove('mobile-open'); document.getElementById('sidebarOverlay').classList.remove('open'); }
-        function closeThread() { document.getElementById('threadOverlay').classList.remove('open'); document.getElementById('threadPanel').classList.remove('open'); }
+                            alunoSelect.innerHTML = '<option value="">Selecione um aluno...</option>';
 
-        // ================================================
-        // RENDER CONFIG
-        // ================================================
-        async function renderConfig() {
-            try {
-                const response = await fetchWithAuth('/api/users/me');
-                if (response && response.ok) {
-                    const userData = await response.json();
-                    document.getElementById('cfgNome').textContent = userData.nome || 'Professor';
-                    document.getElementById('cfgEmail').textContent = userData.email || '';
-                    document.getElementById('cfgAvatar').textContent = (userData.nome || 'P').charAt(0).toUpperCase();
-                }
-            } catch (error) {
-                console.error('Erro ao carregar dados do professor:', error);
-            }
-        }
+                            if (alunos.length === 0) {
+                                alunoSelect.innerHTML = '<option value="">Nenhum aluno nesta turma</option>';
+                            } else {
+                                alunos.forEach(aluno => {
+                                    const selected = (alunoIdSelecionado && aluno.id === alunoIdSelecionado) ? 'selected' : '';
+                                    alunoSelect.innerHTML += `<option value="${aluno.id}" ${selected}>${escapeHtml(aluno.nome)}</option>`;
+                                });
+                            }
 
-        // ================================================
-        // RENDER ALUNOS
-        // ================================================
-        function renderAlunos() {
-            const container = document.getElementById('alunosContainer');
-            if (!container) return;
+                        } catch (error) {
+                            console.error('❌ Erro ao carregar alunos:', error);
+                            alunoSelect.innerHTML = '<option value="">Erro ao carregar alunos</option>';
+                        }
+                    }
 
-            if (salasDoProfessor.size === 0) {
-                container.innerHTML = `<div class="empty"><div class="empty-ic"><i class="fas fa-children"></i></div><div class="empty-t">Nenhum aluno encontrado</div><div class="empty-s">Você não possui alunos vinculados às suas matérias.</div></div>`;
-                return;
-            }
+                    async function salvarEdicaoMensagem() {
+                        const msgId = document.getElementById('editMsgId').value;
+                        const tipo = document.getElementById('editTipo').value;
+                        const salaId = document.getElementById('editSalaId')?.value;
+                        const alunoId = document.getElementById('editAlunoId')?.value;
+                        const conteudo = document.getElementById('editConteudo')?.value.trim();
 
-            let html = '';
-            for (const [salaId, sala] of salasDoProfessor) {
-                if (!sala.alunos.length) continue;
-                html += `
+                        if (!conteudo) {
+                            showToast('Digite o conteúdo da mensagem', 'danger');
+                            return;
+                        }
+
+                        if (tipo === 'COLETIVA' && !salaId) {
+                            showToast('Selecione uma turma', 'danger');
+                            return;
+                        }
+
+                        if (tipo === 'INDIVIDUAL' && !alunoId) {
+                            showToast('Selecione um aluno', 'danger');
+                            return;
+                        }
+
+                        mostrarLoading(true);
+
+                        try {
+                            const payload = {
+                                conteudo: conteudo,
+                                tipo: tipo,
+                                materiaId: currentMateriaId,
+                                salaId: tipo === 'COLETIVA' ? parseInt(salaId) : null,
+                                alunoId: tipo === 'INDIVIDUAL' ? parseInt(alunoId) : null
+                            };
+
+                            const res = await fetchWithAuth(`/api/mensagens/${msgId}`, {
+                                method: 'PUT',
+                                body: JSON.stringify(payload)
+                            });
+
+                            if (!res || !res.ok) {
+                                const err = await res.json();
+                                throw new Error(err.mensagem || 'Erro ao atualizar mensagem');
+                            }
+
+                            showToast('Mensagem atualizada com sucesso!', 'success');
+                            fecharModalEditar();
+
+                            // Recarregar a thread
+                            await abrirThreadMateria(currentMateriaId, currentMateriaNome, currentSalaId);
+
+                        } catch (error) {
+                            console.error('Erro ao atualizar mensagem:', error);
+                            showToast(error.message, 'danger');
+                        } finally {
+                            mostrarLoading(false);
+                        }
+                    }
+
+                    function confirmarExcluirMensagem(msgId) {
+                        if (confirm('Tem certeza que deseja excluir esta mensagem? Esta ação não pode ser desfeita.')) {
+                            excluirMensagem(msgId);
+                        }
+                    }
+
+                    async function excluirMensagem(msgId) {
+                        mostrarLoading(true);
+
+                        try {
+                            const res = await fetchWithAuth(`/api/mensagens/${msgId}`, {
+                                method: 'DELETE'
+                            });
+
+                            if (!res || !res.ok) {
+                                const err = await res.json();
+                                throw new Error(err.mensagem || 'Erro ao excluir mensagem');
+                            }
+
+                            showToast('Mensagem excluída com sucesso!', 'success');
+
+                            // Recarregar a thread
+                            await abrirThreadMateria(currentMateriaId, currentMateriaNome, currentSalaId);
+
+                        } catch (error) {
+                            console.error('Erro ao excluir mensagem:', error);
+                            showToast(error.message, 'danger');
+                        } finally {
+                            mostrarLoading(false);
+                        }
+                    }
+
+                    function formatarMensagem(texto) {
+                        if (!texto) return '';
+                        texto = texto.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank">$1</a>');
+                        texto = texto.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                        texto = texto.replace(/\*(.*?)\*/g, '<em>$1</em>');
+                        return texto.replace(/\n/g, '<br>');
+                    }
+
+                    // ================================================
+                    // MODAL NOVA MENSAGEM
+                    // ================================================
+                    function preencherSelectsModal() {
+                        const materiaSelect = document.getElementById('fMateria');
+                        const salaSelect = document.getElementById('fTurma');
+
+                        if (!materiaSelect) return;
+
+                        materiaSelect.innerHTML = '<option value="">Selecione uma matéria...</option>';
+                        materiasDoProfessor.forEach(m => {
+                            materiaSelect.innerHTML += `<option value="${m.id}" data-sala-id="${m.salaId}">${escapeHtml(m.nome)} (${escapeHtml(m.salaNome)})</option>`;
+                        });
+
+                        if (salaSelect) {
+                            salaSelect.innerHTML = '<option value="">Selecione uma turma...</option>';
+                            for (const [id, sala] of salasDoProfessor) {
+                                salaSelect.innerHTML += `<option value="${id}">${escapeHtml(sala.nome)}</option>`;
+                            }
+                        }
+
+                        // Configurar evento de mudança da matéria
+                        materiaSelect.onchange = () => {
+                            const opt = materiaSelect.options[materiaSelect.selectedIndex];
+                            const salaId = opt?.dataset.salaId;
+                            if (salaId && salaSelect) {
+                                salaSelect.value = salaId;
+                                carregarAlunosParaSelect(salaId);
+                            }
+                        };
+
+                        if (salaSelect) {
+                            salaSelect.onchange = () => {
+                                if (salaSelect.value) carregarAlunosParaSelect(salaSelect.value);
+                            };
+                        }
+                    }
+
+                    function abrirNovaMsgModal() {
+                        // Limpar formulário
+                        const fConteudo = document.getElementById('fConteudo');
+                        const fDataInicio = document.getElementById('fDataInicio');
+                        const fDataFim = document.getElementById('fDataFim');
+                        const fTipo = document.getElementById('fTipo');
+
+                        if (fConteudo) fConteudo.value = '';
+                        if (fDataInicio) fDataInicio.value = '';
+                        if (fDataFim) fDataFim.value = '';
+                        if (fTipo) fTipo.value = 'COLETIVA';
+
+                        // Limpar anexos
+                        anexosParaEnviar = [];
+                        const anexosArea = document.getElementById('anexosArea');
+                        if (anexosArea) anexosArea.style.display = 'none';
+                        const anexosList = document.getElementById('anexosList');
+                        if (anexosList) anexosList.innerHTML = '';
+
+                        // Esconder grupo de aluno inicialmente
+                        const alunoGroup = document.getElementById('alunoGroup');
+                        if (alunoGroup) alunoGroup.style.display = 'none';
+
+                        // Preencher selects com dados já carregados
+                        if (materiasDoProfessor.length > 0) {
+                            preencherSelectsModal();
+                        }
+
+                        // Abrir modal
+                        const modal = document.getElementById('novaMsgModal');
+                        if (modal) modal.classList.add('open');
+                    }
+
+                    function closeModal() {
+                        const modal = document.getElementById('novaMsgModal');
+                        if (modal) modal.classList.remove('open');
+                    }
+
+                    function toggleCamposPorTipo() {
+                        const tipo = document.getElementById('fTipo')?.value;
+                        const alunoGroup = document.getElementById('alunoGroup');
+                        if (alunoGroup) alunoGroup.style.display = tipo === 'INDIVIDUAL' ? 'block' : 'none';
+                        const fAluno = document.getElementById('fAluno');
+                        if (fAluno) fAluno.required = tipo === 'INDIVIDUAL';
+                    }
+
+                    async function carregarAlunosParaSelect(salaId) {
+                        const alunoSelect = document.getElementById('fAluno');
+                        if (!alunoSelect) return;
+
+                        console.log(`🔍 Carregando alunos para sala ID: ${salaId}`);
+
+                        alunoSelect.innerHTML = '<option value="">Carregando alunos...</option>';
+
+                        // Buscar a sala no Map
+                        const sala = salasDoProfessor.get(parseInt(salaId));
+
+                        if (sala && sala.alunos && sala.alunos.length > 0) {
+                            console.log(`✅ Encontrados ${sala.alunos.length} alunos na sala ${sala.nome}`);
+                            alunoSelect.innerHTML = '<option value="">Selecione um aluno...</option>';
+                            sala.alunos.forEach(aluno => {
+                                alunoSelect.innerHTML += `<option value="${aluno.id}">${escapeHtml(aluno.nome)}</option>`;
+                            });
+                        } else {
+                            console.warn(`⚠️ Nenhum aluno encontrado para a sala ${salaId}`);
+                            alunoSelect.innerHTML = '<option value="">Nenhum aluno nesta turma</option>';
+
+                            // Tentar buscar alunos novamente da API
+                            const salaParaBuscar = salasDoProfessor.get(parseInt(salaId));
+                            if (salaParaBuscar) {
+                                console.log(`🔄 Tentando buscar alunos novamente para sala ${salaParaBuscar.nome}`);
+                                await carregarAlunosDaSala(salaId, salaParaBuscar);
+
+                                if (salaParaBuscar.alunos && salaParaBuscar.alunos.length > 0) {
+                                    alunoSelect.innerHTML = '<option value="">Selecione um aluno...</option>';
+                                    salaParaBuscar.alunos.forEach(aluno => {
+                                        alunoSelect.innerHTML += `<option value="${aluno.id}">${escapeHtml(aluno.nome)}</option>`;
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    // ================================================
+                    // UPLOAD E ENVIO
+                    // ================================================
+                    function abrirUploadAnexo() {
+                        if (!cloudinaryWidget) {
+                            cloudinaryWidget = cloudinary.createUploadWidget({
+                                cloudName: CONFIG.CLOUDINARY.CLOUD_NAME,
+                                uploadPreset: CONFIG.CLOUDINARY.UPLOAD_PRESET,
+                                folder: CONFIG.CLOUDINARY.FOLDER,
+                                sources: ['local', 'url', 'camera'],
+                                multiple: true, maxFiles: 5, maxFileSize: 10485760,
+                                clientAllowedFormats: ['pdf', 'jpg', 'jpeg', 'png', 'gif'],
+                                resourceType: 'auto'
+                            }, (error, result) => {
+                                if (error) { console.error(error); showToast('Erro no upload', 'danger'); return; }
+                                if (result?.event === 'success') {
+                                    anexosParaEnviar.push({
+                                        nome: result.info.original_filename,
+                                        url: result.info.secure_url,
+                                        publicId: result.info.public_id,
+                                        tipo: result.info.resource_type
+                                    });
+                                    atualizarListaAnexos();
+                                    showToast(`Anexo adicionado: ${result.info.original_filename}`, 'success');
+                                }
+                            });
+                        }
+                        cloudinaryWidget.open();
+                    }
+
+                    function atualizarListaAnexos() {
+                        const area = document.getElementById('anexosArea');
+                        const container = document.getElementById('anexosList');
+                        if (!area || !container) return;
+
+                        if (!anexosParaEnviar.length) { area.style.display = 'none'; return; }
+                        area.style.display = 'block';
+                        container.innerHTML = anexosParaEnviar.map((a, i) => `<span class="anexo-item"><i class="fas ${a.tipo === 'image' ? 'fa-image' : 'fa-file-pdf'}"></i> ${a.nome} <i class="fas fa-times" onclick="removerAnexo(${i})"></i></span>`).join('');
+                    }
+
+                    function removerAnexo(idx) { anexosParaEnviar.splice(idx, 1); atualizarListaAnexos(); }
+
+                    async function enviarMensagem() {
+                        const tipo = document.getElementById('fTipo')?.value;
+                        const materiaId = document.getElementById('fMateria')?.value;
+                        const salaId = document.getElementById('fTurma')?.value;
+                        const alunoId = document.getElementById('fAluno')?.value;
+                        const conteudo = document.getElementById('fConteudo')?.value.trim();
+                        const dataInicio = document.getElementById('fDataInicio')?.value;
+                        const dataFim = document.getElementById('fDataFim')?.value;
+
+                        if (!materiaId) { showToast('Selecione uma matéria', 'danger'); return; }
+                        if (!salaId) { showToast('Selecione uma turma', 'danger'); return; }
+                        if (tipo === 'INDIVIDUAL' && !alunoId) { showToast('Selecione um aluno', 'danger'); return; }
+                        if (!conteudo) { showToast('Digite o conteúdo', 'danger'); return; }
+
+                        mostrarLoading(true);
+                        try {
+                            const payload = {
+                                conteudo,
+                                materiaId: parseInt(materiaId),
+                                tipo,
+                                salaId: tipo === 'COLETIVA' ? parseInt(salaId) : null,
+                                alunoId: tipo === 'INDIVIDUAL' ? parseInt(alunoId) : null
+                            };
+                            if (dataInicio) payload.dataExibicaoInicio = new Date(dataInicio).toISOString();
+                            if (dataFim) payload.dataExibicaoFim = new Date(dataFim).toISOString();
+
+                            const res = await fetchWithAuth('/api/mensagens', { method: 'POST', body: JSON.stringify(payload) });
+                            if (!res || !res.ok) { const err = await res.json(); throw new Error(err.mensagem || 'Erro ao enviar'); }
+                            const msgCriada = await res.json();
+
+                            if (anexosParaEnviar.length) {
+                                for (const a of anexosParaEnviar) {
+                                    await fetchWithAuth(`/api/mensagens/${msgCriada.id}/anexos`, {
+                                        method: 'POST',
+                                        body: JSON.stringify({ nomeArquivo: a.nome, caminhoArquivo: a.url, tipoArquivo: a.tipo, tamanho: 0 })
+                                    });
+                                }
+                            }
+                            showToast('Mensagem enviada com sucesso!', 'success');
+                            closeModal();
+
+                            // Recarregar a thread se estiver aberta
+                            if (document.getElementById('threadPanel')?.classList.contains('open')) {
+                                const materiaAtual = materiasDoProfessor.find(m => m.nome === document.getElementById('threadTitle')?.textContent);
+                                if (materiaAtual) await abrirThreadMateria(materiaAtual.id, materiaAtual.nome, materiaAtual.salaId);
+                            }
+                        } catch (e) { console.error(e); showToast(e.message, 'danger'); }
+                        finally { mostrarLoading(false); }
+                    }
+
+                    // ================================================
+                    // UTILITÁRIOS
+                    // ================================================
+                    function escapeHtml(t) { if (!t) return ''; const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+
+                    function showToast(msg, type = '') {
+                        const tray = document.getElementById('toastTray');
+                        if (!tray) return;
+                        const el = document.createElement('div');
+                        el.className = `toast-msg ${type}`;
+                        const icon = type === 'success' ? 'fa-check-circle' : (type === 'danger' ? 'fa-exclamation-triangle' : 'fa-info-circle');
+                        el.innerHTML = `<i class="fas ${icon}"></i> ${msg}`;
+                        tray.appendChild(el);
+                        setTimeout(() => { el.style.transition = 'all .3s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3000);
+                    }
+
+                    function mostrarLoading(show) {
+                        const loader = document.getElementById('loadingOverlay');
+                        if (loader) loader.style.display = show ? 'flex' : 'none';
+                    }
+
+                    function handleLogout() {
+                        if (confirm('Deseja sair?')) {
+                            localStorage.clear();
+                            sessionStorage.clear();
+                            window.location.href = 'login.html';
+                        }
+                    }
+
+                    function switchTab(tab) {
+                        document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+                        document.getElementById(`tab-${tab}`)?.classList.add('active');
+                        document.querySelectorAll('.nav-item[data-tab]').forEach(b => b.classList.remove('active'));
+                        document.querySelector(`.nav-item[data-tab="${tab}"]`)?.classList.add('active');
+                        const titles = { mural: ['Meu Mural', 'Acompanhe as comunicações'], alunos: ['Meus Alunos', 'Visualize seus alunos'], config: ['Configurações', 'Gerencie seu perfil'] };
+                        document.getElementById('topbarTitle').textContent = titles[tab]?.[0] || 'Dashboard';
+                        document.getElementById('topbarSub').textContent = titles[tab]?.[1] || '';
+                        closeSidebar();
+                    }
+
+                    function openSidebar() { document.getElementById('sidebar').classList.add('mobile-open'); document.getElementById('sidebarOverlay').classList.add('open'); }
+                    function closeSidebar() { document.getElementById('sidebar').classList.remove('mobile-open'); document.getElementById('sidebarOverlay').classList.remove('open'); }
+                    function closeThread() { document.getElementById('threadOverlay').classList.remove('open'); document.getElementById('threadPanel').classList.remove('open'); }
+
+                    // ================================================
+                    // RENDER CONFIG
+                    // ================================================
+                    async function renderConfig() {
+                        try {
+                            const response = await fetchWithAuth('/api/users/me');
+                            if (response && response.ok) {
+                                const userData = await response.json();
+                                document.getElementById('cfgNome').textContent = userData.nome || 'Professor';
+                                document.getElementById('cfgEmail').textContent = userData.email || '';
+                                document.getElementById('cfgAvatar').textContent = (userData.nome || 'P').charAt(0).toUpperCase();
+                            }
+                        } catch (error) {
+                            console.error('Erro ao carregar dados do professor:', error);
+                        }
+                    }
+
+                    // ================================================
+                    // RENDER ALUNOS
+                    // ================================================
+                    function renderAlunos() {
+                        const container = document.getElementById('alunosContainer');
+                        if (!container) return;
+
+                        if (salasDoProfessor.size === 0) {
+                            container.innerHTML = `<div class="empty"><div class="empty-ic"><i class="fas fa-children"></i></div><div class="empty-t">Nenhum aluno encontrado</div><div class="empty-s">Você não possui alunos vinculados às suas matérias.</div></div>`;
+                            return;
+                        }
+
+                        let html = '';
+                        for (const [salaId, sala] of salasDoProfessor) {
+                            if (!sala.alunos.length) continue;
+                            html += `
             <div class="turma-block">
                 <div class="turma-title">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/></svg>
@@ -2449,52 +2480,52 @@
                 </div>
             </div>
         `;
-            }
+                        }
 
-            container.innerHTML = html || `<div class="empty"><div class="empty-ic"><i class="fas fa-children"></i></div><div class="empty-t">Nenhum aluno encontrado</div><div class="empty-s">Os alunos aparecerão aqui assim que forem vinculados às suas matérias.</div></div>`;
-        }
+                        container.innerHTML = html || `<div class="empty"><div class="empty-ic"><i class="fas fa-children"></i></div><div class="empty-t">Nenhum aluno encontrado</div><div class="empty-s">Os alunos aparecerão aqui assim que forem vinculados às suas matérias.</div></div>`;
+                    }
 
-        // ================================================
-        // INIT
-        // ================================================
-        document.addEventListener('DOMContentLoaded', async () => {
-            try {
-                const token = await getValidToken();
-                if (!token) {
-                    window.location.href = 'login.html';
-                    return;
-                }
+                    // ================================================
+                    // INIT
+                    // ================================================
+                    document.addEventListener('DOMContentLoaded', async () => {
+                        try {
+                            const token = await getValidToken();
+                            if (!token) {
+                                window.location.href = 'login.html';
+                                return;
+                            }
 
-                // ========== 1. CARREGAR DADOS DO USUÁRIO PRIMEIRO ==========
-                const userResponse = await fetchWithAuth('/api/users/me');
-                if (userResponse && userResponse.ok) {
-                    const userData = await userResponse.json();
-                    window.userNome = userData.nome || '';
-                    window.userRole = userData.roles?.find(r => r.includes('PROFESSOR')) || 'PROFESSOR';
-                    console.log('👤 Usuário:', userNome, 'Role:', userRole);
-                }
+                            // ========== 1. CARREGAR DADOS DO USUÁRIO PRIMEIRO ==========
+                            const userResponse = await fetchWithAuth('/api/users/me');
+                            if (userResponse && userResponse.ok) {
+                                const userData = await userResponse.json();
+                                window.userNome = userData.nome || '';
+                                window.userRole = userData.roles?.find(r => r.includes('PROFESSOR')) || 'PROFESSOR';
+                                console.log('👤 Usuário:', userNome, 'Role:', userRole);
+                            }
 
-                // ========== 2. CARREGAR DADOS DO PROFESSOR ==========
-                await renderConfig();
-                await carregarMateriasDoProfessor();
-                renderAlunos();
+                            // ========== 2. CARREGAR DADOS DO PROFESSOR ==========
+                            await renderConfig();
+                            await carregarMateriasDoProfessor();
+                            renderAlunos();
 
-                // ========== 3. CONFIGURAR EVENTOS ==========
-                const alunosNav = document.querySelector('.nav-item[data-tab="alunos"]');
-                if (alunosNav) {
-                    alunosNav.addEventListener('click', () => renderAlunos());
-                }
+                            // ========== 3. CONFIGURAR EVENTOS ==========
+                            const alunosNav = document.querySelector('.nav-item[data-tab="alunos"]');
+                            if (alunosNav) {
+                                alunosNav.addEventListener('click', () => renderAlunos());
+                            }
 
-                document.getElementById('threadOverlay')?.addEventListener('click', closeThread);
-                document.getElementById('threadBack')?.addEventListener('click', closeThread);
+                            document.getElementById('threadOverlay')?.addEventListener('click', closeThread);
+                            document.getElementById('threadBack')?.addEventListener('click', closeThread);
 
-                console.log('✅ Dashboard inicializado com sucesso');
+                            console.log('✅ Dashboard inicializado com sucesso');
 
-            } catch (error) {
-                console.error('❌ Erro na inicialização:', error);
-                showToast('Erro ao carregar dashboard', 'danger');
-            }
-        });
+                        } catch (error) {
+                            console.error('❌ Erro na inicialização:', error);
+                            showToast('Erro ao carregar dashboard', 'danger');
+                        }
+                    });
     </script>
 </body>
 
