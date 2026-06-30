@@ -4811,7 +4811,7 @@
                         connectMensagemWebSocket();
                     } else {
                         console.error('🚫 WebSocket não iniciado: currentTutorId está vazio.');
-                    }                    
+                    }
 
                     return currentUser;
 
@@ -6930,24 +6930,68 @@
                 btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
 
                 try {
+                    // Chamar o novo endpoint PATCH
                     const response = await fetchWithAuth('/api/users/me', {
-                        method: 'PUT',
-                        body: JSON.stringify({ fone: novoFone })
+                        method: 'PATCH',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            fone: novoFone
+                        })
                     });
 
-                    if (!response.ok) throw new Error('Erro ao salvar');
+                    // Verificar se a resposta é JSON
+                    const contentType = response.headers.get('content-type');
+                    let result;
 
-                    const result = await response.json();
-                    currentUser.fone = novoFone;
-                    showToast('Dados atualizados com sucesso!', 'success');
+                    if (contentType && contentType.includes('application/json')) {
+                        result = await response.json();
+                    } else {
+                        // Se não for JSON, tenta ler como texto para debug
+                        const text = await response.text();
+                        console.error('Resposta não é JSON:', text);
+                        throw new Error('Erro inesperado no servidor');
+                    }
 
-                    // Fechar modal após 1 segundo
-                    setTimeout(() => {
-                        bootstrap.Modal.getInstance(document.getElementById('dadosPessoaisModal')).hide();
-                    }, 1000);
+                    if (!response.ok) {
+                        throw new Error(result.mensagem || result.erro || 'Erro ao salvar dados');
+                    }
+
+                    if (result.sucesso) {
+                        // Atualizar a variável global
+                        currentUser.fone = novoFone;
+                        if (result.nome) currentUser.nome = result.nome;
+                        if (result.email) currentUser.email = result.email;
+
+                        showToast('Dados atualizados com sucesso!', 'success');
+
+                        // Fechar modal
+                        const modalElement = document.getElementById('dadosPessoaisModal');
+                        const modalInstance = bootstrap.Modal.getInstance(modalElement);
+                        if (modalInstance) {
+                            modalInstance.hide();
+                        } else {
+                            // Fallback: esconder manualmente
+                            modalElement.style.display = 'none';
+                            modalElement.classList.remove('show');
+                            document.querySelector('.modal-backdrop')?.remove();
+                        }
+
+                        // Atualizar a interface com os novos dados
+                        const userEmailEl = document.getElementById('userEmail');
+                        if (userEmailEl && result.email) userEmailEl.textContent = result.email;
+
+                        const userNameEl = document.getElementById('userFullName');
+                        if (userNameEl && result.nome) userNameEl.textContent = result.nome;
+
+                    } else {
+                        throw new Error(result.mensagem || 'Erro ao salvar dados');
+                    }
 
                 } catch (error) {
-                    showToast('Erro ao salvar dados', 'danger');
+                    console.error('Erro ao salvar dados:', error);
+                    showToast(`❌ ${error.message}`, 'danger');
                 } finally {
                     btn.disabled = false;
                     btn.innerHTML = 'Salvar Alterações';
@@ -8516,7 +8560,7 @@
                 }
             });
             // ========== FIM DA VISIBILITY API ==========
-                      
+
         })();
 
 
