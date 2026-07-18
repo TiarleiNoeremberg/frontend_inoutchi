@@ -8567,6 +8567,156 @@
             });
             // ========== FIM DA VISIBILITY API ==========
 
+            // ============================================================
+            // RECEBER TOKEN FCM DO ANDROID
+            // ============================================================
+            window.setFCMToken = function (token) {
+                console.log('📤 Token FCM recebido do Android:', token);
+
+                // Salva localmente
+                localStorage.setItem('fcm_token', token);
+
+                // Envia para o backend
+                if (token && currentUser) {
+                    fetchWithAuth('/api/notifications/register-fcm', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            token: token,
+                            userId: currentUser.id,
+                            platform: 'android'
+                        })
+                    }).then(response => {
+                        if (response.ok) {
+                            console.log('✅ Token FCM registrado no backend');
+                        } else {
+                            console.error('❌ Erro ao registrar token FCM');
+                        }
+                    }).catch(error => {
+                        console.error('❌ Erro ao registrar token:', error);
+                    });
+                }
+            };
+
+            // ============================================================
+            // ENVIAR TOKEN PARA O ANDROID (quando disponível)
+            // ============================================================
+            function sendTokenToAndroid() {
+                const token = localStorage.getItem('fcm_token');
+                if (token && window.Android && window.Android.sendFCMToken) {
+                    window.Android.sendFCMToken(token);
+                }
+            }
+
+            // ============================================================
+            // FUNÇÃO PARA ENVIAR TOKEN FCM PARA O BACKEND
+            // ============================================================
+            window.sendFCMTokenToBackend = function (token) {
+                console.log('📤 sendFCMTokenToBackend chamado com token:', token);
+
+                if (!token) {
+                    console.warn('⚠️ Token vazio ou nulo');
+                    return;
+                }
+
+                // Salva no localStorage
+                localStorage.setItem('fcm_token', token);
+                console.log('💾 Token salvo no localStorage');
+
+                // Verifica se o usuário está logado
+                const accessToken = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+                if (!accessToken) {
+                    console.warn('⏳ Usuário não está logado. Token será enviado após login.');
+                    return;
+                }
+
+                // Envia para o backend
+                console.log('📤 Enviando token para o backend...');
+
+                fetch('/api/fcm/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + accessToken
+                    },
+                    body: JSON.stringify({
+                        token: token,
+                        platform: 'ANDROID'
+                    })
+                })
+                    .then(response => {
+                        if (response.ok) {
+                            console.log('✅ Token FCM registrado no backend com sucesso!');
+                        } else {
+                            console.error('❌ Erro ao registrar token:', response.status, response.statusText);
+                            return response.text().then(text => console.error('Detalhes:', text));
+                        }
+                    })
+                    .catch(error => {
+                        console.error('❌ Erro ao enviar token:', error);
+                    });
+            };
+
+            // ============================================================
+            // FUNÇÃO PARA RECEBER CLIQUE EM NOTIFICAÇÃO
+            // ============================================================
+            window.handleNotificationClick = function (notification) {
+                console.log('📨 Clique na notificação:', notification);
+
+                if (!notification) return;
+
+                // Navega para a página apropriada baseado no tipo
+                switch (notification.type) {
+                    case 'SAIDA_CONFIRMADA':
+                    case 'SAIDA_AUTOMATICA':
+                        // Vai para o dashboard com foco no histórico
+                        showToast('🔔 ' + notification.alunoNome + ': Saída confirmada!', 'success');
+                        // Trocar para a aba de histórico
+                        const historyTab = document.querySelector('.bottom-nav-item[data-target="historico"]');
+                        if (historyTab) historyTab.click();
+                        break;
+
+                    case 'ENTRADA_ALUNO':
+                        showToast('🔔 ' + notification.alunoNome + ': Entrou na escola!', 'info');
+                        break;
+
+                    case 'NOVA_MENSAGEM':
+                        // Vai para o mural
+                        const muralTab = document.querySelector('.bottom-nav-item[data-target="mural"]');
+                        if (muralTab) muralTab.click();
+                        showToast('📨 Nova mensagem disponível!', 'info');
+                        break;
+
+                    default:
+                        showToast('🔔 ' + notification.body || 'Nova notificação!', 'info');
+                }
+            };
+
+            // ============================================================
+            // FUNÇÃO PARA REGISTRAR NOTIFICAÇÃO (chamado pelo Android)
+            // ============================================================
+            window.setFCMToken = function (token) {
+                console.log('📤 Token FCM recebido do Android:', token);
+                window.sendFCMTokenToBackend(token);
+            };
+
+            // ============================================================
+            // VERIFICAR SE HÁ TOKEN PENDENTE NO LOAD
+            // ============================================================
+            document.addEventListener('DOMContentLoaded', function () {
+                const tokenSalvo = localStorage.getItem('fcm_token');
+                if (tokenSalvo) {
+                    console.log('🔍 Token encontrado no localStorage:', tokenSalvo);
+                    // Aguarda o login estar completo antes de enviar
+                    setTimeout(function () {
+                        const accessToken = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+                        if (accessToken) {
+                            window.sendFCMTokenToBackend(tokenSalvo);
+                        }
+                    }, 2000);
+                }
+            });
+
         })();
 
 
