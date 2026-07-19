@@ -8568,35 +8568,58 @@
             // ========== FIM DA VISIBILITY API ==========
 
             // ============================================================
-            // RECEBER TOKEN FCM DO ANDROID
+            // FUNÇÃO PARA RECEBER TOKEN FCM DO ANDROID E REGISTRAR NO BACKEND
             // ============================================================
             window.setFCMToken = function (token) {
                 console.log('📤 Token FCM recebido do Android:', token);
 
+                if (!token) {
+                    console.warn('⚠️ Token vazio ou nulo');
+                    return;
+                }
+
                 // Salva localmente
                 localStorage.setItem('fcm_token', token);
+                console.log('💾 Token salvo no localStorage');
 
-                // Envia para o backend
-                if (token && currentUser) {
-                    fetchWithAuth('/api/notifications/register-fcm', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            token: token,
-                            userId: currentUser.id,
-                            platform: 'android'
-                        })
-                    }).then(response => {
-                        if (response.ok) {
-                            console.log('✅ Token FCM registrado no backend');
-                        } else {
-                            console.error('❌ Erro ao registrar token FCM');
-                        }
-                    }).catch(error => {
-                        console.error('❌ Erro ao registrar token:', error);
-                    });
+                // Verifica se o usuário está logado
+                const accessToken = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+                if (!accessToken) {
+                    console.warn('⏳ Usuário não está logado. Token será enviado após login.');
+                    return;
                 }
+
+                // Envia para o backend (endpoint CORRETO)
+                console.log('📤 Enviando token para o backend...');
+
+                fetch('https://api.inoutchi.com/api/fcm/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + accessToken
+                    },
+                    body: JSON.stringify({
+                        token: token,
+                        platform: 'ANDROID'
+                    })
+                })
+                    .then(response => {
+                        if (response.ok) {
+                            console.log('✅ Token FCM registrado no backend com sucesso!');
+                            return response.json();
+                        } else {
+                            console.error('❌ Erro ao registrar token:', response.status, response.statusText);
+                            return response.text().then(text => console.error('Detalhes:', text));
+                        }
+                    })
+                    .then(data => {
+                        if (data) console.log('📤 Resposta do backend:', data);
+                    })
+                    .catch(error => {
+                        console.error('❌ Erro ao enviar token:', error);
+                    });
             };
+
 
             // ============================================================
             // ENVIAR TOKEN PARA O ANDROID (quando disponível)
@@ -8692,13 +8715,6 @@
                 }
             };
 
-            // ============================================================
-            // FUNÇÃO PARA REGISTRAR NOTIFICAÇÃO (chamado pelo Android)
-            // ============================================================
-            window.setFCMToken = function (token) {
-                console.log('📤 Token FCM recebido do Android:', token);
-                window.sendFCMTokenToBackend(token);
-            };
 
             // ============================================================
             // VERIFICAR SE HÁ TOKEN PENDENTE NO LOAD
