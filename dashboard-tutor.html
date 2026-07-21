@@ -3285,28 +3285,25 @@
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header" style="background: var(--gradient-main);">
-                    <h5 class="modal-title text-white"><i class="fas fa-bell me-2"></i>Notificações</h5>
+                    <h5 class="modal-title text-white"><i class="fas fa-bell me-2"></i>Notificações Push</h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="form-check form-switch mb-3">
                         <input class="form-check-input" type="checkbox" id="notifPush" checked>
-                        <label class="form-check-label" for="notifPush">Notificações Push</label>
+                        <label class="form-check-label" for="notifPush">
+                            <i class="fas fa-mobile-alt me-2" style="color: var(--primary);"></i>
+                            Receber notificações no app
+                        </label>
                     </div>
-                    <div class="form-check form-switch mb-3">
-                        <input class="form-check-input" type="checkbox" id="notifEmail" checked>
-                        <label class="form-check-label" for="notifEmail">Notificações por E-mail</label>
-                    </div>
-                    <div class="form-check form-switch mb-3">
-                        <input class="form-check-input" type="checkbox" id="notifWhatsapp" checked>
-                        <label class="form-check-label" for="notifWhatsapp">Notificações por WhatsApp</label>
-                    </div>
-
+                    <p class="text-muted small mt-3" style="font-size: 0.75rem;">
+                        <i class="fas fa-info-circle"></i>
+                        As notificações são enviadas diretamente para o seu dispositivo Android.
+                    </p>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="button" class="btn btn-primary" id="btnSalvarNotificacoes">Salvar
-                        Preferências</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                    <button type="button" class="btn btn-primary" id="btnSalvarNotificacoes">Salvar</button>
                 </div>
             </div>
         </div>
@@ -7084,15 +7081,10 @@
                 const modal = getModalInstance('notificacoesModal');
                 if (!modal) return;
 
-                // Carregar preferências salvas localmente (fallback)
+                // Carregar preferências salvas localmente
                 const pushLocal = localStorage.getItem('notif_push') !== 'false';
-                const emailLocal = localStorage.getItem('notif_email') !== 'false';
-                const whatsappLocal = localStorage.getItem('notif_whatsapp') !== 'false';
 
-                // Definir valores iniciais
                 document.getElementById('notifPush').checked = pushLocal;
-                document.getElementById('notifEmail').checked = emailLocal;
-                document.getElementById('notifWhatsapp').checked = whatsappLocal;
 
                 // ✅ Buscar estado atual do backend para sincronizar
                 try {
@@ -7114,20 +7106,79 @@
                     if (response.ok) {
                         const result = await response.json();
                         if (result.success && result.active !== undefined) {
-                            // Atualiza o switch com o estado real do backend
                             document.getElementById('notifPush').checked = result.active;
                             localStorage.setItem('notif_push', result.active);
                             console.log('📥 Status das notificações carregado do backend:', result.active);
                         }
-                    } else {
-                        console.warn('⚠️ Erro ao buscar status do backend, usando preferências locais');
                     }
                 } catch (error) {
                     console.warn('⚠️ Erro ao buscar status das notificações:', error);
-                    // Mantém o estado local
                 }
 
                 modal.show();
+            }
+
+            async function salvarNotificacoes() {
+                const push = document.getElementById('notifPush').checked;
+                const btn = document.getElementById('btnSalvarNotificacoes');
+
+                // Salva localmente
+                localStorage.setItem('notif_push', push);
+
+                // ✅ Envia para o backend (ativa/desativa push)
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+
+                try {
+                    const accessToken = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+                    if (!accessToken) {
+                        showToast('❌ Usuário não autenticado', 'danger');
+                        btn.disabled = false;
+                        btn.innerHTML = 'Salvar';
+                        return;
+                    }
+
+                    const response = await fetch('https://api.inoutchi.com/api/fcm/toggle', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': 'Bearer ' + accessToken
+                        },
+                        body: JSON.stringify({
+                            active: push
+                        })
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        showToast(result.message || 'Preferências salvas com sucesso!', 'success');
+
+                        setTimeout(() => {
+                            try {
+                                const modalElement = document.getElementById('notificacoesModal');
+                                const modalInstance = bootstrap.Modal.getInstance(modalElement);
+                                if (modalInstance) {
+                                    modalInstance.hide();
+                                } else {
+                                    modalElement.style.display = 'none';
+                                    modalElement.classList.remove('show');
+                                    document.querySelector('.modal-backdrop')?.remove();
+                                }
+                            } catch (e) {
+                                console.warn('Erro ao fechar modal:', e);
+                            }
+                        }, 1500);
+                    } else {
+                        showToast('❌ ' + (result.error || 'Erro ao salvar preferências'), 'danger');
+                    }
+                } catch (error) {
+                    console.error('❌ Erro ao salvar preferências:', error);
+                    showToast('❌ Erro ao salvar preferências. Tente novamente.', 'danger');
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = 'Salvar';
+                }
             }
 
             // Salvar preferências de notificação
