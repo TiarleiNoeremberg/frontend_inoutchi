@@ -6,7 +6,7 @@ const CONFIG = {
     ENDPOINTS: {
 
         APP_CONFIGURATION_PUBLIC:
-            '/api/public/app/configuration',
+            '/api/public/app/bootstrap',
 
         APP_CONFIGURATION_ADMIN:
             '/api/admin/app/configuration',
