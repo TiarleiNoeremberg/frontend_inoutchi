@@ -86,13 +86,40 @@ function fillForm(config) {
         config.banner.buttonUrl ?? "";
 
     document.getElementById("updatedAt").textContent =
-        config.updatedAt ?? "--";
+        formatDate(config.updatedAt);
 
     document.getElementById("updatedBy").textContent =
         config.updatedBy ?? "--";
 
+    document.getElementById("minimumVersion").textContent =
+        config.minimumSupportedVersionCode;
+
+    document.getElementById("mandatoryInfo").textContent =
+        config.mandatoryUpdate ? "SIM" : "NÃO";
+
     document.getElementById("publishedVersion").textContent =
         config.latestVersionName + " (" + config.latestVersionCode + ")";
+
+    document.getElementById("minimumVersion").textContent =
+        config.minimumSupportedVersionCode;
+
+    document.getElementById("mandatoryInfo").textContent =
+        config.mandatoryUpdate ? "SIM" : "NÃO";
+
+    document.getElementById("releaseNotes").value =
+        config.releaseNotes ?? "";
+
+    document.getElementById("releaseDate").value =
+        config.releaseDate ?? "";
+
+    document.getElementById("forceUpdateMessage").value =
+        config.forceUpdateMessage ?? "";
+
+    document.getElementById("maintenanceMode").checked =
+        config.maintenanceMode;
+
+    document.getElementById("maintenanceMessage").value =
+        config.maintenanceMessage ?? "";
 
 }
 
@@ -119,7 +146,9 @@ async function saveConfiguration() {
             document.getElementById("bannerEnabled").checked,
 
         bannerId:
-            Number(document.getElementById("bannerId").value),
+            document.getElementById("bannerId").value
+                ? Number(document.getElementById("bannerId").value)
+                : null,
 
         bannerTitle:
             document.getElementById("bannerTitle").value,
@@ -134,33 +163,44 @@ async function saveConfiguration() {
             document.getElementById("bannerButtonText").value,
 
         bannerButtonUrl:
-            document.getElementById("bannerButtonUrl").value
+            document.getElementById("bannerButtonUrl").value,
+
+        releaseNotes:
+            document.getElementById("releaseNotes").value,
+
+        releaseDate:
+            document.getElementById("releaseDate").value,
+
+        forceUpdateMessage:
+            document.getElementById("forceUpdateMessage").value,
+
+        maintenanceMode:
+            document.getElementById("maintenanceMode").checked,
+
+        maintenanceMessage:
+            document.getElementById("maintenanceMessage").value
 
     };
 
     try {
 
+        const token = localStorage.getItem("access_token");
+
         const response = await fetch(API_ADMIN, {
-
             method: "PUT",
-
             headers: {
-
-                "Content-Type": "application/json"
-
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + token
             },
-
             body: JSON.stringify(body)
-
         });
-
         if (!response.ok) {
-
             throw new Error("Erro ao salvar.");
-
         }
 
         showStatus("Configuração salva com sucesso.");
+
+        await loadConfiguration();
 
     }
     catch (e) {
@@ -178,5 +218,21 @@ function showStatus(message) {
     document
         .getElementById("status")
         .textContent = message;
+
+}
+
+function formatDate(date) {
+
+    if (!date) {
+        return "--";
+    }
+
+    return new Date(date).toLocaleString(
+        "pt-BR",
+        {
+            dateStyle: "short",
+            timeStyle: "short"
+        }
+    );
 
 }
