@@ -109,8 +109,13 @@ function fillForm(config) {
     document.getElementById("releaseNotes").value =
         config.releaseNotes ?? "";
 
-    document.getElementById("releaseDate").value =
-        config.releaseDate ?? "";
+    const releaseDate = document.getElementById("releaseDate");
+
+    if (config.releaseDate) {
+        releaseDate.value = config.releaseDate.substring(0, 16);
+    } else {
+        releaseDate.value = "";
+    }
 
     document.getElementById("forceUpdateMessage").value =
         config.forceUpdateMessage ?? "";
@@ -168,8 +173,17 @@ async function saveConfiguration() {
         releaseNotes:
             document.getElementById("releaseNotes").value,
 
-        releaseDate:
-            document.getElementById("releaseDate").value,
+        releaseDate: (() => {
+
+            const value =
+                document.getElementById("releaseDate").value;
+
+            if (!value)
+                return null;
+
+            return value + ":00";
+
+        })(),
 
         forceUpdateMessage:
             document.getElementById("forceUpdateMessage").value,
