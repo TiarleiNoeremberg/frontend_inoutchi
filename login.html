@@ -1368,51 +1368,44 @@
                             localStorage.clear();
                             sessionStorage.clear();
 
-                            if (isTutor && !rememberMe) {
-                                // Tutor moderno - modo sessão
-                                sessionStorage.setItem('access_token', accessToken);
-                                sessionStorage.setItem('user_role', userRole);
-                                sessionStorage.setItem('user_data', JSON.stringify(userDataToStore));
-
-
-
-                                if (data.refresh_token) {
-                                    sessionStorage.setItem('refresh_token', data.refresh_token);
-                                }
-                                if (data.expires_in) {
-                                    sessionStorage.setItem('token_expiry', (Date.now() + (data.expires_in * 1000)).toString());
-                                }
-                                console.log(`✅ Login TUTOR - modo sessão (sessionStorage)`);
-
-                                await salvarCredencialParaBiometria(email, password, userData.nome);
-
-                            } else {
-                                // TODOS OS OUTROS (Sala, Escola, Diretor, Transporte, Tutor com "lembrar")
+                            if (isTutor) {
+                                // Para Tutores, SEMPRE usamos localStorage (sessão permanente estilo WhatsApp)
+                                // e definimos a expiração para 1 ano (o backend já gera o token com 1 ano).
                                 localStorage.setItem('access_token', accessToken);
                                 localStorage.setItem('user_role', userRole);
                                 localStorage.setItem('user_data', JSON.stringify(userDataToStore));
 
-                                // refresh_token é opcional (BFF pode não retornar)
                                 if (data.refresh_token) {
                                     localStorage.setItem('refresh_token', data.refresh_token);
                                 }
+                                
+                                // 1 anos em milissegundos
+                                const umAnoEmMs = 10 * 365 * 24 * 60 * 60 * 100;
+                                localStorage.setItem('token_expiry', (Date.now() + umAnoEmMs).toString());
 
-                                if (data.expires_in) {
-                                    localStorage.setItem('token_expiry', (Date.now() + (data.expires_in * 1000)).toString());
-                                }
-
-                                // Salvar escolaId separadamente
-                                if (userDataToStore.escolaId) {
-                                    localStorage.setItem('escolaId', userDataToStore.escolaId);
-                                }
-
-                                // Salvar token_expiry
-                                const expiryTime = new Date().getTime() + (24 * 60 * 60 * 1000);
-                                localStorage.setItem('token_expiry', expiryTime.toString());
-
-                                console.log(`✅ Login LEGADO (${userRole}) - armazenado em localStorage com escolaId=${userDataToStore.escolaId}`);
+                                console.log(`✅ Login TUTOR - Sessão PERMANENTE (localStorage) - Expira em 1 ano`);
 
                                 await salvarCredencialParaBiometria(email, password, userData.nome);
+
+                            } else {
+                                // TODOS OS OUTROS (Sala, Escola, Diretor, Transporte)
+                                if (!rememberMe) {
+                                    sessionStorage.setItem('access_token', accessToken);
+                                    sessionStorage.setItem('user_role', userRole);
+                                    sessionStorage.setItem('user_data', JSON.stringify(userDataToStore));
+                                    if (data.refresh_token) sessionStorage.setItem('refresh_token', data.refresh_token);
+                                    if (data.expires_in) sessionStorage.setItem('token_expiry', (Date.now() + (data.expires_in * 100)).toString());
+                                    console.log(`✅ Login - modo sessão (sessionStorage)`);
+                                } else {
+                                    localStorage.setItem('access_token', accessToken);
+                                    localStorage.setItem('user_role', userRole);
+                                    localStorage.setItem('user_data', JSON.stringify(userDataToStore));
+                                    if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
+                                    if (userDataToStore.escolaId) localStorage.setItem('escolaId', userDataToStore.escolaId);
+                                    const expiryTime = new Date().getTime() + (24 * 60 * 60 * 100);
+                                    localStorage.setItem('token_expiry', expiryTime.toString());
+                                    console.log(`✅ Login LEGADO (${userRole}) - armazenado em localStorage`);
+                                }
                             }
 
                             showAlert('Login realizado com sucesso!', 'success');
@@ -1495,34 +1488,37 @@
                         localStorage.clear();
                         sessionStorage.clear();
 
-                        if (isTutor && !devePermanecer) {
-                            // Tutor moderno - modo sessão
-                            sessionStorage.setItem('access_token', data.token);
-                            sessionStorage.setItem('user_role', data.role);
-                            sessionStorage.setItem('user_data', JSON.stringify(userDataToStore));
-                            if (data.refresh_token) sessionStorage.setItem('refresh_token', data.refresh_token);
-                            console.log(`✅ Login TUTOR - modo sessão (sessionStorage)`);
-
-                            await salvarCredencialParaBiometria(email, password, userData.nome);
-
-                        } else {
-                            // TODOS OS OUTROS (incluindo Tutor com "lembrar", Sala, Diretor, Escola, Transporte)
+                        if (isTutor) {
+                            // Para Tutores, SEMPRE usamos localStorage (sessão permanente estilo WhatsApp)
                             localStorage.setItem('access_token', data.token);
                             localStorage.setItem('user_role', data.role);
                             localStorage.setItem('user_data', JSON.stringify(userDataToStore));
                             if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
+                            
+                            // 1 ano em milissegundos
+                            const umAnoEmMs = 10 * 365 * 24 * 60 * 60 * 100;
+                            localStorage.setItem('token_expiry', (Date.now() + umAnoEmMs).toString());
+                            
+                            console.log(`✅ Login Google TUTOR - Sessão PERMANENTE (localStorage) - Expira em 1 ano`);
 
-                            // 🔴 CRÍTICO: Salvar escolaId separadamente (dashboards legados esperam isso)
-                            if (userDataToStore.escolaId) {
-                                localStorage.setItem('escolaId', userDataToStore.escolaId);
+                            await salvarCredencialParaBiometria(userData.email, userData.senha || '', userData.nome);
+                        } else {
+                            if (!devePermanecer) {
+                                sessionStorage.setItem('access_token', data.token);
+                                sessionStorage.setItem('user_role', data.role);
+                                sessionStorage.setItem('user_data', JSON.stringify(userDataToStore));
+                                if (data.refresh_token) sessionStorage.setItem('refresh_token', data.refresh_token);
+                                console.log(`✅ Login Google - modo sessão (sessionStorage)`);
+                            } else {
+                                localStorage.setItem('access_token', data.token);
+                                localStorage.setItem('user_role', data.role);
+                                localStorage.setItem('user_data', JSON.stringify(userDataToStore));
+                                if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
+                                if (userDataToStore.escolaId) localStorage.setItem('escolaId', userDataToStore.escolaId);
+                                const expiryTime = new Date().getTime() + (24 * 60 * 60 * 100);
+                                localStorage.setItem('token_expiry', expiryTime.toString());
+                                console.log(`✅ Login Google LEGADO (${data.role}) - armazenado em localStorage`);
                             }
-
-                            // Salvar token_expiry (dashboards legados esperam isso)
-                            const expiryTime = new Date().getTime() + (24 * 60 * 60 * 1000);
-                            localStorage.setItem('token_expiry', expiryTime.toString());
-
-                            console.log(`✅ Login LEGADO (${data.role}) - armazenado em localStorage com escolaId=${userDataToStore.escolaId}`);
-
                             await salvarCredencialParaBiometria(userData.email, userData.senha || '', userData.nome);
                         }
 
