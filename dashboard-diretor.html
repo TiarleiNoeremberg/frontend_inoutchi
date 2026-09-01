@@ -3980,9 +3980,9 @@
         }
 
         /**
-         * VERSÃO FINAL - CONTROLE NO CLIENTE
-         * Busca TODOS os alunos da escola para a memória, ordena-os por prioridade de status
-         * e então gerencia a paginação no lado do cliente para garantir a consistência.
+         * CONTROLE NO CLIENTE
+         * Busca TODOS os alunos da escola de uma vez para alimentar o cache global.
+         * Gerencia a paginação no frontend para não corromper as estatísticas da Visão Geral.
          */
         async function loadAllStudents(page = 0, searchTerm = "") {
             currentStudentsPage = page;
@@ -3991,57 +3991,78 @@
 
                 const accessToken = localStorage.getItem("access_token");
 
-                let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=${page}&size=${pageSize}`;
-
-                if (searchTerm) {
-                    url += `&nome=${encodeURIComponent(searchTerm)}`;
-                }
+                // Busca todos os alunos da escola (size=1000 para garantir que pegamos todos)
+                let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=0&size=1000`;
 
                 const response = await fetch(url, {
                     headers: { Authorization: `Bearer ${accessToken}` },
                 });
 
                 if (response.ok) {
-                    const paginatedData = await response.json();
+                    const data = await response.json();
+                    let allStudents = data.content || [];
 
-                    if (paginatedData.content) {
-                        detailedStudentsData = paginatedData.content;
-                        console.log(`✅ Cache atualizado com ${detailedStudentsData.length} alunos`);
+                    // 🔴 FILTRA NO FRONTEND se houver termo de busca
+                    if (searchTerm && searchTerm.trim() !== "") {
+                        const term = searchTerm.toLowerCase().trim();
+                        allStudents = allStudents.filter(student =>
+                            (student.nome && student.nome.toLowerCase().includes(term)) ||
+                            (student.salaNome && student.salaNome.toLowerCase().includes(term))
+                        );
                     }
 
-                    // ========== ALTERAÇÃO CIRÚRGICA AQUI ==========
-                    // REMOVA ou COMENTE esta linha:
-                    // paginatedData.content = await checkAllStudentsStatus(paginatedData.content);
-                    // ================================================
+                    // Atualiza o cache global com TODOS os alunos filtrados
+                    detailedStudentsData = allStudents;
+                    console.log(`✅ Cache global atualizado com ${detailedStudentsData.length} alunos`);
 
-                    // Mantenha APENAS a ordenação (opcional, mas não quebra nada)
-                    if (paginatedData.content && paginatedData.content.length > 0) {
+                    // Verifica o status de saída pendente (AGUARDANDO_CONFIRMACAO)
+                    // É necessário manter para não perder o status visual na tabela
+                    const studentsWithStatus = await checkAllStudentsStatus(detailedStudentsData);
+
+                    // Ordena a lista (mantendo a lógica original)
+                    if (studentsWithStatus && studentsWithStatus.length > 0) {
                         const getStatusPriority = (status) => {
-                            if (status === "AGUARDANDO" || status === "AGUARDANDO_CONFIRMACAO")
-                                return 0;
+                            if (status === "AGUARDANDO" || status === "AGUARDANDO_CONFIRMACAO") return 0;
                             if (status === "PRESENTE") return 1;
                             return 2;
                         };
-                        paginatedData.content.sort((a, b) => {
+                        studentsWithStatus.sort((a, b) => {
                             const priorityA = getStatusPriority(a.status);
                             const priorityB = getStatusPriority(b.status);
                             if (priorityA !== priorityB) return priorityA - priorityB;
                             return (a.nome || "").localeCompare(b.nome || "");
                         });
+                        // Atualiza o cache com os dados já ordenados e com status verificado
+                        detailedStudentsData = studentsWithStatus;
                     }
+
+                    // Aplica paginação no frontend
+                    const totalElements = detailedStudentsData.length;
+                    const totalPages = Math.ceil(totalElements / pageSize) || 1;
+                    const start = currentStudentsPage * pageSize;
+                    const end = Math.min(start + pageSize, totalElements);
+                    const pageData = detailedStudentsData.slice(start, end);
+
+                    const paginatedData = {
+                        content: pageData,
+                        totalPages: totalPages,
+                        number: currentStudentsPage,
+                        totalElements: totalElements,
+                        size: pageSize
+                    };
 
                     renderStudentsTable(paginatedData);
                     setupStudentsPagination(paginatedData);
+                    
+                    // Atualiza as estatísticas da Visão Geral com os dados corretos!
+                    refreshOverviewData();
+
                 } else {
                     throw new Error(`Erro ${response.status}: ${response.statusText}`);
                 }
             } catch (error) {
                 console.error("Erro ao carregar a lista de alunos:", error);
                 showAlert("Erro grave ao carregar lista de alunos.", "error");
-
-                const tbody = document.getElementById("studentsTableBody");
-                tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px;">Falha ao carregar alunos. Tome novamente.`;
-
             }
         }
 
