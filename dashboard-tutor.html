@@ -8432,14 +8432,80 @@
                     window.geofenceMonitor = geofenceMonitor;  // ← ADICIONAR
                     geofenceMonitor.init();
 
-                    // Inicializar a classe e forçar a antena do GPS a ligar imediatamente
+                    // Liga o GPS só quando necessário (saída em monitoramento, ou dentro da
+                    // janela de Chamada/Almoço de algum aluno com Chamada por Aproximação),
+                    // em vez de deixá-lo ligado o dia inteiro.
                     geofenceMonitor.init().then(() => {
-                        if (!geofenceMonitor.watchId) {
-                            geofenceMonitor.startWatching();
-                            console.log('✅ GeofenceMonitor: GPS ligado e monitorando a aproximação ativamente');
-                        }
+                        avaliarNecessidadeGpsAproximacao();
                     });
+
+                    // Reavalia a cada minuto: entra/sai da janela, ou muda o status de um aluno.
+                    setInterval(avaliarNecessidadeGpsAproximacao, 60000);
                 }
+            }
+
+            /**
+             * Decide se o GPS de GeofenceMonitorPro deve estar ligado, sem depender de o
+             * tutor ter uma saída em andamento. Prioridades:
+             *   1. Se já existe alguma chamada sendo monitorada (activeMonitors não vazio),
+             *      o GPS nunca é desligado, para não interromper o timer dos 3 minutos.
+             *   2. Caso contrário, liga apenas se algum aluno PRESENTE com Chamada por
+             *      Aproximação ativada estiver numa sala dentro da janela de Chamada OU de
+             *      Almoço (as mesmas janelas que o backend já usa para aceitar a solicitação
+             *      — ver DECISIONS.md, Decisão 020). Uma sala sem nenhuma das duas janelas
+             *      configuradas não tem restrição, então conta como sempre válida.
+             * Não altera em nada startMonitoring/stopMonitoring, que continuam controlando
+             * o ciclo de vida de cada saída monitorada individualmente.
+             */
+            function avaliarNecessidadeGpsAproximacao() {
+                if (!geofenceMonitor) return;
+
+                if (geofenceMonitor.activeMonitors && geofenceMonitor.activeMonitors.size > 0) {
+                    if (!geofenceMonitor.watchId) {
+                        geofenceMonitor.startWatching();
+                        console.log('🟢 [AgendadorJanela] GPS ligado: há saída(s) sendo monitorada(s).');
+                    }
+                    return;
+                }
+
+                const precisaGps = (window.studentsData || []).some(aluno =>
+                    alunoPrecisaDeGpsAgora(aluno)
+                );
+
+                if (precisaGps) {
+                    if (!geofenceMonitor.watchId) {
+                        geofenceMonitor.startWatching();
+                        console.log('🟢 [AgendadorJanela] GPS ligado: dentro da janela de Chamada/Almoço para Chamada por Aproximação.');
+                    }
+                } else if (geofenceMonitor.watchId) {
+                    navigator.geolocation.clearWatch(geofenceMonitor.watchId);
+                    geofenceMonitor.watchId = null;
+                    if (geofenceMonitor.backupTimer) {
+                        clearInterval(geofenceMonitor.backupTimer);
+                        geofenceMonitor.backupTimer = null;
+                    }
+                    console.log('🔴 [AgendadorJanela] GPS desligado: fora da janela de Chamada/Almoço e sem saída pendente.');
+                }
+            }
+
+            function alunoPrecisaDeGpsAgora(aluno) {
+                if (aluno.status !== 'PRESENTE' || aluno.chamadaAutomatica !== true) return false;
+
+                const semJanelaConfigurada = !aluno.horaInicioChamada && !aluno.horaInicioAlmoco;
+                if (semJanelaConfigurada) return true;
+
+                return estaDentroDaJanela(aluno.horaInicioChamada, aluno.horaFimChamada) ||
+                       estaDentroDaJanela(aluno.horaInicioAlmoco, aluno.horaFimAlmoco);
+            }
+
+            // horaInicio/Fim vêm do backend como "HH:mm:ss" (LocalTime serializado pelo Jackson).
+            function estaDentroDaJanela(horaInicio, horaFim) {
+                if (!horaInicio || !horaFim) return false;
+                const agora = new Date();
+                const minutosAgora = agora.getHours() * 60 + agora.getMinutes();
+                const [hi, mi] = horaInicio.split(':').map(Number);
+                const [hf, mf] = horaFim.split(':').map(Number);
+                return minutosAgora >= (hi * 60 + mi) && minutosAgora <= (hf * 60 + mf);
             }
 
             function mostrarTelaSucesso(tipo, callback) {
