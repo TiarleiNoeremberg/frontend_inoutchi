@@ -4450,10 +4450,13 @@
                         body: JSON.stringify(payload)
                     });
 
-                    // 3. SE O BACKEND BARRAR (Tutor fora do perímetro ou outro erro)
+                    // 3. SE O BACKEND BARRAR (Tutor fora do perímetro, fora do horário ou outro erro)
                     if (!response.ok) {
                         const error = await response.json();
-                        throw new Error(error.mensagem || 'Você precisa estar dentro do perímetro da escola para dar entrada.');
+                        const erroEstruturado = new Error(error.mensagem || 'Você precisa estar dentro do perímetro da escola para dar entrada.');
+                        erroEstruturado.status = response.status;
+                        erroEstruturado.codigo = error.erro;
+                        throw erroEstruturado;
                     }
 
                     // 4. SE DEU CERTO, EXIBE A TELA VERDE DE SUCESSO
@@ -4470,9 +4473,16 @@
                     console.error('Erro na entrada:', error);
 
                     // ==========================================
-                    // MUDANÇA AQUI: DE TOAST PARA MODAL PREMIUM!
+                    // Distingue erro de geofence (perímetro) de erro de horário/regra de negócio,
+                    // igual ao que o fluxo de solicitação de saída já faz.
                     // ==========================================
-                    mostrarModalErroGeofence(error.message);
+                    if (error.status === 403 || error.codigo === 'FORA_DA_GEOFENCE') {
+                        mostrarModalErroGeofence(error.message);
+                    } else if (error.codigo === 'HORARIO_NAO_PERMITIDO') {
+                        mostrarModalBloqueio(error.message);
+                    } else {
+                        mostrarModalErroGeofence(error.message);
+                    }
 
                     // Executa o reset visual do slider button para voltar ao ponto inicial
                     if (btn) {
