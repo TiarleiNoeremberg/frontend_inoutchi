@@ -2859,41 +2859,18 @@
         }
 
         /**
-         * Atualiza os cards de estatísticas e a lista de alunos na "Visão Geral"
-         * usando os dados do cache (detailedStudentsData), garantindo consistência
-         * total com a aba "Alunos".
+         * Atualiza os cards de estatísticas da "Visão Geral".
+         *
+         * IMPORTANTE: não deriva os números do cache local (detailedStudentsData),
+         * pois esse cache é paginado (o backend limita a 100 itens por página via
+         * PageUtils.pageRequest) e pode não conter todos os alunos da escola.
+         * Sempre reconsulta o servidor via loadOverviewData(), que usa endpoints
+         * dedicados (totalElements / presentes-todos) para números sempre corretos,
+         * independente de quantos alunos existam.
          */
         function refreshOverviewData() {
-            console.log(
-                "🔄 Renderizando Visão Geral a partir do cache de alunos...",
-            );
-
-            if (!detailedStudentsData) {
-                console.warn(
-                    "Cache de alunos (detailedStudentsData) indisponível. Visão Geral não atualizada.",
-                );
-                return;
-            }
-
-            // 1. CALCULA AS ESTATÍSTICAS COM A LÓGICA CORRETA
-            const totalCount = detailedStudentsData.length;
-            // CONTA COMO PRESENTES = Status 'PRESENTE' + 'AGUARDANDO_CONFIRMACAO'
-            const presentAndAwaiting = detailedStudentsData.filter(
-                (student) =>
-                    student.status === "PRESENTE" ||
-                    student.status === "AGUARDANDO_CONFIRMACAO",
-            );
-            const presentCount = presentAndAwaiting.length;
-            const absentCount = totalCount - presentCount;
-
-            // 2. ATUALIZA OS CARDS DE ESTATÍSTICAS
-            document.getElementById("totalStudents").textContent = totalCount;
-            document.getElementById("presentStudents").textContent = presentCount;
-            document.getElementById("absentStudents").textContent = absentCount;
-
-            console.log(
-                "✅ Visão Geral renderizada com sucesso a partir dos dados consistentes.",
-            );
+            console.log("🔄 Atualizando Visão Geral com dados atuais do servidor...");
+            loadOverviewData();
         }
 
         // ============== ÚLTIMAS MOVIMENTAÇÕES (card da Visão Geral) ==============
@@ -4046,75 +4023,87 @@
 
                 const accessToken = localStorage.getItem("access_token");
 
-                // Busca todos os alunos da escola (size=1000 para garantir que pegamos todos)
-                let url = `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=0&size=1000`;
+                // O backend limita cada página a no máximo 100 itens (PageUtils.pageRequest),
+                // então buscamos todas as páginas em loop para montar o cache completo -
+                // pedir size=1000 numa só chamada não traz tudo, o backend corta em 100.
+                let allStudents = [];
+                let paginaAtual = 0;
+                let ultimaPagina = false;
 
-                const response = await fetch(url, {
-                    headers: { Authorization: `Bearer ${accessToken}` },
-                });
+                while (!ultimaPagina) {
+                    const response = await fetch(
+                        `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=${paginaAtual}&size=100`,
+                        { headers: { Authorization: `Bearer ${accessToken}` } },
+                    );
 
-                if (response.ok) {
+                    if (!response.ok) {
+                        throw new Error(`Erro ${response.status}: ${response.statusText}`);
+                    }
+
                     const data = await response.json();
-                    let allStudents = data.content || [];
+                    const conteudoPagina = data.content || [];
+                    allStudents = allStudents.concat(conteudoPagina);
 
-                    // 🔴 FILTRA NO FRONTEND se houver termo de busca
-                    if (searchTerm && searchTerm.trim() !== "") {
-                        const term = searchTerm.toLowerCase().trim();
-                        allStudents = allStudents.filter(student =>
-                            (student.nome && student.nome.toLowerCase().includes(term)) ||
-                            (student.salaNome && student.salaNome.toLowerCase().includes(term))
-                        );
-                    }
-
-                    // Atualiza o cache global com TODOS os alunos filtrados
-                    detailedStudentsData = allStudents;
-                    console.log(`✅ Cache global atualizado com ${detailedStudentsData.length} alunos`);
-
-                    // Verifica o status de saída pendente (AGUARDANDO_CONFIRMACAO)
-                    // É necessário manter para não perder o status visual na tabela
-                    const studentsWithStatus = await checkAllStudentsStatus(detailedStudentsData);
-
-                    // Ordena a lista (mantendo a lógica original)
-                    if (studentsWithStatus && studentsWithStatus.length > 0) {
-                        const getStatusPriority = (status) => {
-                            if (status === "AGUARDANDO" || status === "AGUARDANDO_CONFIRMACAO") return 0;
-                            if (status === "PRESENTE") return 1;
-                            return 2;
-                        };
-                        studentsWithStatus.sort((a, b) => {
-                            const priorityA = getStatusPriority(a.status);
-                            const priorityB = getStatusPriority(b.status);
-                            if (priorityA !== priorityB) return priorityA - priorityB;
-                            return (a.nome || "").localeCompare(b.nome || "");
-                        });
-                        // Atualiza o cache com os dados já ordenados e com status verificado
-                        detailedStudentsData = studentsWithStatus;
-                    }
-
-                    // Aplica paginação no frontend
-                    const totalElements = detailedStudentsData.length;
-                    const totalPages = Math.ceil(totalElements / pageSize) || 1;
-                    const start = currentStudentsPage * pageSize;
-                    const end = Math.min(start + pageSize, totalElements);
-                    const pageData = detailedStudentsData.slice(start, end);
-
-                    const paginatedData = {
-                        content: pageData,
-                        totalPages: totalPages,
-                        number: currentStudentsPage,
-                        totalElements: totalElements,
-                        size: pageSize
-                    };
-
-                    renderStudentsTable(paginatedData);
-                    setupStudentsPagination(paginatedData);
-                    
-                    // Atualiza as estatísticas da Visão Geral com os dados corretos!
-                    refreshOverviewData();
-
-                } else {
-                    throw new Error(`Erro ${response.status}: ${response.statusText}`);
+                    ultimaPagina = data.last === true || conteudoPagina.length < 100;
+                    paginaAtual++;
                 }
+
+                console.log(`Busca de alunos concluída em ${paginaAtual} página(s), ${allStudents.length} aluno(s) no total.`);
+
+                // 🔴 FILTRA NO FRONTEND se houver termo de busca
+                if (searchTerm && searchTerm.trim() !== "") {
+                    const term = searchTerm.toLowerCase().trim();
+                    allStudents = allStudents.filter(student =>
+                        (student.nome && student.nome.toLowerCase().includes(term)) ||
+                        (student.salaNome && student.salaNome.toLowerCase().includes(term))
+                    );
+                }
+
+                // Atualiza o cache global com TODOS os alunos filtrados
+                detailedStudentsData = allStudents;
+                console.log(`✅ Cache global atualizado com ${detailedStudentsData.length} alunos`);
+
+                // Verifica o status de saída pendente (AGUARDANDO_CONFIRMACAO)
+                // É necessário manter para não perder o status visual na tabela
+                const studentsWithStatus = await checkAllStudentsStatus(detailedStudentsData);
+
+                // Ordena a lista (mantendo a lógica original)
+                if (studentsWithStatus && studentsWithStatus.length > 0) {
+                    const getStatusPriority = (status) => {
+                        if (status === "AGUARDANDO" || status === "AGUARDANDO_CONFIRMACAO") return 0;
+                        if (status === "PRESENTE") return 1;
+                        return 2;
+                    };
+                    studentsWithStatus.sort((a, b) => {
+                        const priorityA = getStatusPriority(a.status);
+                        const priorityB = getStatusPriority(b.status);
+                        if (priorityA !== priorityB) return priorityA - priorityB;
+                        return (a.nome || "").localeCompare(b.nome || "");
+                    });
+                    // Atualiza o cache com os dados já ordenados e com status verificado
+                    detailedStudentsData = studentsWithStatus;
+                }
+
+                // Aplica paginação no frontend
+                const totalElements = detailedStudentsData.length;
+                const totalPages = Math.ceil(totalElements / pageSize) || 1;
+                const start = currentStudentsPage * pageSize;
+                const end = Math.min(start + pageSize, totalElements);
+                const pageData = detailedStudentsData.slice(start, end);
+
+                const paginatedData = {
+                    content: pageData,
+                    totalPages: totalPages,
+                    number: currentStudentsPage,
+                    totalElements: totalElements,
+                    size: pageSize
+                };
+
+                renderStudentsTable(paginatedData);
+                setupStudentsPagination(paginatedData);
+
+                // Atualiza as estatísticas da Visão Geral com os dados corretos!
+                refreshOverviewData();
             } catch (error) {
                 console.error("Erro ao carregar a lista de alunos:", error);
                 showAlert("Erro grave ao carregar lista de alunos.", "error");
