@@ -2030,7 +2030,7 @@
 
                     <!-- Bloco do Feed de Atividades -->
                     <div id="atividades-card" class="dashboard-card">
-                        <h4><i class="fas fa-list-ul"></i> Atividade em Tempo Real</h4>
+                        <h4><i class="fas fa-list-ul"></i> Atividades Recentes</h4>
                         <div id="feed-atividades-container">
                             <!-- O feed será inserido aqui -->
                         </div>
@@ -3407,7 +3407,7 @@
                 // Chamamos apenas as funções que atualizam os textos, sem redesenhar os gráficos.
                 // ======================================================================
                 renderKPIs(data);
-                renderAtividadesRecentes(data); // Mesmo que esteja mockada, já deixamos aqui para o futuro.
+                renderAtividadesRecentes(await buscarAtividadesRecentes());
 
             } catch (error) {
                 // Registra qualquer outro erro que possa ocorrer (ex: rede)
@@ -3459,9 +3459,9 @@
                 renderKPIs(data);
                 renderFluxoChart(data);
 
-                // Mantém os dados "fake" para os gráficos que ainda não foram implementados
+                // Mantém os dados "fake" apenas para o gráfico de status, que ainda não foi implementado
                 renderStatusChart(data);
-                renderAtividadesRecentes(null);
+                renderAtividadesRecentes(await buscarAtividadesRecentes());
 
             } catch (error) {
                 console.error("Erro ao carregar dados da Visão Geral:", error);
@@ -3733,56 +3733,79 @@
 
 
         /**
-         * Renderiza o feed de atividades recentes no seu novo container.
-         * VERSÃO CORRIGIDA: Usa dados de exemplo FORÇADAMENTE para garantir a visualização.
+         * Renderiza o feed de "Atividades Recentes" a partir dos dados reais de
+         * GET /api/diretores/{escolaId}/movimentacoes-recentes (mesmo endpoint e
+         * mesma fonte de dados do card "Últimas Movimentações" do dashboard do
+         * diretor - ver MovimentacaoService no backend).
          */
-        function renderAtividadesRecentes(dadosIgnorados) { // O parâmetro agora é ignorado
+        function renderAtividadesRecentes(movimentacoes) {
             const container = document.getElementById('feed-atividades-container');
-            container.innerHTML = ''; // Limpa o conteúdo antigo
+            container.innerHTML = '';
 
-            // FORÇA O USO DOS DADOS DE EXEMPLO, IGNORANDO O QUE VEM DO BACKEND
-            const atividades = [
-                { tipo: 'ENTRADA', alunoNome: 'João Miguel', horario: '07:31' },
-                { tipo: 'SAIDA_SOLICITADA', alunoNome: 'Helena Martins', tutorNome: 'Ana Martins', horario: '11:45' },
-                { tipo: 'SAIDA_CONFIRMADA', alunoNome: 'Alice Pereira', horario: '12:02' },
-                { tipo: 'ENTRADA', alunoNome: 'Arthur Costa', horario: '07:32' },
-                { tipo: 'ENTRADA', alunoNome: 'Laura Fernandes', horario: '07:33' }
-            ];
+            if (!movimentacoes || movimentacoes.length === 0) {
+                container.innerHTML = '<p class="feed-empty-message">Nenhuma movimentação registrada ainda.</p>';
+                return;
+            }
 
-            // O resto da função agora funciona porque sempre recebe os dados corretos
-            atividades.forEach(atividade => {
+            movimentacoes.forEach(mov => {
                 let iconHtml = '';
                 let textHtml = '';
+                const responsavel = mov.responsavelNome ? `<strong>${mov.responsavelNome}</strong>` : 'alguém';
 
-                switch (atividade.tipo) {
+                switch (mov.tipo) {
                     case 'ENTRADA':
                         iconHtml = '<i class="fas fa-sign-in-alt feed-icon entrada"></i>';
-                        textHtml = `<strong>${atividade.alunoNome}</strong> entrou na escola.`;
+                        textHtml = `<strong>${mov.alunoNome}</strong> entrou na escola.`;
                         break;
-                    case 'SAIDA_SOLICITADA':
+                    case 'SOLICITACAO_SAIDA':
                         iconHtml = '<i class="fas fa-question-circle feed-icon pendencia"></i>';
-                        textHtml = `Saída de <strong>${atividade.alunoNome}</strong> solicitada por <strong>${atividade.tutorNome}</strong>.`;
+                        textHtml = `Saída de <strong>${mov.alunoNome}</strong> solicitada por ${responsavel}.`;
                         break;
                     case 'SAIDA_CONFIRMADA':
                         iconHtml = '<i class="fas fa-check-circle feed-icon saida"></i>';
-                        textHtml = `<strong>${atividade.alunoNome}</strong> saiu da escola.`;
+                        textHtml = `<strong>${mov.alunoNome}</strong> saiu da escola.`;
                         break;
-                    default: // Este caso não deve mais acontecer
+                    default:
                         iconHtml = '<i class="fas fa-info-circle feed-icon"></i>';
                         textHtml = 'Nova atividade registrada.';
                 }
+
+                const horario = new Date(mov.timestamp).toLocaleTimeString('pt-BR', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
 
                 const atividadeHtml = `
             <div class="feed-item">
                 <div class="feed-item-icon">${iconHtml}</div>
                 <div class="feed-item-text">
                     <p>${textHtml}</p>
-                    <small>${atividade.horario}</small>
+                    <small>${horario}</small>
                 </div>
             </div>
         `;
                 container.innerHTML += atividadeHtml;
             });
+        }
+
+        /**
+         * Busca as últimas movimentações reais da escola para o feed "Atividades Recentes".
+         */
+        async function buscarAtividadesRecentes() {
+            try {
+                const response = await fetch(
+                    `${API_URL}/api/diretores/${ESCOLA_ID}/movimentacoes-recentes?limit=10`,
+                    { headers: { Authorization: `Bearer ${AUTH_TOKEN}` } }
+                );
+                if (!response.ok) {
+                    console.error(`Falha ao buscar atividades recentes (Status: ${response.status})`);
+                    return [];
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('Erro ao buscar atividades recentes:', error);
+                return [];
+            }
         }
 
         /**
