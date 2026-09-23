@@ -1169,8 +1169,8 @@
             }
         }
 
-        /* ===== PRESENT STUDENTS LIST ===== */
-        #presentStudentsList {
+        /* ===== RECENT MOVEMENTS LIST ===== */
+        #recentMovementsList {
             min-height: 150px;
             max-height: 300px;
             overflow-y: auto;
@@ -1820,11 +1820,11 @@
                 <div class="dashboard-cards">
                     <div class="card">
                         <div class="card-header">
-                            <i class="fas fa-users"></i>
-                            <h3>Alunos Presentes Hoje</h3>
+                            <i class="fas fa-stream"></i>
+                            <h3>Últimas Movimentações</h3>
                         </div>
-                        <ul class="student-list" id="presentStudentsList">
-                            <!-- Alunos presentes serão carregados via JavaScript -->
+                        <ul class="student-list" id="recentMovementsList">
+                            <!-- Movimentações recentes são carregadas via JavaScript -->
                         </ul>
                     </div>
 
@@ -2800,6 +2800,7 @@
                                 console.log(`📬 [WS] Evento recebido: ${event.tipo}`);
 
                                 updateStudentStatusInCache(event.alunoId, event.tipo);
+                                registrarMovimentacaoAoVivo(event);
                             } catch (e) {
                                 console.error(
                                     "❌ Erro ao processar mensagem do WebSocket:",
@@ -2890,43 +2891,93 @@
             document.getElementById("presentStudents").textContent = presentCount;
             document.getElementById("absentStudents").textContent = absentCount;
 
-            // 3. ATUALIZA A LISTA DE "ALUNOS PRESENTES HOJE" (COM STATUS VISÍVEL)
-            const presentStudentsList = document.getElementById(
-                "presentStudentsList",
-            );
-            presentStudentsList.innerHTML = ""; // Limpa a lista para redesenhar
-
-            if (presentAndAwaiting.length > 0) {
-                presentAndAwaiting.forEach((student) => {
-                    const li = document.createElement("li");
-                    li.className = "student-item"; // Classe para estilização se necessário
-
-                    let statusBadgeHtml = "";
-                    // Define o badge de status para TODAS as condições
-                    if (student.status === "PRESENTE") {
-                        statusBadgeHtml =
-                            '<span class="status-badge status-present">Presente</span>';
-                    } else if (student.status === "AGUARDANDO_CONFIRMACAO") {
-                        statusBadgeHtml =
-                            '<span class="status-badge status-awaiting-confirmation">Aguardando</span>';
-                    }
-
-                    // Monta o item da lista com nome e o status ao lado
-                    li.innerHTML = `
-                        <div class="student-info">
-                            <span class="student-name">${student.nome}</span>
-                        </div>
-                        ${statusBadgeHtml}
-                    `;
-                    presentStudentsList.appendChild(li);
-                });
-            } else {
-                presentStudentsList.innerHTML =
-                    "<li>Nenhum aluno presente no momento.</li>";
-            }
             console.log(
                 "✅ Visão Geral renderizada com sucesso a partir dos dados consistentes.",
             );
+        }
+
+        // ============== ÚLTIMAS MOVIMENTAÇÕES (card da Visão Geral) ==============
+        const MOVIMENTACOES_LIMITE = 10;
+        let recentMovements = [];
+
+        function movimentacaoLabel(tipo) {
+            switch (tipo) {
+                case "ENTRADA":
+                    return { texto: "Entrada", classe: "status-present" };
+                case "SOLICITACAO_SAIDA":
+                    return { texto: "Solicitação de saída", classe: "status-warning" };
+                case "SAIDA_CONFIRMADA":
+                    return { texto: "Saída confirmada", classe: "status-absent" };
+                default:
+                    return { texto: tipo, classe: "" };
+            }
+        }
+
+        function renderRecentMovements() {
+            const list = document.getElementById("recentMovementsList");
+            if (!list) return;
+
+            if (!recentMovements.length) {
+                list.innerHTML = "<li>Nenhuma movimentação registrada ainda.</li>";
+                return;
+            }
+
+            list.innerHTML = recentMovements
+                .map((mov) => {
+                    const { texto, classe } = movimentacaoLabel(mov.tipo);
+                    const hora = new Date(mov.timestamp).toLocaleTimeString("pt-BR", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                    });
+                    const responsavel = mov.responsavelNome
+                        ? ` <span style="color:#888;">— ${mov.responsavelNome}</span>`
+                        : "";
+                    return `
+                        <li class="student-item">
+                            <div class="student-info">
+                                <span class="student-name">${mov.alunoNome}</span>${responsavel}
+                            </div>
+                            <span class="status-badge ${classe}">${texto} · ${hora}</span>
+                        </li>
+                    `;
+                })
+                .join("");
+        }
+
+        async function loadRecentMovements() {
+            try {
+                const accessToken = localStorage.getItem("access_token");
+                const response = await fetch(
+                    `${BACKEND_URL}/api/diretores/${currentSchoolId}/movimentacoes-recentes?limit=${MOVIMENTACOES_LIMITE}`,
+                    { headers: { Authorization: `Bearer ${accessToken}` } },
+                );
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                recentMovements = await response.json();
+                renderRecentMovements();
+            } catch (error) {
+                console.error("❌ Erro ao carregar últimas movimentações:", error);
+            }
+        }
+
+        // Chamada pelo handler de WebSocket a cada evento ao vivo (ver setupWebSocket).
+        function registrarMovimentacaoAoVivo(event) {
+            const tipos = {
+                ENTRADA_ALUNO: "ENTRADA",
+                SAIDA_PENDENTE: "SOLICITACAO_SAIDA",
+                SAIDA_CONFIRMADA: "SAIDA_CONFIRMADA",
+            };
+            const tipo = tipos[event.tipo];
+            if (!tipo) return;
+
+            recentMovements.unshift({
+                tipo,
+                alunoId: event.alunoId,
+                alunoNome: event.alunoNome,
+                responsavelNome: event.solicitanteNome,
+                timestamp: event.timestamp || new Date().toISOString(),
+            });
+            recentMovements = recentMovements.slice(0, MOVIMENTACOES_LIMITE);
+            renderRecentMovements();
         }
 
         /**
@@ -3442,6 +3493,7 @@
                 await loadAllStudents();
                 setupTabs();
                 await loadOverviewData();
+                await loadRecentMovements();
 
                 // 3. Mostrar conteúdo principal
                 showContent();
