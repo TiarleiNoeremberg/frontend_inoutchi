@@ -907,6 +907,71 @@
 
 <body>
 
+    <!-- Overlay exibido enquanto verificamos se já existe uma sessão válida salva -->
+    <div id="sessionCheckOverlay"
+        style="position:fixed;inset:0;background:#0a0e1a;z-index:9999;display:flex;align-items:center;justify-content:center;">
+        <div class="loading-spinner"></div>
+    </div>
+
+    <script>
+        // ═══════════════════════════════════════════════
+        // SESSÃO PERSISTENTE ESTILO WHATSAPP
+        // Se já existir um token salvo e ainda válido, pula
+        // o formulário e vai direto para o dashboard do papel.
+        // ═══════════════════════════════════════════════
+        (async function verificarSessaoExistente() {
+            const BACKEND_URL = 'https://api.inoutchi.com';
+            const overlay = document.getElementById('sessionCheckOverlay');
+
+            function getStorageComToken() {
+                if (localStorage.getItem('access_token')) return localStorage;
+                if (sessionStorage.getItem('access_token')) return sessionStorage;
+                return null;
+            }
+
+            const storage = getStorageComToken();
+            const token = storage ? storage.getItem('access_token') : null;
+
+            if (!token) {
+                overlay.style.display = 'none';
+                return;
+            }
+
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/users/me`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (response.ok) {
+                    const userData = await response.json();
+                    const role = (userData.roles && userData.roles[0]) || storage.getItem('user_role');
+                    const roleRoutes = {
+                        'ROLE_TUTOR': 'dashboard-tutor.html',
+                        'ROLE_DIRETOR': 'dashboard-diretor.html',
+                        'ROLE_ESCOLA': 'dashboard-escola.html',
+                        'ROLE_SALA': 'dashboard-sala.html',
+                        'ROLE_TRANSPORTE': 'dashboard-transporte.html',
+                        'ROLE_PROFESSOR': 'dashboard-professor.html',
+                        'ROLE_ADMIN': 'admin/app-configuration.html'
+                    };
+                    console.log('✅ Sessão existente válida, indo direto para o dashboard...');
+                    window.location.replace(roleRoutes[role] || 'dashboard-tutor.html');
+                    return;
+                }
+
+                if (response.status === 401 || response.status === 403) {
+                    console.log('⚠️ Sessão salva não é mais válida, limpando e mostrando login.');
+                    localStorage.clear();
+                    sessionStorage.clear();
+                }
+            } catch (error) {
+                console.log('⚠️ Não foi possível validar a sessão existente (rede indisponível?), mostrando login.', error);
+            }
+
+            overlay.style.display = 'none';
+        })();
+    </script>
+
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="biometric.js"></script>
 
