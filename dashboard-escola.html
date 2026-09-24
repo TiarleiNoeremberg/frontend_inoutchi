@@ -1360,8 +1360,8 @@
                 "fluxo fluxo status atividades"
                 "frequencia frequencia presenca-sala presenca-sala"
                 "frequencia frequencia presenca-sala presenca-sala"
-                "evasao evasao evasao evasao"
-                "evasao evasao evasao evasao";
+                "evasao evasao saidas-tipo saidas-tipo"
+                "evasao evasao saidas-tipo saidas-tipo";
         }
 
         /* KPI Cards */
@@ -1559,8 +1559,63 @@
             grid-area: evasao;
         }
 
+        #saidas-tipo-card {
+            grid-area: saidas-tipo;
+        }
+
         .feed-icon.evasao {
             color: var(--warning);
+        }
+
+        .saidas-tipo-body {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 14px;
+        }
+
+        .saidas-tipo-bar {
+            display: flex;
+            width: 100%;
+            height: 32px;
+            border-radius: 8px;
+            overflow: hidden;
+            background: var(--border-light);
+        }
+
+        .saidas-tipo-segmento {
+            height: 100%;
+            transition: width 0.3s ease;
+        }
+
+        .saidas-tipo-segmento.automatica {
+            background: #06B6D4;
+        }
+
+        .saidas-tipo-segmento.manual {
+            background: #2563EB;
+        }
+
+        .saidas-tipo-legenda {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+        }
+
+        .saidas-tipo-legenda span {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .saidas-tipo-legenda .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
         }
 
         /* Activity Feed */
@@ -1787,7 +1842,8 @@
                     "status atividades"
                     "frequencia frequencia"
                     "presenca-sala presenca-sala"
-                    "evasao evasao";
+                    "evasao evasao"
+                    "saidas-tipo saidas-tipo";
             }
         }
 
@@ -1812,7 +1868,7 @@
                     "kpi1" "kpi2" "kpi3" "kpi4"
                     "fluxo" "status" "atividades"
                     "frequencia" "presenca-sala"
-                    "evasao";
+                    "evasao" "saidas-tipo";
             }
 
             .kpi-card {
@@ -2179,6 +2235,18 @@
                         <h4><i class="fas fa-user-slash"></i> Alunos Inativados Recentemente</h4>
                         <div id="feed-evasao-container">
                             <!-- A lista será inserida aqui -->
+                        </div>
+                    </div>
+
+                    <!-- Bloco de Saídas Automáticas vs. Manuais -->
+                    <div id="saidas-tipo-card" class="dashboard-card">
+                        <h4><i class="fas fa-robot"></i> Saídas: Automática vs. Manual (30 dias)</h4>
+                        <div class="saidas-tipo-body">
+                            <div id="saidasTipoBar" class="saidas-tipo-bar">
+                                <div class="saidas-tipo-segmento automatica" style="width: 0%;"></div>
+                                <div class="saidas-tipo-segmento manual" style="width: 0%;"></div>
+                            </div>
+                            <div id="saidas-tipo-legenda" class="saidas-tipo-legenda"></div>
                         </div>
                     </div>
 
@@ -3664,6 +3732,7 @@
                 await carregarFrequenciaSemanal();
                 await carregarPresencaPorSala();
                 await carregarAlunosInativados();
+                await carregarSaidasTipo();
 
             } catch (error) {
                 console.error("Erro ao carregar dados da Visão Geral:", error);
@@ -4124,6 +4193,55 @@
                 renderAlunosInativados(await response.json());
             } catch (error) {
                 console.error('Erro ao carregar alunos inativados:', error);
+            }
+        }
+
+        /**
+         * Barra horizontal 100% empilhada com 2 segmentos (CSS puro, sem Chart.js -
+         * mais simples e confiável para uma proporção binária): saídas confirmadas
+         * automaticamente (reconhecimento facial Hikvision / geofence) vs.
+         * manualmente (tutor ou diretor no app), nos últimos 30 dias. Ver GET
+         * /api/escolas/{escolaId}/indicadores/saidas-automaticas-vs-manuais.
+         */
+        function renderSaidasTipoChart(dados) {
+            const bar = document.getElementById('saidasTipoBar');
+            const legenda = document.getElementById('saidas-tipo-legenda');
+            if (!bar) return;
+
+            const segAutomatica = bar.querySelector('.automatica');
+            const segManual = bar.querySelector('.manual');
+
+            if (!dados || dados.total === 0) {
+                segAutomatica.style.width = '0%';
+                segManual.style.width = '0%';
+                legenda.innerHTML = '<span>Nenhuma saída confirmada nos últimos 30 dias.</span>';
+                return;
+            }
+
+            const pctAutomatica = Math.round((dados.automaticas / dados.total) * 100);
+            const pctManual = 100 - pctAutomatica;
+
+            segAutomatica.style.width = pctAutomatica + '%';
+            segManual.style.width = pctManual + '%';
+            segAutomatica.title = `Automática: ${dados.automaticas} (${pctAutomatica}%)`;
+            segManual.title = `Manual: ${dados.manuais} (${pctManual}%)`;
+
+            legenda.innerHTML = `
+                <span><span class="dot" style="background:#06B6D4;"></span>Automática ${pctAutomatica}%</span>
+                <span><span class="dot" style="background:#2563EB;"></span>Manual ${pctManual}%</span>
+            `;
+        }
+
+        async function carregarSaidasTipo() {
+            try {
+                const response = await fetch(
+                    `${API_URL}/api/escolas/${ESCOLA_ID}/indicadores/saidas-automaticas-vs-manuais?dias=30`,
+                    { headers: { Authorization: `Bearer ${AUTH_TOKEN}` } }
+                );
+                if (!response.ok) throw new Error(`Falha ao buscar saídas por tipo (Status: ${response.status})`);
+                renderSaidasTipoChart(await response.json());
+            } catch (error) {
+                console.error('Erro ao carregar saídas automática vs. manual:', error);
             }
         }
 
