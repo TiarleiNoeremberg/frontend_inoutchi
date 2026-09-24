@@ -1547,8 +1547,33 @@
             color: var(--warning);
         }
 
-        .feed-icon.evasao-precoce {
-            color: var(--danger);
+        .evasao-precoce-voltar-btn {
+            margin-left: auto;
+            background: var(--primary-glow);
+            color: var(--primary);
+            border: none;
+            border-radius: 999px;
+            padding: 4px 12px;
+            font-size: 0.72rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: var(--transition);
+            font-family: inherit;
+        }
+
+        .evasao-precoce-voltar-btn:hover {
+            background: var(--primary);
+            color: #fff;
+        }
+
+        .evasao-precoce-subtitulo {
+            text-align: center;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 6px;
         }
 
         .saidas-tipo-body {
@@ -1604,8 +1629,7 @@
 
         /* Activity Feed */
         #feed-atividades-container,
-        #feed-evasao-container,
-        #feed-evasao-precoce-container {
+        #feed-evasao-container {
             flex-grow: 1;
             overflow-y: auto;
         }
@@ -2317,10 +2341,16 @@
 
                     <!-- Bloco de Alerta de Evasão Precoce (frequência crítica) -->
                     <div id="evasao-precoce-card" class="dashboard-card">
-                        <h4><i class="fas fa-user-clock"></i> Alerta de Evasão Precoce (frequência abaixo de 70% em 30 dias)</h4>
-                        <div id="feed-evasao-precoce-container">
-                            <!-- A lista será inserida aqui -->
+                        <h4>
+                            <i class="fas fa-user-clock"></i> Alerta de Evasão Precoce (frequência abaixo de 70% em 30 dias)
+                            <button id="evasao-precoce-voltar" class="evasao-precoce-voltar-btn" onclick="voltarVisaoSalasEvasaoPrecoce()" style="display: none;">
+                                <i class="fas fa-arrow-left"></i> Voltar
+                            </button>
+                        </h4>
+                        <div class="chart-wrapper">
+                            <canvas id="evasaoPrecoceChart"></canvas>
                         </div>
+                        <div id="evasao-precoce-subtitulo" class="evasao-precoce-subtitulo"></div>
                     </div>
 
                 </div>
@@ -4086,6 +4116,20 @@
             return '#EF4444';
         }
 
+        /**
+         * Variação de intensidade de vermelho por severidade, para o gráfico de
+         * Alerta de Evasão Precoce. Diferente de corPorTaxaPresenca (3 faixas
+         * verde/âmbar/vermelho): como esse indicador já filtra só quem está
+         * abaixo do limiar, todo mundo cairia sempre no vermelho e a cor não
+         * diferenciaria nada - por isso usa uma escala sequencial dentro do
+         * próprio vermelho (mais escuro = mais crítico).
+         */
+        function corPorSeveridadeCritica(taxaFrequencia) {
+            if (taxaFrequencia <= 0.35) return '#991B1B';
+            if (taxaFrequencia <= 0.55) return '#EF4444';
+            return '#F87171';
+        }
+
         let frequenciaSemanalChartInstance = null;
 
         /**
@@ -4270,40 +4314,133 @@
             }
         }
 
+        let evasaoPrecoceChartInstance = null;
+        let evasaoPrecoceDadosCompletos = [];
+        let evasaoPrecoceSalaSelecionada = null;
+
         /**
-         * Renderiza o alerta de evasão precoce: alunos ainda ativos com frequência
-         * abaixo do limiar nos últimos 30 dias. Ver GET
+         * Alerta de evasão precoce: alunos ainda ativos com frequência abaixo do
+         * limiar nos últimos 30 dias. Ver GET
          * /api/escolas/{escolaId}/indicadores/alunos-frequencia-critica.
+         *
+         * Gráfico de pizza com drill-down em 2 níveis:
+         * - Visão inicial: 1 fatia por sala (tamanho = qtde de alunos em
+         *   frequência crítica na sala; cor = média de frequência da sala).
+         * - Ao clicar numa fatia de sala: mostra os alunos daquela sala, cada
+         *   um com sua própria fatia (tamanho = quão crítica é a frequência -
+         *   quanto menor a frequência, maior a fatia; cor = frequência
+         *   individual). Um botão "Voltar" retorna à visão por sala.
          */
         function renderAlunosFrequenciaCritica(alunos) {
-            const container = document.getElementById('feed-evasao-precoce-container');
-            container.innerHTML = '';
+            evasaoPrecoceDadosCompletos = alunos || [];
+            evasaoPrecoceSalaSelecionada = null;
+            desenharGraficoEvasaoPrecoce();
+        }
 
-            if (!alunos || alunos.length === 0) {
-                container.innerHTML = '<p class="feed-empty-message">Nenhum aluno ativo com frequência crítica no momento.</p>';
+        function voltarVisaoSalasEvasaoPrecoce() {
+            evasaoPrecoceSalaSelecionada = null;
+            desenharGraficoEvasaoPrecoce();
+        }
+
+        function desenharGraficoEvasaoPrecoce() {
+            const canvas = document.getElementById('evasaoPrecoceChart');
+            const backBtn = document.getElementById('evasao-precoce-voltar');
+            const subtitulo = document.getElementById('evasao-precoce-subtitulo');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+
+            if (evasaoPrecoceChartInstance) evasaoPrecoceChartInstance.destroy();
+
+            if (!evasaoPrecoceDadosCompletos || evasaoPrecoceDadosCompletos.length === 0) {
+                canvas.style.display = 'none';
+                backBtn.style.display = 'none';
+                subtitulo.textContent = 'Nenhum aluno ativo com frequência crítica no momento.';
                 return;
             }
+            canvas.style.display = 'block';
 
-            alunos.forEach(item => {
-                const sala = item.salaNome ? ` (${item.salaNome})` : '';
-                const pct = Math.round(item.taxaFrequencia * 100);
+            let labels, valores, cores, dadosAtuais, modoSala;
 
-                container.innerHTML += `
-            <div class="feed-item">
-                <div class="feed-item-icon"><i class="fas fa-user-clock feed-icon evasao-precoce"></i></div>
-                <div class="feed-item-text">
-                    <p><strong>${item.alunoNome}</strong>${sala} - frequência de <strong>${pct}%</strong> nos últimos 30 dias.</p>
-                    <small>${item.presencas} presença(s) em ${item.diasLetivos} dia(s) letivo(s)</small>
-                </div>
-            </div>
-        `;
+            if (!evasaoPrecoceSalaSelecionada) {
+                modoSala = true;
+                const porSala = new Map();
+                evasaoPrecoceDadosCompletos.forEach(a => {
+                    const sala = a.salaNome || 'Sem sala';
+                    if (!porSala.has(sala)) porSala.set(sala, []);
+                    porSala.get(sala).push(a);
+                });
+
+                dadosAtuais = Array.from(porSala.entries()).map(([sala, alunosDaSala]) => ({ sala, alunosDaSala }));
+                labels = dadosAtuais.map(d => d.sala);
+                valores = dadosAtuais.map(d => d.alunosDaSala.length);
+                cores = dadosAtuais.map(d => {
+                    const media = d.alunosDaSala.reduce((soma, a) => soma + a.taxaFrequencia, 0) / d.alunosDaSala.length;
+                    return corPorSeveridadeCritica(media);
+                });
+
+                backBtn.style.display = 'none';
+                subtitulo.textContent =
+                    `${evasaoPrecoceDadosCompletos.length} aluno(s) em ${labels.length} sala(s) — clique numa fatia para ver os alunos`;
+            } else {
+                modoSala = false;
+                dadosAtuais = evasaoPrecoceDadosCompletos.filter(
+                    a => (a.salaNome || 'Sem sala') === evasaoPrecoceSalaSelecionada);
+                labels = dadosAtuais.map(a => a.alunoNome);
+                // Fatia maior = frequencia mais critica (quanto menor a frequencia, maior a fatia)
+                valores = dadosAtuais.map(a => Math.max(1 - a.taxaFrequencia, 0.05));
+                cores = dadosAtuais.map(a => corPorSeveridadeCritica(a.taxaFrequencia));
+
+                backBtn.style.display = 'inline-flex';
+                subtitulo.textContent = `${evasaoPrecoceSalaSelecionada} — ${dadosAtuais.length} aluno(s) em frequência crítica`;
+            }
+
+            evasaoPrecoceChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: valores,
+                        backgroundColor: cores,
+                        borderColor: '#ffffff',
+                        borderWidth: 2,
+                        hoverOffset: 14
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '55%',
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: { boxWidth: 10, padding: 10, font: { size: 10 } }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: (item) => {
+                                    if (modoSala) {
+                                        return `${item.label}: ${item.raw} aluno(s)`;
+                                    }
+                                    const aluno = dadosAtuais[item.dataIndex];
+                                    return `${aluno.alunoNome}: ${Math.round(aluno.taxaFrequencia * 100)}% de frequência`;
+                                }
+                            }
+                        }
+                    },
+                    onClick: (evt, elements) => {
+                        if (modoSala && elements.length > 0) {
+                            evasaoPrecoceSalaSelecionada = labels[elements[0].index];
+                            desenharGraficoEvasaoPrecoce();
+                        }
+                    }
+                }
             });
         }
 
         async function carregarAlunosFrequenciaCritica() {
             try {
                 const response = await fetch(
-                    `${API_URL}/api/escolas/${ESCOLA_ID}/indicadores/alunos-frequencia-critica?dias=30&limiar=0.7&limit=10`,
+                    `${API_URL}/api/escolas/${ESCOLA_ID}/indicadores/alunos-frequencia-critica?dias=30&limiar=0.7&limit=100`,
                     { headers: { Authorization: `Bearer ${AUTH_TOKEN}` } }
                 );
                 if (!response.ok) throw new Error(`Falha ao buscar frequência crítica (Status: ${response.status})`);
