@@ -1357,11 +1357,9 @@
             grid-template-areas:
                 "kpi1 kpi2 kpi3 kpi4"
                 "fluxo fluxo status atividades"
-                "fluxo fluxo status atividades"
-                "frequencia frequencia presenca-sala presenca-sala"
                 "frequencia frequencia presenca-sala presenca-sala"
                 "evasao evasao saidas-tipo saidas-tipo"
-                "evasao evasao saidas-tipo saidas-tipo";
+                "evasao-precoce evasao-precoce evasao-precoce evasao-precoce";
         }
 
         /* KPI Cards */
@@ -1563,8 +1561,16 @@
             grid-area: saidas-tipo;
         }
 
+        #evasao-precoce-card {
+            grid-area: evasao-precoce;
+        }
+
         .feed-icon.evasao {
             color: var(--warning);
+        }
+
+        .feed-icon.evasao-precoce {
+            color: var(--danger);
         }
 
         .saidas-tipo-body {
@@ -1620,7 +1626,8 @@
 
         /* Activity Feed */
         #feed-atividades-container,
-        #feed-evasao-container {
+        #feed-evasao-container,
+        #feed-evasao-precoce-container {
             flex-grow: 1;
             overflow-y: auto;
         }
@@ -1797,11 +1804,15 @@
         /* ====================================================================== */
         /* #### PAINEL FIXO (telas grandes - uso como painel de controle) #### */
         /* Sem scroll de pagina: os cards ocupam a altura disponivel e vao       */
-        /* diminuindo proporcionalmente conforme novas linhas de KPI entram.     */
-        /* Abaixo de 1200px volta ao comportamento antigo (cards com altura      */
-        /* fixa, pagina rola) - nao faz sentido "caber tudo" numa tela pequena.  */
+        /* diminuindo proporcionalmente conforme novas linhas de KPI entram. As  */
+        /* linhas com grafico (fluxo/status/atividades, frequencia/sala) tem     */
+        /* peso maior que as linhas de lista simples (evasao, saidas-tipo,       */
+        /* evasao-precoce), que continuam legiveis mesmo mais baixas.            */
+        /* Abaixo de 1200px de largura OU de ~800px de altura volta ao           */
+        /* comportamento antigo (cards com altura fixa, pagina rola) - nao faz   */
+        /* sentido forcar "caber tudo" numa tela pequena/baixa.                  */
         /* ====================================================================== */
-        @media (min-width: 1201px) {
+        @media (min-width: 1201px) and (min-height: 800px) {
             .main-content.no-scroll-panel {
                 overflow: hidden;
                 display: flex;
@@ -1819,12 +1830,38 @@
                 height: auto;
                 flex: 1;
                 min-height: 0;
-                grid-template-rows: auto 1fr 1fr 1fr;
+                grid-template-rows: auto 1.2fr 1.2fr 1fr 1fr;
             }
 
             .dashboard-card {
                 height: 100%;
                 min-height: 0;
+            }
+        }
+
+        /* Tela larga mas baixa (notebook comum, ex. 1366x768): mantem o grid de
+           4 colunas, mas desiste do "sem scroll" - os cards voltam a ter altura
+           fixa e confortavel, e a pagina rola dentro do main-content. */
+        @media (min-width: 1201px) and (max-height: 799px) {
+            .main-content.no-scroll-panel {
+                overflow-y: auto;
+                display: block;
+            }
+
+            #visao-geral-content.active {
+                display: block;
+                flex: none;
+            }
+
+            #dashboard-grid-container {
+                height: auto;
+                flex: none;
+                grid-template-rows: none;
+            }
+
+            .dashboard-card {
+                height: 360px;
+                min-height: 360px;
             }
         }
 
@@ -1843,7 +1880,8 @@
                     "frequencia frequencia"
                     "presenca-sala presenca-sala"
                     "evasao evasao"
-                    "saidas-tipo saidas-tipo";
+                    "saidas-tipo saidas-tipo"
+                    "evasao-precoce evasao-precoce";
             }
         }
 
@@ -1868,7 +1906,8 @@
                     "kpi1" "kpi2" "kpi3" "kpi4"
                     "fluxo" "status" "atividades"
                     "frequencia" "presenca-sala"
-                    "evasao" "saidas-tipo";
+                    "evasao" "saidas-tipo"
+                    "evasao-precoce";
             }
 
             .kpi-card {
@@ -2247,6 +2286,14 @@
                                 <div class="saidas-tipo-segmento manual" style="width: 0%;"></div>
                             </div>
                             <div id="saidas-tipo-legenda" class="saidas-tipo-legenda"></div>
+                        </div>
+                    </div>
+
+                    <!-- Bloco de Alerta de Evasão Precoce (frequência crítica) -->
+                    <div id="evasao-precoce-card" class="dashboard-card">
+                        <h4><i class="fas fa-user-clock"></i> Alerta de Evasão Precoce (frequência abaixo de 70% em 30 dias)</h4>
+                        <div id="feed-evasao-precoce-container">
+                            <!-- A lista será inserida aqui -->
                         </div>
                     </div>
 
@@ -3733,6 +3780,7 @@
                 await carregarPresencaPorSala();
                 await carregarAlunosInativados();
                 await carregarSaidasTipo();
+                await carregarAlunosFrequenciaCritica();
 
             } catch (error) {
                 console.error("Erro ao carregar dados da Visão Geral:", error);
@@ -4193,6 +4241,49 @@
                 renderAlunosInativados(await response.json());
             } catch (error) {
                 console.error('Erro ao carregar alunos inativados:', error);
+            }
+        }
+
+        /**
+         * Renderiza o alerta de evasão precoce: alunos ainda ativos com frequência
+         * abaixo do limiar nos últimos 30 dias. Ver GET
+         * /api/escolas/{escolaId}/indicadores/alunos-frequencia-critica.
+         */
+        function renderAlunosFrequenciaCritica(alunos) {
+            const container = document.getElementById('feed-evasao-precoce-container');
+            container.innerHTML = '';
+
+            if (!alunos || alunos.length === 0) {
+                container.innerHTML = '<p class="feed-empty-message">Nenhum aluno ativo com frequência crítica no momento.</p>';
+                return;
+            }
+
+            alunos.forEach(item => {
+                const sala = item.salaNome ? ` (${item.salaNome})` : '';
+                const pct = Math.round(item.taxaFrequencia * 100);
+
+                container.innerHTML += `
+            <div class="feed-item">
+                <div class="feed-item-icon"><i class="fas fa-user-clock feed-icon evasao-precoce"></i></div>
+                <div class="feed-item-text">
+                    <p><strong>${item.alunoNome}</strong>${sala} - frequência de <strong>${pct}%</strong> nos últimos 30 dias.</p>
+                    <small>${item.presencas} presença(s) em ${item.diasLetivos} dia(s) letivo(s)</small>
+                </div>
+            </div>
+        `;
+            });
+        }
+
+        async function carregarAlunosFrequenciaCritica() {
+            try {
+                const response = await fetch(
+                    `${API_URL}/api/escolas/${ESCOLA_ID}/indicadores/alunos-frequencia-critica?dias=30&limiar=0.7&limit=10`,
+                    { headers: { Authorization: `Bearer ${AUTH_TOKEN}` } }
+                );
+                if (!response.ok) throw new Error(`Falha ao buscar frequência crítica (Status: ${response.status})`);
+                renderAlunosFrequenciaCritica(await response.json());
+            } catch (error) {
+                console.error('Erro ao carregar alerta de evasão precoce:', error);
             }
         }
 
