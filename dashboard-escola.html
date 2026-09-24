@@ -1356,7 +1356,7 @@
             gap: 20px;
             grid-template-areas:
                 "kpi-resumo kpi-resumo kpi-resumo kpi-resumo"
-                "fluxo fluxo status atividades"
+                "fluxo fluxo fluxo atividades"
                 "frequencia frequencia presenca-sala presenca-sala"
                 "evasao evasao saidas-tipo saidas-tipo"
                 "evasao-precoce evasao-precoce evasao-precoce evasao-precoce";
@@ -1513,10 +1513,6 @@
 
         #fluxo-card {
             grid-area: fluxo;
-        }
-
-        #status-card {
-            grid-area: status;
         }
 
         #atividades-card {
@@ -1861,11 +1857,6 @@
                 justify-self: start;
             }
 
-            #status-card {
-                grid-column: span 1;
-                grid-row: span 1;
-            }
-
             #saidas-tipo-card {
                 grid-column: span 1;
                 grid-row: span 1;
@@ -1941,7 +1932,7 @@
                 grid-template-areas:
                     "kpi-resumo kpi-resumo"
                     "fluxo fluxo"
-                    "status atividades"
+                    "atividades atividades"
                     "frequencia frequencia"
                     "presenca-sala presenca-sala"
                     "evasao evasao"
@@ -1969,7 +1960,7 @@
                 grid-template-columns: 1fr;
                 grid-template-areas:
                     "kpi-resumo"
-                    "fluxo" "status" "atividades"
+                    "fluxo" "atividades"
                     "frequencia" "presenca-sala"
                     "evasao" "saidas-tipo"
                     "evasao-precoce";
@@ -2276,14 +2267,6 @@
                             </div>
                             <span class="kpi-resumo-label">Tempo p/ Confirmar Saída</span>
                             <span class="kpi-resumo-valor" id="kpi-tempo-medio">--</span>
-                        </div>
-                    </div>
-
-                    <!-- Bloco do Gráfico de Status -->
-                    <div id="status-card" class="dashboard-card">
-                        <h4><i class="fas fa-chart-pie"></i> Status Geral</h4>
-                        <div class="chart-wrapper">
-                            <canvas id="statusAlunosChart"></canvas>
                         </div>
                     </div>
 
@@ -3423,10 +3406,8 @@
 
         // Variáveis globais para os gráficos para que possam ser destruídos e recriados
         let fluxoChartInstance = null;
-        let statusChartInstance = null;
 
         let fluxoAlunosChartInstance = null; // Instância para o gráfico de fluxo
-        let statusAlunosChartInstance = null; // Instância para o gráfico de status
 
         let currentMateriasPage = 0;
         let currentMateriaSearch = '';
@@ -3823,9 +3804,6 @@
                 renderKPIs(data);
                 renderFluxoChart(data);
 
-                // Mantém os dados "fake" apenas para o gráfico de status, que ainda não foi implementado
-                renderStatusChart(data);
-
                 // Carrega o feed 1x via REST; dali em diante só é atualizado por WebSocket.
                 atividadesRecentesCache = await buscarAtividadesRecentes();
                 renderAtividadesRecentes(atividadesRecentesCache);
@@ -4018,87 +3996,6 @@
                             ticks: {
                                 // Garante que o eixo Y só tenha números inteiros
                                 stepSize: 1
-                            }
-                        }
-                    }
-                }
-            });
-        }
-
-        /**
- * Renderiza o gráfico de pizza (Donut) para o status geral dos alunos,
- * utilizando os dados reais da API e com tratamento de erro corrigido.
- */
-        function renderStatusChart(dashboardData) {
-            const canvas = document.getElementById('statusAlunosChart');
-
-            // Validação de segurança: Se o canvas não existir, interrompe para evitar erros.
-            if (!canvas) {
-                console.error("O elemento <canvas id='statusAlunosChart'> não foi encontrado. O gráfico não pode ser renderizado.");
-                return;
-            }
-            const ctx = canvas.getContext('2d');
-
-            // Destrói o gráfico anterior, se existir, para evitar sobreposição.
-            if (window.statusChartInstance) { // Usando uma variável de instância específica para este gráfico
-                window.statusChartInstance.destroy();
-            }
-
-            // Validação dos dados necessários: Verifica se os campos existem no objeto do dashboard.
-            const hasData = dashboardData &&
-                typeof dashboardData.alunosPresentes !== 'undefined' &&
-                typeof dashboardData.pendenciasAtuais !== 'undefined' &&
-                typeof dashboardData.totalAlunosNaEscola !== 'undefined';
-
-            if (!hasData) {
-                console.warn("Dados para o gráfico de status não foram encontrados na resposta da API. O gráfico não será renderizado.");
-                // Oculta o canvas em vez de destruir o HTML.
-                canvas.style.display = 'none';
-                return; // Interrompe a função.
-            }
-
-            // Se os dados são válidos, garante que o canvas esteja visível.
-            canvas.style.display = 'block';
-
-            // Cálculo dos valores a partir dos dados reais da API.
-            const presentes = dashboardData.alunosPresentes;
-            const pendentes = dashboardData.pendenciasAtuais;
-            // Garante que o cálculo de ausentes nunca seja negativo.
-            const ausentes = Math.max(0, dashboardData.totalAlunosNaEscola - presentes - pendentes);
-
-            const data = {
-                labels: ['Presentes', 'Ausentes', 'Pendentes'],
-                datasets: [{
-                    label: 'Alunos',
-                    data: [presentes, ausentes, pendentes],
-                    backgroundColor: [
-                        '#28a745', // Verde para Presentes
-                        '#6c757d', // Cinza para Ausentes
-                        '#ffc107'  // Amarelo para Pendentes
-                    ],
-                    borderColor: '#ffffff',
-                    borderWidth: 2,
-                    hoverOffset: 4
-                }]
-            };
-
-            window.statusChartInstance = new Chart(ctx, {
-                type: 'doughnut',
-                data: data,
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    cutout: '70%',
-                    plugins: {
-                        legend: {
-                            position: 'bottom',
-                            labels: { boxWidth: 12, padding: 15, font: { size: 11 } }
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: function (context) {
-                                    return `${context.label}: ${context.parsed} aluno(s)`;
-                                }
                             }
                         }
                     }
