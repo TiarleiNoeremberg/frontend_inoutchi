@@ -1298,13 +1298,15 @@
         /* ====================================================================== */
         #dashboard-grid-container {
             display: grid;
-            height: calc(100vh - 160px);
+            min-height: calc(100vh - 160px);
             grid-template-columns: 1fr 1fr 1fr 1fr;
             gap: 20px;
             grid-template-areas:
                 "kpi1 kpi2 kpi3 kpi4"
                 "fluxo fluxo status atividades"
-                "fluxo fluxo status atividades";
+                "fluxo fluxo status atividades"
+                "frequencia frequencia presenca-sala presenca-sala"
+                "frequencia frequencia presenca-sala presenca-sala";
         }
 
         /* KPI Cards */
@@ -1487,6 +1489,14 @@
 
         #atividades-card {
             grid-area: atividades;
+        }
+
+        #frequencia-card {
+            grid-area: frequencia;
+        }
+
+        #presenca-sala-card {
+            grid-area: presenca-sala;
         }
 
         /* Activity Feed */
@@ -1675,7 +1685,9 @@
                     "kpi1 kpi2"
                     "kpi3 kpi4"
                     "fluxo fluxo"
-                    "status atividades";
+                    "status atividades"
+                    "frequencia frequencia"
+                    "presenca-sala presenca-sala";
             }
         }
 
@@ -1702,7 +1714,8 @@
                 grid-template-columns: 1fr;
                 grid-template-areas:
                     "kpi1" "kpi2" "kpi3" "kpi4"
-                    "fluxo" "status" "atividades";
+                    "fluxo" "status" "atividades"
+                    "frequencia" "presenca-sala";
             }
 
             .kpi-card {
@@ -2037,6 +2050,22 @@
                         <h4><i class="fas fa-list-ul"></i> Atividades Recentes</h4>
                         <div id="feed-atividades-container">
                             <!-- O feed será inserido aqui -->
+                        </div>
+                    </div>
+
+                    <!-- Bloco de Frequência Semanal -->
+                    <div id="frequencia-card" class="dashboard-card">
+                        <h4><i class="fas fa-chart-line"></i> Frequência Semanal</h4>
+                        <div class="chart-wrapper">
+                            <canvas id="frequenciaSemanalChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Bloco de Presença por Sala -->
+                    <div id="presenca-sala-card" class="dashboard-card">
+                        <h4><i class="fas fa-door-open"></i> Presença por Sala (últimos 30 dias)</h4>
+                        <div class="chart-wrapper">
+                            <canvas id="presencaSalaChart"></canvas>
                         </div>
                     </div>
 
@@ -3474,6 +3503,11 @@
                 atividadesRecentesCache = await buscarAtividadesRecentes();
                 renderAtividadesRecentes(atividadesRecentesCache);
 
+                // Frequência semanal e presença por sala: dados agregados, não precisam
+                // de polling - só recarregam quando a Visão Geral é reaberta/atualizada.
+                await carregarFrequenciaSemanal();
+                await carregarPresencaPorSala();
+
             } catch (error) {
                 console.error("Erro ao carregar dados da Visão Geral:", error);
                 showAlert(error.message, 'error');
@@ -3741,7 +3775,150 @@
             });
         }
 
+        /**
+         * Cor por faixa de taxa de presença (status: bom/atenção/crítico), mesma
+         * convenção de --success/--warning/--danger usada no resto do dashboard.
+         */
+        function corPorTaxaPresenca(taxa) {
+            if (taxa >= 0.85) return '#10B981';
+            if (taxa >= 0.70) return '#F59E0B';
+            return '#EF4444';
+        }
 
+        let frequenciaSemanalChartInstance = null;
+
+        /**
+         * Gráfico de linha: taxa de frequência semanal da escola (presenças /
+         * alunos ativos × dias letivos observados). Ver GET /api/escolas/
+         * {escolaId}/indicadores/frequencia-semanal (FrequenciaService no backend).
+         */
+        function renderFrequenciaSemanalChart(dados) {
+            const canvas = document.getElementById('frequenciaSemanalChart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+
+            if (frequenciaSemanalChartInstance) frequenciaSemanalChartInstance.destroy();
+
+            if (!dados || dados.length === 0) {
+                canvas.style.display = 'none';
+                return;
+            }
+            canvas.style.display = 'block';
+
+            const labels = dados.map(d => {
+                const data = new Date(d.inicioSemana + 'T00:00:00');
+                return data.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+            });
+            const valores = dados.map(d => Math.round(d.taxaFrequencia * 100));
+
+            frequenciaSemanalChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Frequência (%)',
+                        data: valores,
+                        borderColor: '#2563EB',
+                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.25,
+                        pointRadius: 3,
+                        pointBackgroundColor: '#2563EB'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            ticks: { callback: (v) => v + '%' }
+                        }
+                    }
+                }
+            });
+        }
+
+        let presencaSalaChartInstance = null;
+
+        /**
+         * Gráfico de barras horizontais: ranking de presença por sala nos últimos
+         * N dias, da menor para a maior taxa (destaca salas com mais faltas
+         * primeiro). Ver GET /api/escolas/{escolaId}/indicadores/frequencia-por-sala.
+         */
+        function renderPresencaSalaChart(dados) {
+            const canvas = document.getElementById('presencaSalaChart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+
+            if (presencaSalaChartInstance) presencaSalaChartInstance.destroy();
+
+            if (!dados || dados.length === 0) {
+                canvas.style.display = 'none';
+                return;
+            }
+            canvas.style.display = 'block';
+
+            const labels = dados.map(d => d.salaNome);
+            const valores = dados.map(d => Math.round(d.taxaFrequencia * 100));
+            const cores = dados.map(d => corPorTaxaPresenca(d.taxaFrequencia));
+
+            presencaSalaChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Presença (%)',
+                        data: valores,
+                        backgroundColor: cores,
+                        borderRadius: 4,
+                        maxBarThickness: 28
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            max: 100,
+                            ticks: { callback: (v) => v + '%' }
+                        }
+                    }
+                }
+            });
+        }
+
+        async function carregarFrequenciaSemanal() {
+            try {
+                const response = await fetch(
+                    `${API_URL}/api/escolas/${ESCOLA_ID}/indicadores/frequencia-semanal?semanas=8`,
+                    { headers: { Authorization: `Bearer ${AUTH_TOKEN}` } }
+                );
+                if (!response.ok) throw new Error(`Falha ao buscar frequência semanal (Status: ${response.status})`);
+                renderFrequenciaSemanalChart(await response.json());
+            } catch (error) {
+                console.error('Erro ao carregar frequência semanal:', error);
+            }
+        }
+
+        async function carregarPresencaPorSala() {
+            try {
+                const response = await fetch(
+                    `${API_URL}/api/escolas/${ESCOLA_ID}/indicadores/frequencia-por-sala?dias=30`,
+                    { headers: { Authorization: `Bearer ${AUTH_TOKEN}` } }
+                );
+                if (!response.ok) throw new Error(`Falha ao buscar presença por sala (Status: ${response.status})`);
+                renderPresencaSalaChart(await response.json());
+            } catch (error) {
+                console.error('Erro ao carregar presença por sala:', error);
+            }
+        }
 
         /**
          * Renderiza o feed de "Atividades Recentes" a partir dos dados reais de
