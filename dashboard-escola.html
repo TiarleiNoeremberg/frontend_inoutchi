@@ -230,6 +230,33 @@
             box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
         }
 
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .sidebar-toggle-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 1.15rem;
+            color: var(--text-secondary);
+            width: 38px;
+            height: 38px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: var(--radius-sm);
+            transition: var(--transition);
+        }
+
+        .sidebar-toggle-btn:hover {
+            background: var(--primary-glow);
+            color: var(--primary);
+        }
+
         /* ====================================================================== */
         /* #### LAYOUT #### */
         /* ====================================================================== */
@@ -239,16 +266,42 @@
         }
 
         /* ====================================================================== */
-        /* #### SIDEBAR #### */
+        /* #### SIDEBAR (menu móvel, ocultado após ~10s sem uso) #### */
         /* ====================================================================== */
         .sidebar {
+            position: fixed;
+            top: 64px;
+            left: 0;
             width: 260px;
+            height: calc(100vh - 64px);
             background: var(--gradient-sidebar);
             color: var(--sidebar-text);
             padding: 24px 0;
-            flex-shrink: 0;
             overflow-y: auto;
             border-right: 1px solid rgba(255, 255, 255, 0.04);
+            z-index: 200;
+            transform: translateX(-100%);
+            transition: transform 0.25s ease;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .sidebar.open {
+            transform: translateX(0);
+        }
+
+        .sidebar-backdrop {
+            display: none;
+            position: fixed;
+            top: 64px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(15, 23, 42, 0.35);
+            z-index: 150;
+        }
+
+        .sidebar-backdrop.open {
+            display: block;
         }
 
         .sidebar-nav {
@@ -1687,6 +1740,40 @@
         }
 
         /* ====================================================================== */
+        /* #### PAINEL FIXO (telas grandes - uso como painel de controle) #### */
+        /* Sem scroll de pagina: os cards ocupam a altura disponivel e vao       */
+        /* diminuindo proporcionalmente conforme novas linhas de KPI entram.     */
+        /* Abaixo de 1200px volta ao comportamento antigo (cards com altura      */
+        /* fixa, pagina rola) - nao faz sentido "caber tudo" numa tela pequena.  */
+        /* ====================================================================== */
+        @media (min-width: 1201px) {
+            .main-content.no-scroll-panel {
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+            }
+
+            #visao-geral-content.active {
+                display: flex;
+                flex-direction: column;
+                flex: 1;
+                min-height: 0;
+            }
+
+            #dashboard-grid-container {
+                height: auto;
+                flex: 1;
+                min-height: 0;
+                grid-template-rows: auto 1fr 1fr 1fr;
+            }
+
+            .dashboard-card {
+                height: 100%;
+                min-height: 0;
+            }
+        }
+
+        /* ====================================================================== */
         /* #### RESPONSIVE #### */
         /* ====================================================================== */
         @media (max-width: 1200px) {
@@ -1705,10 +1792,6 @@
         }
 
         @media (max-width: 768px) {
-            .sidebar {
-                display: none;
-            }
-
             .main-content {
                 padding: 16px;
             }
@@ -1915,9 +1998,14 @@
 
     <!-- Cabeçalho Padrão do Sistema -->
     <header class="header">
-        <div class="logo">
-            <!-- Usaremos a mesma logo dos outros dashboards para consistência -->
-            <img src="assets/images/LogoInoutchi_linha.png" alt="Logomarca Inoutchi">
+        <div class="header-left">
+            <button id="sidebarToggleBtn" class="sidebar-toggle-btn" title="Menu" aria-label="Abrir menu">
+                <i class="fas fa-bars"></i>
+            </button>
+            <div class="logo">
+                <!-- Usaremos a mesma logo dos outros dashboards para consistência -->
+                <img src="assets/images/LogoInoutchi_linha.png" alt="Logomarca Inoutchi">
+            </div>
         </div>
         <div class="user-info">
             <span id="userName">Admin Escola</span>
@@ -1928,6 +2016,9 @@
 
     <!-- Container Principal do Dashboard -->
     <div class="dashboard-container">
+
+        <!-- Fundo escurecido atrás do menu lateral móvel -->
+        <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
 
         <!-- Menu de Navegação Lateral -->
         <aside class="sidebar">
@@ -1991,7 +2082,7 @@
         </aside>
 
         <!-- Área de Conteúdo Dinâmico -->
-        <main class="main-content">
+        <main class="main-content no-scroll-panel">
 
             <!-- Seção Visão Geral (REDESENHADA COM CSS GRID) -->
             <section id="visao-geral-content" class="content-section active">
@@ -3376,11 +3467,54 @@
                     const targetSection = document.getElementById(targetId + '-content');
                     if (targetSection) {
                         targetSection.classList.add('active');
+                        // A Visão Geral é um painel fixo (sem scroll); as demais abas
+                        // usam o scroll normal do main-content.
+                        document.querySelector('.main-content')
+                            .classList.toggle('no-scroll-panel', targetId === 'visao-geral');
                         // Recarregar dados específicos da aba, se necessário
                         if (targetId === 'token-management-view') loadAllTokens();
                         if (targetId === 'geolocalizacao' && map) setTimeout(() => map.invalidateSize(), 100);
                         if (targetId === 'mural') carregarMensagens();
                     }
+                    closeSidebar();
+                });
+            });
+
+            // =================================================================================
+            // ==== MENU LATERAL MÓVEL (abre no clique do hambúrguer, oculta sozinho após 10s) ====
+            // =================================================================================
+            const sidebarEl = document.querySelector('.sidebar');
+            const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+            const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
+            let sidebarHideTimer = null;
+
+            function scheduleSidebarAutoHide() {
+                clearTimeout(sidebarHideTimer);
+                sidebarHideTimer = setTimeout(closeSidebar, 10000);
+            }
+
+            function openSidebar() {
+                sidebarEl.classList.add('open');
+                sidebarBackdrop.classList.add('open');
+                scheduleSidebarAutoHide();
+            }
+
+            function closeSidebar() {
+                sidebarEl.classList.remove('open');
+                sidebarBackdrop.classList.remove('open');
+                clearTimeout(sidebarHideTimer);
+            }
+
+            sidebarToggleBtn.addEventListener('click', () => {
+                sidebarEl.classList.contains('open') ? closeSidebar() : openSidebar();
+            });
+
+            sidebarBackdrop.addEventListener('click', closeSidebar);
+
+            // Enquanto o usuário está mexendo no menu, adia a auto-ocultação.
+            ['mousemove', 'mousedown', 'keydown', 'scroll'].forEach(evt => {
+                sidebarEl.addEventListener(evt, () => {
+                    if (sidebarEl.classList.contains('open')) scheduleSidebarAutoHide();
                 });
             });
 
