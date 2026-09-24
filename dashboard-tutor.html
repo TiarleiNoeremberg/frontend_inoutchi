@@ -932,7 +932,7 @@
         /* ============== TOKENS ============== */
         .token-summary {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(4, 1fr);
             gap: 10px;
             margin-bottom: 18px;
         }
@@ -1024,6 +1024,10 @@
 
         .token-card.status-used {
             --token-color: var(--text-muted)
+        }
+
+        .token-card.status-revoked {
+            --token-color: var(--warning)
         }
 
         .token-card.status-expired {
@@ -2825,6 +2829,10 @@
                     <div class="token-stat">
                         <div class="num" id="tokenExpiradosCount">0</div>
                         <div class="lbl">Expirados</div>
+                    </div>
+                    <div class="token-stat">
+                        <div class="num" id="tokenRevogadosCount">0</div>
+                        <div class="lbl">Revogados</div>
                     </div>
                 </div>
 
@@ -7674,14 +7682,16 @@
 
                     const tokens = data.tokens;
 
-                    // Atualizar contadores
-                    const ativos = tokens.filter(t => t.valido && !t.utilizado && new Date(t.dataExpiracao) > new Date()).length;
+                    // Atualizar contadores - 4 estados mutuamente exclusivos (nessa ordem de prioridade)
                     const usados = tokens.filter(t => t.utilizado).length;
-                    const expirados = tokens.filter(t => !t.valido || new Date(t.dataExpiracao) <= new Date()).length - usados;
+                    const revogados = tokens.filter(t => !t.utilizado && t.revogado).length;
+                    const expirados = tokens.filter(t => !t.utilizado && !t.revogado && new Date(t.dataExpiracao) <= new Date()).length;
+                    const ativos = tokens.filter(t => !t.utilizado && !t.revogado && new Date(t.dataExpiracao) > new Date()).length;
 
                     document.getElementById('tokenAtivosCount').textContent = ativos;
                     document.getElementById('tokenUsadosCount').textContent = usados;
                     document.getElementById('tokenExpiradosCount').textContent = expirados;
+                    document.getElementById('tokenRevogadosCount').textContent = revogados;
 
                     if (tokens.length === 0) {
                         tokensListEl.innerHTML = `<div class="empty"><div class="ic"><i class="fas fa-key"></i></div><div class="t">Nenhum token gerado</div><div class="s">Clique em "Gerar novo token" para autorizar alguém</div></div>`;
@@ -7697,17 +7707,20 @@
                         if (token.utilizado) {
                             statusClass = 'used';
                             statusText = 'Usado';
-                        } else if (isExpired || !token.valido) {
+                        } else if (token.revogado) {
+                            statusClass = 'revoked';
+                            statusText = 'Revogado';
+                        } else if (isExpired) {
                             statusClass = 'expired';
                             statusText = 'Expirado';
                         }
 
-                        const podeRevogar = !token.utilizado && !isExpired && token.valido;
+                        const podeRevogar = !token.utilizado && !token.revogado && !isExpired;
                         const tokenLink = `https://app.inoutchi.com/dashboard-token.html?token=${token.token}`;
 
                         return `
                     <article class="token-card status-${statusClass}">
-                        <div class="t-icon"><i class="fas ${token.utilizado ? 'fa-check' : (isExpired ? 'fa-clock' : 'fa-key')}"></i></div>
+                        <div class="t-icon"><i class="fas ${token.utilizado ? 'fa-check' : (token.revogado ? 'fa-ban' : (isExpired ? 'fa-clock' : 'fa-key'))}"></i></div>
                         <div class="t-info">
                             <div class="t-name">${token.destinatario?.nome || 'Destinatário'}</div>
                             <div class="t-meta">${token.aluno?.nome || 'Aluno'} · expira ${new Date(token.dataExpiracao).toLocaleDateString('pt-BR')} ${new Date(token.dataExpiracao).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
