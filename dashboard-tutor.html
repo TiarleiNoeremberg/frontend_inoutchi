@@ -3310,6 +3310,9 @@
                     <div class="mb-3">
                         <label class="form-label">Senha Atual</label>
                         <input type="password" class="form-control" id="senhaAtual" required>
+                        <div class="mt-1">
+                            <a href="#" id="linkEsqueciSenhaAtual" class="small">Esqueci minha senha</a>
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Nova Senha</label>
@@ -3324,6 +3327,31 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                     <button type="button" class="btn btn-primary" id="btnSalvarSenha">Salvar Nova Senha</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== MODAL RECUPERAR SENHA (mesmo fluxo/endpoint do login.html) ===== -->
+    <div class="modal fade" id="recuperarSenhaModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header" style="background: var(--gradient-main);">
+                    <h5 class="modal-title text-white"><i class="fas fa-key me-2"></i>Recuperar Senha</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small">Informe seu e-mail de cadastro. Se ele estiver cadastrado, enviaremos um link para você criar uma nova senha.</p>
+                    <div class="mb-3">
+                        <label class="form-label">E-mail de Cadastro</label>
+                        <input type="email" class="form-control" id="recuperarSenhaEmail" required placeholder="seu@email.com">
+                    </div>
+                    <div id="recuperarSenhaError" class="alert alert-danger" style="display: none;"></div>
+                    <div id="recuperarSenhaSucesso" class="alert alert-success" style="display: none;"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-primary" id="btnEnviarRecuperacaoSenha">Enviar Link</button>
                 </div>
             </div>
         </div>
@@ -7128,6 +7156,60 @@
                 modal.show();
             }
 
+            // Abrir modal de recuperação de senha (mesmo endpoint do login.html),
+            // a partir do link "Esqueci minha senha" dentro do modal de Trocar Senha.
+            function openRecuperarSenhaModal() {
+                bootstrap.Modal.getInstance(document.getElementById('trocarSenhaModal'))?.hide();
+
+                document.getElementById('recuperarSenhaEmail').value = currentUser?.email || '';
+                document.getElementById('recuperarSenhaError').style.display = 'none';
+                document.getElementById('recuperarSenhaSucesso').style.display = 'none';
+
+                getModalInstance('recuperarSenhaModal').show();
+            }
+
+            // Envia o pedido de recuperação de senha (mesma chamada que o login.html faz)
+            async function enviarLinkRecuperacaoSenha() {
+                const email = document.getElementById('recuperarSenhaEmail').value.trim();
+                const errorDiv = document.getElementById('recuperarSenhaError');
+                const sucessoDiv = document.getElementById('recuperarSenhaSucesso');
+                const btn = document.getElementById('btnEnviarRecuperacaoSenha');
+
+                errorDiv.style.display = 'none';
+                sucessoDiv.style.display = 'none';
+
+                if (!email) {
+                    errorDiv.textContent = 'Informe seu e-mail de cadastro.';
+                    errorDiv.style.display = 'block';
+                    return;
+                }
+
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando...';
+
+                try {
+                    const response = await fetch(`${BACKEND_URL}/api/users/password-reset-request`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email: email })
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json().catch(() => ({}));
+                        throw new Error(error.mensagem || 'Ocorreu um erro no servidor.');
+                    }
+
+                    sucessoDiv.textContent = 'Se este e-mail estiver cadastrado, um link de recuperação foi enviado.';
+                    sucessoDiv.style.display = 'block';
+                } catch (error) {
+                    errorDiv.textContent = error.message;
+                    errorDiv.style.display = 'block';
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = 'Enviar Link';
+                }
+            }
+
             // Salvar nova senha
             async function salvarNovaSenha() {
                 const senhaAtual = document.getElementById('senhaAtual').value;
@@ -7618,6 +7700,11 @@
                     // Event listeners para os modais de configuração
                     document.getElementById('btnSalvarDados')?.addEventListener('click', salvarDadosPessoais);
                     document.getElementById('btnSalvarSenha')?.addEventListener('click', salvarNovaSenha);
+                    document.getElementById('linkEsqueciSenhaAtual')?.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        openRecuperarSenhaModal();
+                    });
+                    document.getElementById('btnEnviarRecuperacaoSenha')?.addEventListener('click', enviarLinkRecuperacaoSenha);
                     document.getElementById('btnSalvarNotificacoes')?.addEventListener('click', salvarNotificacoes);
                     document.getElementById('btnConfirmarExcluirConta')?.addEventListener('click', executeDeleteAccount);
                     // ===== FIM DAS LINHAS ADICIONADAS =====
