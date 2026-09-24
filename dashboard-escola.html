@@ -5736,7 +5736,12 @@
         const applyTokenFiltersBtn = document.getElementById('apply-token-filters-btn');
 
         // Adiciona listener para o botão de aplicar filtros
-        applyTokenFiltersBtn.addEventListener('click', loadAllTokens);
+        // Toda nova busca reinicia na primeira página - senão, se o usuário estiver na
+        // página 6 e buscar um nome que só tem 1 resultado, a página 6 nem existiria mais.
+        applyTokenFiltersBtn.addEventListener('click', () => {
+            currentTokenPage = 0;
+            loadAllTokens();
+        });
 
         // --- 2. Função Principal para Carregar Tokens ---
         async function loadAllTokens() {
@@ -5750,16 +5755,19 @@
                     throw new Error("Token de autenticação não encontrado. Por favor, faça o login novamente.");
                 }
 
-                // A URL agora é dinâmica e envia a página desejada.
-                const response = await fetch(`${API_URL}/api/escolas/tokens/all?page=${currentTokenPage}&size=10`, {
+                // A busca por nome agora é feita no backend (cobre todas as páginas, não só a atual).
+                const searchTerm = document.getElementById('token-search-input').value.trim();
+                const searchParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : '';
+
+                const response = await fetch(`${API_URL}/api/escolas/tokens/all?page=${currentTokenPage}&size=10${searchParam}`, {
                     headers: {
                         'Authorization': `Bearer ${AUTH_TOKEN}`
                     }
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ message: "Falha ao buscar os tokens da escola." }));
-                    throw new Error(errorData.message || `Ocorreu um erro no servidor: ${response.statusText}`);
+                    const errorData = await response.json().catch(() => ({ mensagem: "Falha ao buscar os tokens da escola." }));
+                    throw new Error(errorData.mensagem || `Ocorreu um erro no servidor: ${response.statusText}`);
                 }
 
                 const data = await response.json(); // 'data' agora é o objeto Page do Spring
@@ -5792,17 +5800,11 @@
             const allTokensTbody = document.getElementById('all-tokens-tbody');
             allTokensTbody.innerHTML = '';
 
-            // A lógica de filtros continua a mesma e é muito útil para a auditoria
-            const searchTerm = document.getElementById('token-search-input').value.toLowerCase();
+            // A busca por nome já vem filtrada do backend (loadAllTokens envia ?search=).
+            // Aqui só resta o filtro de status, aplicado sobre a página atual.
             const statusFilter = document.getElementById('token-status-filter').value;
 
             const filteredTokens = tokens.filter(token => {
-                const isMatchSearch = !searchTerm ||
-                    (token.aluno && token.aluno.nome.toLowerCase().includes(searchTerm)) ||
-                    (token.tutor && token.tutor.nome.toLowerCase().includes(searchTerm));
-
-                if (!isMatchSearch) return false;
-
                 const isExpired = new Date(token.dataExpiracao) < new Date();
                 let currentStatus = '';
                 if (token.utilizado) currentStatus = 'USED';
