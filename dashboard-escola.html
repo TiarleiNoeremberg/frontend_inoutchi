@@ -1306,7 +1306,9 @@
                 "fluxo fluxo status atividades"
                 "fluxo fluxo status atividades"
                 "frequencia frequencia presenca-sala presenca-sala"
-                "frequencia frequencia presenca-sala presenca-sala";
+                "frequencia frequencia presenca-sala presenca-sala"
+                "evasao evasao evasao evasao"
+                "evasao evasao evasao evasao";
         }
 
         /* KPI Cards */
@@ -1500,8 +1502,17 @@
             grid-area: presenca-sala;
         }
 
+        #evasao-card {
+            grid-area: evasao;
+        }
+
+        .feed-icon.evasao {
+            color: var(--warning);
+        }
+
         /* Activity Feed */
-        #feed-atividades-container {
+        #feed-atividades-container,
+        #feed-evasao-container {
             flex-grow: 1;
             overflow-y: auto;
         }
@@ -1688,7 +1699,8 @@
                     "fluxo fluxo"
                     "status atividades"
                     "frequencia frequencia"
-                    "presenca-sala presenca-sala";
+                    "presenca-sala presenca-sala"
+                    "evasao evasao";
             }
         }
 
@@ -1716,7 +1728,8 @@
                 grid-template-areas:
                     "kpi1" "kpi2" "kpi3" "kpi4"
                     "fluxo" "status" "atividades"
-                    "frequencia" "presenca-sala";
+                    "frequencia" "presenca-sala"
+                    "evasao";
             }
 
             .kpi-card {
@@ -2067,6 +2080,14 @@
                         <h4><i class="fas fa-door-open"></i> Presença por Sala (últimos 30 dias)</h4>
                         <div class="chart-wrapper">
                             <canvas id="presencaSalaChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Bloco de Alunos Inativados Recentemente (evasão) -->
+                    <div id="evasao-card" class="dashboard-card">
+                        <h4><i class="fas fa-user-slash"></i> Alunos Inativados Recentemente</h4>
+                        <div id="feed-evasao-container">
+                            <!-- A lista será inserida aqui -->
                         </div>
                     </div>
 
@@ -3508,6 +3529,7 @@
                 // de polling - só recarregam quando a Visão Geral é reaberta/atualizada.
                 await carregarFrequenciaSemanal();
                 await carregarPresencaPorSala();
+                await carregarAlunosInativados();
 
             } catch (error) {
                 console.error("Erro ao carregar dados da Visão Geral:", error);
@@ -3919,6 +3941,55 @@
                 renderPresencaSalaChart(await response.json());
             } catch (error) {
                 console.error('Erro ao carregar presença por sala:', error);
+            }
+        }
+
+        /**
+         * Renderiza a lista de alunos inativados recentemente (indicador de evasão),
+         * a partir de GET /api/escolas/{escolaId}/indicadores/alunos-inativados.
+         * Mesmo padrão visual do feed de "Atividades Recentes" (.feed-item).
+         */
+        function renderAlunosInativados(inativados) {
+            const container = document.getElementById('feed-evasao-container');
+            container.innerHTML = '';
+
+            if (!inativados || inativados.length === 0) {
+                container.innerHTML = '<p class="feed-empty-message">Nenhum aluno inativado recentemente.</p>';
+                return;
+            }
+
+            inativados.forEach(item => {
+                const dataFormatada = item.dataInativacao
+                    ? new Date(item.dataInativacao).toLocaleDateString('pt-BR', {
+                        day: '2-digit', month: '2-digit', year: 'numeric'
+                    })
+                    : 'Data não informada';
+                const sala = item.salaNome ? ` (${item.salaNome})` : '';
+                const motivo = item.motivoInativacao || 'motivo não informado';
+                const responsavel = item.inativadoPor || 'sistema';
+
+                container.innerHTML += `
+            <div class="feed-item">
+                <div class="feed-item-icon"><i class="fas fa-user-slash feed-icon evasao"></i></div>
+                <div class="feed-item-text">
+                    <p><strong>${item.alunoNome}</strong>${sala} foi inativado(a) - ${motivo}.</p>
+                    <small>${dataFormatada} · por ${responsavel}</small>
+                </div>
+            </div>
+        `;
+            });
+        }
+
+        async function carregarAlunosInativados() {
+            try {
+                const response = await fetch(
+                    `${API_URL}/api/escolas/${ESCOLA_ID}/indicadores/alunos-inativados?limit=10`,
+                    { headers: { Authorization: `Bearer ${AUTH_TOKEN}` } }
+                );
+                if (!response.ok) throw new Error(`Falha ao buscar alunos inativados (Status: ${response.status})`);
+                renderAlunosInativados(await response.json());
+            } catch (error) {
+                console.error('Erro ao carregar alunos inativados:', error);
             }
         }
 
