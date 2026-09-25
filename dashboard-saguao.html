@@ -253,8 +253,11 @@
     <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
 
     <script>
+        console.log('%c🔊 dashboard-saguao.html — versão de diagnóstico v2 (2026-09-25)', 'font-weight:bold;color:#0a3d6e;font-size:14px');
+
         class SaguaoDashboard {
             constructor() {
+                console.log('[SAGUAO] Construindo SaguaoDashboard...');
                 this.BACKEND_URL = 'https://api.inoutchi.com';
                 this.WS_URL = this.BACKEND_URL + '/ws-sala';
 
@@ -388,25 +391,33 @@
             }
 
             processarMensagemWebSocket(msg) {
+                console.log('[SAGUAO] 📨 Mensagem WebSocket recebida:', msg);
                 switch (msg.tipo) {
                     case 'SAIDA_PENDENTE':
                         this.processarSaidaPendente(msg);
                         break;
                     case 'SAIDA_CONFIRMADA':
                     case 'SAIDA_CANCELADA':
+                        console.log(`[SAGUAO] Removendo chamada do aluno ${msg.alunoId} (${msg.tipo})`);
                         this.processarSaidaEncerrada(msg.alunoId);
                         break;
+                    default:
+                        console.log(`[SAGUAO] Tipo de mensagem não tratado: ${msg.tipo}`);
                 }
             }
 
             processarSaidaPendente(msg) {
-                if (this.chamadas.has(msg.alunoId)) return;
+                if (this.chamadas.has(msg.alunoId)) {
+                    console.log(`[SAGUAO] Aluno ${msg.alunoId} já está na tela, ignorando evento duplicado.`);
+                    return;
+                }
                 if (!msg.nomeChamada || !msg.salaNome) {
                     // Backend não encontrou a sala (evento chegou com dado inconsistente) - ignora.
                     console.warn('⚠️ Evento SAIDA_PENDENTE sem nomeChamada/salaNome, ignorado:', msg);
                     return;
                 }
 
+                console.log(`[SAGUAO] ✅ Adicionando chamada de ${msg.nomeChamada} (aluno ${msg.alunoId}), vai destacar+tocar som.`);
                 this.adicionarChamada({
                     alunoId: msg.alunoId,
                     nomeChamada: msg.nomeChamada,
@@ -416,6 +427,7 @@
                 }, true);
 
                 this.renderizar();
+                this.iniciarFilaSeNecessario();
             }
 
             processarSaidaEncerrada(alunoId) {
@@ -462,6 +474,7 @@
                     }
 
                     this.renderizar();
+                    this.iniciarFilaSeNecessario();
                 } catch (error) {
                     console.error('❌ Falha na reconciliação com o servidor:', error);
                 }
@@ -471,13 +484,23 @@
                 const slot = this.proximoSlotLivre();
                 this.chamadas.set(dados.alunoId, { ...dados, slot });
                 this.slots[slot] = dados.alunoId;
+                console.log(`[SAGUAO] adicionarChamada: aluno ${dados.alunoId}, slot ${slot}, destacar=${destacar}`);
 
                 if (destacar) {
                     this.filaDeChamadas.push(dados.alunoId);
-                    if (!this.isProcessandoFila) {
-                        this.isProcessandoFila = true;
-                        this.processarProximoDaFila();
-                    }
+                }
+                // Importante: NÃO inicia a fila de destaque aqui. O card ainda não existe no
+                // DOM (só existe depois do próximo renderizar()); iniciar agora faria
+                // executarDestaque() procurar um elemento que ainda não foi criado e desistir
+                // em silêncio. Quem chama adicionarChamada() deve chamar renderizar() e só
+                // depois iniciarFilaSeNecessario().
+            }
+
+            iniciarFilaSeNecessario() {
+                if (this.filaDeChamadas.length > 0 && !this.isProcessandoFila) {
+                    console.log(`[SAGUAO] Iniciando processamento da fila (${this.filaDeChamadas.length} item(ns)).`);
+                    this.isProcessandoFila = true;
+                    this.processarProximoDaFila();
                 }
             }
 
@@ -611,8 +634,12 @@
             }
 
             async executarDestaque(alunoId, tamanhoFilaRestante) {
+                console.log(`[SAGUAO] executarDestaque: aluno ${alunoId}, fila restante ${tamanhoFilaRestante}`);
                 const card = document.querySelector(`[data-aluno-id="${alunoId}"]`);
-                if (!card) return;
+                if (!card) {
+                    console.warn(`[SAGUAO] ⚠️ Card do aluno ${alunoId} não encontrado no DOM ao destacar. Pulando som/animação.`);
+                    return;
+                }
 
                 const filaCurta = tamanhoFilaRestante <= 3;
                 const classeDestaque = filaCurta ? 'destaque-forte' : 'destaque-leve';
