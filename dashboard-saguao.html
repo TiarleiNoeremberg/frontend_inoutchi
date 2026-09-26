@@ -473,10 +473,12 @@
                     card.classList.add('removendo');
                     setTimeout(() => {
                         this.removerChamada(alunoId);
+                        this.compactarSlotsSeNecessario();
                         this.renderizar();
                     }, 350);
                 } else {
                     this.removerChamada(alunoId);
+                    this.compactarSlotsSeNecessario();
                     this.renderizar();
                 }
             }
@@ -490,11 +492,14 @@
                     const lista = await response.json();
 
                     const idsDoServidor = new Set(lista.map(c => c.alunoId));
+                    let removeuAlgum = false;
                     for (const alunoId of [...this.chamadas.keys()]) {
                         if (!idsDoServidor.has(alunoId)) {
                             this.removerChamada(alunoId);
+                            removeuAlgum = true;
                         }
                     }
+                    if (removeuAlgum) this.compactarSlotsSeNecessario();
 
                     const agora = Date.now();
                     for (const c of lista) {
@@ -547,6 +552,51 @@
                 this.slots[dados.slot] = null;
                 this.chamadas.delete(alunoId);
                 this.filaDeChamadas = this.filaDeChamadas.filter(id => id !== alunoId);
+            }
+
+            /**
+             * Depois que uma ou mais chamadas somem, os slots liberados podem ter
+             * ficado numa página anterior à dos cards que restaram (ex.: sobrou espaço
+             * de sobra na página 1, mas 2 cards ainda ocupam slots da página 2) - o que
+             * fazia o painel ficar alternando entre páginas sem necessidade. Remaneja os
+             * cards restantes para os slots mais baixos só quando isso realmente reduz o
+             * número de páginas; se já está compacto o suficiente, não mexe em nada (os
+             * cards ativos mantêm a posição - ver Decisão 029).
+             */
+            compactarSlotsSeNecessario() {
+                const totalAtivos = this.chamadas.size;
+                if (totalAtivos === 0) {
+                    this.slots = [];
+                    return;
+                }
+
+                const { cols, rows } = this.calcularGrade(totalAtivos);
+                const porPagina = cols * rows;
+                const paginasNecessarias = Math.max(1, Math.ceil(totalAtivos / porPagina));
+
+                let maiorSlotOcupado = -1;
+                for (const dados of this.chamadas.values()) {
+                    if (dados.slot > maiorSlotOcupado) maiorSlotOcupado = dados.slot;
+                }
+                const paginasAtuais = Math.floor(maiorSlotOcupado / porPagina) + 1;
+
+                if (paginasAtuais <= paginasNecessarias) return;
+
+                console.log(`[SAGUAO] Compactando slots: ${paginasAtuais} página(s) -> ${paginasNecessarias} (${totalAtivos} chamada(s) ativa(s)).`);
+
+                // Preserva a ordem relativa (quem já estava mais à frente continua mais à
+                // frente) para minimizar a sensação de embaralhamento ao remanejar.
+                const ordenados = [...this.chamadas.values()].sort((a, b) => a.slot - b.slot);
+                const novosSlots = new Array(paginasNecessarias * porPagina).fill(null);
+                ordenados.forEach((dados, indice) => {
+                    dados.slot = indice;
+                    novosSlots[indice] = dados.alunoId;
+                });
+                this.slots = novosSlots;
+
+                if (this.paginaAtual >= paginasNecessarias) {
+                    this.paginaAtual = 0;
+                }
             }
 
             proximoSlotLivre() {
