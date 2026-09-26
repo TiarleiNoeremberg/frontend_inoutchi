@@ -2225,6 +2225,11 @@
                         <i class="fas fa-shield-alt icon"></i> Gestão de Tokens
                     </a>
                 </li>
+                <li>
+                    <a href="#" class="nav-link" data-target="config-voz">
+                        <i class="fas fa-volume-up icon"></i> Configurações de Voz
+                    </a>
+                </li>
             </ul>
         </aside>
 
@@ -3082,6 +3087,90 @@
                 </div>
             </section>
 
+            <!-- Seção Configurações de Voz -->
+            <section id="config-voz-content" class="content-section">
+                <div class="section-header">
+                    <h1>Configurações de Voz</h1>
+                </div>
+                <p class="text-muted" style="margin-bottom: 20px;">
+                    Personalize a frase falada na Sala e no Saguão ao chamar um aluno. Use as
+                    variáveis abaixo para montar a frase — elas são substituídas automaticamente
+                    pelo sistema. Limite máximo: <strong>160</strong> caracteres.
+                </p>
+
+                <div id="configVozLoading" class="text-center py-4">Carregando configurações...</div>
+                <div id="configVozErro" class="alert alert-danger" style="display:none;"></div>
+
+                <div id="configVozConteudo" style="display:none;">
+                    <!-- Bloco Sala -->
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <h3><i class="fas fa-chalkboard-teacher"></i> Frase da Sala</h3>
+                            <p class="text-muted">Tocada na sala quando um tutor, transporte ou outro
+                                solicitante chega para buscar o aluno.</p>
+
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    <input type="checkbox" id="salaBipAtivo" style="margin-right: 6px;">
+                                    Tocar bip antes da frase
+                                </label>
+                            </div>
+
+                            <label class="form-label">Frase (variáveis: <code>{nome}</code>,
+                                <code>{solicitante}</code>)</label>
+                            <div class="mb-2">
+                                <button type="button" class="btn btn-sm btn-secondary"
+                                    onclick="inserirVariavelVoz('salaFraseTemplate', '{nome}')">+ {nome}</button>
+                                <button type="button" class="btn btn-sm btn-secondary"
+                                    onclick="inserirVariavelVoz('salaFraseTemplate', '{solicitante}')">+
+                                    {solicitante}</button>
+                            </div>
+                            <textarea id="salaFraseTemplate" class="custom-form-input" rows="2" maxlength="160"
+                                oninput="atualizarContadorVoz('sala')"></textarea>
+                            <div class="form-text" style="margin-top: 6px;">
+                                <span id="salaFraseContador">0</span>/160 caracteres. Padrão:
+                                <em id="salaFrasePadrao"></em>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Bloco Saguão -->
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <h3><i class="fas fa-door-open"></i> Frase do Saguão</h3>
+                            <p class="text-muted">Tocada no painel de saguão quando o aluno é liberado
+                                para a saída.</p>
+
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    <input type="checkbox" id="saguaoBipAtivo" style="margin-right: 6px;">
+                                    Tocar bip antes da frase
+                                </label>
+                            </div>
+
+                            <label class="form-label">Frase (variáveis: <code>{nome}</code>,
+                                <code>{sala}</code>)</label>
+                            <div class="mb-2">
+                                <button type="button" class="btn btn-sm btn-secondary"
+                                    onclick="inserirVariavelVoz('saguaoFraseTemplate', '{nome}')">+ {nome}</button>
+                                <button type="button" class="btn btn-sm btn-secondary"
+                                    onclick="inserirVariavelVoz('saguaoFraseTemplate', '{sala}')">+ {sala}</button>
+                            </div>
+                            <textarea id="saguaoFraseTemplate" class="custom-form-input" rows="2" maxlength="160"
+                                oninput="atualizarContadorVoz('saguao')"></textarea>
+                            <div class="form-text" style="margin-top: 6px;">
+                                <span id="saguaoFraseContador">0</span>/160 caracteres. Padrão:
+                                <em id="saguaoFrasePadrao"></em>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary" id="salvarConfigVozBtn" onclick="salvarConfigVoz()">
+                        <i class="fas fa-save"></i> Salvar Configurações de Voz
+                    </button>
+                </div>
+            </section>
+
             <!-- Seção Tokens de Acesso -->
             <section id="token-management-view-content" class="content-section">
                 <h2 class="mb-4">Gestão e Auditoria de Tokens de Acesso</h2>
@@ -3627,6 +3716,7 @@
                         if (targetId === 'token-management-view') loadAllTokens();
                         if (targetId === 'geolocalizacao' && map) setTimeout(() => map.invalidateSize(), 100);
                         if (targetId === 'mural') carregarMensagens();
+                        if (targetId === 'config-voz') carregarConfigVoz();
                     }
                     closeSidebar();
                 });
@@ -7460,6 +7550,103 @@
             } catch (error) {
                 console.error('Erro ao salvar mensagem:', error);
                 showToast(error.message, 'error');
+            }
+        }
+
+        // =================================================================================
+        // ==== CONFIGURAÇÕES DE VOZ (Decisão 033: frases de chamada por escola) ====
+        // =================================================================================
+
+        async function carregarConfigVoz() {
+            const loading = document.getElementById('configVozLoading');
+            const erro = document.getElementById('configVozErro');
+            const conteudo = document.getElementById('configVozConteudo');
+
+            loading.style.display = 'block';
+            erro.style.display = 'none';
+            conteudo.style.display = 'none';
+
+            try {
+                const response = await fetch(`${API_URL}/api/escolas/${ESCOLA_ID}/config-voz`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Erro ${response.status}: ${response.statusText}`);
+                }
+
+                const config = await response.json();
+
+                document.getElementById('salaBipAtivo').checked = config.salaBipAtivo !== false;
+                document.getElementById('salaFraseTemplate').value = config.salaFraseTemplate || '';
+                document.getElementById('salaFrasePadrao').textContent = `"${config.salaFraseTemplatePadrao}"`;
+
+                document.getElementById('saguaoBipAtivo').checked = config.saguaoBipAtivo !== false;
+                document.getElementById('saguaoFraseTemplate').value = config.saguaoFraseTemplate || '';
+                document.getElementById('saguaoFrasePadrao').textContent = `"${config.saguaoFraseTemplatePadrao}"`;
+
+                atualizarContadorVoz('sala');
+                atualizarContadorVoz('saguao');
+
+                loading.style.display = 'none';
+                conteudo.style.display = 'block';
+            } catch (error) {
+                console.error('Erro ao carregar configurações de voz:', error);
+                loading.style.display = 'none';
+                erro.textContent = `Erro ao carregar configurações de voz: ${error.message}`;
+                erro.style.display = 'block';
+            }
+        }
+
+        function inserirVariavelVoz(campoId, variavel) {
+            const campo = document.getElementById(campoId);
+            const inicio = campo.selectionStart ?? campo.value.length;
+            const fim = campo.selectionEnd ?? campo.value.length;
+            campo.value = campo.value.slice(0, inicio) + variavel + campo.value.slice(fim);
+            campo.focus();
+            campo.selectionStart = campo.selectionEnd = inicio + variavel.length;
+            atualizarContadorVoz(campoId.startsWith('sala') ? 'sala' : 'saguao');
+        }
+
+        function atualizarContadorVoz(prefixo) {
+            const campo = document.getElementById(`${prefixo}FraseTemplate`);
+            const contador = document.getElementById(`${prefixo}FraseContador`);
+            contador.textContent = campo.value.length;
+        }
+
+        async function salvarConfigVoz() {
+            const btn = document.getElementById('salvarConfigVozBtn');
+            btn.disabled = true;
+
+            const payload = {
+                salaBipAtivo: document.getElementById('salaBipAtivo').checked,
+                salaFraseTemplate: document.getElementById('salaFraseTemplate').value.trim() || null,
+                saguaoBipAtivo: document.getElementById('saguaoBipAtivo').checked,
+                saguaoFraseTemplate: document.getElementById('saguaoFraseTemplate').value.trim() || null
+            };
+
+            try {
+                const response = await fetch(`${API_URL}/api/escolas/${ESCOLA_ID}/config-voz`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${AUTH_TOKEN}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({}));
+                    throw new Error(error.mensagem || `Erro ${response.status}: ${response.statusText}`);
+                }
+
+                showToast('Configurações de voz salvas com sucesso!');
+                await carregarConfigVoz();
+            } catch (error) {
+                console.error('Erro ao salvar configurações de voz:', error);
+                showToast(error.message || 'Erro ao salvar configurações de voz.', 'error');
+            } finally {
+                btn.disabled = false;
             }
         }
 
