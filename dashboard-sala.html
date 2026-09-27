@@ -1783,13 +1783,15 @@
                         return;
                     }
 
-                    // Alterado de fetchWithAuth para this.fetchDadosSala que já existe no seu código
                     const dados = await this.fetchDadosSala();
+                    if (!dados || !Array.isArray(dados.alunos)) return;
 
-                    if (dados && dados.alunos) {
-                        this.contagemErrosSync = 0;
-                        this.processarDadosAlunos(dados.alunos);
-                    }
+                    // processarDadosAlunos espera o objeto {alunos: [...]} (era passado
+                    // dados.alunos, o array, por engano - data.alunos ficava undefined
+                    // e a função sempre retornava [] sem processar nada).
+                    const alunosFrescos = await this.processarDadosAlunos(dados);
+                    this.contagemErrosSync = 0;
+                    this.reconciliarAlunos(alunosFrescos);
                 } catch (error) {
                     this.contagemErrosSync++;
                     console.error(`❌ [SYNC] Erro (${this.contagemErrosSync}/5):`, error);
@@ -1798,6 +1800,89 @@
                         console.warn("🚨 [WATCHDOG] Falha persistente na sincronização. Reiniciando...");
                         window.location.reload();
                     }
+                }
+            }
+
+            /**
+             * Compara a lista fresca (fonte da verdade, vinda do backend) com o
+             * estado local e aplica só as diferenças, card a card - nunca chama
+             * renderizarAlunos() aqui, que limpa e reconstrói a grade inteira e
+             * causaria um "piscar" visível na TV a cada sincronização (a cada 15s).
+             * Corrige silenciosamente qualquer mensagem WebSocket perdida (ex.:
+             * confirmação de saída que a sala não recebeu, ver Decisão 034).
+             */
+            reconciliarAlunos(alunosFrescos) {
+                const frescosPorId = new Map(alunosFrescos.map(a => [a.id, a]));
+                const locaisPorId = new Map(this.alunos.map(a => [a.id, a]));
+
+                // Removidos: estavam localmente, mas não vieram mais na lista fresca.
+                for (const [id, alunoLocal] of locaisPorId) {
+                    if (!frescosPorId.has(id)) {
+                        console.log(`[SYNC] Aluno ${alunoLocal.nome} não está mais na sala - removendo silenciosamente.`);
+                        this.removerAlunoEspecifico(id, alunoLocal.nome);
+                    }
+                }
+
+                // Novos ou com status divergente do que a sala tinha localmente.
+                for (const alunoFresco of alunosFrescos) {
+                    const alunoLocal = locaisPorId.get(alunoFresco.id);
+                    if (!alunoLocal) {
+                        console.log(`[SYNC] Aluno ${alunoFresco.nome} está na sala mas não estava na tela - adicionando silenciosamente.`);
+                        this.adicionarAlunoSilenciosamente(alunoFresco);
+                    } else if (alunoLocal.status !== alunoFresco.status ||
+                        alunoLocal.tipoSolicitante !== alunoFresco.tipoSolicitante) {
+                        console.log(`[SYNC] Status de ${alunoFresco.nome} estava desatualizado na tela (${alunoLocal.status} -> ${alunoFresco.status}) - corrigindo.`);
+                        this.atualizarStatusCardSilenciosamente(alunoLocal, alunoFresco);
+                    }
+                }
+            }
+
+            adicionarAlunoSilenciosamente(aluno) {
+                const grid = document.getElementById('alunosGrid');
+                const placeholder = grid.querySelector('.empty-state');
+                if (placeholder) placeholder.remove();
+
+                this.alunos.push(aluno);
+                this.alunos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+
+                const card = document.createElement('div');
+                card.className = 'aluno-card';
+                card.setAttribute('data-aluno-id', aluno.id);
+
+                if (aluno.status === 'AGUARDANDO_CONFIRMACAO') {
+                    card.classList.add('pendente');
+                    let tipo = (aluno.tipoSolicitante || 'diretor').toLowerCase();
+                    if (['parente', 'amigo', 'irmao'].includes(tipo)) tipo = 'token';
+                    card.classList.add(tipo);
+                }
+
+                const nomeParaExibir = this.formatarNomeAluno(aluno);
+                const horarioTexto = aluno.status === 'AGUARDANDO_CONFIRMACAO' ? 'Aguardando' : 'Presente';
+                card.innerHTML = `
+                    <div class="aluno-nome">${nomeParaExibir}</div>
+                    <div class="aluno-horario">${horarioTexto}</div>
+                `;
+
+                grid.appendChild(card);
+            }
+
+            atualizarStatusCardSilenciosamente(alunoLocal, alunoFresco) {
+                alunoLocal.status = alunoFresco.status;
+                alunoLocal.tipoSolicitante = alunoFresco.tipoSolicitante;
+                alunoLocal.parentesco = alunoFresco.parentesco;
+
+                const alunoCard = document.querySelector(`[data-aluno-id="${alunoFresco.id}"]`);
+                if (!alunoCard) return;
+
+                if (alunoFresco.status === 'AGUARDANDO_CONFIRMACAO') {
+                    this.aplicarEstiloPendenteAoCard(alunoCard, {
+                        tipoSolicitante: alunoFresco.tipoSolicitante,
+                        alunoNome: alunoFresco.nome
+                    });
+                } else {
+                    alunoCard.classList.remove('pendente', 'tutor', 'diretor', 'token', 'transporte');
+                    const horarioElement = alunoCard.querySelector('.aluno-horario');
+                    if (horarioElement) horarioElement.textContent = 'Presente';
                 }
             }
 
