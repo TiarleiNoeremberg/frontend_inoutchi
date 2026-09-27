@@ -139,6 +139,15 @@
             transition: all 0.3s ease-in-out;
         }
 
+        /* Ocupa o slot de um aluno que saiu, sem conteúdo e sem colapsar a
+           célula da grade - é o que impede os demais cards de se deslocarem
+           para preencher o espaço (mesmo comportamento do dash saguão). */
+        .aluno-card.vazio {
+            visibility: hidden;
+            border: none;
+            box-shadow: none;
+        }
+
         .aluno-card .aluno-nome {
             font-size: clamp(0.7rem, 3vw, 1rem);
             font-weight: 600;
@@ -1183,6 +1192,7 @@
                 this.contagemErrosSync = 0; // Nova variável para monitorar saúde
                 this.batchEntradaAlunos = new Map();
                 this.batchEntradaTimer = null;
+                this.slots = []; // slots[i] = id do aluno na posição i, ou null (vazio/livre)
 
                 this.setupZoomHandlers();
 
@@ -1312,55 +1322,28 @@
                 grid.innerHTML = '';
 
                 if (!tinhaAlunos) {
+                    this.slots = [];
                     grid.innerHTML = '<div class="empty-state">Nenhum aluno presente na sala</div>';
                     return;
                 }
 
-                // 2. CRIA OS CARDS EM MEMÓRIA
+                // 2. ORDENA E ATRIBUI O SLOT (posição fixa na grade) DE CADA ALUNO.
+                // Esta é a única função que reordena por nome - as demais (entrada,
+                // saída, reconciliação) sempre reaproveitam ou preservam slots
+                // existentes, para nenhum card já na tela mudar de lugar (ver
+                // adicionarAlunoEmSlot/removerAlunoDoSlot).
+                this.alunos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+                this.slots = this.alunos.map(aluno => aluno.id);
+                this.alunos.forEach((aluno, indice) => { aluno.slot = indice; });
+
+                // 3. CRIA OS CARDS EM MEMÓRIA
                 const fragment = document.createDocumentFragment();
+                this.alunos.forEach(aluno => fragment.appendChild(this.criarCardAluno(aluno)));
 
-                this.alunos.forEach(aluno => {
-                    const card = document.createElement('div');
-                    card.className = 'aluno-card';
-                    card.setAttribute('data-aluno-id', aluno.id);
-
-                    // === NOVO: Aplica a classe de cor baseada no status ===
-                    if (aluno.status === 'AGUARDANDO_CONFIRMACAO') {
-                        card.classList.add('pendente');
-
-                        // Aplica a classe específica do solicitante
-                        let tipo = (aluno.tipoSolicitante || 'diretor').toLowerCase();
-
-                        // Normaliza os tipos
-                        if (['parente', 'amigo', 'irmao'].includes(tipo)) {
-                            tipo = 'token';
-                        } else if (tipo === 'tutor') {
-                            tipo = 'tutor';
-                        } else if (tipo === 'diretor') {
-                            tipo = 'diretor';
-                        } else if (tipo === 'transporte') {
-                            tipo = 'transporte';
-                        }
-
-                        card.classList.add(tipo);
-                        console.log(`[RENDER] Aluno ${aluno.nome} em AGUARDANDO, tipo: ${tipo}`);
-                    }
-
-                    const nomeParaExibir = this.formatarNomeAluno(aluno);
-                    const horarioTexto = aluno.status === 'AGUARDANDO_CONFIRMACAO' ? 'Aguardando' : 'Presente';
-
-                    card.innerHTML = `
-                        <div class="aluno-nome">${nomeParaExibir}</div>
-                        <div class="aluno-horario">${horarioTexto}</div>
-                    `;
-
-                    fragment.appendChild(card);
-                });
-
-                // 3. ADICIONA TODOS OS CARDS DE UMA SÓ VEZ
+                // 4. ADICIONA TODOS OS CARDS DE UMA SÓ VEZ
                 grid.appendChild(fragment);
 
-                // 4. FORÇA REPAINT NO WEBVIEW
+                // 5. FORÇA REPAINT NO WEBVIEW
                 setTimeout(() => {
                     grid.style.display = 'none';
                     grid.offsetHeight; // Força reflow
@@ -1370,6 +1353,111 @@
                         grid.style.transform = '';
                     }, 50);
                 }, 10);
+            }
+
+            /**
+             * Monta o elemento DOM de um card de aluno (ocupado). Extraído de
+             * renderizarAlunos para ser reaproveitado por adicionarAlunoEmSlot, que
+             * insere um único card sem tocar nos demais.
+             */
+            criarCardAluno(aluno) {
+                const card = document.createElement('div');
+                card.className = 'aluno-card';
+                card.setAttribute('data-aluno-id', aluno.id);
+
+                if (aluno.status === 'AGUARDANDO_CONFIRMACAO') {
+                    card.classList.add('pendente');
+                    let tipo = (aluno.tipoSolicitante || 'diretor').toLowerCase();
+                    if (['parente', 'amigo', 'irmao'].includes(tipo)) tipo = 'token';
+                    card.classList.add(tipo);
+                }
+
+                const nomeParaExibir = this.formatarNomeAluno(aluno);
+                const horarioTexto = aluno.status === 'AGUARDANDO_CONFIRMACAO' ? 'Aguardando' : 'Presente';
+                card.innerHTML = `
+                    <div class="aluno-nome">${nomeParaExibir}</div>
+                    <div class="aluno-horario">${horarioTexto}</div>
+                `;
+                return card;
+            }
+
+            /** Cria o placeholder invisível que fica no lugar de um card removido. */
+            criarCardVazio() {
+                const placeholder = document.createElement('div');
+                placeholder.className = 'aluno-card vazio';
+                return placeholder;
+            }
+
+            /** Primeiro índice livre em this.slots (ou um novo, no final, se não houver nenhum livre). */
+            proximoSlotLivre() {
+                for (let i = 0; i < this.slots.length; i++) {
+                    if (this.slots[i] == null) return i;
+                }
+                this.slots.push(null);
+                return this.slots.length - 1;
+            }
+
+            /**
+             * Adiciona um aluno ocupando o primeiro slot livre - nunca reordena ou
+             * reposiciona os cards já na tela (ver Decisão: dash sala imita o
+             * comportamento de slots do dash saguão, para o aluno sempre achar seu
+             * card no mesmo lugar).
+             */
+            adicionarAlunoEmSlot(aluno) {
+                const grid = document.getElementById('alunosGrid');
+                const placeholderVazio = grid.querySelector('.empty-state');
+                if (placeholderVazio) placeholderVazio.remove();
+
+                const slot = this.proximoSlotLivre();
+                aluno.slot = slot;
+                this.slots[slot] = aluno.id;
+                this.alunos.push(aluno);
+
+                const card = this.criarCardAluno(aluno);
+                const noAtual = grid.children[slot];
+                if (noAtual) {
+                    noAtual.replaceWith(card);
+                } else {
+                    grid.appendChild(card);
+                }
+                return card;
+            }
+
+            /**
+             * Remove um aluno da tela sem deslocar os demais cards: o slot dele
+             * fica com um placeholder invisível (mesmo tamanho de um card), livre
+             * para o próximo aluno que entrar. Mantém a animação de saída já
+             * existente (classe "removendo") antes de trocar o card pelo vazio.
+             */
+            removerAlunoDoSlot(alunoId, alunoNome) {
+                const indice = this.alunos.findIndex(a => a.id === alunoId);
+                if (indice === -1) return;
+
+                const aluno = this.alunos[indice];
+                const slot = aluno.slot;
+                this.alunos.splice(indice, 1);
+                if (slot != null) this.slots[slot] = null;
+
+                const grid = document.getElementById('alunosGrid');
+                const card = document.querySelector(`[data-aluno-id="${alunoId}"]`);
+
+                const substituirPorVazio = () => {
+                    const noAtual = card && card.parentNode === grid ? card : (slot != null ? grid.children[slot] : null);
+                    if (noAtual) noAtual.replaceWith(this.criarCardVazio());
+
+                    if (this.alunos.length === 0) {
+                        this.slots = [];
+                        grid.innerHTML = '<div class="empty-state">Nenhum aluno presente na sala</div>';
+                    }
+                    console.log(`[SAÍDA] Aluno ${alunoNome} removido - demais cards permanecem no lugar.`);
+                };
+
+                if (card) {
+                    card.classList.add('removendo');
+                    setTimeout(substituirPorVazio, 450);
+                } else {
+                    substituirPorVazio();
+                }
             }
 
             formatarNomeAluno(aluno) {
@@ -1440,15 +1528,12 @@
                     return;
                 }
 
-                // 2. ATUALIZA O ESTADO: Adiciona o aluno à lista de dados.
-                this.alunos.push({ ...aluno, status: 'PRESENTE' });
-                this.alunos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+                // 2. ATUALIZA ESTADO E TELA: ocupa o primeiro slot livre, sem mover
+                // nenhum card já exibido (ver adicionarAlunoEmSlot).
+                this.adicionarAlunoEmSlot({ ...aluno, status: 'PRESENTE' });
+                console.log(`[ENTRADA] Aluno ${aluno.nome} adicionado ao estado e à tela.`);
 
-                // 3. ATUALIZA A TELA: Chama a função mestra para redesenhar a grade.
-                this.renderizarAlunos();
-                console.log(`[ENTRADA] Aluno ${aluno.nome} adicionado ao estado e tela renderizada.`);
-
-                // 4. LÓGICA DE ANIMAÇÃO E NOTIFICAÇÃO (Sua lógica original, preservada)
+                // 3. LÓGICA DE ANIMAÇÃO E NOTIFICAÇÃO (Sua lógica original, preservada)
                 clearTimeout(this.batchEntradaTimer);
                 this.batchEntradaAlunos.set(aluno.id, aluno.nome);
                 this.batchEntradaTimer = setTimeout(() => this.processarBatchDeEntradas(), 350);
@@ -1522,50 +1607,11 @@
             }
 
             removerAlunoEspecifico(alunoId, alunoNome) {
-                const alunoCard = document.querySelector(`[data-aluno-id="${alunoId}"]`);
-
-                if (alunoCard) {
-                    alunoCard.classList.add('removendo');
-
-                    setTimeout(() => {
-                        alunoCard.remove();
-                        // Atualiza o estado
-                        this.alunos = this.alunos.filter(aluno => aluno.id !== alunoId);
-                        console.log(`[SAÍDA] Aluno ${alunoNome} removido do DOM sem recriar toda a tela.`);
-                    }, 450);
-                } else {
-                    // Fallback: remove do estado e renderiza tudo
-                    this.alunos = this.alunos.filter(aluno => aluno.id !== alunoId);
-                    this.renderizarAlunos();
-                    console.log(`[SAÍDA] Fallback: Aluno ${alunoNome} removido com renderização total.`);
-                }
+                this.removerAlunoDoSlot(alunoId, alunoNome);
             }
 
             processarSaidaConfirmada(mensagem) {
-                const alunoCard = document.querySelector(`[data-aluno-id="${mensagem.alunoId}"]`);
-
-                // 1. ANIMAÇÃO: Aplica a classe para a animação de saída.
-                if (alunoCard) {
-                    alunoCard.classList.add('removendo');
-                }
-
-                // 2. ATRASO SINCRONIZADO: Espera a animação terminar.
-                setTimeout(() => {
-                    // 3. ATUALIZA O ESTADO: Remove o aluno da lista de dados.
-                    this.alunos = this.alunos.filter(aluno => aluno.id !== mensagem.alunoId);
-
-                    // === SOLUÇÃO: NÃO RENDERIZAR TUDO, APENAS REMOVER O CARD DO DOM ===
-                    if (alunoCard) {
-                        alunoCard.remove(); // Remove apenas o card específico
-                        console.log(`[SAÍDA] Card do aluno ${mensagem.alunoNome} removido do DOM.`);
-                    } else {
-                        // Fallback: se não encontrou o card, renderiza tudo
-                        this.renderizarAlunos();
-                    }
-
-                    console.log(`[SAÍDA] Aluno ${mensagem.alunoNome} removido do estado.`);
-
-                }, 450); // Duração da animação CSS
+                this.removerAlunoDoSlot(mensagem.alunoId, mensagem.alunoNome);
             }
 
             processarSaidaCancelada(mensagem) {
@@ -1838,32 +1884,7 @@
             }
 
             adicionarAlunoSilenciosamente(aluno) {
-                const grid = document.getElementById('alunosGrid');
-                const placeholder = grid.querySelector('.empty-state');
-                if (placeholder) placeholder.remove();
-
-                this.alunos.push(aluno);
-                this.alunos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-
-                const card = document.createElement('div');
-                card.className = 'aluno-card';
-                card.setAttribute('data-aluno-id', aluno.id);
-
-                if (aluno.status === 'AGUARDANDO_CONFIRMACAO') {
-                    card.classList.add('pendente');
-                    let tipo = (aluno.tipoSolicitante || 'diretor').toLowerCase();
-                    if (['parente', 'amigo', 'irmao'].includes(tipo)) tipo = 'token';
-                    card.classList.add(tipo);
-                }
-
-                const nomeParaExibir = this.formatarNomeAluno(aluno);
-                const horarioTexto = aluno.status === 'AGUARDANDO_CONFIRMACAO' ? 'Aguardando' : 'Presente';
-                card.innerHTML = `
-                    <div class="aluno-nome">${nomeParaExibir}</div>
-                    <div class="aluno-horario">${horarioTexto}</div>
-                `;
-
-                grid.appendChild(card);
+                this.adicionarAlunoEmSlot(aluno);
             }
 
             atualizarStatusCardSilenciosamente(alunoLocal, alunoFresco) {
