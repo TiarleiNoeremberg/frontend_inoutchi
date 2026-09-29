@@ -4145,6 +4145,37 @@
             // um valor inventado) quando não foi possível obtê-los; tenta de novo após 30 s.
             let coordenadasEscolaCache = null;
             let coordenadasEscolaUltimaTentativa = 0;
+            // LGPD (Decisão 038): a posição exata não sai do aparelho nas operações de entrada e
+            // saída. O backend informa as cercas que valem para a operação; aqui se mede a distância
+            // até elas e só "geofenceId + distanciaMetros" segue para o servidor, que continua
+            // decidindo se está dentro. Se as cercas não puderem ser obtidas, devolve as
+            // coordenadas (comportamento anterior) para nunca bloquear uma retirada por falha de rede.
+            async function montarLocalizacaoParaBackend(alunoId, tipo, latitude, longitude) {
+                try {
+                    const response = await fetchWithAuth(`/api/geofences/aluno/${alunoId}/cercas?tipo=${tipo}`);
+                    if (!response || !response.ok) throw new Error(`HTTP ${response ? response.status : 'sem resposta'}`);
+                    const cercas = await response.json();
+                    if (!Array.isArray(cercas) || cercas.length === 0) throw new Error('nenhuma cerca informada');
+
+                    // Escolhe a cerca em que o tutor está "mais dentro" (menor distância - raio).
+                    let melhor = null;
+                    for (const cerca of cercas) {
+                        if (typeof cerca.id !== 'number' || typeof cerca.latitude !== 'number'
+                                || typeof cerca.longitude !== 'number' || !(cerca.raio > 0)) continue;
+                        const distancia = calcularDistanciaMetros(latitude, longitude, cerca.latitude, cerca.longitude);
+                        const folga = distancia - cerca.raio;
+                        if (melhor === null || folga < melhor.folga) melhor = { id: cerca.id, distancia, folga };
+                    }
+                    if (melhor === null) throw new Error('cercas inválidas');
+
+                    // Arredonda PARA CIMA: nunca transforma "fora" em "dentro".
+                    return { geofenceId: melhor.id, distanciaMetros: Math.ceil(melhor.distancia) };
+                } catch (error) {
+                    console.warn('⚠️ Cercas indisponíveis, enviando localização no formato anterior:', error.message);
+                    return { latitude, longitude };
+                }
+            }
+
             async function obterCoordenadasEscola() {
                 if (coordenadasEscolaCache) return coordenadasEscolaCache;
                 const agora = Date.now();
@@ -4588,10 +4619,10 @@
                     locationModal.style.display = 'none';
 
                     // 2. DISPARA PARA O BACKEND PRIMEIRO (Para validar a Geofence)
+                    const localizacao = await montarLocalizacaoParaBackend(parseInt(studentId), 'ENTRADA', latitude, longitude);
                     const payload = {
                         alunoId: parseInt(studentId),
-                        latitude: latitude,
-                        longitude: longitude,
+                        ...localizacao,
                         responsavelId: currentUser.id,
                         responsavelNome: currentUser.nome,
                         responsavelTipo: 'TUTOR'
@@ -4794,13 +4825,13 @@
                 // FASE 2: VALIDAÇÃO NO BACKEND (SEM MOSTRAR TELA DE SUCESSO AINDA)
                 // =========================================================
                 try {
+                    const localizacao = await montarLocalizacaoParaBackend(parseInt(studentId), 'SAIDA', latitude, longitude);
                     const payload = {
                         alunoId: parseInt(studentId),
-                        latitude: latitude,
-                        longitude: longitude
+                        ...localizacao
                     };
 
-                    console.log("Enviando solicitação de saída para validação:", payload);
+                    console.log("Enviando solicitação de saída para validação (aluno " + studentId + ")");
 
                     const response = await fetchWithAuth('/api/presencas/saida/solicitar', {
                         method: 'POST',
