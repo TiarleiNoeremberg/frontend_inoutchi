@@ -4122,47 +4122,79 @@
                     console.warn('Erro ao buscar escolaId via /api/users/me:', error);
                 }
 
-                // Último fallback
-                console.warn('Não foi possível obter escolaId, usando fallback 1');
-                return 1;
+                // Sem fallback: assumir uma escola qualquer (antes era a de ID 1) faria o cálculo
+                // de "dentro/fora" usar a cerca errada. Sem escola identificada, não decidimos nada.
+                console.warn('Não foi possível obter escolaId.');
+                return null;
             }
 
-            // Verificar localização atual via backend
-            async function verificarLocalizacaoComBackend() {
+            // Distância (Haversine) em metros, calculada aqui no aparelho.
+            function calcularDistanciaMetros(lat1, lon1, lat2, lon2) {
+                const R = 6371e3;
+                const φ1 = lat1 * Math.PI / 180;
+                const φ2 = lat2 * Math.PI / 180;
+                const Δφ = (lat2 - lat1) * Math.PI / 180;
+                const Δλ = (lon2 - lon1) * Math.PI / 180;
+                const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                    Math.cos(φ1) * Math.cos(φ2) *
+                    Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+                return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            }
+
+            // Coordenadas e raio da escola, buscados uma vez e reaproveitados. Retorna null (nunca
+            // um valor inventado) quando não foi possível obtê-los; tenta de novo após 30 s.
+            let coordenadasEscolaCache = null;
+            let coordenadasEscolaUltimaTentativa = 0;
+            async function obterCoordenadasEscola() {
+                if (coordenadasEscolaCache) return coordenadasEscolaCache;
+                const agora = Date.now();
+                if (agora - coordenadasEscolaUltimaTentativa < 30000) return null;
+                coordenadasEscolaUltimaTentativa = agora;
+
+                try {
+                    const escolaId = await getEscolaId();
+                    if (!escolaId) return null;
+                    const response = await fetchWithAuth(`/api/geofences/escola/${escolaId}/coordenadas`);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
+                    if (typeof data.latitude !== 'number' || typeof data.longitude !== 'number' || !(data.raio > 0)) {
+                        throw new Error('coordenadas da escola inválidas');
+                    }
+                    coordenadasEscolaCache = { lat: data.latitude, lng: data.longitude, raio: data.raio };
+                    return coordenadasEscolaCache;
+                } catch (error) {
+                    console.error('Erro ao carregar coordenadas da escola:', error);
+                    return null;
+                }
+            }
+
+            // Atualiza a pílula "dentro/fora da escola". A distância é calculada localmente: a
+            // posição exata do tutor não é enviada ao servidor só para isso (LGPD: minimização).
+            async function verificarLocalizacaoLocal() {
                 if (!navigator.geolocation) {
                     atualizarPillGeofence(false, null, 'Geolocalização não suportada');
                     return;
                 }
 
+                const escola = await obterCoordenadasEscola();
+                if (!escola) {
+                    atualizarPillGeofence(false, null, 'Não foi possível verificar a área da escola');
+                    return;
+                }
+
                 navigator.geolocation.getCurrentPosition(
-                    async (position) => {
-                        try {
-                            const escolaId = await getEscolaId();
-                            if (!escolaId) {
-                                atualizarPillGeofence(false, null, 'Escola não identificada');
-                                return;
-                            }
-
-                            // Chamar o endpoint de verificação do backend
-                            const response = await fetchWithAuth(
-                                `/api/geofences/verificar/${escolaId}?latitude=${position.coords.latitude}&longitude=${position.coords.longitude}&tipo=SAIDA`
-                            );
-
-                            const data = await response.json();
-
-                            if (data.dentro_geofence) {
-                                atualizarPillGeofence(true, null, 'Dentro da área da escola');
-                            } else {
-                                atualizarPillGeofence(false, null, 'Fora da área da escola');
-                            }
-                        } catch (error) {
-                            console.error('Fora da área da escola:', error);
-                            atualizarPillGeofence(false, null, 'Fora da área da escola');
+                    (position) => {
+                        const distancia = calcularDistanciaMetros(
+                            position.coords.latitude, position.coords.longitude, escola.lat, escola.lng);
+                        if (distancia <= escola.raio) {
+                            atualizarPillGeofence(true, distancia, 'Dentro da área da escola');
+                        } else {
+                            atualizarPillGeofence(false, distancia, 'Fora da área da escola');
                         }
                     },
                     (error) => {
-                        console.error('Fora da área da escola:', error);
-                        atualizarPillGeofence(false, null, 'Fora da área da escola');
+                        console.error('Erro ao obter a localização:', error);
+                        atualizarPillGeofence(false, null, 'Não foi possível obter sua localização');
                     },
                     {
                         enableHighAccuracy: true,
@@ -4190,12 +4222,12 @@
             // Iniciar monitoramento periódico
             function iniciarMonitoramentoGeofence() {
                 // Verificar imediatamente
-                verificarLocalizacaoComBackend();
+                verificarLocalizacaoLocal();
 
                 // Verificar a cada 30 segundos
                 if (intervaloGeofence) clearInterval(intervaloGeofence);
                 intervaloGeofence = setInterval(() => {
-                    verificarLocalizacaoComBackend();
+                    verificarLocalizacaoLocal();
                 }, 30000);
             }
 
@@ -5862,15 +5894,20 @@
                     // Carrega coordenadas da escola
                     try {
                         const escolaId = await this.getEscolaId();
+                        if (!escolaId) throw new Error('escolaId indisponível');
                         const response = await fetchWithAuth(`/api/geofences/escola/${escolaId}/coordenadas`);
+                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
                         const data = await response.json();
+                        if (typeof data.latitude !== 'number' || typeof data.longitude !== 'number' || !(data.raio > 0)) {
+                            throw new Error('coordenadas da escola inválidas');
+                        }
                         this.schoolCoords = {
                             lat: data.latitude,
                             lng: data.longitude,
                             raio: data.raio
                         };
-                        this.GEOFENCE_RADIUS_METERS = data.raio || 200;
-                        console.log('📍 [EntranceDetector] Coordenadas da escola carregadas:', this.schoolCoords);
+                        this.GEOFENCE_RADIUS_METERS = data.raio;
+                        console.log('📍 [EntranceDetector] Coordenadas da escola carregadas');
                     } catch (error) {
                         console.error('❌ [EntranceDetector] Erro ao carregar coordenadas:', error);
                         return;
@@ -5896,7 +5933,7 @@
                         console.warn('[EntranceDetector] Erro ao buscar escolaId:', error);
                     }
 
-                    return 1; // fallback
+                    return null; // sem fallback: escola errada = cerca errada
                 }
 
                 calculateDistance(lat1, lon1, lat2, lon2) {
@@ -6073,22 +6110,9 @@
                 async init() {
                     if (this.isInitialized) return;
 
-                    // Carrega coordenadas da escola
-                    try {
-                        const escolaId = await this.getEscolaId();
-                        const response = await fetchWithAuth(`/api/geofences/escola/${escolaId}/coordenadas`);
-                        const data = await response.json();
-                        this.schoolCoords = {
-                            lat: data.latitude,
-                            lng: data.longitude,
-                            raio: data.raio
-                        };
-                        this.GEOFENCE_RADIUS_METERS = data.raio || 200;
-                        console.log('📍 Coordenadas da escola:', this.schoolCoords);
-                    } catch (error) {
-                        console.error('❌ Erro ao carregar coordenadas:', error);
-                        this.schoolCoords = { lat: -23.5505, lng: -46.6333, raio: 200 };
-                    }
+                    // Carrega coordenadas da escola. Se falhar, schoolCoords fica null e
+                    // handlePositionUpdate tenta de novo - nunca se usa uma coordenada inventada.
+                    await this.carregarCoordenadasEscola();
 
                     // Recupera estado após refresh
                     await this.recuperarEstadoAposRefresh();
@@ -6155,9 +6179,30 @@
                         console.warn('Erro ao buscar escolaId via /api/users/me:', error);
                     }
 
-                    // Último fallback
-                    console.warn('⚠️ Não foi possível obter escolaId, usando fallback 1');
-                    return 1;
+                    // Sem fallback: assumir uma escola qualquer usaria a cerca errada.
+                    console.warn('⚠️ Não foi possível obter escolaId.');
+                    return null;
+                }
+
+                async carregarCoordenadasEscola() {
+                    try {
+                        const escolaId = await this.getEscolaId();
+                        if (!escolaId) throw new Error('escolaId indisponível');
+                        const response = await fetchWithAuth(`/api/geofences/escola/${escolaId}/coordenadas`);
+                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                        const data = await response.json();
+                        if (typeof data.latitude !== 'number' || typeof data.longitude !== 'number' || !(data.raio > 0)) {
+                            throw new Error('coordenadas da escola inválidas');
+                        }
+                        this.schoolCoords = { lat: data.latitude, lng: data.longitude, raio: data.raio };
+                        this.GEOFENCE_RADIUS_METERS = data.raio;
+                        console.log('📍 Coordenadas da escola carregadas');
+                        return true;
+                    } catch (error) {
+                        console.error('❌ Erro ao carregar coordenadas da escola:', error);
+                        this.schoolCoords = null;
+                        return false;
+                    }
                 }
 
                 async recuperarEstadoAposRefresh() {
@@ -6420,14 +6465,14 @@
                     } catch (error) { }
                 }
 
-                async notifyBackendPosition(latitude, longitude, isInside, distance) {
+                async notifyBackendPosition(isInside, distance) {
+                    // Só dentro/fora e distância trafegam - a posição exata fica no aparelho (LGPD).
                     try {
                         await fetchWithAuth('/api/geofences/monitoramento/posicao', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                                 sessaoId: this.getSessionId(),
-                                latitude, longitude,
                                 dentroGeofence: isInside,
                                 distancia: Math.round(distance),
                                 timestamp: Date.now()
@@ -6595,6 +6640,20 @@
 
                     this.poorGpsCount = 0;
 
+                    // Sem as coordenadas reais da escola não existe "dentro" nem "fora": decidir com
+                    // um valor inventado poderia iniciar a contagem de saída automática de um aluno.
+                    if (!this.schoolCoords) {
+                        const agora = Date.now();
+                        if (agora - (this.lastCoordsAttempt || 0) >= 30000) {
+                            this.lastCoordsAttempt = agora;
+                            await this.carregarCoordenadasEscola();
+                        }
+                        if (!this.schoolCoords) {
+                            console.warn('⚠️ Coordenadas da escola indisponíveis: nenhuma decisão tomada para esta posição.');
+                            return;
+                        }
+                    }
+
                     const distance = this.calculateDistance(latitude, longitude, this.schoolCoords.lat, this.schoolCoords.lng);
                     const isInside = distance <= this.GEOFENCE_RADIUS_METERS;
 
@@ -6611,7 +6670,7 @@
                     const now = Date.now();
                     if (now - this.lastBackendCall >= this.THROTTLE_MS) {
                         this.lastBackendCall = now;
-                        await this.notifyBackendPosition(latitude, longitude, isInside, distance);
+                        await this.notifyBackendPosition(isInside, distance);
                     }
 
                     // ======================================================================
