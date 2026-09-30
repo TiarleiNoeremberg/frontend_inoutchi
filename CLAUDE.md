@@ -142,9 +142,10 @@ Não foram corrigidas; estão aqui para ninguém tropeçar nelas de novo.
 
 **`dashboard-diretor.html`**
 - Há **duas definições** de `openDirectorActionModal`: a de `window.openDirectorActionModal = ...` (mais adiante no arquivo) prevalece e a função declarada depois fica sombreada. Edite a que está em uso.
-- Código sem nenhum chamador: `executeDirectorEntry`, `executeDirectorExit`, `obterLocalizacaoParaModal`, `confirmStudentAction`, `getDirectorLocation` (só usada pela definição sombreada). Ainda mencionam localização, mas não executam. Não remova sem confirmar (regra do projeto: não apagar por parecer redundante).
-- `forcarSaidaAluno` chama `POST /api/presencas/saida/diretor-forcar`, **endpoint que não existe no backend** (a ação falha).
-- `openGeofenceModal` é chamada em atualizações via WebSocket, mas **não está definida** na página.
+- Código sem nenhum chamador: `executeDirectorEntry`, `executeDirectorExit`, `obterLocalizacaoParaModal`, `confirmStudentAction`, `forcarSaidaAluno`, `getDirectorLocation` (só usada pela definição sombreada). Ainda mencionam localização, mas não executam. Não remova sem confirmar (regra do projeto: não apagar por parecer redundante).
+- **Encerrar a sessão de um aluno à força (diretor)** é a aba Alunos → histórico do aluno → botão **"Encerrar Sessão"** (aparece se o aluno está presente). Chama `encerrarSessaoManualmente` → `PATCH /api/presencas/sessoes/{id}/encerrar-manualmente` (existe no backend, só `ROLE_DIRETOR`). **Não há outro botão de "forçar saída".**
+- **`forcarSaidaAluno` é código morto** (verificado em 2026-09-30): nenhum chamador. Aponta para `POST /api/presencas/saida/diretor-forcar`, que não existe no backend; é resto de uma versão antiga do "Encerrar Sessão" e nunca executa.
+- **`openGeofenceModal`/`openManualConfirmModal`** são referenciadas só dentro de `atualizarBotaoAlunoDireto`, que procura um elemento `.btn-action` que nenhuma parte da página cria; a atribuição nunca executa. Também são resto de uma versão antiga.
 
 **Outras páginas**
 - **`dashboard-geofence.html` foi removida em 2026-09-30.** Era um protótipo legado e órfão (nenhum link a usava, só admitia `ROLE_ADMIN`, apontava para `http://localhost:3000`, e o backend só permite gerir cercas ao `ROLE_ESCOLA`). **A gestão de cercas em produção é a aba "Gestão de Geolocalização (Geofence)" do `dashboard-escola.html`.** Se precisar consultar a página antiga: `git show <commit-anterior>:dashboard-geofence.html` (último commit que a alterou: `bfc8961`).
