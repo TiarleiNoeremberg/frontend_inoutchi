@@ -1,5 +1,11 @@
 // Service Worker para Push Notifications
-const CACHE_NAME = 'inoutchi-cache-v1';
+//
+// Estratégia de cache: REDE PRIMEIRO. O cache é só reserva para quando a rede falha.
+// (Antes era "cache primeiro" com nome de cache fixo: quem tinha este SW instalado continuava
+// recebendo para sempre as cópias antigas de /dashboard-tutor.html, /login.html, /auth.js e
+// /config.js, e nenhuma correção publicada chegava a esses usuários.)
+// Ao publicar uma mudança que precise invalidar caches antigos, aumente o número de CACHE_NAME.
+const CACHE_NAME = 'inoutchi-cache-v2';
 const urlsToCache = [
     '/',
     '/login.html',
@@ -11,11 +17,17 @@ const urlsToCache = [
 
 // Instalação do Service Worker
 self.addEventListener('install', (event) => {
+    // Assume o controle sem esperar as abas antigas fecharem.
+    self.skipWaiting();
     event.waitUntil(
         caches.open(CACHE_NAME)
             .then((cache) => {
                 console.log('[SW] Cache aberto');
-                return cache.addAll(urlsToCache);
+                // Um arquivo indisponível não pode impedir a instalação (e, com ela, o push).
+                // 'reload' ignora o cache HTTP: a reserva nasce com a versão publicada.
+                return Promise.allSettled(
+                    urlsToCache.map((url) => cache.add(new Request(url, { cache: 'reload' })))
+                );
             })
     );
 });
@@ -31,21 +43,32 @@ self.addEventListener('activate', (event) => {
                         return caches.delete(cacheName);
                     }
                 })
-            );
+            ).then(() => self.clients.claim());
         })
     );
 });
 
-// Interceptação de requisições
+// Interceptação de requisições: rede primeiro, cache como reserva.
 self.addEventListener('fetch', (event) => {
+    const request = event.request;
+    const url = new URL(request.url);
+
+    // Só GET do mesmo domínio. API, POST e outros domínios seguem direto, sem interceptação.
+    if (request.method !== 'GET' || url.origin !== self.location.origin) {
+        return;
+    }
+
     event.respondWith(
-        caches.match(event.request)
+        fetch(request)
             .then((response) => {
-                if (response) {
-                    return response;
+                // Mantém a reserva offline sempre com a última versão publicada.
+                if (response.ok && urlsToCache.includes(url.pathname)) {
+                    const copia = response.clone();
+                    caches.open(CACHE_NAME).then((cache) => cache.put(request, copia));
                 }
-                return fetch(event.request);
+                return response;
             })
+            .catch(() => caches.match(request))
     );
 });
 
