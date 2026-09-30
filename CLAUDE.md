@@ -46,7 +46,7 @@ O login (`login.html`) redireciona por perfil (`ROLE_*`):
 | Arquivo | Perfil / uso | Fim de linha | Observações |
 |---|---|---|---|
 | `dashboard-tutor.html` | `ROLE_TUTOR` (pais/responsáveis) | **LF** | Maior arquivo (~400 KB). Geofence, entrada, solicitação de saída, geração de tokens, push. |
-| `dashboard-diretor.html` | `ROLE_DIRETOR` | **CRLF** | Diretor é **livre da geofence**: não coleta nem envia localização. Tem código morto (seção 8). |
+| `dashboard-diretor.html` | `ROLE_DIRETOR` | **CRLF** | Diretor é **livre da geofence**: não coleta nem envia localização. Tinha ~35% de código morto, removido em 2026-09-30 (seção 8). |
 | `dashboard-escola.html` | `ROLE_ESCOLA` | **CRLF** | Administração da escola (config de voz, transportadores etc.). Inclui a aba **"Gestão de Geolocalização (Geofence)"**: mapa, formulário e lista das cercas (`/api/geofences`, que o backend só permite ao `ROLE_ESCOLA`). É esta a tela de cercas em produção. |
 | `dashboard-sala.html` | `ROLE_SALA` (TV da sala) | **CRLF** | Recebe eventos por WebSocket e toca o som/voz. |
 | `dashboard-saguao.html` | `ROLE_SAGUAO` (painel do saguão) | **LF** | Lista de chamadas pendentes da escola. |
@@ -93,6 +93,7 @@ Os arquivos são grandes (até ~400 KB) e o repositório **não tem build nem te
    ```
 
 4. **Teste a lógica em Node** quando mexer numa função pura (ex.: os helpers de localização): extraia a função e execute com `fetch`/`fetchWithAuth` simulados. Foi assim que os helpers de cerca+distância foram validados (cerca mais interna, arredondamento, fallback em cada falha).
+5. **Como provar código morto antes de apagar** (usado em 2026-09-30 no diretor). Uma busca de texto não basta: ela conta referências em comentários e erra por excesso e por falta. O que funcionou: (a) analisar o script com um parser de JavaScript (`acorn`, instalado junto do `eslint`) e contar só referências de código, strings/templates (inclui `onclick="nome("` montado em HTML gerado) e atributos HTML fora do `<script>`; (b) repetir a conta sem as funções já mortas, para pegar as que só eram chamadas por outras mortas; (c) garantir que não há `eval`, `new Function`, `setTimeout("texto")` nem `window[nome]`; (d) conferir que nenhuma outra página chama a função; (e) medir no navegador com cobertura de JavaScript do V8 nos fluxos reais e confirmar que nenhuma "morta" executa; (f) depois de remover, rodar a bateria de fluxos e um teste diferencial (clicar em todos os `onclick` antes e depois e comparar erros e requisições). Remova por posição no AST, nunca por expressão regular, e confirme que o `git diff` é só remoção (use `--diff-algorithm=patience`: o algoritmo padrão do git mostra "inserções" falsas).
 5. **Console:** não escreva coordenadas, tokens nem dados pessoais em `console.log`.
 6. **Antes do push:** o push é deploy (seção 2). Rode o passo 3 e olhe o diff.
 
@@ -141,11 +142,10 @@ Detalhes e histórico: backend, Decisões 036 a 041. Política de dados: [`docs/
 Não foram corrigidas; estão aqui para ninguém tropeçar nelas de novo.
 
 **`dashboard-diretor.html`**
-- Há **duas definições** de `openDirectorActionModal`: a de `window.openDirectorActionModal = ...` (mais adiante no arquivo) prevalece e a função declarada depois fica sombreada. Edite a que está em uso.
-- Código sem nenhum chamador: `executeDirectorEntry`, `executeDirectorExit`, `obterLocalizacaoParaModal`, `confirmStudentAction`, `forcarSaidaAluno`, `getDirectorLocation` (só usada pela definição sombreada). Ainda mencionam localização, mas não executam. Não remova sem confirmar (regra do projeto: não apagar por parecer redundante).
+- **Código morto removido em 2026-09-30** (33 declarações, ~91 KB de 328 KB; commits `7be0320` e `5ee9a9a`): classe `WebSocketConnector` (nunca instanciada), `fetchWithAuth`/`renovarToken`/`testarAutenticacao` (autenticação antiga), `forcarSaidaAluno`, `executeDirectorEntry/Exit`, `obterLocalizacaoParaModal`, `confirmStudentAction`, `getDirectorLocation` e `showLocation*` (GPS antigo), a declaração sombreada de `openDirectorActionModal`, e outras sem nenhuma referência. Recuperável no histórico do git (`git show 15b7854:dashboard-diretor.html`). O método de provar que algo é morto está em "Como provar código morto" (seção 5): **não apague por achar que não é usado**.
+- **`openDirectorActionModal` agora tem uma única definição**: `window.openDirectorActionModal = ...` (modal de entrada/saída do próprio diretor, **sem GPS**; o botão Confirmar já vem habilitado).
 - **Encerrar a sessão de um aluno à força (diretor)** é a aba Alunos → histórico do aluno → botão **"Encerrar Sessão"** (aparece se o aluno está presente). Chama `encerrarSessaoManualmente` → `PATCH /api/presencas/sessoes/{id}/encerrar-manualmente` (existe no backend, só `ROLE_DIRETOR`). **Não há outro botão de "forçar saída".**
-- **`forcarSaidaAluno` é código morto** (verificado em 2026-09-30): nenhum chamador. Aponta para `POST /api/presencas/saida/diretor-forcar`, que não existe no backend; é resto de uma versão antiga do "Encerrar Sessão" e nunca executa.
-- **`openGeofenceModal`/`openManualConfirmModal`** são referenciadas só dentro de `atualizarBotaoAlunoDireto`, que procura um elemento `.btn-action` que nenhuma parte da página cria; a atribuição nunca executa. Também são resto de uma versão antiga.
+- **Defeito conhecido (não corrigido): o botão "Atualizar" da aba Saídas Rápidas não funciona.** `window.refreshQuickExits` está definida **duas vezes**; a segunda (no fim do script) é `function () { refreshQuickExits(); }` e chama a si mesma, sobrescrevendo a primeira (que fazia `carregarAlunosParaSaidasRapidas()`). Resultado: recursão infinita (`Maximum call stack size exceeded`) a cada clique em `onclick="refreshQuickExits()"`. Reproduzido no navegador com a página real, já antes da limpeza. Correção provável: remover a segunda definição.
 
 **Outras páginas**
 - **`dashboard-geofence.html` foi removida em 2026-09-30.** Era um protótipo legado e órfão (nenhum link a usava, só admitia `ROLE_ADMIN`, apontava para `http://localhost:3000`, e o backend só permite gerir cercas ao `ROLE_ESCOLA`). **A gestão de cercas em produção é a aba "Gestão de Geolocalização (Geofence)" do `dashboard-escola.html`.** Se precisar consultar a página antiga: `git show <commit-anterior>:dashboard-geofence.html` (último commit que a alterou: `bfc8961`).
