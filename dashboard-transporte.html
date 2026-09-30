@@ -684,15 +684,58 @@
                 openConfirmationModal();
             }
 
+            // Distância em metros entre dois pontos (Haversine), medida no próprio aparelho.
+            function calcularDistanciaMetros(lat1, lon1, lat2, lon2) {
+                const R = 6371000;
+                const toRad = (graus) => graus * Math.PI / 180;
+                const dLat = toRad(lat2 - lat1);
+                const dLon = toRad(lon2 - lon1);
+                const a = Math.sin(dLat / 2) ** 2 +
+                    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+                return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            }
+
+            // LGPD: a posição exata não sai do aparelho. O backend informa as cercas que valem para a
+            // operação; aqui se mede a distância até elas e só "geofenceId + distanciaMetros" segue para
+            // o servidor, que continua decidindo se está dentro. Se as cercas não puderem ser obtidas,
+            // devolve as coordenadas (comportamento anterior) para nunca bloquear a operação por falha de rede.
+            async function montarLocalizacaoParaBackend(tipo, latitude, longitude) {
+                try {
+                    const response = await fetchWithAuth(`/api/transporte/cercas?tipo=${tipo}`);
+                    const cercas = await response.json();
+                    if (!Array.isArray(cercas) || cercas.length === 0) throw new Error('nenhuma cerca informada');
+
+                    // Escolhe a cerca em que o transportador está "mais dentro" (menor distância - raio).
+                    let melhor = null;
+                    for (const cerca of cercas) {
+                        if (typeof cerca.id !== 'number' || typeof cerca.latitude !== 'number'
+                                || typeof cerca.longitude !== 'number' || !(cerca.raio > 0)) continue;
+                        const distancia = calcularDistanciaMetros(latitude, longitude, cerca.latitude, cerca.longitude);
+                        const folga = distancia - cerca.raio;
+                        if (melhor === null || folga < melhor.folga) melhor = { id: cerca.id, distancia, folga };
+                    }
+                    if (melhor === null) throw new Error('cercas inválidas');
+
+                    // Arredonda PARA CIMA: nunca transforma "fora" em "dentro".
+                    return { geofenceId: melhor.id, distanciaMetros: Math.ceil(melhor.distancia) };
+                } catch (error) {
+                    console.warn('Cercas indisponíveis, enviando localização no formato anterior:', error.message);
+                    return { latitude, longitude };
+                }
+            }
+
             async function executeBatchAction() {
                 if (!currentAction || !currentActionPayload) return;
                 const endpoint = currentAction === 'entrada' ? '/api/transporte/chamadas/entrada' : '/api/transporte/chamadas/saida';
-                const payload = {
-                    alunoIds: currentActionPayload.alunoIds.map(id => Number(id)),
-                    latitude: currentActionPayload.location.latitude,
-                    longitude: currentActionPayload.location.longitude
-                };
                 try {
+                    const localizacao = await montarLocalizacaoParaBackend(
+                        currentAction === 'entrada' ? 'ENTRADA' : 'SAIDA',
+                        currentActionPayload.location.latitude,
+                        currentActionPayload.location.longitude);
+                    const payload = {
+                        alunoIds: currentActionPayload.alunoIds.map(id => Number(id)),
+                        ...localizacao
+                    };
                     const response = await fetchWithAuth(endpoint, { method: 'POST', body: JSON.stringify(payload) });
                     const result = await response.json();
                     closeConfirmationModal();
