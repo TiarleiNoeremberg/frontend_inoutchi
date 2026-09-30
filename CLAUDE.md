@@ -53,7 +53,6 @@ O login (`login.html`) redireciona por perfil (`ROLE_*`):
 | `dashboard-transporte.html` | `ROLE_TRANSPORTE` | **CRLF** | Entrada/saída em lote; sujeito à geofence. |
 | `dashboard-professor.html` | `ROLE_PROFESSOR` | **CRLF** | — |
 | `dashboard-token.html` | **Público** (portador de token, sem login) | **LF** | Lê `?token=` da URL; sujeito à geofence. |
-| `dashboard-geofence.html` | **Página legada e órfã** (nenhum link a usa) | **CRLF** | **Não é a tela de cercas em uso.** A gestão de cercas é uma aba dentro de `dashboard-escola.html`. Ver seção 8. |
 | `login.html`, `reset-password.html`, `delete-account.html`, `index.html`, `saiba-mais.html`, `terms.html`, `politica-privacidade.html` | Públicas | mistos | — |
 | `admin/app-configuration.html` + `js/`, `css/` | Configuração do app (admin) | LF | — |
 | `auth.js`, `config.js`, `biometric.js`, `notification-api.js`, `sw.js` | Scripts compartilhados | `auth.js`/`config.js`: CRLF; os demais: LF | `auth.js`: só o tutor. `config.js`: tutor e professor. `biometric.js`: só o login. `notification-api.js` (registra o `sw.js`): só o tutor. As demais páginas não os usam. |
@@ -148,7 +147,7 @@ Não foram corrigidas; estão aqui para ninguém tropeçar nelas de novo.
 - `openGeofenceModal` é chamada em atualizações via WebSocket, mas **não está definida** na página.
 
 **Outras páginas**
-- **`dashboard-geofence.html` é legada e órfã** (verificado em 2026-09-30): nenhum arquivo do repositório aponta para ela; só admite `ROLE_ADMIN` (redireciona tutor e diretor para fora) e usa `BACKEND_URL = 'http://localhost:3000'`. O backend só permite criar, alterar e excluir cercas ao `ROLE_ESCOLA`, então ela não funcionaria em produção nem com a URL corrigida. **A tela em uso é a aba de geofence do `dashboard-escola.html`** (que usa o backend de produção). Não corrija a URL dessa página (criaria um segundo caminho de administração incoerente com o backend). Removê-la é possível, mas só com decisão do responsável: a URL `/dashboard-geofence.html` continua pública.
+- **`dashboard-geofence.html` foi removida em 2026-09-30.** Era um protótipo legado e órfão (nenhum link a usava, só admitia `ROLE_ADMIN`, apontava para `http://localhost:3000`, e o backend só permite gerir cercas ao `ROLE_ESCOLA`). **A gestão de cercas em produção é a aba "Gestão de Geolocalização (Geofence)" do `dashboard-escola.html`.** Se precisar consultar a página antiga: `git show <commit-anterior>:dashboard-geofence.html` (último commit que a alterou: `bfc8961`).
 - Duas URLs de backend (seção 2).
 - `send_email.php` não executa no GitHub Pages.
 
