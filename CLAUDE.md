@@ -104,8 +104,9 @@ Usuários com página antiga em cache (navegador, PWA, WebView) e backend novo, 
 
 - **Contrato aditivo:** campos novos são opcionais; o backend continua aceitando o formato antigo. Foi o desenho de todas as mudanças de localização (Decisões 038 a 041).
 - **Fallback nunca bloqueia:** quando um recurso novo falha (ex.: não conseguiu buscar as cercas), a página volta ao comportamento anterior em vez de impedir a retirada de uma criança.
-- **Risco de cache (a verificar):** `sw.js` é um Service Worker **cache-first** com nome de cache fixo (`inoutchi-cache-v1`) que pré-armazena `/`, `/login.html`, `/dashboard-tutor.html`, `/auth.js` e `/config.js`. Ele é registrado por `notification-api.js`, que só a página do **tutor** carrega (push). Pelo código, em navegadores onde o SW ficou instalado essas páginas podem continuar sendo servidas do cache **sem receber atualizações**, até que o `CACHE_NAME` mude (ou o `sw.js` seja alterado). Isso atinge justamente `dashboard-tutor.html`, o arquivo que mais mudou nas alterações de localização. Não foi verificado em produção nem no WebView. Se uma mudança "não chega" para alguns usuários, comece por aqui.
-
+- **Service Worker (`sw.js`) — corrigido em 2026-09-30.** Antes ele era **cache-first** com nome de cache fixo (`inoutchi-cache-v1`) e pré-armazenava `/`, `/login.html`, `/dashboard-tutor.html`, `/auth.js` e `/config.js`. Reproduzido no Chromium com o arquivo real: em quem tinha esse SW instalado, essas páginas **nunca mais eram atualizadas** após um deploy, enquanto páginas fora da lista (ex.: `dashboard-diretor.html`) atualizavam normalmente. Agora a estratégia é **rede primeiro** (o cache só serve de reserva offline, mantida com a última versão publicada), com `skipWaiting`/`clients.claim`; os handlers de push e de clique na notificação não foram alterados. Quem tinha o SW antigo recebe o novo sozinho: a primeira visita após o deploy ainda mostra a página antiga uma vez, e a seguinte já vem atualizada. Ao publicar algo que precise invalidar caches antigos, aumente o número em `CACHE_NAME`.
+  - **Situação real:** nenhuma página chama `NotificationAPI.setup()`, que é o que registra o SW (`notification-api.js`), e nenhum commit do histórico chamou. Pelo código atual o SW provavelmente **não é registrado** em ninguém; só existiria em navegadores que o registraram antes. Nunca foi verificado em produção. A correção protege esses casos e o dia em que alguém ligar o `setup()`.
+  - `dashboard-tutor.html` inclui `sw.js` também como `<script src="sw.js">` comum (sem efeito prático). Por isso `sw.js` não pode declarar novos identificadores globais além de `CACHE_NAME` e `urlsToCache`, nem lançar erro fora dos handlers.
 ---
 
 ## 7. Localização (LGPD) — protocolo atual
@@ -147,7 +148,7 @@ Não foram corrigidas; estão aqui para ninguém tropeçar nelas de novo.
 
 **Outras páginas**
 - `dashboard-geofence.html` usa `BACKEND_URL = 'http://localhost:3000'`: resto de ambiente de desenvolvimento; em produção não alcança o backend.
-- Duas URLs de backend (seção 2) e risco do Service Worker (seção 6).
+- Duas URLs de backend (seção 2).
 - `send_email.php` não executa no GitHub Pages.
 
 ---
