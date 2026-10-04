@@ -6710,6 +6710,11 @@
                     // ======================================================================
                     if (isInside && window.studentsData) {
                         const processarSaidasAutomaticas = async () => {
+                            // Quando uma tentativa falha, NÃO se devolve o aluno a 'PRESENTE' por conta
+                            // própria: o aluno pode ter saído (ex.: confirmação manual feita durante a
+                            // tentativa) e reafirmar 'PRESENTE' localmente fazia o robô pedir a saída de
+                            // quem já saiu. O estado verdadeiro vem do servidor (refreshStudentsData).
+                            let precisaSincronizar = false;
                             for (const aluno of window.studentsData) {
                                 if (aluno.status === 'PRESENTE' && aluno.chamadaAutomatica === true) {
                                     
@@ -6731,16 +6736,19 @@
                                             const sucesso = await handleExitRequest(aluno.id, aluno.nome, fakeBtn);
                                             
                                             if (!sucesso) {
-                                                // Se falhou (horário, etc), reverte para PRESENTE para permitir tentativa manual no futuro,
-                                                // mas o cooldown acima impedirá o loop automático.
-                                                aluno.status = 'PRESENTE';
+                                                // Falhou (horário, aluno já ausente etc.): o status real é o do
+                                                // servidor. O cooldown acima impede o loop automático.
+                                                precisaSincronizar = true;
                                             }
                                         } catch (err) {
                                             console.error(`❌ Erro ao processar saída automática de ${aluno.nome}:`, err);
-                                            aluno.status = 'PRESENTE';
+                                            precisaSincronizar = true;
                                         }
                                     }
                                 }
+                            }
+                            if (precisaSincronizar && typeof refreshStudentsData === 'function') {
+                                await refreshStudentsData();
                             }
                         };
 
