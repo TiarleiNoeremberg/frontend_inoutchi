@@ -1096,14 +1096,6 @@
                         </div>
                     </div>
 
-                    <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
-                        <input type="checkbox" id="rememberMe" name="rememberMe"
-                            style="width: 18px; height: 18px; margin: 0; accent-color: var(--cyan);">
-                        <label for="rememberMe"
-                            style="margin: 0; color: rgba(255,255,255,0.8); font-size: 0.7rem; cursor: pointer;">
-                            Manter-me conectado
-                        </label>
-                    </div>
 
                     <button type="submit" class="btn-login" id="loginBtn">
                         <span>
@@ -1244,47 +1236,28 @@
                 return await response.json();
             }
 
-            const saveAuthData = (token, role, refreshToken = null, userDataToStore = null) => {
-                const isRemembered = document.getElementById('rememberMe')?.checked || false;
+            // Sessão permanente (1 ano) para TODOS os perfis, sempre em localStorage.
+            // O servidor emite o access token com TTL de 1 ano (security.jwt.duration);
+            // o token_expiry local é lido pelos dashboards para validar a sessão.
+            const SESSAO_UM_ANO_MS = 365 * 24 * 60 * 60 * 1000;
 
-                // Definição: APENAS TUTOR é moderno. TODOS OS DEMAIS são legados
-                const isModernRole = role === 'ROLE_TUTOR';
-
+            const persistirSessao = (token, role, refreshToken, userDataToStore) => {
                 // Limpa resquícios de logins anteriores para evitar conflitos
                 localStorage.clear();
                 sessionStorage.clear();
 
-                if (isModernRole) {
-                    // PADRÃO MODERNO (APENAS TUTOR)
-                    const storage = isRemembered ? localStorage : sessionStorage;
+                localStorage.setItem('access_token', token);
+                localStorage.setItem('user_role', role);
+                localStorage.setItem('user_data', JSON.stringify(userDataToStore));
+                if (refreshToken) localStorage.setItem('refresh_token', refreshToken);
 
-                    storage.setItem('access_token', token);
-                    storage.setItem('user_role', role);
-                    if (refreshToken) storage.setItem('refresh_token', refreshToken);
-                    if (userDataToStore) storage.setItem('user_data', JSON.stringify(userDataToStore));
-
-                    console.log(`✅ Login MODERNO (${role}) - armazenado em ${isRemembered ? 'localStorage' : 'sessionStorage'}`);
-
-                } else {
-                    // PADRÃO LEGADO (Sala, Escola, Diretor, Transporte)
-                    localStorage.setItem('access_token', token);
-                    localStorage.setItem('user_role', role);
-                    if (refreshToken) localStorage.setItem('refresh_token', refreshToken);
-                    if (userDataToStore) {
-                        localStorage.setItem('user_data', JSON.stringify(userDataToStore));
-
-                        // 🔴 CRÍTICO: Salvar escolaId separadamente (dashboards legados esperam isso)
-                        if (userDataToStore.escolaId) {
-                            localStorage.setItem('escolaId', userDataToStore.escolaId);
-                        }
-                    }
-
-                    // CRÍTICO: Gera o timestamp de expiração que os dashboards legados exigem (24 horas)
-                    const expiryTime = new Date().getTime() + (24 * 60 * 60 * 1000);
-                    localStorage.setItem('token_expiry', expiryTime.toString());
-
-                    console.log(`✅ Login LEGADO (${role}) - armazenado em localStorage com token_expiry`);
+                // Dashboards legados (Sala, Escola, Diretor, Transporte) esperam escolaId separado
+                if (role !== 'ROLE_TUTOR' && userDataToStore.escolaId) {
+                    localStorage.setItem('escolaId', userDataToStore.escolaId);
                 }
+
+                localStorage.setItem('token_expiry', (Date.now() + SESSAO_UM_ANO_MS).toString());
+                console.log(`✅ Login (${role}) - Sessão PERMANENTE (localStorage) - Expira em 1 ano`);
             };
 
             function showAlert(message, type, element = alertBox) {
@@ -1447,53 +1420,10 @@
                                 escolaId: userData.escolaId
                             };
 
-                            const isTutor = userRole === 'ROLE_TUTOR';
-                            const rememberMe = document.getElementById('rememberMe')?.checked || false;
+                            persistirSessao(accessToken, userRole, data.refresh_token, userDataToStore);
 
-                            // Limpa resquícios
-                            localStorage.clear();
-                            sessionStorage.clear();
-
-                            if (isTutor) {
-                                // Para Tutores, SEMPRE usamos localStorage (sessão permanente estilo WhatsApp)
-                                // e definimos a expiração para 1 ano (o backend já gera o token com 1 ano).
-                                localStorage.setItem('access_token', accessToken);
-                                localStorage.setItem('user_role', userRole);
-                                localStorage.setItem('user_data', JSON.stringify(userDataToStore));
-
-                                if (data.refresh_token) {
-                                    localStorage.setItem('refresh_token', data.refresh_token);
-                                }
-
-                                // 1 anos em milissegundos
-                                const umAnoEmMs = 10 * 365 * 24 * 60 * 60 * 100;
-                                localStorage.setItem('token_expiry', (Date.now() + umAnoEmMs).toString());
-
-                                console.log(`✅ Login TUTOR - Sessão PERMANENTE (localStorage) - Expira em 1 ano`);
-
+                            if (userRole === 'ROLE_TUTOR') {
                                 await salvarCredencialParaBiometria(email, password, userData.nome);
-
-                            } else {
-                                // TODOS OS OUTROS (Sala, Escola, Diretor, Transporte)
-                                // ✅ CORREÇÃO: Dashboards legados exigem localStorage e token_expiry. 
-                                // Forçamos o localStorage para que o dashboard encontre o token na inicialização.
-                                localStorage.setItem('access_token', accessToken);
-                                localStorage.setItem('user_role', userRole);
-                                localStorage.setItem('user_data', JSON.stringify(userDataToStore));
-
-                                if (data.refresh_token) {
-                                    localStorage.setItem('refresh_token', data.refresh_token);
-                                }
-
-                                if (userDataToStore.escolaId) {
-                                    localStorage.setItem('escolaId', userDataToStore.escolaId);
-                                }
-
-                                // Fixamos a expiração em 24 horas.
-                                const expiryTime = new Date().getTime() + (24 * 60 * 60 * 1000);
-                                localStorage.setItem('token_expiry', expiryTime.toString());
-
-                                console.log(`✅ Login LEGADO (${userRole}) - armazenado em localStorage com token_expiry de 24h`);
                             }
 
                             showAlert('Login realizado com sucesso!', 'success');
@@ -1569,47 +1499,9 @@
                             escolaId: userData.escolaId
                         };
 
-                        const isTutor = data.role === 'ROLE_TUTOR';
-                        const checkbox = document.getElementById('rememberMe');
-                        const devePermanecer = checkbox ? checkbox.checked : false;
+                        persistirSessao(data.token, data.role, data.refresh_token, userDataToStore);
 
-                        // LIMPEZA TOTAL
-                        localStorage.clear();
-                        sessionStorage.clear();
-
-                        if (isTutor) {
-                            // Para Tutores, SEMPRE usamos localStorage (sessão permanente estilo WhatsApp)
-                            localStorage.setItem('access_token', data.token);
-                            localStorage.setItem('user_role', data.role);
-                            localStorage.setItem('user_data', JSON.stringify(userDataToStore));
-                            if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
-
-                            // 1 ano em milissegundos
-                            const umAnoEmMs = 10 * 365 * 24 * 60 * 60 * 100;
-                            localStorage.setItem('token_expiry', (Date.now() + umAnoEmMs).toString());
-
-                            console.log(`✅ Login Google TUTOR - Sessão PERMANENTE (localStorage) - Expira em 1 ano`);
-
-                            await salvarCredencialParaBiometria(userData.email, userData.senha || '', userData.nome);
-                        } else {
-                            if (!devePermanecer) {
-                                sessionStorage.setItem('access_token', data.token);
-                                sessionStorage.setItem('user_role', data.role);
-                                sessionStorage.setItem('user_data', JSON.stringify(userDataToStore));
-                                if (data.refresh_token) sessionStorage.setItem('refresh_token', data.refresh_token);
-                                console.log(`✅ Login Google - modo sessão (sessionStorage)`);
-                            } else {
-                                localStorage.setItem('access_token', data.token);
-                                localStorage.setItem('user_role', data.role);
-                                localStorage.setItem('user_data', JSON.stringify(userDataToStore));
-                                if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
-                                if (userDataToStore.escolaId) localStorage.setItem('escolaId', userDataToStore.escolaId);
-                                const expiryTime = new Date().getTime() + (24 * 60 * 60 * 100);
-                                localStorage.setItem('token_expiry', expiryTime.toString());
-                                console.log(`✅ Login Google LEGADO (${data.role}) - armazenado em localStorage`);
-                            }
-                            await salvarCredencialParaBiometria(userData.email, userData.senha || '', userData.nome);
-                        }
+                        await salvarCredencialParaBiometria(userData.email, userData.senha || '', userData.nome);
 
                         const roleRoutes = {
                             'ROLE_DIRETOR': 'dashboard-diretor.html',
