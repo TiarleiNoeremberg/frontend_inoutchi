@@ -900,6 +900,36 @@
             width: 100%;
             /* Mantém a largura total */
         }
+
+        /* Botão Google NATIVO: só aparece dentro do app Android (WebView), onde o
+           botão web do Google não funciona. Mesma largura do botão Entrar. */
+        .btn-google-native {
+            display: none;
+            width: 100%;
+            height: 44px;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            background: #fff;
+            color: #3c4043;
+            border: 1px solid #dadce0;
+            border-radius: 14px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+
+        .btn-google-native:hover {
+            background: #f8f9fa;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+        }
+
+        .btn-google-native:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 
@@ -1133,6 +1163,31 @@
                                 if (largura > 0) {
                                     google.setAttribute('data-width', String(Math.min(400, Math.max(200, largura))));
                                 }
+                            })();
+                        </script>
+
+                        <!-- Login Google NATIVO (app Android). Oculto no navegador comum. -->
+                        <button type="button" class="btn-google-native" id="googleNativeBtn">
+                            <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+                                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+                                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+                                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+                                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+                            </svg>
+                            Fazer login com o Google
+                        </button>
+                        <script>
+                            // Dentro do app Android a ponte AndroidGoogleLogin existe: o botão web do
+                            // Google (popup/One Tap) não funciona no WebView, então é trocado pelo
+                            // seletor de contas nativo. Em qualquer outro navegador nada muda.
+                            (function () {
+                                if (typeof window.AndroidGoogleLogin === 'undefined') return;
+                                var web = document.querySelector('.g_id_signin');
+                                if (web) web.remove();
+                                var onload = document.getElementById('g_id_onload');
+                                if (onload) onload.setAttribute('data-auto_prompt', 'false');
+                                var nativo = document.getElementById('googleNativeBtn');
+                                if (nativo) nativo.style.display = 'flex';
                             })();
                         </script>
                     </div>
@@ -1529,6 +1584,59 @@
                     loading.style.display = 'none';
                 }
             };
+
+            // Login Google NATIVO (app Android): a ponte AndroidGoogleLogin abre o seletor de
+            // contas do Android e responde em window.googleLoginCallback com o ID token, que
+            // segue o mesmo caminho do botão web (handleCredentialResponse -> backend).
+            (function () {
+                const nativeBtn = document.getElementById('googleNativeBtn');
+                if (!nativeBtn || typeof window.AndroidGoogleLogin === 'undefined') return;
+
+                const pendentes = {};
+
+                window.googleLoginCallback = function (callbackId, result) {
+                    const resolver = pendentes[callbackId];
+                    if (!resolver) return;
+                    delete pendentes[callbackId];
+                    resolver(result);
+                };
+
+                function selecionarContaGoogle() {
+                    return new Promise(resolve => {
+                        const callbackId = 'g' + Date.now();
+                        pendentes[callbackId] = resolve;
+
+                        // Garante que o botão nunca fica travado se o retorno não chegar.
+                        setTimeout(() => {
+                            if (pendentes[callbackId]) {
+                                delete pendentes[callbackId];
+                                resolve({ success: false, error: 'Tempo esgotado. Tente novamente.' });
+                            }
+                        }, 120000);
+
+                        try {
+                            window.AndroidGoogleLogin.signIn(callbackId);
+                        } catch (e) {
+                            delete pendentes[callbackId];
+                            resolve({ success: false, error: 'Não foi possível abrir o login do Google.' });
+                        }
+                    });
+                }
+
+                nativeBtn.addEventListener('click', async () => {
+                    nativeBtn.disabled = true;
+                    try {
+                        const result = await selecionarContaGoogle();
+                        if (result && result.success && result.idToken) {
+                            await window.handleCredentialResponse({ credential: result.idToken });
+                        } else if (!(result && result.cancelled)) {
+                            showAlert((result && result.error) || 'Não foi possível entrar com o Google.', 'error');
+                        }
+                    } finally {
+                        nativeBtn.disabled = false;
+                    }
+                });
+            })();
 
             // =================================================================
             // 4. BIOMETRIA
