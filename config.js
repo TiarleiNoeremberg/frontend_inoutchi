@@ -11,6 +11,9 @@ const CONFIG = {
         APP_CONFIGURATION_ADMIN:
             '/api/admin/app/configuration',
 
+        ESCOLAS_ADMIN:
+            '/api/admin/escolas',
+
         LOGIN: '/api/auth/login',
 
         LOGOUT: '/api/auth/logout',
