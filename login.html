@@ -959,6 +959,17 @@
                 return;
             }
 
+            // Vindo de uma sessão derrubada porque a escola foi inativada (ver js/escola-inativa-guard.js):
+            // limpa a sessão e deixa o aviso para o showAlert exibir quando a página terminar de carregar.
+            if (new URLSearchParams(window.location.search).get('inativa') === '1') {
+                localStorage.clear();
+                sessionStorage.clear();
+                history.replaceState(null, '', window.location.pathname);
+                window.__avisoEscolaInativa = true;
+                overlay.style.display = 'none';
+                return;
+            }
+
             function getStorageComToken() {
                 if (localStorage.getItem('access_token')) return localStorage;
                 if (sessionStorage.getItem('access_token')) return sessionStorage;
@@ -1315,7 +1326,7 @@
                 console.log(`✅ Login (${role}) - Sessão PERMANENTE (localStorage) - Expira em 1 ano`);
             };
 
-            function showAlert(message, type, element = alertBox) {
+            function showAlert(message, type, element = alertBox, duracaoMs = 5000) {
                 // Adiciona ícone baseado no tipo
                 const icon = type === 'error' ? '⚠️' : '✅';
 
@@ -1325,10 +1336,15 @@
                 element.style.alignItems = 'center';
                 element.style.gap = '8px';
 
-                // Auto-esconder após 5 segundos
+                // Auto-esconder (5 segundos, salvo quando a mensagem pede mais tempo)
                 setTimeout(() => {
                     element.style.display = 'none';
-                }, 5000);
+                }, duracaoMs);
+            }
+
+            // Sessão derrubada por escola inativa: o aviso fica visível por mais tempo.
+            if (window.__avisoEscolaInativa) {
+                showAlert('Esta escola está inativa. Entre em contato com a administração do Inoutchi.', 'error', alertBox, 15000);
             }
 
             function openRecoveryModal() {
@@ -1506,7 +1522,11 @@
                             if (response.status === 401 || response.status === 400) {
                                 errorMessage = 'E-mail ou senha incorretos.';
                             } else if (response.status === 403) {
-                                errorMessage = 'Seu usuário não tem permissão para acessar o sistema.';
+                                // 403 pode ser escola inativa (o servidor explica o motivo) ou falta de permissão.
+                                const corpo403 = await response.json().catch(() => null);
+                                errorMessage = (corpo403 && corpo403.error === 'ESCOLA_INATIVA')
+                                    ? corpo403.message
+                                    : 'Seu usuário não tem permissão para acessar o sistema.';
                             } else if (response.status >= 500) {
                                 errorMessage = 'Serviço temporariamente indisponível.';
                             } else {
