@@ -464,10 +464,18 @@
                     if (msg.rechamada) {
                         // Rechamada (leitor facial de responsáveis, no mínimo 3 min depois da última chamada; a regra é do
                         // backend): o aluno já tem o card na tela, então não cria outro - só repete o destaque, o bip e a voz.
+                        // O card volta a "agora mesmo" e à cor viva: o esmaecimento (5 min ou mais) e o "há X min"
+                        // são contados desde a ÚLTIMA chamada, não desde a criação original.
+                        const dados = this.chamadas.get(msg.alunoId);
+                        if (dados && msg.instante) {
+                            dados.criadaEm = msg.instante;
+                        }
                         if (!this.filaDeChamadas.includes(msg.alunoId)) {
                             this.filaDeChamadas.push(msg.alunoId);
                         }
                         console.log(`[SAGUAO] 🔁 Rechamada do aluno ${msg.alunoId}: repetindo destaque e voz.`);
+                        // Redesenha ANTES de iniciar a fila: o card novo (sem esmaecer) é o que o destaque vai animar.
+                        this.renderizar();
                         this.iniciarFilaSeNecessario();
                         return;
                     }
@@ -529,15 +537,24 @@
 
                     const agora = Date.now();
                     for (const c of lista) {
-                        if (this.chamadas.has(c.alunoId)) continue;
-                        const idadeMs = agora - new Date(c.criadaEm).getTime();
+                        // Instante da chamada que o card exibe: a última rechamada, se houve; senão a criação.
+                        const instanteDaChamada = c.ultimaChamadaEm || c.criadaEm;
+                        const existente = this.chamadas.get(c.alunoId);
+                        if (existente) {
+                            // Uma rechamada cuja mensagem se perdeu: só atualiza a idade (cor/tempo), sem repetir voz.
+                            if (new Date(instanteDaChamada).getTime() > new Date(existente.criadaEm).getTime()) {
+                                existente.criadaEm = instanteDaChamada;
+                            }
+                            continue;
+                        }
+                        const idadeMs = agora - new Date(instanteDaChamada).getTime();
                         const recente = idadeMs < 2 * 60 * 1000;
                         this.adicionarChamada({
                             alunoId: c.alunoId,
                             nomeChamada: c.nomeChamada,
                             salaNome: c.salaNome,
                             tipoSolicitante: c.tipoSolicitante,
-                            criadaEm: c.criadaEm,
+                            criadaEm: instanteDaChamada,
                         }, recente);
                     }
 
