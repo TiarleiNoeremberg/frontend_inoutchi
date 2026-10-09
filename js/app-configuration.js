@@ -4,8 +4,18 @@ const API_PUBLIC =
 const API_ADMIN =
     CONFIG.API_URL + CONFIG.ENDPOINTS.APP_CONFIGURATION_ADMIN;
 
+/** Aplicativo cuja configuração está na tela ("webview" = app atual; "tutor" = app nativo do tutor). */
+function appAlvo() {
+    const seletor = document.getElementById("appAlvo");
+    return seletor ? seletor.value : "webview";
+}
+
 window.onload = function () {
     loadConfiguration();
+
+    document
+        .getElementById("appAlvo")
+        .addEventListener("change", loadConfiguration);
 
     document
         .getElementById("btnReload")
@@ -18,7 +28,7 @@ window.onload = function () {
 
 async function loadConfiguration() {
     try {
-        const response = await fetch(API_PUBLIC);
+        const response = await fetch(API_PUBLIC + "?app=" + encodeURIComponent(appAlvo()));
 
         if (!response.ok) {
             throw new Error("Erro ao carregar configuração.");
@@ -191,7 +201,7 @@ async function saveConfiguration() {
             return;
         }
 
-        const response = await fetch(API_ADMIN, {
+        const response = await fetch(API_ADMIN + "?app=" + encodeURIComponent(appAlvo()), {
             method: "PUT",
             headers: {
                 "Content-Type": "application/json",
