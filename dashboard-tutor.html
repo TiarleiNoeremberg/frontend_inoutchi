@@ -6866,6 +6866,21 @@
                         this.sendNotification('Saída Confirmada', `${monitor.studentName}: Saída confirmada automaticamente.`, 'success');
 
                     } catch (error) {
+                        // Decisão 058: o servidor decide a saída automática e pode ter confirmado antes deste timer.
+                        // Se o aluno já está AUSENTE no servidor, é sucesso silencioso (o evento SAIDA_AUTOMATICA do
+                        // WebSocket já atualizou o card), e não um erro para o tutor.
+                        try {
+                            if (typeof refreshStudentsData === 'function') {
+                                await refreshStudentsData();
+                            }
+                            const aluno = window.studentsData?.find(a => a.id == studentId);
+                            if (aluno && aluno.status === 'AUSENTE') {
+                                this.stopMonitoring(studentId);
+                                return;
+                            }
+                        } catch (refreshError) {
+                            console.warn("⚠️ [autoConfirmExit] Falha ao reconferir o aluno:", refreshError);
+                        }
                         console.error("❌ [autoConfirmExit] Erro:", error);
                         this.sendNotification('❌ Erro', `Não foi possível confirmar saída de ${monitor.studentName}.`, 'error');
                     } finally {
