@@ -6137,6 +6137,8 @@
                     this.backupTimer = null;        // Timer para forçar verificações periódicas
                     this.lastKnownPosition = null;  // Última posição conhecida (para fallback)
                     this.lastPositionTime = null;   // Timestamp da última posição
+                    this.escolaId = null;           // Escola da cerca carregada (enviada no aviso de saída ao servidor)
+                    this.lastCercaSaiuCall = 0;     // Último aviso "SAIU" enviado ao servidor (throttle)
                 }
 
                 async init() {
@@ -6227,6 +6229,7 @@
                             throw new Error('coordenadas da escola inválidas');
                         }
                         this.schoolCoords = { lat: data.latitude, lng: data.longitude, raio: data.raio };
+                        this.escolaId = escolaId;
                         this.GEOFENCE_RADIUS_METERS = data.raio;
                         console.log('📍 Coordenadas da escola carregadas');
                         return true;
@@ -6513,6 +6516,30 @@
                     } catch (error) { }
                 }
 
+                // Decisão 058: quem conta os 3 minutos é o servidor. Enquanto há saída sendo acompanhada e o tutor
+                // está fora da área, avisa "SAIU" com a distância (no máximo a cada THROTTLE_MS). O servidor ignora
+                // distâncias até raio + margem (oscilação no portão) e não reinicia a contagem de quem já está fora,
+                // então repetir o aviso é seguro; é a repetição que leva a distância além da margem conforme o
+                // tutor se afasta (o aviso único de /monitoramento/saida sai colado no raio).
+                async notifyBackendCercaSaiu(distance) {
+                    if (!this.escolaId) return;
+                    const agora = Date.now();
+                    if (agora - this.lastCercaSaiuCall < this.THROTTLE_MS) return;
+                    this.lastCercaSaiuCall = agora;
+                    try {
+                        await fetchWithAuth('/api/tutor/cerca/evento', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                escolaId: this.escolaId,
+                                evento: 'SAIU',
+                                // Arredonda PARA CIMA: nunca transforma "fora" em "dentro".
+                                distanciaMetros: Math.ceil(distance)
+                            })
+                        });
+                    } catch (error) { }
+                }
+
                 async notifyBackendExit(studentId, distance) {
                     try {
                         await fetchWithAuth('/api/geofences/monitoramento/saida', {
@@ -6703,6 +6730,12 @@
                     if (now - this.lastBackendCall >= this.THROTTLE_MS) {
                         this.lastBackendCall = now;
                         await this.notifyBackendPosition(isInside, distance);
+                    }
+
+                    // Decisão 058: fora da área com saída sendo acompanhada, o servidor precisa saber (sem await:
+                    // não atrasa o restante desta atualização; o throttle fica dentro do método).
+                    if (!isInside && this.activeMonitors.size > 0) {
+                        this.notifyBackendCercaSaiu(distance);
                     }
 
                     // ======================================================================
