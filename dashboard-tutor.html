@@ -3576,8 +3576,9 @@
                 </div>
                 <div class="modal-body text-center">
                     <p><strong>Tem certeza absoluta?</strong></p>
-                    <p class="text-muted small">Esta ação é irreversível e apagará permanentemente sua conta e todos os
-                        vínculos com seus dependentes.</p>
+                    <p class="text-muted small">Esta ação é irreversível: seus dados pessoais serão anonimizados, seu
+                        acesso será desativado e os vínculos com seus dependentes serão removidos. O histórico de
+                        entradas e saídas da escola é mantido.</p>
                     <div class="alert alert-warning mt-3">
                         <i class="fas fa-info-circle"></i> Digite <strong>EXCLUIR</strong> no campo abaixo para
                         confirmar:
@@ -7914,22 +7915,21 @@
                 errorDiv.style.display = 'none';
 
                 try {
-                    // Buscar tutor pelo email
-                    const userEmail = currentUser.email;
-                    const accessToken = await getValidToken();
-
-                    const tutorResponse = await fetchWithAuth(`/api/tutores/busca?email=${encodeURIComponent(userEmail)}`);
-
-                    if (!tutorResponse.ok) {
-                        throw new Error('Não foi possível localizar o tutor');
-                    }
-
-                    const tutorData = await tutorResponse.json();
-                    const tutorId = tutorData.id;
-
-                    const deleteResponse = await fetchWithAuth(`/api/tutores/${tutorId}`, {
+                    // O servidor exclui (anonimiza e desativa) a conta de quem está autenticado:
+                    // nenhum identificador é enviado (Decisão 062).
+                    const deleteResponse = await fetchWithAuth('/api/tutores/me', {
                         method: 'DELETE'
                     });
+
+                    if (deleteResponse.status === 409) {
+                        // Saída em andamento ou conta com outros perfis: o servidor explica.
+                        let motivo = 'Não foi possível excluir a conta agora.';
+                        try {
+                            const corpo = await deleteResponse.json();
+                            motivo = corpo.message || corpo.mensagem || corpo.error || motivo;
+                        } catch (e) { /* mantém a mensagem padrão */ }
+                        throw new Error(motivo);
+                    }
 
                     if (deleteResponse.status === 204) {
                         showToast('Sua conta foi excluída. Redirecionando...', 'success');
