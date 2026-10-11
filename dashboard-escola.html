@@ -8444,9 +8444,6 @@
 
             atualizarContadorMensagem();
 
-            document.getElementById('mensagemTipo').onchange = atualizarCamposDoDestino;
-            document.getElementById('mensagemSala').onchange = aoEscolherTurmaDaMensagem;
-            document.getElementById('mensagemAluno').onchange = aoEscolherAlunoDaMensagem;
             atualizarCamposDoDestino();
 
             modal.style.display = 'flex';
@@ -8471,19 +8468,24 @@
         }
 
         // Escolheu a turma para um recado individual: carrega os alunos dela.
+        let pedidoDeAlunos = 0;
+
         async function aoEscolherTurmaDaMensagem() {
             if (document.getElementById('mensagemTipo').value !== 'INDIVIDUAL') return;
             const salaId = document.getElementById('mensagemSala').value;
             const sel = document.getElementById('mensagemAluno');
             document.getElementById('mensagemAlunoResponsaveis').textContent = '';
+            const pedido = ++pedidoDeAlunos;
             if (!salaId) { sel.innerHTML = '<option value="">Escolha primeiro a turma...</option>'; return; }
             sel.innerHTML = '<option value="">Carregando alunos...</option>';
             try {
-                const r = await fetch(`${API_URL}/api/mensagens/turma/${salaId}/alunos`, {
+                const r = await fetch(`${API_URL}/api/mensagens/turma/${encodeURIComponent(salaId)}/alunos`, {
                     headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
                 });
-                if (!r.ok) throw new Error();
+                if (pedido !== pedidoDeAlunos) return; // o usuário já escolheu outra turma
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
                 const alunos = await r.json();
+                if (!Array.isArray(alunos)) throw new Error('resposta inesperada');
                 sel.innerHTML = '<option value="">Selecione o aluno...</option>';
                 alunos.forEach(a => {
                     const o = document.createElement('option');
@@ -8493,9 +8495,32 @@
                 });
                 if (alunos.length === 0) sel.innerHTML = '<option value="">Nenhum aluno nesta turma</option>';
             } catch (e) {
-                sel.innerHTML = '<option value="">Não foi possível carregar os alunos</option>';
+                if (pedido !== pedidoDeAlunos) return;
+                console.error('Erro ao carregar os alunos da turma:', e);
+                const detalhe = e && /^HTTP (\d+)/.test(e.message) ? ` (erro ${e.message.slice(5)})` : '';
+                sel.innerHTML = `<option value="">Não foi possível carregar os alunos${detalhe}</option>`;
             }
         }
+
+        // Um só ouvinte para os três campos de destino: não depende de quando o formulário foi aberto.
+        (function () {
+            const formulario = document.getElementById('mensagemForm');
+            if (!formulario) return;
+            formulario.addEventListener('change', (evento) => {
+                const id = evento.target && evento.target.id;
+                if (id === 'mensagemTipo') {
+                    atualizarCamposDoDestino();
+                    // Trocou para "família" com a turma já escolhida: já carrega os alunos dela.
+                    if (evento.target.value === 'INDIVIDUAL' && document.getElementById('mensagemSala').value) {
+                        aoEscolherTurmaDaMensagem();
+                    }
+                } else if (id === 'mensagemSala') {
+                    aoEscolherTurmaDaMensagem();
+                } else if (id === 'mensagemAluno') {
+                    aoEscolherAlunoDaMensagem();
+                }
+            });
+        })();
 
         // Escolheu o aluno: mostra quem vai receber.
         async function aoEscolherAlunoDaMensagem() {
