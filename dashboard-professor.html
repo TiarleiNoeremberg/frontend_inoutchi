@@ -1876,7 +1876,7 @@
                     </div>
                     <div class="msg-body">${formatarMensagem(msg.conteudo)}</div>
                     ${msg.alunoNome ? `<div class="msg-tag"><i class="fas fa-user"></i> Para: ${escapeHtml(msg.alunoNome)}</div>` : ''}
-                    ${msg.anexos?.length ? `<div class="msg-attachments" style="margin-top:10px;"><i class="fas fa-paperclip"></i> Anexos: ${msg.anexos.map(a => `<a href="${a.caminhoArquivo}" target="_blank">${a.nomeArquivo}</a>`).join(', ')}</div>` : ''}
+                    ${anexosSeguros(msg).length ? `<div class="msg-attachments" style="margin-top:10px;"><i class="fas fa-paperclip"></i> Anexos: ${anexosSeguros(msg).map(a => `<a href="${escapeHtml(a.caminhoArquivo).replace(/"/g, '&quot;')}" target="_blank" rel="noopener noreferrer">${escapeHtml(a.nomeArquivo || 'Anexo')}</a>`).join(', ')}</div>` : ''}
                     ${(podeEditar || podeExcluir) ? `
                     <div class="msg-actions" style="margin-top: 12px; display: flex; gap: 8px; border-top: 1px solid var(--border); padding-top: 10px;">
                         ${podeEditar ? `<button class="btn-edit-msg" data-msg-id="${msg.id}" data-conteudo="${escapeHtml(msg.conteudo).replace(/"/g, '&quot;')}" data-tipo="${msg.tipo}" data-materia-id="${msg.materiaId || ''}" data-sala-id="${msg.salaId || ''}" data-aluno-id="${msg.alunoId || ''}" style="background: var(--primary-light); border: none; border-radius: 6px; padding: 5px 12px; font-size: 0.7rem; font-weight: 600; color: var(--primary); cursor: pointer;">
@@ -2135,7 +2135,9 @@
 
         function formatarMensagem(texto) {
             if (!texto) return '';
-            texto = texto.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank">$1</a>');
+            // Escapa ANTES de formatar: o texto é de quem escreveu e nunca pode virar HTML ou script na página.
+            texto = escapeHtml(texto).replace(/"/g, '&quot;');
+            texto = texto.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
             texto = texto.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
             texto = texto.replace(/\*(.*?)\*/g, '<em>$1</em>');
             return texto.replace(/\n/g, '<br>');
@@ -2299,7 +2301,7 @@
 
             if (!anexosParaEnviar.length) { area.style.display = 'none'; return; }
             area.style.display = 'block';
-            container.innerHTML = anexosParaEnviar.map((a, i) => `<span class="anexo-item"><i class="fas ${a.tipo === 'image' ? 'fa-image' : 'fa-file-pdf'}"></i> ${a.nome} <i class="fas fa-times" onclick="removerAnexo(${i})"></i></span>`).join('');
+            container.innerHTML = anexosParaEnviar.map((a, i) => `<span class="anexo-item"><i class="fas ${a.tipo === 'image' ? 'fa-image' : 'fa-file-pdf'}"></i> ${escapeHtml(a.nome)} <i class="fas fa-times" onclick="removerAnexo(${i})"></i></span>`).join('');
         }
 
         function removerAnexo(idx) { anexosParaEnviar.splice(idx, 1); atualizarListaAnexos(); }
@@ -2358,6 +2360,12 @@
         // UTILITÁRIOS
         // ================================================
         function escapeHtml(t) { if (!t) return ''; const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+
+        // Anexos exibidos: só links https (o servidor aceita apenas arquivos enviados pelo painel ao Cloudinary).
+        function anexosSeguros(msg) {
+            return (msg && Array.isArray(msg.anexos) ? msg.anexos : [])
+                .filter(a => typeof a.caminhoArquivo === 'string' && /^https:\/\//i.test(a.caminhoArquivo));
+        }
 
         function showToast(msg, type = '') {
             const tray = document.getElementById('toastTray');

@@ -8384,11 +8384,44 @@
             document.getElementById('mensagemModal').style.display = 'none';
         }
 
+        let mensagensCarregadas = new Map();
+
+        // Editar/Desativar de cada mensagem: um só ouvinte no container, a mensagem vem do mapa pelo id.
+        function ligarAcoesDasMensagens(container) {
+            if (container.dataset.acoesLigadas) return;
+            container.dataset.acoesLigadas = '1';
+            container.addEventListener('click', (evento) => {
+                const botao = evento.target.closest('[data-acao]');
+                if (!botao) return;
+                const msg = mensagensCarregadas.get(Number(botao.dataset.id));
+                if (!msg) return;
+                if (botao.dataset.acao === 'editar-mensagem') openMensagemModal(msg);
+                if (botao.dataset.acao === 'desativar-mensagem') openDesativarModal(msg.id, msg.conteudo || '');
+            });
+        }
+
+        // Anexos: só links https (o servidor aceita apenas arquivos enviados pelo painel).
+        function anexosDaMensagemEscola(msg) {
+            const anexos = (Array.isArray(msg.anexos) ? msg.anexos : [])
+                .filter(a => typeof a.caminhoArquivo === 'string' && /^https:\/\//i.test(a.caminhoArquivo));
+            if (!anexos.length) return '';
+            return `<div style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px;">${anexos.map(a =>
+                `<a href="${escapeHtml(a.caminhoArquivo).replace(/"/g, '&quot;')}" target="_blank" rel="noopener noreferrer" class="badge" style="background: var(--primary-light); color: var(--primary); padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; text-decoration: none;"><i class="fas fa-paperclip"></i> ${escapeHtml(a.nomeArquivo || 'Anexo')}</a>`
+            ).join('')}</div>`;
+        }
+
         function openDesativarModal(mensagemId, mensagemConteudo) {
             mensagemParaDesativar = mensagemId;
             const modal = document.getElementById('desativarMensagemModal');
             const texto = document.getElementById('desativarMensagemTexto');
-            texto.innerHTML = `Tem certeza que deseja desativar a mensagem:<br><strong>"${mensagemConteudo.substring(0, 100)}${mensagemConteudo.length > 100 ? '...' : ''}"</strong>?`;
+            // Texto de quem escreveu: sempre como texto, nunca como HTML.
+            const trecho = mensagemConteudo.substring(0, 100) + (mensagemConteudo.length > 100 ? '...' : '');
+            texto.textContent = 'Tem certeza que deseja desativar a mensagem:';
+            texto.appendChild(document.createElement('br'));
+            const forte = document.createElement('strong');
+            forte.textContent = `"${trecho}"`;
+            texto.appendChild(forte);
+            texto.appendChild(document.createTextNode('?'));
             modal.style.display = 'flex';
         }
 
@@ -8407,7 +8440,7 @@
                 select.innerHTML = '<option value="">Selecione uma sala...</option>';
                 if (Array.isArray(salas)) {
                     salas.forEach(sala => {
-                        select.innerHTML += `<option value="${sala.id}">${sala.nome}</option>`;
+                        select.innerHTML += `<option value="${Number(sala.id)}">${escapeHtml(sala.nome)}</option>`;
                     });
                 }
             } catch (error) {
@@ -8628,6 +8661,11 @@
 
                 let mensagens = await response.json();
 
+                // Os botões leem a mensagem por id (antes o JSON ia dentro do onclick e um apóstrofo no texto
+                // quebrava o atributo: dava para injetar HTML/script no painel da escola).
+                mensagensCarregadas = new Map(mensagens.map(m => [m.id, m]));
+                ligarAcoesDasMensagens(container);
+
                 // Aplicar filtro
                 if (filtroTipo !== 'TODOS') {
                     mensagens = mensagens.filter(m => m.tipo === filtroTipo);
@@ -8693,7 +8731,8 @@
                         </div>
                         ${msg.materiaNome ? `<span class="badge" style="background: var(--primary-light); color: var(--primary); padding: 4px 12px; border-radius: 20px; font-size: 0.7rem;">📚 ${escapeHtml(msg.materiaNome)}</span>` : ''}
                     </div>
-                    <div class="mensagem-conteudo">${escapeHtml(msg.conteudo)}</div>
+                    <div class="mensagem-conteudo">${escapeHtml(msg.conteudo).replace(/\n/g, '<br>')}</div>
+                    ${anexosDaMensagemEscola(msg)}
                     <div class="mensagem-meta">
                         <div>
                             <i class="fas fa-user"></i> ${escapeHtml(msg.criadoPorNome || 'Sistema')} 
@@ -8703,10 +8742,10 @@
                             ${msg.dataExibicaoFim ? `<br><i class="fas fa-clock"></i> Expira: ${new Date(msg.dataExibicaoFim).toLocaleString('pt-BR')}` : ''}
                         </div>
                         <div class="mensagem-actions">
-                            <button class="btn btn-sm btn-edit" onclick='openMensagemModal(${JSON.stringify(msg)})'>
+                            ${msg.tipo === 'INDIVIDUAL' ? '' : `<button type="button" class="btn btn-sm btn-edit" data-acao="editar-mensagem" data-id="${Number(msg.id)}">
                                 <i class="fas fa-edit"></i> Editar
-                            </button>
-                            <button class="btn btn-sm btn-delete" onclick="openDesativarModal(${msg.id}, '${escapeHtml(msg.conteudo).replace(/'/g, "\\'")}')">
+                            </button>`}
+                            <button type="button" class="btn btn-sm btn-delete" data-acao="desativar-mensagem" data-id="${Number(msg.id)}">
                                 <i class="fas fa-trash"></i> Desativar
                             </button>
                         </div>
