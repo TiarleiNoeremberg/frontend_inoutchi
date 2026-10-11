@@ -2029,6 +2029,11 @@
         }
 
         /* Estilos para cards de mensagens */
+        .anexos-mensagem { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }
+        .anexo-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 10px;
+            background: #e8f2fc; color: #1a6fc4; font-size: 0.8rem; font-weight: 600; max-width: 100%; }
+        .anexo-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+        .anexo-chip button { border: 0; background: none; color: inherit; cursor: pointer; padding: 0 2px; font-size: 1rem; line-height: 1; }
         .urgente-opcao .urgente-rotulo { display: flex; gap: 12px; align-items: flex-start; cursor: pointer;
             padding: 12px 14px; border: 1px solid #fecaca; background: #fef2f2; border-radius: 12px; }
         .urgente-opcao input { margin-top: 4px; width: 18px; height: 18px; flex: none; }
@@ -2369,6 +2374,7 @@
             .voice-save-btn { width: 100%; min-width: 0; }
         }
     </style>
+    <script src="https://upload-widget.cloudinary.com/global/all.js" type="text/javascript"></script>
 </head>
 
 <body>
@@ -3931,6 +3937,17 @@
                             <small id="mensagemContador" class="text-muted">0 / 500 caracteres</small>
                         </div>
 
+                        <div class="form-group">
+                            <label>Anexos (opcional)</label>
+                            <div>
+                                <button type="button" class="btn btn-secondary" onclick="abrirUploadAnexoMensagem()">
+                                    <i class="fas fa-paperclip"></i> Adicionar arquivo
+                                </button>
+                            </div>
+                            <div id="anexosMensagemLista" class="anexos-mensagem"></div>
+                            <small class="text-muted">PDF, JPG, PNG ou GIF, até 10 MB cada.</small>
+                        </div>
+
                         <div class="form-group urgente-opcao">
                             <label class="urgente-rotulo" for="mensagemUrgente">
                                 <input type="checkbox" id="mensagemUrgente">
@@ -4013,6 +4030,7 @@
     </div>
 
     <!-- Scripts -->
+    <script src="config.js"></script>
     <script>
         const API_URL = 'https://inoutchi-backend.onrender.com'; // URL base da sua API backend
         let ESCOLA_ID = localStorage.getItem('escolaId');     // Pega o ID da escola salvo no login
@@ -8442,6 +8460,10 @@
             }
 
             atualizarContadorMensagem();
+            anexosNovos = [];
+            anexosParaRemover = [];
+            anexosExistentes = mensagem && Array.isArray(mensagem.anexos) ? mensagem.anexos : [];
+            desenharAnexosDaMensagem();
 
             atualizarCamposDoDestino();
 
@@ -8538,6 +8560,93 @@
             const campo = document.getElementById('mensagemConteudo');
             const contador = document.getElementById('mensagemContador');
             if (campo && contador) contador.textContent = `${campo.value.length} / 500 caracteres`;
+        }
+
+        // ---------------------------------------------------------------- anexos da mensagem
+        let anexosNovos = [];          // enviados ao Cloudinary neste formulário, ainda não ligados à mensagem
+        let anexosExistentes = [];     // já ligados à mensagem editada
+        let anexosParaRemover = [];    // ids de anexos existentes que o usuário tirou
+        let widgetDeAnexos = null;
+
+        function abrirUploadAnexoMensagem() {
+            if (typeof cloudinary === 'undefined' || typeof CONFIG === 'undefined' || !CONFIG.CLOUDINARY) {
+                showToast('O envio de arquivos não está disponível agora. Recarregue a página.', 'error');
+                return;
+            }
+            if (!widgetDeAnexos) {
+                widgetDeAnexos = cloudinary.createUploadWidget({
+                    cloudName: CONFIG.CLOUDINARY.CLOUD_NAME,
+                    uploadPreset: CONFIG.CLOUDINARY.UPLOAD_PRESET,
+                    folder: CONFIG.CLOUDINARY.FOLDER,
+                    sources: ['local', 'url', 'camera'],
+                    multiple: true, maxFiles: 5, maxFileSize: 10485760,
+                    clientAllowedFormats: ['pdf', 'jpg', 'jpeg', 'png', 'gif'],
+                    resourceType: 'auto'
+                }, (erro, resultado) => {
+                    if (erro) { console.error(erro); showToast('Erro no envio do arquivo', 'error'); return; }
+                    if (resultado && resultado.event === 'success') {
+                        const info = resultado.info;
+                        anexosNovos.push({
+                            nome: info.original_filename + (info.format ? '.' + info.format : ''),
+                            url: info.secure_url,
+                            tipo: info.resource_type,
+                            tamanho: info.bytes || 0
+                        });
+                        desenharAnexosDaMensagem();
+                    }
+                });
+            }
+            widgetDeAnexos.open();
+        }
+
+        function desenharAnexosDaMensagem() {
+            const lista = document.getElementById('anexosMensagemLista');
+            if (!lista) return;
+            const itens = [
+                ...anexosExistentes.filter(a => !anexosParaRemover.includes(a.id))
+                    .map(a => ({ nome: a.nomeArquivo, origem: 'existente', ref: a.id })),
+                ...anexosNovos.map((a, i) => ({ nome: a.nome, origem: 'novo', ref: i })),
+            ];
+            lista.innerHTML = itens.map(i => `
+                <div class="anexo-chip">
+                    <i class="fas fa-paperclip"></i>
+                    <span title="${escapeHtml(i.nome)}">${escapeHtml(i.nome)}</span>
+                    <button type="button" title="Remover" data-anexo-origem="${i.origem}" data-anexo-ref="${Number(i.ref)}">&times;</button>
+                </div>`).join('');
+        }
+
+        // Um só ouvinte para os botões de remover (os chips são redesenhados a cada mudança).
+        document.addEventListener('click', (evento) => {
+            const botao = evento.target.closest('button[data-anexo-origem]');
+            if (!botao) return;
+            const ref = Number(botao.dataset.anexoRef);
+            if (botao.dataset.anexoOrigem === 'novo') anexosNovos.splice(ref, 1);
+            else anexosParaRemover.push(ref);
+            desenharAnexosDaMensagem();
+        });
+
+        // Liga os arquivos à mensagem já salva e tira os que o usuário removeu. A mensagem existe mesmo que algum
+        // arquivo falhe: o aviso diz quais não foram.
+        async function aplicarAnexosDaMensagem(mensagemId) {
+            const cabecalho = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AUTH_TOKEN}` };
+            const falhas = [];
+            for (const a of anexosNovos) {
+                try {
+                    const r = await fetch(`${API_URL}/api/mensagens/${mensagemId}/anexos`, {
+                        method: 'POST', headers: cabecalho,
+                        body: JSON.stringify({ nomeArquivo: a.nome, caminhoArquivo: a.url, tipoArquivo: a.tipo, tamanho: a.tamanho })
+                    });
+                    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                } catch (e) {
+                    falhas.push(a.nome);
+                }
+            }
+            for (const id of anexosParaRemover) {
+                try {
+                    await fetch(`${API_URL}/api/mensagens/anexos/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` } });
+                } catch (e) { /* o arquivo continua ligado: aparece na lista de novo */ }
+            }
+            return falhas;
         }
 
         // ISO (Instant do servidor) -> valor de <input type="datetime-local"> no horário do navegador.
@@ -8781,7 +8890,21 @@
                     throw new Error(error.mensagem || error.message || 'Erro ao salvar mensagem');
                 }
 
-                showToast(mensagemId ? 'Mensagem atualizada com sucesso!' : 'Mensagem publicada com sucesso!', 'success');
+                // A mensagem existe; agora liga os arquivos (na criação, o id vem na resposta).
+                let idDaMensagem = mensagemId ? Number(mensagemId) : null;
+                if (!idDaMensagem) {
+                    try { idDaMensagem = (await response.clone().json()).id; } catch (e) { idDaMensagem = null; }
+                }
+                let falhasDeAnexo = [];
+                if (idDaMensagem && (anexosNovos.length || anexosParaRemover.length)) {
+                    falhasDeAnexo = await aplicarAnexosDaMensagem(idDaMensagem);
+                }
+
+                if (falhasDeAnexo.length) {
+                    showToast(`Mensagem salva, mas estes arquivos não foram anexados: ${falhasDeAnexo.join(', ')}`, 'error');
+                } else {
+                    showToast(mensagemId ? 'Mensagem atualizada com sucesso!' : 'Mensagem publicada com sucesso!', 'success');
+                }
                 closeMensagemModal();
                 carregarMensagens();
 
