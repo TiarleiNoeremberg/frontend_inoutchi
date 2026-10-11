@@ -3535,9 +3535,9 @@
                         <label class="form-label">Filtrar por Tipo</label>
                         <select id="filtroTipoMensagem" class="custom-form-input" onchange="carregarMensagens()">
                             <option value="TODOS">Todas as mensagens</option>
-                            <option value="INSTITUCIONAL">Institucional (Diretoria)</option>
-                            <option value="COLETIVA">Coletiva (Turma/Sala)</option>
-                            <option value="INDIVIDUAL">Individual (Aluno)</option>
+                            <option value="INSTITUCIONAL">Toda a escola (Diretoria)</option>
+                            <option value="COLETIVA">Turma</option>
+                            <option value="INDIVIDUAL">Família (aluno)</option>
                         </select>
                     </div>
                     <div class="filter-group button-group">
@@ -3903,23 +3903,26 @@
                         <div class="form-group">
                             <label for="mensagemTipo">Tipo de Mensagem</label>
                             <select id="mensagemTipo" class="modern-select" required>
-                                <option value="INSTITUCIONAL">Institucional - Para todos (Diretoria)</option>
-                                <option value="COLETIVA">Coletiva - Para uma turma específica</option>
+                                <option value="INSTITUCIONAL">Toda a escola (todos os responsáveis)</option>
+                                <option value="COLETIVA">Uma turma</option>
+                                <option value="INDIVIDUAL">Uma família (responsáveis de um aluno)</option>
                             </select>
+                            <small id="mensagemDestinoAjuda" class="text-muted"></small>
                         </div>
 
                         <div class="form-group" id="salaGroup" style="display: none;">
-                            <label for="mensagemSala">Turma/Sala</label>
+                            <label for="mensagemSala" id="mensagemSalaRotulo">Turma</label>
                             <select id="mensagemSala" class="modern-select">
-                                <option value="">Selecione uma sala...</option>
+                                <option value="">Selecione uma turma...</option>
                             </select>
                         </div>
 
-                        <div class="form-group">
-                            <label for="mensagemMateria">Matéria (opcional)</label>
-                            <select id="mensagemMateria" class="modern-select">
-                                <option value="">Sem matéria específica</option>
+                        <div class="form-group" id="alunoGroup" style="display: none;">
+                            <label for="mensagemAluno">Aluno (a mensagem vai para os responsáveis dele)</label>
+                            <select id="mensagemAluno" class="modern-select">
+                                <option value="">Escolha primeiro a turma...</option>
                             </select>
+                            <small id="mensagemAlunoResponsaveis" class="text-muted"></small>
                         </div>
 
                         <div class="form-group">
@@ -8404,9 +8407,15 @@
             document.getElementById('mensagemId').value = '';
             document.getElementById('salaGroup').style.display = 'none';
 
-            // As listas de turma e matéria chegam do servidor: o valor da mensagem editada só entra depois delas.
+            // A lista de turmas chega do servidor: o valor da mensagem editada só entra depois dela.
             const salasProntas = carregarSalasParaMensagem();
-            const materiasProntas = carregarMateriasParaMensagem();
+            const selTipo = document.getElementById('mensagemTipo');
+            const selSala = document.getElementById('mensagemSala');
+            const selAluno = document.getElementById('mensagemAluno');
+            // O destino de uma mensagem já publicada não muda (os responsáveis já a receberam): só o texto e as datas.
+            [selTipo, selSala, selAluno].forEach(el => { el.disabled = !!mensagem; });
+            selAluno.innerHTML = '<option value="">Escolha primeiro a turma...</option>';
+            document.getElementById('mensagemAlunoResponsaveis').textContent = '';
 
             if (mensagem) {
                 // Modo edição
@@ -8418,16 +8427,16 @@
                 document.getElementById('mensagemDataInicio').value = paraCampoDataHora(mensagem.dataExibicaoInicio);
                 document.getElementById('mensagemDataFim').value = paraCampoDataHora(mensagem.dataExibicaoFim);
 
-                if (mensagem.materiaId) {
-                    materiasProntas.then(() => {
-                        document.getElementById('mensagemMateria').value = mensagem.materiaId;
-                    });
-                }
                 if (mensagem.salaId && mensagem.tipo === 'COLETIVA') {
-                    document.getElementById('salaGroup').style.display = 'block';
-                    salasProntas.then(() => {
-                        document.getElementById('mensagemSala').value = mensagem.salaId;
-                    });
+                    salasProntas.then(() => { selSala.value = mensagem.salaId; });
+                }
+                if (mensagem.tipo === 'INDIVIDUAL') {
+                    // Só mostra para quem é: o nome do aluno (a lista da turma não é necessária para editar o texto).
+                    selAluno.innerHTML = '';
+                    const o = document.createElement('option');
+                    o.value = mensagem.alunoId || '';
+                    o.textContent = mensagem.alunoNome || 'Aluno';
+                    selAluno.appendChild(o);
                 }
             } else {
                 title.textContent = 'Nova Mensagem';
@@ -8435,17 +8444,70 @@
 
             atualizarContadorMensagem();
 
-            // Mostrar/esconder sala baseado no tipo
-            document.getElementById('mensagemTipo').onchange = function () {
-                const salaGroup = document.getElementById('salaGroup');
-                salaGroup.style.display = this.value === 'COLETIVA' ? 'block' : 'none';
-            };
+            document.getElementById('mensagemTipo').onchange = atualizarCamposDoDestino;
+            document.getElementById('mensagemSala').onchange = aoEscolherTurmaDaMensagem;
+            document.getElementById('mensagemAluno').onchange = aoEscolherAlunoDaMensagem;
+            atualizarCamposDoDestino();
 
             modal.style.display = 'flex';
         }
 
         function closeMensagemModal() {
             document.getElementById('mensagemModal').style.display = 'none';
+        }
+
+        // Mostra os campos que o destino pede e diz em que cartão do app dos responsáveis a mensagem aparece.
+        function atualizarCamposDoDestino() {
+            const tipo = document.getElementById('mensagemTipo').value;
+            document.getElementById('salaGroup').style.display = (tipo === 'COLETIVA' || tipo === 'INDIVIDUAL') ? 'block' : 'none';
+            document.getElementById('alunoGroup').style.display = tipo === 'INDIVIDUAL' ? 'block' : 'none';
+            document.getElementById('mensagemSalaRotulo').textContent = tipo === 'INDIVIDUAL' ? 'Turma do aluno' : 'Turma';
+            const ajuda = {
+                INSTITUCIONAL: 'Aparece no cartão "Diretoria" de todos os responsáveis da escola.',
+                COLETIVA: 'Aparece no cartão "Turma" dos responsáveis dos alunos da turma escolhida.',
+                INDIVIDUAL: 'Aparece no cartão "Diretoria" só dos responsáveis do aluno escolhido.'
+            };
+            document.getElementById('mensagemDestinoAjuda').textContent = ajuda[tipo] || '';
+        }
+
+        // Escolheu a turma para um recado individual: carrega os alunos dela.
+        async function aoEscolherTurmaDaMensagem() {
+            if (document.getElementById('mensagemTipo').value !== 'INDIVIDUAL') return;
+            const salaId = document.getElementById('mensagemSala').value;
+            const sel = document.getElementById('mensagemAluno');
+            document.getElementById('mensagemAlunoResponsaveis').textContent = '';
+            if (!salaId) { sel.innerHTML = '<option value="">Escolha primeiro a turma...</option>'; return; }
+            sel.innerHTML = '<option value="">Carregando alunos...</option>';
+            try {
+                const r = await fetch(`${API_URL}/api/mensagens/turma/${salaId}/alunos`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+                if (!r.ok) throw new Error();
+                const alunos = await r.json();
+                sel.innerHTML = '<option value="">Selecione o aluno...</option>';
+                alunos.forEach(a => {
+                    const o = document.createElement('option');
+                    o.value = a.id;
+                    o.textContent = a.responsaveis === 0 ? `${a.nome} (sem responsável vinculado)` : a.nome;
+                    sel.appendChild(o);
+                });
+                if (alunos.length === 0) sel.innerHTML = '<option value="">Nenhum aluno nesta turma</option>';
+            } catch (e) {
+                sel.innerHTML = '<option value="">Não foi possível carregar os alunos</option>';
+            }
+        }
+
+        // Escolheu o aluno: mostra quem vai receber.
+        async function aoEscolherAlunoDaMensagem() {
+            const alunoId = document.getElementById('mensagemAluno').value;
+            const alvo = document.getElementById('mensagemAlunoResponsaveis');
+            alvo.textContent = '';
+            if (!alunoId) return;
+            const previa = await previaDeDestinatarios('INDIVIDUAL', null, alunoId);
+            if (!previa) return;
+            alvo.textContent = previa.destinatarios === 0
+                ? 'Este aluno não tem responsável vinculado: ninguém receberá a mensagem.'
+                : `Será enviada para: ${previa.responsaveis.join(', ')}.`;
         }
 
         function atualizarContadorMensagem() {
@@ -8464,13 +8526,13 @@
         }
 
         // Confirma o aviso urgente mostrando quantos responsáveis serão notificados. Devolve true/false.
-        function confirmarAvisoUrgente(destinatarios) {
+        function confirmarAvisoUrgente(previa) {
             return new Promise(resolve => {
                 const modal = document.getElementById('urgenteConfirmModal');
                 const texto = document.getElementById('urgenteConfirmTexto');
-                texto.textContent = destinatarios === null
+                texto.textContent = previa === null
                     ? 'Os responsáveis receberão uma notificação urgente no celular.'
-                    : `${destinatarios} responsável(is) receberão uma notificação urgente no celular.`;
+                    : `${previa.destinatarios} responsável(is) de ${previa.destino} receberão uma notificação urgente no celular.`;
                 const fechar = (valor) => {
                     modal.style.display = 'none';
                     document.getElementById('urgenteConfirmEnviar').onclick = null;
@@ -8483,15 +8545,17 @@
             });
         }
 
-        async function contarDestinatariosDaMensagem(tipo, salaId) {
+        // Quem receberá: { destinatarios, responsaveis, destino }. Nulo se o servidor não responder.
+        async function previaDeDestinatarios(tipo, salaId, alunoId) {
             try {
                 const params = new URLSearchParams({ tipo });
                 if (tipo === 'COLETIVA' && salaId) params.set('salaId', salaId);
+                if (tipo === 'INDIVIDUAL' && alunoId) params.set('alunoId', alunoId);
                 const r = await fetch(`${API_URL}/api/mensagens/destinatarios/previa?${params}`, {
                     headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
                 });
                 if (!r.ok) return null;
-                return (await r.json()).destinatarios;
+                return await r.json();
             } catch (e) {
                 return null;
             }
@@ -8607,9 +8671,9 @@
 
             const mensagemId = document.getElementById('mensagemId').value;
             const tipo = document.getElementById('mensagemTipo').value;
-            const materiaId = document.getElementById('mensagemMateria').value;
             const conteudo = document.getElementById('mensagemConteudo').value;
             const salaId = document.getElementById('mensagemSala').value;
+            const alunoId = document.getElementById('mensagemAluno').value;
             const dataInicio = document.getElementById('mensagemDataInicio').value;
             const dataFim = document.getElementById('mensagemDataFim').value;
             const urgente = document.getElementById('mensagemUrgente').checked;
@@ -8623,29 +8687,46 @@
                 return;
             }
 
+            // Mensagem da escola nunca vai para o cartão de uma matéria (isso é do professor): sem materiaId.
             const payload = {
                 conteudo: conteudo,
-                materiaId: materiaId ? parseInt(materiaId) : null,
+                materiaId: null,
                 tipo: tipo,
                 alunoId: null,
                 urgente: urgente
             };
 
             if (tipo === 'COLETIVA') {
-                if (!salaId) {
-                    showToast('Selecione uma sala para mensagem coletiva', 'error');
+                if (!salaId && !mensagemId) {
+                    showToast('Selecione a turma', 'error');
                     return;
                 }
-                payload.salaId = parseInt(salaId);
+                if (salaId) payload.salaId = parseInt(salaId);
+            }
+            if (tipo === 'INDIVIDUAL') {
+                if (!alunoId && !mensagemId) {
+                    showToast('Selecione o aluno', 'error');
+                    return;
+                }
+                if (alunoId) payload.alunoId = parseInt(alunoId);
             }
 
             if (dataInicio) payload.dataExibicaoInicio = new Date(dataInicio).toISOString();
             if (dataFim) payload.dataExibicaoFim = new Date(dataFim).toISOString();
+            // Campos desabilitados não vêm do formulário: na edição o destino é o da mensagem original.
+            if (mensagemId) {
+                const original = mensagensCarregadas.get(Number(mensagemId));
+                if (original) {
+                    payload.tipo = original.tipo;
+                    payload.salaId = original.tipo === 'COLETIVA' ? original.salaId : null;
+                    payload.alunoId = original.tipo === 'INDIVIDUAL' ? original.alunoId : null;
+                }
+            }
 
             // Aviso urgente novo: mostra quantos responsáveis serão notificados e pede confirmação.
             if (urgente && !mensagemId) {
-                const total = await contarDestinatariosDaMensagem(tipo, salaId);
-                if (!(await confirmarAvisoUrgente(total))) return;
+                const previa = await previaDeDestinatarios(tipo, salaId, alunoId);
+                if (!(await confirmarAvisoUrgente(previa))) return;
             }
 
             try {
@@ -8850,17 +8931,17 @@
 
                     switch (msg.tipo) {
                         case 'INSTITUCIONAL':
-                            tipoLabel = '📢 Institucional (Diretoria)';
+                            tipoLabel = '📢 Toda a escola (cartão Diretoria)';
                             tipoClass = 'institucional';
                             tipoIcon = 'fa-building';
                             break;
                         case 'COLETIVA':
-                            tipoLabel = '👥 Coletiva';
+                            tipoLabel = '👥 Turma';
                             tipoClass = 'coletiva';
                             tipoIcon = 'fa-users';
                             break;
                         case 'INDIVIDUAL':
-                            tipoLabel = '👤 Individual';
+                            tipoLabel = '👤 Família';
                             tipoClass = 'individual';
                             tipoIcon = 'fa-user';
                             break;
@@ -8926,9 +9007,9 @@
                             ${msg.dataExibicaoFim ? `<br><i class="fas fa-clock"></i> Expira: ${new Date(msg.dataExibicaoFim).toLocaleString('pt-BR')}` : ''}
                         </div>
                         <div class="mensagem-actions">
-                            ${msg.tipo === 'INDIVIDUAL' ? '' : `<button type="button" class="btn btn-sm btn-edit" data-acao="editar-mensagem" data-id="${Number(msg.id)}">
+                            <button type="button" class="btn btn-sm btn-edit" data-acao="editar-mensagem" data-id="${Number(msg.id)}">
                                 <i class="fas fa-edit"></i> Editar
-                            </button>`}
+                            </button>
                             <button type="button" class="btn btn-sm btn-delete" data-acao="desativar-mensagem" data-id="${Number(msg.id)}">
                                 <i class="fas fa-trash"></i> Desativar
                             </button>
