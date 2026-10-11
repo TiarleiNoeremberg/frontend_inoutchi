@@ -2029,6 +2029,23 @@
         }
 
         /* Estilos para cards de mensagens */
+        .urgente-opcao .urgente-rotulo { display: flex; gap: 12px; align-items: flex-start; cursor: pointer;
+            padding: 12px 14px; border: 1px solid #fecaca; background: #fef2f2; border-radius: 12px; }
+        .urgente-opcao input { margin-top: 4px; width: 18px; height: 18px; flex: none; }
+        .urgente-opcao small { display: block; color: #7f1d1d; margin-top: 2px; }
+        .selo-mensagem { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 20px;
+            font-size: 0.7rem; font-weight: 700; margin-left: 8px; }
+        .selo-urgente { background: #fee2e2; color: #b91c1c; }
+        .selo-agendada { background: #e0f2fe; color: #0369a1; }
+        .selo-expirada { background: #e5e7eb; color: #4b5563; }
+        .leitura-linha { margin-top: 12px; }
+        .leitura-barra { height: 6px; border-radius: 6px; background: #e5e7eb; overflow: hidden; }
+        .leitura-barra span { display: block; height: 100%; background: linear-gradient(90deg, #1565C0, #00ACC1); }
+        .leitura-botao { background: none; border: 0; padding: 6px 0 0; color: var(--primary); font-weight: 600;
+            font-size: 0.8rem; cursor: pointer; }
+        .leitura-lista { list-style: none; padding: 0; margin: 8px 0 18px; max-height: 220px; overflow: auto; }
+        .leitura-lista li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0;
+            border-bottom: 1px solid #eef2f7; font-size: 0.9rem; }
         .mensagem-card {
             background: var(--bg-card);
             border: 1px solid var(--border);
@@ -3907,20 +3924,32 @@
 
                         <div class="form-group">
                             <label for="mensagemConteudo">Conteúdo da Mensagem</label>
-                            <textarea id="mensagemConteudo" class="form-control" rows="5" required
-                                placeholder="Digite sua mensagem aqui..."></textarea>
+                            <textarea id="mensagemConteudo" class="form-control" rows="5" required maxlength="500"
+                                placeholder="Digite sua mensagem aqui..." oninput="atualizarContadorMensagem()"></textarea>
+                            <small id="mensagemContador" class="text-muted">0 / 500 caracteres</small>
+                        </div>
+
+                        <div class="form-group urgente-opcao">
+                            <label class="urgente-rotulo" for="mensagemUrgente">
+                                <input type="checkbox" id="mensagemUrgente">
+                                <span>
+                                    <strong><i class="fas fa-bell"></i> Aviso urgente</strong>
+                                    <small>Além do mural, os responsáveis recebem uma notificação no celular agora. Use
+                                        para situações como saída antecipada, falta de energia ou alagamento.</small>
+                                </span>
+                            </label>
                         </div>
 
                         <div class="form-row">
                             <div class="form-group">
-                                <label for="mensagemDataInicio">Data de Início (opcional)</label>
+                                <label for="mensagemDataInicio">Publicar em (opcional)</label>
                                 <input type="datetime-local" id="mensagemDataInicio" class="form-control">
-                                <small>Deixe em branco para exibir imediatamente</small>
+                                <small>Agende a mensagem para depois. Em branco: publica agora.</small>
                             </div>
                             <div class="form-group">
-                                <label for="mensagemDataFim">Data de Término (opcional)</label>
+                                <label for="mensagemDataFim">Expira em (opcional)</label>
                                 <input type="datetime-local" id="mensagemDataFim" class="form-control">
-                                <small>Deixe em branco para não expirar</small>
+                                <small>Depois dessa hora a mensagem sai do mural dos responsáveis.</small>
                             </div>
                         </div>
                     </div>
@@ -3929,6 +3958,35 @@
                         <button type="submit" class="btn btn-primary">Publicar Mensagem</button>
                     </div>
                 </form>
+            </div>
+        </div>
+
+        <!-- Confirmação do aviso urgente (envia notificação no celular dos responsáveis) -->
+        <div id="urgenteConfirmModal" class="modal">
+            <div class="modal-content" style="max-width: 460px;">
+                <div class="modal-header">
+                    <h2><i class="fas fa-bell"></i> Enviar aviso urgente?</h2>
+                </div>
+                <div class="modal-body">
+                    <p id="urgenteConfirmTexto"></p>
+                    <p class="text-muted small">A notificação sai agora no celular dos responsáveis e não pode ser desfeita.
+                        Se for um aviso comum, publique sem marcar "Aviso urgente".</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="urgenteConfirmCancelar">Voltar</button>
+                    <button type="button" class="btn btn-danger" id="urgenteConfirmEnviar"><i class="fas fa-bell"></i> Enviar agora</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quem leu a mensagem -->
+        <div id="leituraModal" class="modal">
+            <div class="modal-content" style="max-width: 520px;">
+                <div class="modal-header">
+                    <h2>Confirmação de leitura</h2>
+                    <span class="close-button" onclick="document.getElementById('leituraModal').style.display='none'">&times;</span>
+                </div>
+                <div class="modal-body" id="leituraCorpo"></div>
             </div>
         </div>
 
@@ -8346,30 +8404,36 @@
             document.getElementById('mensagemId').value = '';
             document.getElementById('salaGroup').style.display = 'none';
 
+            // As listas de turma e matéria chegam do servidor: o valor da mensagem editada só entra depois delas.
+            const salasProntas = carregarSalasParaMensagem();
+            const materiasProntas = carregarMateriasParaMensagem();
+
             if (mensagem) {
                 // Modo edição
                 title.textContent = 'Editar Mensagem';
                 document.getElementById('mensagemId').value = mensagem.id;
                 document.getElementById('mensagemTipo').value = mensagem.tipo;
                 document.getElementById('mensagemConteudo').value = mensagem.conteudo;
+                document.getElementById('mensagemUrgente').checked = !!mensagem.urgente;
+                document.getElementById('mensagemDataInicio').value = paraCampoDataHora(mensagem.dataExibicaoInicio);
+                document.getElementById('mensagemDataFim').value = paraCampoDataHora(mensagem.dataExibicaoFim);
 
                 if (mensagem.materiaId) {
-                    document.getElementById('mensagemMateria').value = mensagem.materiaId;
+                    materiasProntas.then(() => {
+                        document.getElementById('mensagemMateria').value = mensagem.materiaId;
+                    });
                 }
                 if (mensagem.salaId && mensagem.tipo === 'COLETIVA') {
                     document.getElementById('salaGroup').style.display = 'block';
-                    awaitCarregarSalas();
-                    setTimeout(() => {
+                    salasProntas.then(() => {
                         document.getElementById('mensagemSala').value = mensagem.salaId;
-                    }, 500);
+                    });
                 }
             } else {
                 title.textContent = 'Nova Mensagem';
             }
 
-            // Carregar dados dos selects
-            carregarSalasParaMensagem();
-            carregarMateriasParaMensagem();
+            atualizarContadorMensagem();
 
             // Mostrar/esconder sala baseado no tipo
             document.getElementById('mensagemTipo').onchange = function () {
@@ -8384,6 +8448,78 @@
             document.getElementById('mensagemModal').style.display = 'none';
         }
 
+        function atualizarContadorMensagem() {
+            const campo = document.getElementById('mensagemConteudo');
+            const contador = document.getElementById('mensagemContador');
+            if (campo && contador) contador.textContent = `${campo.value.length} / 500 caracteres`;
+        }
+
+        // ISO (Instant do servidor) -> valor de <input type="datetime-local"> no horário do navegador.
+        function paraCampoDataHora(iso) {
+            if (!iso) return '';
+            const d = new Date(iso);
+            if (isNaN(d.getTime())) return '';
+            const dois = n => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${dois(d.getMonth() + 1)}-${dois(d.getDate())}T${dois(d.getHours())}:${dois(d.getMinutes())}`;
+        }
+
+        // Confirma o aviso urgente mostrando quantos responsáveis serão notificados. Devolve true/false.
+        function confirmarAvisoUrgente(destinatarios) {
+            return new Promise(resolve => {
+                const modal = document.getElementById('urgenteConfirmModal');
+                const texto = document.getElementById('urgenteConfirmTexto');
+                texto.textContent = destinatarios === null
+                    ? 'Os responsáveis receberão uma notificação urgente no celular.'
+                    : `${destinatarios} responsável(is) receberão uma notificação urgente no celular.`;
+                const fechar = (valor) => {
+                    modal.style.display = 'none';
+                    document.getElementById('urgenteConfirmEnviar').onclick = null;
+                    document.getElementById('urgenteConfirmCancelar').onclick = null;
+                    resolve(valor);
+                };
+                document.getElementById('urgenteConfirmEnviar').onclick = () => fechar(true);
+                document.getElementById('urgenteConfirmCancelar').onclick = () => fechar(false);
+                modal.style.display = 'flex';
+            });
+        }
+
+        async function contarDestinatariosDaMensagem(tipo, salaId) {
+            try {
+                const params = new URLSearchParams({ tipo });
+                if (tipo === 'COLETIVA' && salaId) params.set('salaId', salaId);
+                const r = await fetch(`${API_URL}/api/mensagens/destinatarios/previa?${params}`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+                if (!r.ok) return null;
+                return (await r.json()).destinatarios;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        // Quem leu e quem ainda não leu.
+        async function abrirLeituraDaMensagem(id) {
+            const corpo = document.getElementById('leituraCorpo');
+            corpo.textContent = 'Carregando...';
+            document.getElementById('leituraModal').style.display = 'flex';
+            try {
+                const r = await fetch(`${API_URL}/api/mensagens/${id}/leitura`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+                if (!r.ok) throw new Error('Não foi possível carregar a leitura.');
+                const d = await r.json();
+                const lista = (itens, comHora) => itens.length
+                    ? `<ul class="leitura-lista">${itens.map(i => `<li><span>${escapeHtml(i.nome)}</span><span class="text-muted">${comHora && i.lidaEm ? new Date(i.lidaEm).toLocaleString('pt-BR') : ''}</span></li>`).join('')}</ul>`
+                    : '<p class="text-muted small">Ninguém por aqui.</p>';
+                corpo.innerHTML = `
+                    <p><strong>${d.lidas} de ${d.destinatarios}</strong> responsáveis já leram.</p>
+                    <h4>Leram</h4>${lista(d.leram, true)}
+                    <h4>Ainda não leram</h4>${lista(d.pendentes, false)}`;
+            } catch (e) {
+                corpo.textContent = e.message;
+            }
+        }
+
         let mensagensCarregadas = new Map();
 
         // Editar/Desativar de cada mensagem: um só ouvinte no container, a mensagem vem do mapa pelo id.
@@ -8395,6 +8531,7 @@
                 if (!botao) return;
                 const msg = mensagensCarregadas.get(Number(botao.dataset.id));
                 if (!msg) return;
+                if (botao.dataset.acao === 'ver-leitura') abrirLeituraDaMensagem(msg.id);
                 if (botao.dataset.acao === 'editar-mensagem') openMensagemModal(msg);
                 if (botao.dataset.acao === 'desativar-mensagem') openDesativarModal(msg.id, msg.conteudo || '');
             });
@@ -8475,9 +8612,14 @@
             const salaId = document.getElementById('mensagemSala').value;
             const dataInicio = document.getElementById('mensagemDataInicio').value;
             const dataFim = document.getElementById('mensagemDataFim').value;
+            const urgente = document.getElementById('mensagemUrgente').checked;
 
             if (!conteudo.trim()) {
                 showToast('Digite o conteúdo da mensagem', 'error');
+                return;
+            }
+            if (dataInicio && dataFim && new Date(dataFim) <= new Date(dataInicio)) {
+                showToast('O fim da exibição precisa ser depois do início', 'error');
                 return;
             }
 
@@ -8485,7 +8627,8 @@
                 conteudo: conteudo,
                 materiaId: materiaId ? parseInt(materiaId) : null,
                 tipo: tipo,
-                alunoId: null
+                alunoId: null,
+                urgente: urgente
             };
 
             if (tipo === 'COLETIVA') {
@@ -8498,6 +8641,12 @@
 
             if (dataInicio) payload.dataExibicaoInicio = new Date(dataInicio).toISOString();
             if (dataFim) payload.dataExibicaoFim = new Date(dataFim).toISOString();
+
+            // Aviso urgente novo: mostra quantos responsáveis serão notificados e pede confirmação.
+            if (urgente && !mensagemId) {
+                const total = await contarDestinatariosDaMensagem(tipo, salaId);
+                if (!(await confirmarAvisoUrgente(total))) return;
+            }
 
             try {
                 let response;
@@ -8523,8 +8672,8 @@
                 }
 
                 if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.mensagem || 'Erro ao salvar mensagem');
+                    const error = await response.json().catch(() => ({}));
+                    throw new Error(error.mensagem || error.message || 'Erro ao salvar mensagem');
                 }
 
                 showToast(mensagemId ? 'Mensagem atualizada com sucesso!' : 'Mensagem publicada com sucesso!', 'success');
@@ -8666,6 +8815,15 @@
                 mensagensCarregadas = new Map(mensagens.map(m => [m.id, m]));
                 ligarAcoesDasMensagens(container);
 
+                // "Lida por X de Y": uma consulta para a lista toda (falha aqui não impede de ver as mensagens).
+                let leituras = new Map();
+                try {
+                    const rl = await fetch(`${API_URL}/api/mensagens/leitura/resumo`, {
+                        headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                    });
+                    if (rl.ok) leituras = new Map((await rl.json()).map(l => [l.mensagemId, l]));
+                } catch (e) { /* sem confirmação de leitura nesta carga */ }
+
                 // Aplicar filtro
                 if (filtroTipo !== 'TODOS') {
                     mensagens = mensagens.filter(m => m.tipo === filtroTipo);
@@ -8719,6 +8877,31 @@
                    </span>`
                         : '';
 
+                    // Estado de exibição e leitura
+                    const agora = Date.now();
+                    const inicio = msg.dataExibicaoInicio ? new Date(msg.dataExibicaoInicio).getTime() : null;
+                    const fim = msg.dataExibicaoFim ? new Date(msg.dataExibicaoFim).getTime() : null;
+                    const agendada = inicio !== null && inicio > agora;
+                    const expirada = fim !== null && fim <= agora;
+                    const seloUrgente = msg.urgente ? '<span class="selo-mensagem selo-urgente"><i class="fas fa-bell"></i> URGENTE</span>' : '';
+                    const seloEstado = agendada
+                        ? `<span class="selo-mensagem selo-agendada"><i class="fas fa-calendar-check"></i> Agendada para ${new Date(inicio).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>`
+                        : (expirada ? '<span class="selo-mensagem selo-expirada"><i class="fas fa-hourglass-end"></i> Expirada</span>' : '');
+                    const leitura = leituras.get(msg.id);
+                    let blocoLeitura = '';
+                    if (leitura && !agendada) {
+                        if (leitura.destinatarios === 0) {
+                            blocoLeitura = '<div class="leitura-linha"><small class="text-muted">Nenhum responsável vinculado a esta mensagem.</small></div>';
+                        } else {
+                            const pct = Math.round(100 * leitura.lidas / leitura.destinatarios);
+                            blocoLeitura = `<div class="leitura-linha">
+                                <div class="leitura-barra"><span style="width:${pct}%"></span></div>
+                                <button type="button" class="leitura-botao" data-acao="ver-leitura" data-id="${Number(msg.id)}">
+                                    Lida por ${leitura.lidas} de ${leitura.destinatarios} responsáveis · ver quem leu
+                                </button></div>`;
+                        }
+                    }
+
                     return `
                 <div class="mensagem-card">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
@@ -8727,12 +8910,13 @@
                                 <i class="fas ${tipoIcon}"></i> ${tipoLabel}
                                 ${msg.salaNome ? ` · ${escapeHtml(msg.salaNome)}` : ''}
                             </span>
-                            ${infoAdicional}
+                            ${infoAdicional}${seloUrgente}${seloEstado}
                         </div>
                         ${msg.materiaNome ? `<span class="badge" style="background: var(--primary-light); color: var(--primary); padding: 4px 12px; border-radius: 20px; font-size: 0.7rem;">📚 ${escapeHtml(msg.materiaNome)}</span>` : ''}
                     </div>
                     <div class="mensagem-conteudo">${escapeHtml(msg.conteudo).replace(/\n/g, '<br>')}</div>
                     ${anexosDaMensagemEscola(msg)}
+                    ${blocoLeitura}
                     <div class="mensagem-meta">
                         <div>
                             <i class="fas fa-user"></i> ${escapeHtml(msg.criadoPorNome || 'Sistema')} 

@@ -1658,10 +1658,12 @@
                     <div class="form-group">
                         <label class="form-label">Publicar a partir de (opcional)</label>
                         <input type="datetime-local" id="fDataInicio" class="form-control">
+                        <small class="form-hint">Agende para depois. Em branco: publica agora.</small>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Expirar em (opcional)</label>
                         <input type="datetime-local" id="fDataFim" class="form-control">
+                        <small class="form-hint">Depois dessa hora sai do mural dos responsáveis.</small>
                     </div>
                 </div>
             </div>
@@ -1669,6 +1671,17 @@
                 <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
                 <button class="btn btn-primary" onclick="enviarMensagem()">Publicar mensagem</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Quem leu a mensagem -->
+    <div class="modal-overlay" id="leituraOverlay" onclick="if (event.target === this) this.classList.remove('open')">
+        <div class="modal-box" style="max-width: 460px;">
+            <div class="modal-header">
+                <h3 class="modal-title">Confirmação de leitura</h3>
+                <button class="modal-close" onclick="document.getElementById('leituraOverlay').classList.remove('open')">&#x2715;</button>
+            </div>
+            <div class="modal-body" id="leituraCorpo"></div>
         </div>
     </div>
 
@@ -1843,6 +1856,13 @@
                 if (!res || !res.ok) throw new Error('Erro ao carregar mensagens');
                 const mensagens = await res.json();
 
+                // "Lida por X de Y" das mensagens que o próprio professor publicou (falha aqui não impede a lista).
+                let leituras = new Map();
+                try {
+                    const rl = await fetchWithAuth('/api/mensagens/leitura/resumo');
+                    if (rl && rl.ok) leituras = new Map((await rl.json()).map(l => [l.mensagemId, l]));
+                } catch (e) { /* sem confirmação de leitura nesta carga */ }
+
                 document.getElementById('threadTitle').textContent = materiaNome;
                 document.getElementById('threadSub').textContent = `Mensagens da disciplina`;
 
@@ -1869,13 +1889,26 @@
                         const podeEditar = isProfessor && isCriador;
                         const podeExcluir = isProfessor && isCriador;
 
+                        const inicio = msg.dataExibicaoInicio ? new Date(msg.dataExibicaoInicio).getTime() : null;
+                        const fim = msg.dataExibicaoFim ? new Date(msg.dataExibicaoFim).getTime() : null;
+                        const agendada = inicio !== null && inicio > Date.now();
+                        const expirada = fim !== null && fim <= Date.now();
+                        const selo = agendada
+                            ? `<span class="msg-tag" style="margin-left:6px;"><i class="fas fa-calendar-check"></i> Agendada para ${new Date(inicio).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>`
+                            : (expirada ? '<span class="msg-tag" style="margin-left:6px;"><i class="fas fa-hourglass-end"></i> Expirada</span>' : '');
+                        const leitura = leituras.get(msg.id);
+                        const blocoLeitura = (leitura && !agendada)
+                            ? `<div class="msg-tag" style="margin-top:8px; cursor:pointer;" data-ver-leitura="${Number(msg.id)}"><i class="fas fa-eye"></i> ${leitura.destinatarios === 0 ? 'Nenhum responsável vinculado' : `Lida por ${leitura.lidas} de ${leitura.destinatarios} responsáveis · ver quem leu`}</div>`
+                            : '';
+
                         return `<article class="thread-msg ${!msg.lida ? 'unread' : ''}" data-msg-id="${msg.id}">
                     <div class="msg-head">
-                        <span class="msg-from">${tipoIcon} ${escapeHtml(msg.criadoPorNome || 'Sistema')}</span>
+                        <span class="msg-from">${tipoIcon} ${escapeHtml(msg.criadoPorNome || 'Sistema')}${selo}</span>
                         <span class="msg-when">${new Date(msg.dataCriacao).toLocaleString('pt-BR')}</span>
                     </div>
                     <div class="msg-body">${formatarMensagem(msg.conteudo)}</div>
                     ${msg.alunoNome ? `<div class="msg-tag"><i class="fas fa-user"></i> Para: ${escapeHtml(msg.alunoNome)}</div>` : ''}
+                    ${blocoLeitura}
                     ${anexosSeguros(msg).length ? `<div class="msg-attachments" style="margin-top:10px;"><i class="fas fa-paperclip"></i> Anexos: ${anexosSeguros(msg).map(a => `<a href="${escapeHtml(a.caminhoArquivo).replace(/"/g, '&quot;')}" target="_blank" rel="noopener noreferrer">${escapeHtml(a.nomeArquivo || 'Anexo')}</a>`).join(', ')}</div>` : ''}
                     ${(podeEditar || podeExcluir) ? `
                     <div class="msg-actions" style="margin-top: 12px; display: flex; gap: 8px; border-top: 1px solid var(--border); padding-top: 10px;">
@@ -1889,6 +1922,10 @@
                     ` : ''}
                 </article>`;
                     }).join('');
+
+                    document.querySelectorAll('[data-ver-leitura]').forEach(el => {
+                        el.addEventListener('click', () => abrirLeituraDaMensagem(Number(el.dataset.verLeitura)));
+                    });
 
                     document.querySelectorAll('.btn-edit-msg').forEach(btn => {
                         btn.addEventListener('click', (e) => {
@@ -2354,6 +2391,24 @@
                 }
             } catch (e) { console.error(e); showToast(e.message, 'danger'); }
             finally { mostrarLoading(false); }
+        }
+
+        async function abrirLeituraDaMensagem(id) {
+            const corpo = document.getElementById('leituraCorpo');
+            corpo.textContent = 'Carregando...';
+            document.getElementById('leituraOverlay').classList.add('open');
+            try {
+                const r = await fetchWithAuth(`/api/mensagens/${id}/leitura`);
+                if (!r || !r.ok) throw new Error('Não foi possível carregar a leitura.');
+                const d = await r.json();
+                const lista = (itens, comHora) => itens.length
+                    ? `<ul style="list-style:none;padding:0;margin:8px 0 16px;max-height:200px;overflow:auto;">${itens.map(i => `<li style="display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--border);font-size:.9rem;"><span>${escapeHtml(i.nome)}</span><span style="color:var(--text-muted);">${comHora && i.lidaEm ? new Date(i.lidaEm).toLocaleString('pt-BR') : ''}</span></li>`).join('')}</ul>`
+                    : '<p style="color:var(--text-muted);font-size:.85rem;">Ninguém por aqui.</p>';
+                corpo.innerHTML = `<p><strong>${d.lidas} de ${d.destinatarios}</strong> responsáveis já leram.</p>
+                    <h4>Leram</h4>${lista(d.leram, true)}<h4>Ainda não leram</h4>${lista(d.pendentes, false)}`;
+            } catch (e) {
+                corpo.textContent = e.message;
+            }
         }
 
         // ================================================
