@@ -620,7 +620,7 @@
         <p class="rodape">Segurança e organização no fluxo escolar</p>
     </main>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="js/qrcode.min.js"></script>
     <script>
         (function () {
             'use strict';
@@ -894,6 +894,15 @@
                     var r = await chamarOperacao(operacao);
                     if (!r.ok) {
                         aviso('avisoLocal', '');
+                        // Já existe uma saída ativa deste aluno: o que importa é voltar a mostrar o QR e o código.
+                        var textoErro = String((r.dados && (r.dados.mensagem || r.dados.erro)) || '');
+                        if (operacao === 'SAIDA' && r.status === 409 && /solicita..o de sa.da ativa/i.test(textoErro)) {
+                            await retomarRetiradaPendente();
+                            if (acompanhando) {
+                                aviso('avisoErro2', 'Já existe uma solicitação de saída ativa para este aluno. Mostre o QR code ou o código à portaria.', 'carregando');
+                                return;
+                            }
+                        }
                         tratarFalha(r.status, r.dados, 'avisoErro');
                         return;
                     }
@@ -928,17 +937,36 @@
                 return { ok: resposta.ok, status: resposta.status, dados: dados };
             }
 
+            // A biblioteca do QR vem do próprio site (js/qrcode.min.js). Se ela não carregou (arquivo ausente, rede
+            // ruim), tenta uma vez pelo CDN; sem nenhuma das duas, o código de 6 dígitos continua na tela.
+            var carregandoQr = null;
+            function garantirBibliotecaDoQr() {
+                if (typeof QRCode !== 'undefined') return Promise.resolve(true);
+                if (!carregandoQr) {
+                    carregandoQr = new Promise(function (resolve) {
+                        var s = document.createElement('script');
+                        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+                        s.onload = function () { resolve(typeof QRCode !== 'undefined'); };
+                        s.onerror = function () { resolve(false); };
+                        document.head.appendChild(s);
+                    });
+                }
+                return carregandoQr;
+            }
+
             function desenharQr(texto) {
                 var caixa = el('qrCaixa');
                 if (!texto) { caixa.hidden = true; return; }
                 if (caixa.getAttribute('data-qr') === texto) return;   // mesmo QR: não redesenha
-                caixa.setAttribute('data-qr', texto);
-                caixa.innerHTML = '';
-                if (typeof QRCode === 'undefined') { caixa.hidden = true; return; }  // sem a biblioteca: só o código
-                caixa.hidden = false;
-                new QRCode(caixa, {
-                    text: texto, width: 220, height: 220,
-                    colorDark: '#0b2a5b', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M
+                garantirBibliotecaDoQr().then(function (pronta) {
+                    if (!pronta) { caixa.hidden = true; return; }       // sem a biblioteca: só o código
+                    caixa.setAttribute('data-qr', texto);
+                    caixa.innerHTML = '';
+                    caixa.hidden = false;
+                    new QRCode(caixa, {
+                        text: texto, width: 220, height: 220,
+                        colorDark: '#0b2a5b', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M
+                    });
                 });
             }
 
