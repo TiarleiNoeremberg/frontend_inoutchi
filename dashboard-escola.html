@@ -8568,21 +8568,48 @@
         let anexosParaRemover = [];    // ids de anexos existentes que o usuário tirou
         let widgetDeAnexos = null;
 
-        function abrirUploadAnexoMensagem() {
+        // Configuração do envio assinado (conta, chave pública, preset e pasta). Nulo quando o servidor ainda não tem a
+        // chave e o segredo: nesse caso o painel segue com o envio antigo (preset não assinado).
+        let configEnvioAssinado;
+        async function configuracaoDeEnvioAssinado() {
+            if (configEnvioAssinado !== undefined) return configEnvioAssinado;
+            try {
+                const r = await fetch(`${API_URL}/api/uploads/anexos/configuracao`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+                configEnvioAssinado = r.ok ? await r.json() : null;
+            } catch (e) {
+                configEnvioAssinado = null;
+            }
+            return configEnvioAssinado;
+        }
+
+        async function abrirUploadAnexoMensagem() {
             if (typeof cloudinary === 'undefined' || typeof CONFIG === 'undefined' || !CONFIG.CLOUDINARY) {
                 showToast('O envio de arquivos não está disponível agora. Recarregue a página.', 'error');
                 return;
             }
             if (!widgetDeAnexos) {
-                widgetDeAnexos = cloudinary.createUploadWidget({
-                    cloudName: CONFIG.CLOUDINARY.CLOUD_NAME,
-                    uploadPreset: CONFIG.CLOUDINARY.UPLOAD_PRESET,
-                    folder: CONFIG.CLOUDINARY.FOLDER,
+                const assinado = await configuracaoDeEnvioAssinado();
+                widgetDeAnexos = cloudinary.createUploadWidget(Object.assign({
+                    cloudName: assinado ? assinado.cloudName : CONFIG.CLOUDINARY.CLOUD_NAME,
+                    uploadPreset: assinado ? assinado.uploadPreset : CONFIG.CLOUDINARY.UPLOAD_PRESET,
+                    folder: assinado ? assinado.folder : CONFIG.CLOUDINARY.FOLDER,
                     sources: ['local', 'url', 'camera'],
                     multiple: true, maxFiles: 5, maxFileSize: 10485760,
                     clientAllowedFormats: ['pdf', 'jpg', 'jpeg', 'png', 'gif'],
                     resourceType: 'auto'
-                }, (erro, resultado) => {
+                }, assinado ? {
+                    // Envio assinado: o servidor assina cada envio (só usuário logado). O segredo nunca vem ao navegador.
+                    apiKey: assinado.apiKey,
+                    uploadSignature: (retorno, parametros) => {
+                        fetch(`${API_URL}/api/uploads/anexos/assinatura`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AUTH_TOKEN}` },
+                            body: JSON.stringify({ params: parametros })
+                        }).then(r => r.json()).then(d => retorno(d.signature)).catch(() => retorno(''));
+                    }
+                } : {}), (erro, resultado) => {
                     if (erro) { console.error(erro); showToast('Erro no envio do arquivo', 'error'); return; }
                     if (resultado && resultado.event === 'success') {
                         const info = resultado.info;

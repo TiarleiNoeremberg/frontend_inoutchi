@@ -2304,17 +2304,39 @@
         // ================================================
         // UPLOAD E ENVIO
         // ================================================
-        function abrirUploadAnexo() {
+        // Configuração do envio assinado; nula quando o servidor ainda não tem chave e segredo (segue o envio antigo).
+        let configEnvioAssinado;
+        async function configuracaoDeEnvioAssinado() {
+            if (configEnvioAssinado !== undefined) return configEnvioAssinado;
+            try {
+                const r = await fetchWithAuth('/api/uploads/anexos/configuracao');
+                configEnvioAssinado = (r && r.ok) ? await r.json() : null;
+            } catch (e) {
+                configEnvioAssinado = null;
+            }
+            return configEnvioAssinado;
+        }
+
+        async function abrirUploadAnexo() {
             if (!cloudinaryWidget) {
-                cloudinaryWidget = cloudinary.createUploadWidget({
-                    cloudName: CONFIG.CLOUDINARY.CLOUD_NAME,
-                    uploadPreset: CONFIG.CLOUDINARY.UPLOAD_PRESET,
-                    folder: CONFIG.CLOUDINARY.FOLDER,
+                const assinado = await configuracaoDeEnvioAssinado();
+                cloudinaryWidget = cloudinary.createUploadWidget(Object.assign({
+                    cloudName: assinado ? assinado.cloudName : CONFIG.CLOUDINARY.CLOUD_NAME,
+                    uploadPreset: assinado ? assinado.uploadPreset : CONFIG.CLOUDINARY.UPLOAD_PRESET,
+                    folder: assinado ? assinado.folder : CONFIG.CLOUDINARY.FOLDER,
                     sources: ['local', 'url', 'camera'],
                     multiple: true, maxFiles: 5, maxFileSize: 10485760,
                     clientAllowedFormats: ['pdf', 'jpg', 'jpeg', 'png', 'gif'],
                     resourceType: 'auto'
-                }, (error, result) => {
+                }, assinado ? {
+                    apiKey: assinado.apiKey,
+                    uploadSignature: (retorno, parametros) => {
+                        fetchWithAuth('/api/uploads/anexos/assinatura', {
+                            method: 'POST',
+                            body: JSON.stringify({ params: parametros })
+                        }).then(r => r.json()).then(d => retorno(d.signature)).catch(() => retorno(''));
+                    }
+                } : {}), (error, result) => {
                     if (error) { console.error(error); showToast('Erro no upload', 'danger'); return; }
                     if (result?.event === 'success') {
                         anexosParaEnviar.push({
