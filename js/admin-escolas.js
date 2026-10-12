@@ -26,8 +26,7 @@
         btnCopiar: document.getElementById('btnCopiarCredenciais'),
         btnOcultar: document.getElementById('btnOcultarCredenciais'),
         lista: document.getElementById('listaEscolas'),
-        total: document.getElementById('totalEscolas'),
-        status: document.getElementById('statusEscolas')
+        total: document.getElementById('totalEscolas')
     };
 
     const TEXTO_BOTAO_CRIAR = 'Criar escola';
@@ -59,13 +58,18 @@
         });
     }
 
-    function mostrarStatus(mensagem, erro) {
-        els.status.textContent = mensagem;
-        els.status.classList.toggle('erro', !!erro);
-        clearTimeout(els.status._timeout);
-        els.status._timeout = setTimeout(function () {
-            els.status.textContent = '';
-        }, erro ? 12000 : 6000);
+    // Avisos do painel: sempre em modal (Dialogos, js/admin-dialogos.js). Erro exige OK; sucesso fecha sozinho.
+    function mostrarErro(titulo, mensagem) {
+        return Dialogos.aviso({ tipo: 'erro', titulo: titulo, mensagem: mensagem });
+    }
+
+    function mostrarSucesso(titulo, mensagem, exigirOk) {
+        return Dialogos.aviso({
+            tipo: 'sucesso',
+            titulo: titulo,
+            mensagem: mensagem,
+            autoFechar: exigirOk ? 0 : 2500
+        });
     }
 
     function cabecalhos() {
@@ -194,15 +198,22 @@
     async function alternarStatus(escola) {
         const inativar = escola.ativa;
         const pergunta = inativar
-            ? 'Inativar a escola "' + escola.nome + '"?\n\nOs usuários dela (escola, diretores, professores, salas, painéis e ' +
+            ? 'Escola "' + escola.nome + '".\n\nOs usuários dela (escola, diretores, professores, salas, painéis e ' +
               'transportadores) não conseguirão mais entrar e as sessões abertas serão encerradas. Nada é apagado: ' +
               'você pode reativar a escola depois.'
-            : 'Reativar a escola "' + escola.nome + '"?\n\nOs usuários dela voltam a poder entrar.';
-        if (!window.confirm(pergunta)) return;
+            : 'Escola "' + escola.nome + '".\n\nOs usuários dela voltam a poder entrar.';
+        const confirmado = await Dialogos.confirmar({
+            tipo: 'aviso',
+            titulo: inativar ? 'Inativar escola?' : 'Reativar escola?',
+            mensagem: pergunta,
+            textoOk: inativar ? 'Inativar' : 'Reativar',
+            perigo: inativar
+        });
+        if (!confirmado) return;
 
         const headers = cabecalhos();
         if (!headers) {
-            mostrarStatus('❌ Usuário não autenticado.', true);
+            await mostrarErro('Sessão não encontrada', 'Faça login novamente.');
             return;
         }
 
@@ -214,15 +225,16 @@
             });
 
             if (!response.ok) {
-                mostrarStatus('❌ ' + await mensagemDeErro(response), true);
+                await mostrarErro('Não foi possível alterar a escola', await mensagemDeErro(response));
                 return;
             }
 
-            mostrarStatus('✅ Escola ' + (inativar ? 'inativada' : 'reativada') + ' com sucesso.');
             carregarEscolas();
+            await mostrarSucesso('Escola ' + (inativar ? 'inativada' : 'reativada'),
+                'A escola "' + escola.nome + '" foi ' + (inativar ? 'inativada.' : 'reativada.'));
         } catch (e) {
             console.error(e);
-            mostrarStatus('❌ Erro de conexão ao alterar o status da escola.', true);
+            await mostrarErro('Erro de conexão', 'Não foi possível alterar o status da escola. Tente novamente.');
         }
     }
 
@@ -243,13 +255,13 @@
 
         const erroValidacao = validar();
         if (erroValidacao) {
-            mostrarStatus('❌ ' + erroValidacao, true);
+            await Dialogos.aviso({ tipo: 'aviso', titulo: 'Confira os dados', mensagem: erroValidacao, textoOk: 'Entendi' });
             return;
         }
 
         const headers = cabecalhos();
         if (!headers) {
-            mostrarStatus('❌ Usuário não autenticado.', true);
+            await mostrarErro('Sessão não encontrada', 'Faça login novamente.');
             return;
         }
 
@@ -271,24 +283,34 @@
             });
 
             if (!response.ok) {
-                mostrarStatus('❌ ' + await mensagemDeErro(response), true);
+                await mostrarErro(editando ? 'Não foi possível salvar' : 'Não foi possível criar a escola',
+                    await mensagemDeErro(response));
                 return;
             }
 
+            let criada = null;
             if (editando) {
                 sairDaEdicao();
-                mostrarStatus('✅ Escola atualizada com sucesso.');
             } else {
-                const criada = await response.json();
+                criada = await response.json();
                 els.form.reset();
                 mostrarCredenciais(criada);
-                mostrarStatus('✅ Escola criada com sucesso.');
             }
             escolasCarregadas = false;
             carregarEscolas();
+
+            if (editando) {
+                await mostrarSucesso('Escola atualizada', 'As alterações foram salvas.');
+            } else {
+                // A senha aparece uma única vez: o administrador precisa ler o aviso antes de seguir.
+                await mostrarSucesso('Escola criada',
+                    'A escola e o usuário de acesso foram criados. A senha aparece uma única vez, no quadro de ' +
+                    'credenciais da página: copie antes de sair.', true);
+            }
         } catch (e) {
             console.error(e);
-            mostrarStatus('❌ Erro de conexão ao ' + (editando ? 'salvar' : 'criar') + ' a escola.', true);
+            await mostrarErro('Erro de conexão',
+                'Não foi possível ' + (editando ? 'salvar' : 'criar') + ' a escola. Tente novamente.');
         } finally {
             els.btnCriar.disabled = false;
             els.btnCriar.textContent = editandoId !== null ? TEXTO_BOTAO_SALVAR : TEXTO_BOTAO_CRIAR;
@@ -318,9 +340,9 @@
             '\nSenha: ' + els.credSenha.textContent;
         try {
             await navigator.clipboard.writeText(texto);
-            mostrarStatus('✅ Credenciais copiadas.');
+            await mostrarSucesso('Credenciais copiadas', 'Cole onde for enviar ao responsável pela escola.');
         } catch (e) {
-            mostrarStatus('❌ Não foi possível copiar. Selecione e copie manualmente.', true);
+            await mostrarErro('Não foi possível copiar', 'Selecione os dados no quadro e copie manualmente.');
         }
     }
 

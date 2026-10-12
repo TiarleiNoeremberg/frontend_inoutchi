@@ -41,14 +41,17 @@ window.onload = function () {
 
     document
         .getElementById("btnReload")
-        .addEventListener("click", loadConfiguration);
+        .addEventListener("click", function () {
+            loadConfiguration(true);
+        });
 
     document
         .getElementById("btnSave")
         .addEventListener("click", saveConfiguration);
 };
 
-async function loadConfiguration() {
+/** @param {boolean} [avisar] true quando o administrador pediu "Recarregar": confirma com um modal. */
+async function loadConfiguration(avisar) {
     try {
         const response = await fetch(API_PUBLIC + "?app=" + encodeURIComponent(appAlvo()));
 
@@ -62,10 +65,21 @@ async function loadConfiguration() {
         ultimaConfig = config;
         fillForm(config);
         atualizarContexto();
-        showStatus("Configuração carregada com sucesso.");
+        if (avisar === true) {
+            await Dialogos.aviso({
+                tipo: "sucesso",
+                titulo: "Configuração recarregada",
+                mensagem: "Os dados da tela voltaram ao que está salvo no servidor.",
+                autoFechar: 2200
+            });
+        }
     } catch (e) {
         console.error(e);
-        showStatus("Erro ao carregar configuração.");
+        await Dialogos.aviso({
+            tipo: "erro",
+            titulo: "Não foi possível carregar",
+            mensagem: "Erro ao carregar a configuração do aplicativo. Verifique a conexão e use \"Recarregar\"."
+        });
     }
 }
 
@@ -224,15 +238,20 @@ async function saveConfiguration() {
     const analise = analisarAntesDeSalvar(body);
 
     if (analise.erros.length) {
-        await mostrarDialogo({ titulo: "Corrija antes de salvar", itens: analise.erros, textoOk: "Entendi" });
+        await Dialogos.aviso({
+            tipo: "aviso",
+            titulo: "Corrija antes de salvar",
+            itens: analise.erros,
+            textoOk: "Entendi"
+        });
         return;
     }
     if (analise.confirmacoes.length) {
-        const ok = await mostrarDialogo({
+        const ok = await Dialogos.confirmar({
+            tipo: "aviso",
             titulo: "Confirme a alteração",
             itens: analise.confirmacoes,
-            textoOk: "Salvar mesmo assim",
-            cancelavel: true
+            textoOk: "Salvar mesmo assim"
         });
         if (!ok) return;
     }
@@ -245,7 +264,11 @@ async function enviarConfiguracao(body) {
     try {
         const token = localStorage.getItem("access_token");
         if (!token) {
-            showStatus("❌ Usuário não autenticado.");
+            await Dialogos.aviso({
+                tipo: "erro",
+                titulo: "Sessão não encontrada",
+                mensagem: "Faça login novamente para salvar a configuração."
+            });
             return;
         }
 
@@ -259,30 +282,41 @@ async function enviarConfiguracao(body) {
         });
 
         if (!response.ok) {
-            const errorText = await response.text();
-            console.error('❌ Erro do servidor:', errorText);
-            throw new Error("Erro ao salvar: " + response.status);
+            throw new Error(await mensagemDoServidor(response));
         }
 
-        showStatus("✅ Configuração salva com sucesso.");
         await loadConfiguration();
+        await Dialogos.aviso({
+            tipo: "sucesso",
+            titulo: "Configuração salva",
+            mensagem: "As alterações do " + (appAlvo() === "tutor" ? "app nativo do tutor" : "app WebView (legado)") +
+                " já valem para os usuários.",
+            autoFechar: 2500
+        });
 
     } catch (e) {
         console.error(e);
-        showStatus("❌ Erro ao salvar configuração: " + e.message);
+        await Dialogos.aviso({
+            tipo: "erro",
+            titulo: "Não foi possível salvar",
+            mensagem: e.message || "Erro de conexão ao salvar a configuração."
+        });
     }
 }
 
-function showStatus(message) {
-    const statusEl = document.getElementById("status");
-    statusEl.textContent = message;
-    statusEl.style.display = 'block';
-
-    // Esconde após 5 segundos
-    clearTimeout(statusEl._timeout);
-    statusEl._timeout = setTimeout(() => {
-        statusEl.style.display = 'none';
-    }, 5000);
+/** Mensagem a mostrar para uma resposta de erro do servidor (usa a mensagem do backend quando existe). */
+async function mensagemDoServidor(response) {
+    if (response.status === 401 || response.status === 403) {
+        return "Sessão expirada ou sem permissão de administrador. Faça login novamente.";
+    }
+    let corpo = null;
+    try {
+        corpo = await response.json();
+    } catch (e) {
+        corpo = null;
+    }
+    const texto = corpo && (corpo.mensagem || corpo.message || corpo.error);
+    return texto ? String(texto) : "Erro do servidor (" + response.status + ").";
 }
 
 function formatDate(date) {
@@ -446,47 +480,4 @@ function analisarAntesDeSalvar(body) {
             "\"Atualizar agora\" levaria a uma página inexistente.");
     }
     return { erros, confirmacoes };
-}
-
-/**
- * Diálogo próprio da página (no lugar de alert/confirm do navegador).
- * Resolve true no botão principal e false ao cancelar, fechar com Esc ou clicar fora.
- */
-function mostrarDialogo(opcoes) {
-    return new Promise(function (resolve) {
-        const camada = document.getElementById("dlgAdmin");
-        const ok = document.getElementById("dlgOk");
-        const cancelar = document.getElementById("dlgCancelar");
-        const lista = document.getElementById("dlgItens");
-
-        document.getElementById("dlgTitulo").textContent = opcoes.titulo;
-        lista.innerHTML = "";
-        (opcoes.itens || []).forEach(function (item) {
-            const li = document.createElement("li");
-            li.textContent = item;
-            lista.appendChild(li);
-        });
-        ok.textContent = opcoes.textoOk || "OK";
-        cancelar.hidden = !opcoes.cancelavel;
-        camada.hidden = false;
-        ok.focus();
-
-        function fechar(resultado) {
-            camada.hidden = true;
-            ok.removeEventListener("click", aoOk);
-            cancelar.removeEventListener("click", aoCancelar);
-            camada.removeEventListener("click", aoFora);
-            document.removeEventListener("keydown", aoTecla);
-            resolve(resultado);
-        }
-        function aoOk() { fechar(true); }
-        function aoCancelar() { fechar(false); }
-        function aoFora(e) { if (e.target === camada) fechar(!opcoes.cancelavel); }
-        function aoTecla(e) { if (e.key === "Escape") fechar(!opcoes.cancelavel); }
-
-        ok.addEventListener("click", aoOk);
-        cancelar.addEventListener("click", aoCancelar);
-        camada.addEventListener("click", aoFora);
-        document.addEventListener("keydown", aoTecla);
-    });
 }
