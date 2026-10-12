@@ -265,6 +265,55 @@
             background: #e3f8f0;
         }
 
+        .qr-caixa {
+            display: flex;
+            justify-content: center;
+            margin: 6px auto 14px;
+            padding: 14px;
+            width: fit-content;
+            background: #fff;
+            border: 2px solid var(--linha);
+            border-radius: 18px;
+        }
+
+        .qr-caixa[hidden] {
+            display: none;
+        }
+
+        .qr-caixa img,
+        .qr-caixa canvas {
+            display: block;
+            max-width: 100%;
+            height: auto;
+        }
+
+        .codigo-retirada {
+            text-align: center;
+            margin-bottom: 14px;
+            padding: 12px;
+            background: var(--fundo-suave);
+            border-radius: 14px;
+        }
+
+        .codigo-retirada span {
+            display: block;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--texto-suave);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .codigo-retirada strong {
+            display: block;
+            margin-top: 4px;
+            font-size: 2.1rem;
+            font-weight: 800;
+            letter-spacing: 0.18em;
+            color: var(--azul-escuro);
+            font-variant-numeric: tabular-nums;
+        }
+
         .passos {
             margin-top: 14px;
             font-size: 14px;
@@ -526,27 +575,32 @@
                 </div>
             </div>
 
-            <!-- Etapa 2 (saída): aguardando o aluno no portão -->
+            <!-- Etapa 2 (saída): mostrar o QR code e o código à portaria -->
             <div class="vista" id="vista-espera" hidden>
                 <div class="topo saida">
                     <div class="icone" aria-hidden="true">
                         <svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>
                     </div>
                     <div>
-                        <h1>Aguardando no portão</h1>
-                        <p>Solicitação enviada à escola</p>
+                        <h1>Mostre à portaria</h1>
+                        <p>Retirada aguardando a verificação</p>
                     </div>
                 </div>
                 <div class="corpo">
                     <p class="passos">
-                        O aluno foi avisado. Dirija-se ao portão para encontrá-lo(a).
-                        <strong>Toque no botão abaixo só quando o aluno estiver com você.</strong>
+                        O aluno foi avisado. Vá até a portaria e <strong>mostre este QR code</strong> ou informe o
+                        código abaixo. A saída só é liberada depois que a portaria conferir.
                     </p>
+                    <div class="qr-caixa" id="qrCaixa" role="img" aria-label="QR code da retirada" hidden></div>
+                    <div class="codigo-retirada">
+                        <span>Código da retirada</span>
+                        <strong id="codigoRetirada">--- ---</strong>
+                    </div>
+                    <div class="aviso carregando" id="avisoEspera">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>
+                        <span>Aguardando a conferência da portaria...</span>
+                    </div>
                     <div class="aviso erro" id="avisoErro2" role="alert" hidden></div>
-                    <button class="botao confirmar" id="botaoConfirmar" type="button">
-                        <span class="giro" aria-hidden="true"></span>
-                        <span>Estou com o aluno</span>
-                    </button>
                 </div>
             </div>
 
@@ -566,6 +620,7 @@
         <p class="rodape">Segurança e organização no fluxo escolar</p>
     </main>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script>
         (function () {
             'use strict';
@@ -589,20 +644,10 @@
             function svg(nome) { return '<svg viewBox="0 0 24 24" aria-hidden="true">' + ICONES[nome] + '</svg>'; }
 
             var token = new URLSearchParams(window.location.search).get('token');
-            var CHAVE_ETAPA = 'inoutchi.token.aguardando.' + (token || '');
             var operacao = '';
             var dadosAluno = {};
-
-            // ---------- armazenamento (opcional: pode estar bloqueado) ----------
-            function lembrarEtapa(valor) {
-                try {
-                    if (valor) localStorage.setItem(CHAVE_ETAPA, String(Date.now()));
-                    else localStorage.removeItem(CHAVE_ETAPA);
-                } catch (e) { /* sem armazenamento: o servidor continua sendo a verdade */ }
-            }
-            function etapaLembrada() {
-                try { return !!localStorage.getItem(CHAVE_ETAPA); } catch (e) { return false; }
-            }
+            var acompanhando = false;   // já mostramos o QR nesta página: confirmada/recusada viram tela final
+            var temporizador = null;
 
             // ---------- vistas ----------
             var VISTAS = ['vista-carregando', 'vista-acao', 'vista-espera', 'vista-final'];
@@ -665,13 +710,10 @@
             function mostrarProblemaDoLink(tipo) {
                 var aluno = dadosAluno.alunoNome ? 'Aluno: ' + dadosAluno.alunoNome : '';
                 if (tipo === 'utilizado') {
-                    lembrarEtapa(false);
                     final('info', 'Este link já foi utilizado', 'Ele só vale uma vez e não pode ser usado de novo. Se precisar de outro acesso, peça um novo link ao responsável.', { aluno: aluno });
                 } else if (tipo === 'revogado') {
-                    lembrarEtapa(false);
                     final('atencao', 'Este link não está mais disponível', 'Ele foi cancelado pelo responsável ou já foi utilizado. Se precisar de outro acesso, peça um novo link.', { aluno: aluno });
                 } else if (tipo === 'expirado') {
-                    lembrarEtapa(false);
                     final('atencao', 'Este link expirou', 'O prazo para usar este link terminou. Peça um novo link ao responsável.', { aluno: aluno, icone: 'relogio' });
                 } else {
                     final('erro', 'Link inválido', 'Não encontramos este acesso. Confira se o link foi copiado por inteiro e tente de novo.');
@@ -742,11 +784,10 @@
                     }
                     preencher(dados);
 
-                    // Saída em duas etapas: quem já pediu e recarregou a página volta direto ao portão.
-                    if (operacao === 'SAIDA' && etapaLembrada()) {
-                        mostrar('vista-espera');
-                    } else {
-                        mostrar('vista-acao');
+                    // Saída: quem já pediu e recarregou a página volta direto ao QR (o estado vem do servidor).
+                    mostrar('vista-acao');
+                    if (operacao === 'SAIDA') {
+                        await retomarRetiradaPendente();
                     }
                 } catch (erro) {
                     if (erro && erro.message === 'operacao-invalida') {
@@ -857,11 +898,12 @@
                         return;
                     }
                     if (operacao === 'ENTRADA') {
-                        lembrarEtapa(false);
                         final('ok', 'Entrada confirmada', 'A entrada de ' + (dadosAluno.alunoNome || 'o aluno') + ' foi registrada. Você já pode fechar esta página.');
                     } else {
-                        lembrarEtapa(true);
+                        // Saída solicitada: o servidor abriu a verificação; mostra o QR e o código à portaria.
+                        acompanhando = true;
                         mostrar('vista-espera');
+                        await iniciarAcompanhamento();
                     }
                 } catch (erro) {
                     aviso('avisoLocal', '');
@@ -872,40 +914,109 @@
                 }
             }
 
-            async function aoConfirmarPosse() {
-                var botao = el('botaoConfirmar');
-                aviso('avisoErro2', '');
-                ocupado(botao, true);
+            // ---------- retirada: QR e código para a portaria ----------
+            // O portador só SOLICITA. Quem confirma é a portaria, lendo o QR ou digitando o código; esta tela
+            // apenas mostra os dois e acompanha o resultado (confirmada ou recusada) perguntando ao servidor.
+
+            async function consultarRetirada() {
+                var resposta = await fetch(API + '/api/tokens/verificacao-saida', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: token })
+                });
+                var dados = await resposta.json().catch(function () { return {}; });
+                return { ok: resposta.ok, status: resposta.status, dados: dados };
+            }
+
+            function desenharQr(texto) {
+                var caixa = el('qrCaixa');
+                if (!texto) { caixa.hidden = true; return; }
+                if (caixa.getAttribute('data-qr') === texto) return;   // mesmo QR: não redesenha
+                caixa.setAttribute('data-qr', texto);
+                caixa.innerHTML = '';
+                if (typeof QRCode === 'undefined') { caixa.hidden = true; return; }  // sem a biblioteca: só o código
+                caixa.hidden = false;
+                new QRCode(caixa, {
+                    text: texto, width: 220, height: 220,
+                    colorDark: '#0b2a5b', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M
+                });
+            }
+
+            function formatarCodigo(codigo) {
+                return codigo && codigo.length === 6 ? codigo.slice(0, 3) + ' ' + codigo.slice(3) : (codigo || '--- ---');
+            }
+
+            function pararAcompanhamento() {
+                if (temporizador) { clearInterval(temporizador); temporizador = null; }
+            }
+
+            // Aplica o estado devolvido pelo servidor. Devolve true enquanto a portaria ainda não decidiu.
+            function aplicarEstado(d) {
+                var nome = d.alunoNome || dadosAluno.alunoNome || 'o aluno';
+                if (d.estado === 'PENDENTE') {
+                    desenharQr(d.qr);
+                    el('codigoRetirada').textContent = formatarCodigo(d.codigo);
+                    return true;
+                }
+                pararAcompanhamento();
+                if (!acompanhando) {
+                    // Nada pendente e não estávamos acompanhando: é só um token que volta a poder solicitar.
+                    mostrar('vista-acao');
+                    return false;
+                }
+                acompanhando = false;
+                if (d.estado === 'CONFIRMADA') {
+                    final('ok', 'Retirada confirmada', 'A portaria confirmou a retirada de ' + nome + '. Você já pode fechar esta página.');
+                } else if (d.estado === 'RECUSADA') {
+                    final('erro', 'Retirada recusada', 'A portaria recusou esta retirada e o acesso foi cancelado. Procure o responsável pelo aluno.');
+                } else {
+                    mostrar('vista-acao');
+                    aviso('avisoErro', 'A solicitação anterior não está mais ativa. Solicite a saída novamente.');
+                }
+                return false;
+            }
+
+            async function atualizarRetirada() {
                 try {
-                    var resposta = await fetch(API + '/api/presencas/confirmar-saida/token', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ token: token })
-                    });
-                    var dados = await resposta.json().catch(function () { return {}; });
-                    if (!resposta.ok || dados.sucesso === false) {
-                        var texto = String((dados && dados.mensagem) || '').toLowerCase();
-                        if (resposta.status === 409 && /nenhuma solicita|n[aã]o h[aá] solicita/.test(texto)) {
-                            // A solicitação deixou de existir (cancelada pelo responsável ou já confirmada): recomeça.
-                            lembrarEtapa(false);
-                            mostrar('vista-acao');
-                            aviso('avisoErro', 'A solicitação anterior não está mais ativa. Solicite a saída novamente.');
-                            return;
-                        }
-                        tratarFalha(resposta.status, dados, 'avisoErro2');
+                    var r = await consultarRetirada();
+                    if (!r.ok) {
+                        if (r.status === 401) { pararAcompanhamento(); }
                         return;
                     }
-                    lembrarEtapa(false);
-                    final('ok', 'Retirada confirmada', dados.mensagem || 'A retirada foi confirmada. Você já pode fechar esta página.');
+                    aviso('avisoErro2', '');
+                    aplicarEstado(r.dados);
                 } catch (erro) {
-                    aviso('avisoErro2', 'Sem conexão com o servidor. Verifique a internet e tente novamente.');
-                } finally {
-                    ocupado(botao, false);
+                    // Sem rede por um instante: mantém o QR na tela e tenta de novo no próximo ciclo.
+                    aviso('avisoErro2', 'Sem conexão no momento. O QR continua válido; tentando de novo...');
                 }
             }
 
+            async function iniciarAcompanhamento() {
+                pararAcompanhamento();
+                await atualizarRetirada();
+                if (acompanhando) {
+                    temporizador = setInterval(atualizarRetirada, 4000);
+                }
+            }
+
+            // Ao abrir a página: se já existe uma retirada pendente deste token, volta direto ao QR.
+            async function retomarRetiradaPendente() {
+                try {
+                    var r = await consultarRetirada();
+                    if (r.ok && r.dados && r.dados.estado === 'PENDENTE') {
+                        acompanhando = true;
+                        aplicarEstado(r.dados);
+                        mostrar('vista-espera');
+                        temporizador = setInterval(atualizarRetirada, 4000);
+                    }
+                } catch (erro) { /* sem rede: segue na tela de ação */ }
+            }
+
+            document.addEventListener('visibilitychange', function () {
+                if (document.visibilityState === 'visible' && acompanhando) { atualizarRetirada(); }
+            });
+
             el('botaoAcao').addEventListener('click', aoToqueNaAcao);
-            el('botaoConfirmar').addEventListener('click', aoConfirmarPosse);
             el('botaoFinal').addEventListener('click', inicializar);
             el('botaoFinal').insertAdjacentHTML('afterbegin', svg('repete').replace('<svg ', '<svg style="width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round" '));
 
