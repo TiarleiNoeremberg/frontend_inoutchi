@@ -174,7 +174,7 @@ async function saveConfiguration() {
         bannerButtonUrl:
             document.getElementById("bannerButtonUrl").value || '',
         releaseNotes:
-            document.getElementById("releaseNotes").value || '',
+            (document.getElementById("releaseNotes").value || '').trim(),
         releaseDate: (() => {
             const value = document.getElementById("releaseDate").value;
             if (!value) return null;
@@ -185,11 +185,11 @@ async function saveConfiguration() {
             return value + ':00';
         })(),
         forceUpdateMessage:
-            document.getElementById("forceUpdateMessage").value || '',
+            (document.getElementById("forceUpdateMessage").value || '').trim(),
         maintenanceMode:
             document.getElementById("maintenanceMode").checked,
         maintenanceMessage:
-            document.getElementById("maintenanceMessage").value || ''
+            (document.getElementById("maintenanceMessage").value || '').trim()
     };
 
     console.log('📤 Enviando configuração:', body);
