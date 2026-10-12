@@ -824,6 +824,137 @@
         }
 
         /* ====================================================================== */
+        /* #### DIÁLOGOS (substituem confirm() e alert() do navegador) #### */
+        /* Mesmo visual dos modais de confirmação do painel do tutor.            */
+        /* ====================================================================== */
+        .dialogo-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 3000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: dialogoFade 0.2s ease;
+        }
+
+        .dialogo-modal[hidden] {
+            display: none;
+        }
+
+        .dialogo-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.5);
+            backdrop-filter: blur(4px);
+        }
+
+        .dialogo-container {
+            position: relative;
+            width: 90%;
+            max-width: 380px;
+            padding: 28px 24px;
+            text-align: center;
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 28px;
+            box-shadow: 0 20px 50px rgba(15, 23, 42, 0.28);
+            animation: dialogoSobe 0.3s ease;
+        }
+
+        .dialogo-icone {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+        }
+
+        .dialogo-icone i {
+            font-size: 28px;
+        }
+
+        .dialogo-titulo {
+            margin: 0 0 8px;
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .dialogo-mensagem {
+            margin: 0 0 24px;
+            font-size: 0.92rem;
+            line-height: 1.5;
+            color: #475569;
+            white-space: pre-line;
+            overflow-wrap: anywhere;
+        }
+
+        .dialogo-botoes {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+
+        .dialogo-btn {
+            flex: 1;
+            padding: 12px 16px;
+            border: none;
+            border-radius: 50px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+        }
+
+        .dialogo-btn:focus-visible {
+            outline: 3px solid rgba(37, 99, 235, 0.45);
+            outline-offset: 2px;
+        }
+
+        .dialogo-btn.cancelar {
+            color: #475569;
+            background: rgba(15, 79, 143, 0.08);
+        }
+
+        .dialogo-btn.cancelar:hover {
+            background: rgba(15, 79, 143, 0.15);
+            transform: translateY(-1px);
+        }
+
+        .dialogo-btn.confirmar {
+            color: #fff;
+            background: #2563EB;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        }
+
+        .dialogo-btn.confirmar:hover {
+            background: #1d4ed8;
+            transform: translateY(-1px);
+        }
+
+        .dialogo-btn.confirmar.perigo {
+            background: #ef4444;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+        }
+
+        .dialogo-btn.confirmar.perigo:hover {
+            background: #dc2626;
+            box-shadow: 0 6px 16px rgba(239, 68, 68, 0.4);
+        }
+
+        @keyframes dialogoFade {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes dialogoSobe {
+            from { opacity: 0; transform: translateY(18px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ====================================================================== */
         /* #### GEOLOCALIZAÇÃO: edição das áreas #### */
         /* ====================================================================== */
         .geo-ajuda {
@@ -4173,6 +4304,112 @@
         let ESCOLA_ID = localStorage.getItem('escolaId');     // Pega o ID da escola salvo no login
         let AUTH_TOKEN = localStorage.getItem('access_token'); // Pega o token salvo no login
 
+        // =========================================================================
+        // ==== DIÁLOGOS: substituem confirm() e alert() do navegador ====
+        // Mesmo visual dos modais do painel do tutor. Os textos entram por textContent (nunca como HTML), então
+        // nomes e mensagens de erro vindos do servidor não injetam marcação.
+        //   await mostrarConfirmacao({ titulo, mensagem, confirmar, cancelar, tipo }) -> true/false
+        //   mostrarAviso(mensagem, { titulo, tipo })  -> Promise resolvida quando a pessoa fecha
+        // tipo: 'perigo' | 'aviso' | 'erro' | 'sucesso' | 'info'. Os diálogos aparecem um de cada vez.
+        // =========================================================================
+        const DIALOGO_TIPOS = {
+            perigo:  { icone: 'fa-exclamation-triangle', cor: '#ef4444', fundo: 'rgba(239, 68, 68, 0.15)', titulo: 'Confirmar ação' },
+            aviso:   { icone: 'fa-exclamation-circle',   cor: '#f59e0b', fundo: 'rgba(245, 158, 11, 0.16)', titulo: 'Atenção' },
+            erro:    { icone: 'fa-times-circle',         cor: '#ef4444', fundo: 'rgba(239, 68, 68, 0.15)', titulo: 'Algo deu errado' },
+            sucesso: { icone: 'fa-check-circle',         cor: '#16a34a', fundo: 'rgba(22, 163, 74, 0.15)', titulo: 'Tudo certo' },
+            info:    { icone: 'fa-info-circle',          cor: '#2563EB', fundo: 'rgba(37, 99, 235, 0.14)', titulo: 'Aviso' }
+        };
+        let dialogoFila = Promise.resolve();
+
+        function garantirDialogo() {
+            let modal = document.getElementById('dialogoModal');
+            if (modal) return modal;
+            modal = document.createElement('div');
+            modal.id = 'dialogoModal';
+            modal.className = 'dialogo-modal';
+            modal.hidden = true;
+            modal.setAttribute('role', 'dialog');
+            modal.setAttribute('aria-modal', 'true');
+            modal.setAttribute('aria-labelledby', 'dialogoTitulo');
+            modal.setAttribute('aria-describedby', 'dialogoMensagem');
+            modal.innerHTML = `
+                <div class="dialogo-overlay"></div>
+                <div class="dialogo-container">
+                    <div class="dialogo-icone" id="dialogoIcone"><i class="fas"></i></div>
+                    <h3 class="dialogo-titulo" id="dialogoTitulo"></h3>
+                    <p class="dialogo-mensagem" id="dialogoMensagem"></p>
+                    <div class="dialogo-botoes">
+                        <button type="button" class="dialogo-btn cancelar" id="dialogoCancelar"></button>
+                        <button type="button" class="dialogo-btn confirmar" id="dialogoConfirmar"></button>
+                    </div>
+                </div>`;
+            document.body.appendChild(modal);
+            return modal;
+        }
+
+        function exibirDialogo({ titulo, mensagem, tipo = 'info', icone = null, confirmar = 'OK', cancelar = null }) {
+            return new Promise(resolve => {
+                const modal = garantirDialogo();
+                const cfg = DIALOGO_TIPOS[tipo] || DIALOGO_TIPOS.info;
+                const botaoOk = document.getElementById('dialogoConfirmar');
+                const botaoCancelar = document.getElementById('dialogoCancelar');
+                const anterior = document.activeElement;
+
+                const iconeEl = document.getElementById('dialogoIcone');
+                iconeEl.style.background = cfg.fundo;
+                iconeEl.firstElementChild.className = `fas ${icone || cfg.icone}`;
+                iconeEl.firstElementChild.style.color = cfg.cor;
+                document.getElementById('dialogoTitulo').textContent = titulo || cfg.titulo;
+                document.getElementById('dialogoMensagem').textContent = String(mensagem == null ? '' : mensagem);
+
+                botaoOk.textContent = confirmar;
+                botaoOk.classList.toggle('perigo', tipo === 'perigo' || tipo === 'erro');
+                botaoCancelar.textContent = cancelar || '';
+                botaoCancelar.style.display = cancelar ? '' : 'none';
+
+                const fechar = (resultado) => {
+                    modal.hidden = true;
+                    document.removeEventListener('keydown', aoTecla, true);
+                    botaoOk.onclick = null;
+                    botaoCancelar.onclick = null;
+                    modal.querySelector('.dialogo-overlay').onclick = null;
+                    if (anterior && typeof anterior.focus === 'function') anterior.focus();
+                    resolve(resultado);
+                };
+                const aoTecla = (e) => {
+                    if (e.key === 'Escape') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        fechar(!cancelar); // aviso fecha; confirmação com Esc é cancelar
+                    }
+                };
+
+                botaoOk.onclick = () => fechar(true);
+                botaoCancelar.onclick = () => fechar(false);
+                modal.querySelector('.dialogo-overlay').onclick = () => fechar(!cancelar);
+                document.addEventListener('keydown', aoTecla, true);
+
+                modal.hidden = false;
+                // Ação destrutiva: o foco começa em "Cancelar" para um Enter sem querer não apagar nada.
+                (cancelar && tipo === 'perigo' ? botaoCancelar : botaoOk).focus();
+            });
+        }
+
+        // Um diálogo de cada vez: se outro for pedido enquanto um está aberto, espera o anterior ser fechado.
+        function enfileirarDialogo(opcoes) {
+            const vez = dialogoFila.then(() => exibirDialogo(opcoes));
+            dialogoFila = vez.catch(() => { });
+            return vez;
+        }
+
+        function mostrarConfirmacao({ titulo, mensagem, confirmar = 'Confirmar', cancelar = 'Cancelar', tipo = 'aviso', icone = null }) {
+            return enfileirarDialogo({ titulo, mensagem, tipo, icone, confirmar, cancelar });
+        }
+
+        function mostrarAviso(mensagem, { titulo = null, tipo = 'info' } = {}) {
+            return enfileirarDialogo({ titulo, mensagem, tipo, confirmar: 'OK', cancelar: null }).then(() => undefined);
+        }
+
         let map; // Variável global para o mapa
         let drawnItems; // Camada para os desenhos
         let savedGeofencesLayer; // Camada para exibir TODAS as geofences salvas
@@ -4257,8 +4494,10 @@
 
             } catch (error) {
                 console.error("Erro crítico de inicialização:", error);
-                alert("Sessão inválida ou expirada. Por favor, faça login novamente.");
-                window.location.href = 'login.html'; // Redireciona para o login
+                // O redirecionamento espera a pessoa fechar o aviso (o alert nativo bloqueava até o OK).
+                mostrarAviso('Sessão inválida ou expirada. Por favor, faça login novamente.',
+                    { titulo: 'Sessão expirada', tipo: 'aviso' })
+                    .then(() => { window.location.href = 'login.html'; });
                 return; // Interrompe a execução do restante do script
             }
             // =========================================================================
@@ -4341,7 +4580,7 @@
                 } catch (error) {
                     console.error('Erro ao salvar tutor:', error);
                     // Este alert para erros pode ser trocado por um showToast, se preferir.
-                    alert(`Erro: ${error.message}`);
+                    mostrarAviso(error.message, { tipo: 'erro' });
                 } finally {
                     saveButton.disabled = false;
                     saveButton.innerHTML = 'Salvar';
@@ -4553,9 +4792,14 @@
         /**
          * Realiza o logout do usuário, limpando a sessão e redirecionando para a página de login.
          */
-        function logout() {
+        async function logout() {
             // Adiciona uma confirmação para evitar logouts acidentais
-            if (confirm("Você tem certeza que deseja sair do sistema?")) {
+            const querSair = await mostrarConfirmacao({
+                titulo: 'Sair do sistema',
+                mensagem: 'Você tem certeza que deseja sair do sistema?',
+                confirmar: 'Sair', tipo: 'perigo', icone: 'fa-sign-out-alt'
+            });
+            if (querSair) {
 
                 // 1. Limpa TODOS os dados da sessão salvos no navegador.
                 // Isso remove 'access_token', 'escolaId', 'token_expiry', etc.
@@ -5617,16 +5861,18 @@
                 document.execCommand('copy');
                 // Você pode usar a sua função de toast aqui para um feedback melhor.
                 // Ex: showToast(`'${input.value}' copiado!`);
-                alert(`Copiado para a área de transferência!`);
+                showAlert('Copiado para a área de transferência!', 'success');
             } catch (err) {
                 console.error('Falha ao copiar:', err);
-                alert('Não foi possível copiar. Por favor, copie manualmente.');
+                mostrarAviso('Não foi possível copiar. Por favor, copie manualmente.', { tipo: 'erro' });
             }
         }
 
         // Função para Deletar uma sala
         async function deleteSala(id, nome) {
-            if (!confirm(`Tem certeza que deseja excluir a sala "${nome}"?`)) {
+            if (!(await mostrarConfirmacao({
+                titulo: 'Excluir sala', mensagem: `Tem certeza que deseja excluir a sala "${nome}"?`,
+                confirmar: 'Excluir', tipo: 'perigo' }))) {
                 return;
             }
 
@@ -5645,11 +5891,11 @@
                 }
 
                 loadSalas(); // Recarrega a lista
-                alert(`Sala "${nome}" excluída com sucesso!`);
+                mostrarAviso(`Sala "${nome}" excluída com sucesso!`, { tipo: 'sucesso' });
 
             } catch (error) {
                 console.error('Erro ao excluir sala:', error);
-                alert(`Erro: ${error.message}`);
+                mostrarAviso(error.message, { tipo: 'erro' });
             }
         }
 
@@ -5763,7 +6009,7 @@
 
             // Validação simplificada: Apenas garante que a senha não está vazia ao criar.
             if (!isEditing && !senha) {
-                alert('Por favor, defina uma senha para o novo diretor.');
+                mostrarAviso('Por favor, defina uma senha para o novo diretor.', { tipo: 'aviso' });
                 return;
             }
 
@@ -5795,13 +6041,15 @@
                 showToast(`Diretor "${nome}" salvo com sucesso!`);
             } catch (error) {
                 console.error('Erro ao salvar diretor:', error);
-                alert(`Erro: ${error.message}`);
+                mostrarAviso(error.message, { tipo: 'erro' });
             }
         }
 
         // Função para Deletar um diretor
         async function deleteDiretor(id, nome) {
-            if (!confirm(`Tem certeza que deseja excluir o diretor "${nome}"?`)) {
+            if (!(await mostrarConfirmacao({
+                titulo: 'Excluir diretor', mensagem: `Tem certeza que deseja excluir o diretor "${nome}"?`,
+                confirmar: 'Excluir', tipo: 'perigo' }))) {
                 return;
             }
 
@@ -5817,11 +6065,11 @@
                 }
 
                 loadDiretores();
-                alert(`Diretor "${nome}" excluído com sucesso!`);
+                mostrarAviso(`Diretor "${nome}" excluído com sucesso!`, { tipo: 'sucesso' });
 
             } catch (error) {
                 console.error('Erro ao excluir diretor:', error);
-                alert(`Erro: ${error.message}`);
+                mostrarAviso(error.message, { tipo: 'erro' });
             }
         }
 
@@ -5996,7 +6244,7 @@
             let payload = { nome, cpf, email, fone, escolaId: parseInt(ESCOLA_ID) };
             if (!isEditing) {
                 if (!senha) {
-                    alert('Por favor, defina uma senha para o novo transporte.');
+                    mostrarAviso('Por favor, defina uma senha para o novo transporte.', { tipo: 'aviso' });
                     return;
                 }
                 payload.senha = senha;
@@ -6022,17 +6270,20 @@
 
                 closeTransporteModal();
                 loadTransportes(currentPageTransportes); // Recarrega na página atual
-                alert(`Transporte "${nome}" salvo com sucesso!`);
+                mostrarAviso(`Transporte "${nome}" salvo com sucesso!`, { tipo: 'sucesso' });
 
             } catch (error) {
                 console.error('Erro ao salvar transporte:', error);
-                alert(`Erro: ${error.message}`);
+                mostrarAviso(error.message, { tipo: 'erro' });
             }
         }
 
         // Função para Deletar um transporte
         async function deleteTransporte(id, nome) {
-            if (!confirm(`Tem certeza que deseja excluir o transporte "${nome}"? Esta ação também removerá o usuário de login associado.`)) {
+            if (!(await mostrarConfirmacao({
+                titulo: 'Excluir transporte',
+                mensagem: `Tem certeza que deseja excluir o transporte "${nome}"? Esta ação também removerá o usuário de login associado.`,
+                confirmar: 'Excluir', tipo: 'perigo' }))) {
                 return;
             }
 
@@ -6049,11 +6300,11 @@
                 }
 
                 loadTransportes(0); // Recarrega do início após deletar
-                alert(`Transporte "${nome}" excluído com sucesso!`);
+                mostrarAviso(`Transporte "${nome}" excluído com sucesso!`, { tipo: 'sucesso' });
 
             } catch (error) {
                 console.error('Erro ao excluir transporte:', error);
-                alert(`Erro: ${error.message}`);
+                mostrarAviso(error.message, { tipo: 'erro' });
             }
         }
 
@@ -6332,7 +6583,7 @@
                 }
             } catch (error) {
                 console.error('Erro ao abrir modal de tutor:', error);
-                alert(`Erro ao carregar dados do tutor: ${error.message}`);
+                mostrarAviso(`Erro ao carregar dados do tutor: ${error.message}`, { tipo: 'erro' });
                 modal.style.display = 'none'; // Fecha o modal em caso de erro
             }
         }
@@ -6783,7 +7034,7 @@
             } catch (error) {
                 console.error('Erro ao salvar aluno:', error);
                 if (error.message !== 'Validação falhou: nenhum tutor selecionado.') {
-                    alert(`Erro: ${error.message}`);
+                    mostrarAviso(error.message, { tipo: 'erro' });
                 }
             } finally {
                 if (submitButton) {
@@ -7221,12 +7472,18 @@
 
             // Alterar uma área em uso vale na hora; tirar a última área ativa impede entradas e saídas pelo app.
             if (geofenceId) {
+                let titulo = 'Salvar alterações da área';
                 let pergunta = 'Esta alteração vale imediatamente para as entradas e saídas dos responsáveis. Salvar?';
+                let confirmar = 'Salvar';
+                let tipo = 'aviso';
                 if (!ativo && ehUnicaAreaAtiva(Number(geofenceId))) {
+                    titulo = 'Desativar a única área ativa';
                     pergunta = 'Esta é a única área ativa. Sem nenhuma área ativa, os responsáveis não conseguem ' +
                         'registrar entrada nem saída pelo app. Desativar mesmo assim?';
+                    confirmar = 'Desativar';
+                    tipo = 'perigo';
                 }
-                if (!confirm(pergunta)) return;
+                if (!(await mostrarConfirmacao({ titulo, mensagem: pergunta, confirmar, tipo }))) return;
             }
 
             saveButton.disabled = true;
@@ -7286,7 +7543,8 @@
             if (ehUnicaAreaAtiva(Number(id)) && geofencesSalvas.some(g => g.id === Number(id) && g.ativo !== false)) {
                 pergunta += '\n\nEsta é a única área ativa: sem ela, os responsáveis não conseguem registrar entrada nem saída pelo app.';
             }
-            if (!confirm(pergunta)) return;
+            if (!(await mostrarConfirmacao({
+                titulo: 'Excluir área', mensagem: pergunta, confirmar: 'Excluir', tipo: 'perigo' }))) return;
 
             try {
                 const response = await fetch(`${API_URL}/api/geofences/${id}`, {
@@ -7484,19 +7742,19 @@
 
             // Validação
             if (!tutorNome || !parentesco) {
-                alert('Por favor, selecione um tutor da busca e defina o parentesco antes de adicionar.');
+                mostrarAviso('Por favor, selecione um tutor da busca e defina o parentesco antes de adicionar.', { tipo: 'aviso' });
                 return;
             }
 
             const tutorData = allFetchedTutors.find(t => t.nome === tutorNome);
             if (!tutorData) {
-                alert('Tutor inválido. Por favor, selecione um nome da lista de sugestões.');
+                mostrarAviso('Tutor inválido. Por favor, selecione um nome da lista de sugestões.', { tipo: 'aviso' });
                 return;
             }
 
             // Verifica se já não foi adicionado
             if (selectedTutors.some(t => t.id === tutorData.id)) {
-                alert('Este tutor já foi adicionado.');
+                mostrarAviso('Este tutor já foi adicionado.', { tipo: 'aviso' });
                 return;
             }
 
@@ -7835,7 +8093,7 @@
             if (!alertContainer) {
                 console.error('Elemento #alert-container não encontrado no DOM.');
                 // Fallback para o alert nativo se o contêiner não existir
-                alert(`${type.toUpperCase()}: ${message}`);
+                mostrarAviso(message, { tipo: type === 'error' ? 'erro' : type === 'success' ? 'sucesso' : type === 'warning' ? 'aviso' : 'info' });
                 return;
             }
 
@@ -8590,7 +8848,7 @@
                     }
                 } catch (error) {
                     console.error('Erro ao carregar matéria:', error);
-                    alert('Erro ao carregar dados da matéria');
+                    mostrarAviso('Erro ao carregar dados da matéria', { tipo: 'erro' });
                     modal.style.display = 'none';
                     return;
                 }
@@ -8619,12 +8877,12 @@
 
             // Validações
             if (!nome) {
-                alert('O nome da matéria é obrigatório');
+                mostrarAviso('O nome da matéria é obrigatório', { tipo: 'aviso' });
                 return;
             }
 
             if (!salaId) {
-                alert('Selecione uma sala/turma para esta matéria');
+                mostrarAviso('Selecione uma sala/turma para esta matéria', { tipo: 'aviso' });
                 return;
             }
 
@@ -8657,7 +8915,7 @@
 
             } catch (error) {
                 console.error('Erro ao salvar matéria:', error);
-                alert(error.message);
+                mostrarAviso(error.message, { tipo: 'erro' });
             }
         }
 
@@ -8698,7 +8956,7 @@
 
             } catch (error) {
                 console.error('Erro ao excluir matéria:', error);
-                alert(error.message);
+                mostrarAviso(error.message, { tipo: 'erro' });
             }
         }
 
