@@ -756,48 +756,143 @@
             border-radius: 10px;
         }
 
+        /* Slider "Recusar": o círculo arrasta e vai preenchendo o caminho com a cor dele (como na Portaria do tutor). */
         .ret-slider {
             position: relative;
             margin-top: 12px;
-            height: 46px;
+            height: 56px;
             border-radius: 999px;
             background: #fee2e2;
+            border: 1px solid #fecaca;
             overflow: hidden;
             user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
         }
 
-        .ret-slider span {
+        .ret-slider-label {
             position: absolute;
             inset: 0;
             display: flex;
             align-items: center;
             justify-content: center;
+            padding-left: 52px;
             font-size: 0.85rem;
             font-weight: 700;
             color: #b91c1c;
             pointer-events: none;
+            transition: opacity 0.15s ease;
         }
 
-        .ret-slider input[type="range"] {
+        .ret-slider-fill {
             position: absolute;
-            inset: 0;
-            width: 100%;
-            height: 100%;
-            margin: 0;
-            opacity: 0;
-            cursor: grab;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            width: 0;
+            border-radius: 999px;
+            background: linear-gradient(135deg, #f87171, #dc2626);
+            transition: width 0.2s ease;
         }
 
-        .ret-slider .ret-slider-trilho {
+        .ret-slider-thumb {
             position: absolute;
             top: 3px;
-            left: 3px;
-            width: 40px;
-            height: 40px;
+            left: 4px;
+            width: 48px;
+            height: 48px;
+            display: grid;
+            place-items: center;
             border-radius: 50%;
-            background: #ef4444;
-            box-shadow: 0 2px 6px rgba(239, 68, 68, 0.5);
-            pointer-events: none;
+            background: #fff;
+            color: #dc2626;
+            font-size: 1.1rem;
+            box-shadow: 0 6px 18px rgba(185, 28, 28, 0.35);
+            cursor: grab;
+            touch-action: none;
+            transition: left 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.4);
+        }
+
+        .ret-slider.arrastando .ret-slider-fill,
+        .ret-slider.arrastando .ret-slider-thumb {
+            transition: none;
+        }
+
+        .ret-slider.arrastando .ret-slider-thumb {
+            cursor: grabbing;
+            transform: scale(1.05);
+        }
+
+        .ret-slider.ativado .ret-slider-fill {
+            width: 100% !important;
+        }
+
+        .ret-slider.ativado .ret-slider-label {
+            opacity: 1 !important;
+            color: #fff;
+        }
+
+        /* Aviso da retirada (erro ou sucesso), no centro da tela e não num banner lá em cima. */
+        .ret-dialogo {
+            position: fixed;
+            inset: 0;
+            z-index: 3000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            background: rgba(15, 23, 42, 0.55);
+            backdrop-filter: blur(3px);
+        }
+
+        .ret-dialogo[hidden] {
+            display: none;
+        }
+
+        .ret-dialogo-caixa {
+            width: 100%;
+            max-width: 360px;
+            padding: 26px 22px 22px;
+            text-align: center;
+            background: #fff;
+            border-radius: 24px;
+            box-shadow: 0 20px 50px rgba(15, 23, 42, 0.3);
+        }
+
+        .ret-dialogo-icone {
+            width: 60px;
+            height: 60px;
+            margin: 0 auto 14px;
+            display: grid;
+            place-items: center;
+            border-radius: 50%;
+            font-size: 1.6rem;
+        }
+
+        .ret-dialogo-titulo {
+            margin: 0 0 6px;
+            font-size: 1.15rem;
+            font-weight: 800;
+            color: var(--text-primary, #0f172a);
+        }
+
+        .ret-dialogo-texto {
+            margin: 0 0 20px;
+            font-size: 0.92rem;
+            line-height: 1.45;
+            color: var(--text-secondary, #475569);
+            overflow-wrap: anywhere;
+        }
+
+        .ret-dialogo-ok {
+            width: 100%;
+            padding: 12px 16px;
+            border: none;
+            border-radius: 999px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: #fff;
+            cursor: pointer;
         }
 
         .ret-vazio {
@@ -5597,11 +5692,17 @@
             const campo = document.createElement("input");
             campo.type = "text";
             campo.inputMode = "numeric";
-            campo.maxLength = 7;
-            campo.placeholder = "000 000";
+            campo.maxLength = 6;
+            campo.pattern = "[0-9]*";
+            campo.placeholder = "000000";
             campo.autocomplete = "off";
             campo.className = "ret-codigo-campo";
             campo.setAttribute("aria-label", "Código de 6 dígitos de " + (r.alunoNome || "aluno"));
+            // O código tem exatamente 6 dígitos: letras, espaços e o que passar de 6 (inclusive ao colar) são descartados.
+            campo.addEventListener("input", () => {
+                const limpo = campo.value.replace(/\D/g, "").slice(0, 6);
+                if (campo.value !== limpo) campo.value = limpo;
+            });
             const botao = document.createElement("button");
             botao.type = "button";
             botao.className = "btn btn-primary";
@@ -5617,34 +5718,143 @@
             return card;
         }
 
-        // Deslizar até o fim recusa (evita o toque sem querer, já que recusar invalida o token).
+        // Avisos da retirada num modal no centro da tela (erro pede OK; sucesso fecha sozinho).
+        let retDialogoTimer = null;
+        function mostrarDialogoRetirada(mensagem, opcoes) {
+            const o = opcoes || {};
+            const tipo = o.tipo || "erro";
+            const cfg = {
+                erro: { icone: "fa-times-circle", cor: "#dc2626", fundo: "#fee2e2", titulo: "Não foi possível concluir" },
+                sucesso: { icone: "fa-check-circle", cor: "#16a34a", fundo: "#dcfce7", titulo: "Retirada confirmada" },
+                aviso: { icone: "fa-exclamation-triangle", cor: "#d97706", fundo: "#fef3c7", titulo: "Atenção" },
+            }[tipo] || {};
+            let modal = document.getElementById("retDialogo");
+            if (!modal) {
+                modal = document.createElement("div");
+                modal.id = "retDialogo";
+                modal.className = "ret-dialogo";
+                modal.hidden = true;
+                modal.setAttribute("role", "dialog");
+                modal.setAttribute("aria-modal", "true");
+                modal.innerHTML =
+                    '<div class="ret-dialogo-caixa">' +
+                    '<div class="ret-dialogo-icone" id="retDialogoIcone"><i class="fas"></i></div>' +
+                    '<h3 class="ret-dialogo-titulo" id="retDialogoTitulo"></h3>' +
+                    '<p class="ret-dialogo-texto" id="retDialogoTexto"></p>' +
+                    '<button type="button" class="ret-dialogo-ok" id="retDialogoOk">OK</button>' +
+                    "</div>";
+                document.body.appendChild(modal);
+                modal.addEventListener("click", (e) => { if (e.target === modal) fecharDialogoRetirada(); });
+                document.getElementById("retDialogoOk").addEventListener("click", fecharDialogoRetirada);
+                document.addEventListener("keydown", (e) => {
+                    if (e.key === "Escape" && !modal.hidden) fecharDialogoRetirada();
+                });
+            }
+            if (retDialogoTimer) { clearTimeout(retDialogoTimer); retDialogoTimer = null; }
+            const icone = document.getElementById("retDialogoIcone");
+            icone.style.background = cfg.fundo;
+            icone.firstElementChild.className = "fas " + cfg.icone;
+            icone.firstElementChild.style.color = cfg.cor;
+            document.getElementById("retDialogoTitulo").textContent = o.titulo || cfg.titulo;
+            document.getElementById("retDialogoTexto").textContent = String(mensagem || "");
+            document.getElementById("retDialogoOk").style.background = cfg.cor;
+            modal.hidden = false;
+            document.getElementById("retDialogoOk").focus();
+            if (o.fecharEmMs) {
+                retDialogoTimer = setTimeout(fecharDialogoRetirada, o.fecharEmMs);
+            }
+        }
+
+        function fecharDialogoRetirada() {
+            const modal = document.getElementById("retDialogo");
+            if (modal) modal.hidden = true;
+            if (retDialogoTimer) { clearTimeout(retDialogoTimer); retDialogoTimer = null; }
+        }
+
+        // Deslizar até o fim recusa (evita o toque sem querer, já que recusar invalida o token). O círculo arrasta e
+        // vai preenchendo o caminho com a sua cor; soltar antes do fim volta ao começo sem fazer nada.
         function montarSliderRecusar(r) {
+            const LIMITE = 0.92;
             const caixa = document.createElement("div");
             caixa.className = "ret-slider";
+            caixa.setAttribute("role", "button");
+            caixa.tabIndex = 0;
+            caixa.setAttribute("aria-label", "Deslize até o fim para recusar a retirada de " + (r.alunoNome || "aluno"));
+
+            const preenchimento = document.createElement("div");
+            preenchimento.className = "ret-slider-fill";
             const rotulo = document.createElement("span");
+            rotulo.className = "ret-slider-label";
             rotulo.textContent = "Deslize para recusar a retirada";
-            const trilho = document.createElement("div");
-            trilho.className = "ret-slider-trilho";
-            const faixa = document.createElement("input");
-            faixa.type = "range";
-            faixa.min = 0;
-            faixa.max = 100;
-            faixa.value = 0;
-            faixa.setAttribute("aria-label", "Deslize para recusar a retirada de " + (r.alunoNome || "aluno"));
-            faixa.addEventListener("input", () => {
-                trilho.style.left = `calc(${faixa.value} * (100% - 46px) / 100 + 3px)`;
+            const alca = document.createElement("div");
+            alca.className = "ret-slider-thumb";
+            alca.innerHTML = '<i class="fas fa-ban"></i>';
+            caixa.appendChild(preenchimento);
+            caixa.appendChild(rotulo);
+            caixa.appendChild(alca);
+
+            let arrastando = false;
+            let progresso = 0;
+            const MARGEM = 4;
+            const TAMANHO = 48;
+
+            const maximo = () => Math.max(1, caixa.clientWidth - TAMANHO - MARGEM * 2);
+            const aplicar = (p) => {
+                progresso = Math.min(1, Math.max(0, p));
+                const x = MARGEM + progresso * maximo();
+                alca.style.left = x + "px";
+                preenchimento.style.width = (x + TAMANHO / 2) + "px";
+                rotulo.style.opacity = String(Math.max(0, 1 - progresso * 1.6));
+            };
+            const voltar = () => {
+                caixa.classList.remove("arrastando");
+                aplicar(0);
+                preenchimento.style.width = "0";
+            };
+            const ativar = () => {
+                caixa.classList.remove("arrastando");
+                caixa.classList.add("ativado");
+                rotulo.textContent = "Recusando...";
+                alca.style.left = (MARGEM + maximo()) + "px";
+                recusarRetirada(r.chamadaId).finally(() => {
+                    // A lista é redesenhada pelo carregamento; se este cartão ainda existir, volta ao começo.
+                    caixa.classList.remove("ativado");
+                    rotulo.textContent = "Deslize para recusar a retirada";
+                    voltar();
+                });
+            };
+            const posicaoDoPonteiro = (e) => {
+                const retangulo = caixa.getBoundingClientRect();
+                return (e.clientX - retangulo.left - MARGEM - TAMANHO / 2) / maximo();
+            };
+
+            alca.addEventListener("pointerdown", (e) => {
+                if (caixa.classList.contains("ativado")) return;
+                arrastando = true;
+                caixa.classList.add("arrastando");
+                alca.setPointerCapture(e.pointerId);
+                e.preventDefault();
+            });
+            alca.addEventListener("pointermove", (e) => {
+                if (!arrastando) return;
+                aplicar(posicaoDoPonteiro(e));
             });
             const soltar = () => {
-                if (Number(faixa.value) >= 96) {
-                    recusarRetirada(r.chamadaId);
-                }
-                faixa.value = 0;
-                trilho.style.left = "3px";
+                if (!arrastando) return;
+                arrastando = false;
+                if (progresso >= LIMITE) ativar();
+                else voltar();
             };
-            faixa.addEventListener("change", soltar);
-            caixa.appendChild(rotulo);
-            caixa.appendChild(trilho);
-            caixa.appendChild(faixa);
+            alca.addEventListener("pointerup", soltar);
+            alca.addEventListener("pointercancel", () => { arrastando = false; voltar(); });
+
+            // Teclado: seta para a direita avança aos poucos; ao passar do limite, recusa.
+            caixa.addEventListener("keydown", (e) => {
+                if (e.key !== "ArrowRight" || caixa.classList.contains("ativado")) return;
+                e.preventDefault();
+                aplicar(progresso + 0.25);
+                if (progresso >= LIMITE) ativar();
+            });
             return caixa;
         }
 
@@ -5655,8 +5865,7 @@
         async function confirmarRetiradaPorCodigo(chamadaId, campo, botao) {
             const codigo = (campo.value || "").replace(/\D/g, "");
             if (codigo.length !== 6) {
-                showAlert("Digite os 6 dígitos do código mostrado pelo portador.", "error");
-                campo.focus();
+                mostrarDialogoRetirada("Digite os 6 dígitos do código mostrado pelo portador.", { tipo: "aviso" });
                 return;
             }
             botao.disabled = true;
@@ -5669,15 +5878,17 @@
                 const corpo = await resposta.json().catch(() => ({}));
                 if (!resposta.ok) {
                     // Código errado só avisa: nada é invalidado e pode tentar de novo.
-                    showAlert(mensagemDeErroRetirada(corpo, "Código não confere."), "error");
+                    mostrarDialogoRetirada(mensagemDeErroRetirada(corpo, "Código não confere."),
+                        { titulo: "Código incorreto", tipo: "erro" });
                     campo.select();
                     return;
                 }
-                showAlert(`Retirada de ${corpo.alunoNome || "aluno"} confirmada.`, "success");
+                mostrarDialogoRetirada(`A retirada de ${corpo.alunoNome || "aluno"} foi confirmada.`,
+                    { tipo: "sucesso", fecharEmMs: 2500 });
                 campo.value = "";
                 await loadWithdrawals(true);
             } catch (erro) {
-                showAlert("Sem conexão com o servidor. Tente novamente.", "error");
+                mostrarDialogoRetirada("Sem conexão com o servidor. Tente novamente.", { tipo: "erro" });
             } finally {
                 botao.disabled = false;
             }
@@ -5692,14 +5903,16 @@
                 });
                 const corpo = await resposta.json().catch(() => ({}));
                 if (!resposta.ok) {
-                    showAlert(mensagemDeErroRetirada(corpo, "QR code não confere."), "error");
+                    mostrarDialogoRetirada(mensagemDeErroRetirada(corpo, "QR code não confere."),
+                        { titulo: "QR code não aceito", tipo: "erro" });
                     return false;
                 }
-                showAlert(`Retirada de ${corpo.alunoNome || "aluno"} confirmada.`, "success");
+                mostrarDialogoRetirada(`A retirada de ${corpo.alunoNome || "aluno"} foi confirmada.`,
+                    { tipo: "sucesso", fecharEmMs: 2500 });
                 await loadWithdrawals(true);
                 return true;
             } catch (erro) {
-                showAlert("Sem conexão com o servidor. Tente novamente.", "error");
+                mostrarDialogoRetirada("Sem conexão com o servidor. Tente novamente.", { tipo: "erro" });
                 return false;
             }
         }
@@ -5712,13 +5925,15 @@
                 });
                 const corpo = await resposta.json().catch(() => ({}));
                 if (!resposta.ok) {
-                    showAlert(mensagemDeErroRetirada(corpo, "Não foi possível recusar a retirada."), "error");
+                    mostrarDialogoRetirada(mensagemDeErroRetirada(corpo, "Não foi possível recusar a retirada."),
+                        { tipo: "erro" });
                 } else {
-                    showAlert("Retirada recusada. O token foi invalidado e o responsável foi avisado.", "success");
+                    mostrarDialogoRetirada("O token foi invalidado e o responsável foi avisado.",
+                        { titulo: "Retirada recusada", tipo: "aviso", fecharEmMs: 3000 });
                 }
                 await loadWithdrawals(true);
             } catch (erro) {
-                showAlert("Sem conexão com o servidor. Tente novamente.", "error");
+                mostrarDialogoRetirada("Sem conexão com o servidor. Tente novamente.", { tipo: "erro" });
             }
         }
 
