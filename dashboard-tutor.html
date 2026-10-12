@@ -3343,7 +3343,7 @@
                 <!-- Data de Expiração e Observação -->
                 <div class="token-form-row">
                     <div class="token-form-group half">
-                        <label class="token-form-label">
+                        <label class="token-form-label" id="tokenExpiraRotulo">
                             <i class="fas fa-clock"></i> Expira em
                         </label>
                         <input type="datetime-local" id="tokenDataExpiracao" class="token-form-input" required>
@@ -3366,7 +3366,7 @@
                             </label>
                         </div>
                     </div>
-                    <small class="token-form-hint">Permite usar o mesmo token várias vezes até a expiração.</small>
+                    <small class="token-form-hint" id="tokenReutilizavelDica">Permite usar o mesmo token várias vezes até a expiração.</small>
                 </div>
 
                 <!-- Loading e Erro -->
@@ -8584,6 +8584,13 @@
                     return;
                 }
 
+                // Reutilizável vale até a data escolhida, no máximo 1 ano (o servidor confere de novo).
+                if (reutilizavel && new Date(dataExpiracao).getTime() > limiteDoReutilizavel().getTime()) {
+                    errorDiv.textContent = 'Um token reutilizável vale no máximo 1 ano.';
+                    errorDiv.style.display = 'block';
+                    return;
+                }
+
                 // Desabilitar botão e mostrar loading
                 submitBtn.disabled = true;
                 submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Gerando...';
@@ -8655,8 +8662,41 @@
             }
 
             // Inicializar modais de token
+            // Limite de validade do token reutilizável: 1 ano a partir de agora.
+            function limiteDoReutilizavel() {
+                const limite = new Date();
+                limite.setFullYear(limite.getFullYear() + 1);
+                return limite;
+            }
+
+            // Formato do campo datetime-local (hora local, sem fuso).
+            function paraCampoDeData(data) {
+                const dois = (n) => String(n).padStart(2, '0');
+                return `${data.getFullYear()}-${dois(data.getMonth() + 1)}-${dois(data.getDate())}T${dois(data.getHours())}:${dois(data.getMinutes())}`;
+            }
+
+            // Reutilizável: o tutor escolhe até que data o token vale (até 1 ano); uso único mantém o prazo curto.
+            function ajustarValidadeDoReutilizavel() {
+                const campo = document.getElementById('tokenDataExpiracao');
+                const reutilizavel = document.getElementById('tokenReutilizavel').checked;
+                const rotulo = document.getElementById('tokenExpiraRotulo');
+                const dica = document.getElementById('tokenReutilizavelDica');
+                if (!campo) return;
+                if (reutilizavel) {
+                    campo.min = paraCampoDeData(new Date());
+                    campo.max = paraCampoDeData(limiteDoReutilizavel());
+                    if (rotulo) rotulo.innerHTML = '<i class="fas fa-clock"></i> Válido até';
+                    if (dica) dica.textContent = 'Escolha até que data o token vale (no máximo 1 ano). Ele pode ser usado várias vezes até lá.';
+                } else {
+                    campo.removeAttribute('max');
+                    if (rotulo) rotulo.innerHTML = '<i class="fas fa-clock"></i> Expira em';
+                    if (dica) dica.textContent = 'Permite usar o mesmo token várias vezes até a expiração.';
+                }
+            }
+
             function initTokenModals() {
                 tokenModal = document.getElementById('tokenModal');
+                document.getElementById('tokenReutilizavel')?.addEventListener('change', ajustarValidadeDoReutilizavel);
                 tokenSuccessModalInstance = document.getElementById('tokenSuccessModal');
 
                 document.getElementById('closeTokenModalBtn')?.addEventListener('click', closeTokenModal);
