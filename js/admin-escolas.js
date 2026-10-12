@@ -58,7 +58,7 @@
         });
     }
 
-    // Avisos do painel: sempre em modal (Dialogos, js/admin-dialogos.js). Erro exige OK; sucesso fecha sozinho.
+    // Avisos do painel: sempre em modal (Dialogos, js/dialogos.js). Erro exige OK; sucesso fecha sozinho.
     function mostrarErro(titulo, mensagem) {
         return Dialogos.aviso({ tipo: 'erro', titulo: titulo, mensagem: mensagem });
     }

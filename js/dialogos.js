@@ -1,8 +1,9 @@
-// admin-dialogos.js - Modais do painel de administração.
-// Substitui alert/confirm do navegador e as faixas de status por modais no padrão visual do painel.
+// dialogos.js - Modais dos painéis (administração, diretor e professor).
+// Substitui alert/confirm do navegador, faixas de status e toasts por modais no padrão visual do painel.
 //
 //   Dialogos.aviso({ tipo, titulo, mensagem, itens, textoOk, autoFechar })  -> Promise<true>
 //   Dialogos.confirmar({ titulo, mensagem, itens, textoOk, textoCancelar, perigo }) -> Promise<boolean>
+//   Dialogos.notificar(mensagem, tipo)  -> atalho para mensagens soltas: tipo "error"|"danger"|"warning"|"success"|"info"
 //
 // tipo: 'sucesso' | 'erro' | 'aviso' | 'info'. Sucesso pode fechar sozinho (autoFechar em ms); erro e aviso exigem OK.
 // Vários modais pedidos em sequência entram numa fila e aparecem um de cada vez.
@@ -10,7 +11,7 @@
     'use strict';
 
     const CSS = [
-        '.dlgx-camada{position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;',
+        '.dlgx-camada{position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;',
         'padding:20px;background:rgba(15,37,68,.55);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);',
         'animation:dlgx-fade .18s ease}',
         '.dlgx-camada[hidden]{display:none}',
@@ -176,7 +177,32 @@
         return resultado;
     }
 
+    const TITULOS = {
+        erro: 'Não foi possível concluir',
+        aviso: 'Atenção',
+        sucesso: 'Tudo certo',
+        info: 'Aviso'
+    };
+
+    // Mensagens antigas vêm com emoji na frente (❌, ✅, ⚠️): o ícone do modal já diz isso.
+    function limparEmoji(texto) {
+        return String(texto == null ? '' : texto).replace(/^\s*(?:[\u2705\u274C\u26A0\u2139\u26D4\uFE0F]\s*)+/u, '');
+    }
+
     window.Dialogos = {
+        notificar: function (mensagem, tipo) {
+            const t = String(tipo || '').toLowerCase();
+            const nivel = (t === 'error' || t === 'danger' || t === 'erro') ? 'erro'
+                : (t === 'warning' || t === 'aviso') ? 'aviso'
+                : (t === 'success' || t === 'sucesso') ? 'sucesso'
+                : 'info';
+            return this.aviso({
+                tipo: nivel,
+                titulo: TITULOS[nivel],
+                mensagem: limparEmoji(mensagem),
+                autoFechar: nivel === 'sucesso' ? 2200 : (nivel === 'info' ? 2600 : 0)
+            });
+        },
         aviso: function (opcoes) {
             return enfileirar(Object.assign({ tipo: 'info', cancelavel: false }, opcoes));
         },

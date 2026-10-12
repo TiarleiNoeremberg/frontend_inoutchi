@@ -1275,27 +1275,6 @@
         }
 
         /* ===== ALERTS ===== */
-        .alert {
-            padding: 12px 16px;
-            border-radius: var(--radius-sm);
-            margin-bottom: 16px;
-            display: none;
-            font-size: 0.85rem;
-            font-weight: 500;
-            border: 1px solid transparent;
-        }
-
-        .alert-error {
-            background: var(--danger-bg);
-            color: var(--danger);
-            border-color: rgba(239, 68, 68, 0.2);
-        }
-
-        .alert-success {
-            background: var(--success-bg);
-            color: var(--success);
-            border-color: rgba(16, 185, 129, 0.2);
-        }
 
         /* ===== LOCATION STATUS ===== */
         .location-status {
@@ -2085,7 +2064,6 @@
             </p>
         </div>
 
-        <div id="alertBox" class="alert"></div>
 
         <div class="loading" id="loading">
             <div class="loading-spinner"></div>
@@ -2648,6 +2626,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="js/jsQR.js"></script>
+    <script src="js/dialogos.js"></script>
 
     <script>
         const BACKEND_URL = "https://inoutchi-backend.onrender.com";
@@ -2660,7 +2639,7 @@
         const pageSize = 20;
 
         // Elementos DOM
-        let loadingElement, contentElement, alertBox;
+        let loadingElement, contentElement;
         let userFullName, userName, userAvatar;
         let actionModal, detailsModal;
 
@@ -3275,7 +3254,6 @@
         function initializeDOMElements() {
             loadingElement = document.getElementById("loading");
             contentElement = document.getElementById("content");
-            alertBox = document.getElementById("alertBox");
             userFullName = document.getElementById("userFullName");
             userName = document.getElementById("userName");
             userAvatar = document.getElementById("userAvatar");
@@ -3300,7 +3278,12 @@
                 new Date().getTime() > parseInt(expiry)
             ) {
                 console.log("REDIRECIONANDO: Token inválido ou expirado");
-                alert("Sessão expirada. Faça login novamente.");
+                await Dialogos.aviso({
+                    tipo: "aviso",
+                    titulo: "Sessão expirada",
+                    mensagem: "Faça login novamente para continuar.",
+                    textoOk: "Entendi",
+                });
                 window.location.href = "login.html?expired=1";
                 return;
             }
@@ -3977,7 +3960,6 @@
         // Função para atualização manual dos alunos
         window.refreshStudents = function () {
             console.log("🔄 Atualização manual da lista de alunos...");
-            showAlert("Atualizando lista de alunos...", "success");
             loadAllStudents(
                 currentStudentsPage,
                 document.getElementById("studentSearch").value,
@@ -4431,7 +4413,6 @@
                     `;
                         }
                     }
-                    showAlert("Histórico carregado com sucesso!", "success");
                 } else {
                     throw new Error(`Erro ${response.status}`);
                 }
@@ -4965,7 +4946,6 @@
 
             try {
                 // 1. Mostrar alerta e mudar para a aba de histórico
-                showAlert(`Carregando histórico de ${studentName}...`, "success");
                 switchToHistoryTab();
 
                 // 2. Mostrar estado de carregamento (loading)
@@ -5123,10 +5103,15 @@
          * @param {number} studentId - O ID do aluno (para recarregar a view).
          * @param {string} studentName - O nome do aluno (para recarregar a view).
          */
-        function confirmarEncerramentoManual(sessaoId, studentId, studentName) {
-            const isConfirmed = confirm(
-                `Atenção!\n\nVocê está prestes a forçar o encerramento de uma sessão de presença que ficou aberta.\n\nDeseja continuar?`,
-            );
+        async function confirmarEncerramentoManual(sessaoId, studentId, studentName) {
+            const isConfirmed = await Dialogos.confirmar({
+                tipo: "aviso",
+                titulo: "Encerrar sessão?",
+                mensagem:
+                    "Você está prestes a forçar o encerramento de uma sessão de presença que ficou aberta.\n\nDeseja continuar?",
+                textoOk: "Encerrar sessão",
+                perigo: true,
+            });
             if (isConfirmed) {
                 encerrarSessaoManualmente(sessaoId, studentId, studentName);
             }
@@ -5146,8 +5131,6 @@
         ) {
             // AQUI ESTÁ A CORREÇÃO: Usando a variável global correta 'currentStudentHistoryPage'
             const currentPage = window.currentStudentHistoryPage || 0;
-
-            showAlert("Processando encerramento da sessão...", "info");
 
             try {
                 const accessToken = await garantirAutenticacao();
@@ -6047,15 +6030,9 @@
         // ========== FUNÇÕES AUXILIARES ==========
 
         // Mostrar alerta
+        // Avisos do painel: sempre em modal (js/dialogos.js). Erro e atenção exigem OK; sucesso e informação fecham sozinhos.
         function showAlert(message, type) {
-            if (!alertBox) return;
-            alertBox.textContent = message;
-            alertBox.className =
-                type === "error" ? "alert alert-error" : "alert alert-success";
-            alertBox.style.display = "block";
-            setTimeout(() => {
-                if (alertBox) alertBox.style.display = "none";
-            }, 5000);
+            Dialogos.notificar(message, type);
         }
 
         // Mostrar conteúdo
@@ -6588,12 +6565,15 @@
                 console.error(
                     'O HTML do modal "confirmDirectorExitModal" não foi encontrado!',
                 );
-                // Fallback para a janela feia se o modal não existir, para não quebrar a funcionalidade
-                if (
-                    confirm(`Deseja realmente confirmar a saída de ${studentName}?`)
-                ) {
-                    handleConfirmarSaida(studentId, studentName);
-                }
+                // Se o modal próprio da página não existir, usa o modal compartilhado para não quebrar a funcionalidade
+                Dialogos.confirmar({
+                    tipo: "info",
+                    titulo: "Confirmar saída?",
+                    mensagem: `Deseja realmente confirmar a saída de ${studentName}?`,
+                    textoOk: "Confirmar saída",
+                }).then((confirmado) => {
+                    if (confirmado) handleConfirmarSaida(studentId, studentName);
+                });
                 return;
             }
 
