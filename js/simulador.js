@@ -49,8 +49,8 @@
         email: 'carla.souza@exemplo.com.br'
       },
       alunos: [
-        { id: 1, nome: 'Ana Beatriz Souza', curto: 'Ana Souza', sala: '2º ano A', status: 'PRESENTE', aprox: false, solicitante: null, token: null },
-        { id: 2, nome: 'Pedro Henrique Souza', curto: 'Pedro Souza', sala: '5º ano B', status: 'AUSENTE', aprox: false, solicitante: null, token: null }
+        { id: 1, nome: 'Ana Beatriz Souza', curto: 'Ana Souza', voz: 'ana', sala: '2º ano A', status: 'PRESENTE', aprox: false, solicitante: null, token: null },
+        { id: 2, nome: 'Pedro Henrique Souza', curto: 'Pedro Souza', voz: 'pedro', sala: '5º ano B', status: 'AUSENTE', aprox: false, solicitante: null, token: null }
       ],
       dentro: true,
       aba: 'PORTARIA',
@@ -164,7 +164,7 @@
     '      <button type="button" data-ctrl="dentro">Na escola</button><button type="button" data-ctrl="fora">Longe</button></span></div>' +
     '    <div class="simi-ctrl-linha"><span>Chegar à escola (Chamada por Aproximação)</span><button type="button" class="simi-ctrl-btn" data-ctrl="chegar">Chegar</button></div>' +
     '    <div class="simi-ctrl-linha"><span>Afastar-se por 3 minutos</span><button type="button" class="simi-ctrl-btn" data-ctrl="afastar">Afastar</button></div>' +
-    '    <div class="simi-ctrl-linha"><span>Som da TV (nome em voz)</span><button type="button" class="simi-chave" data-ctrl="som" aria-label="Som da TV" aria-pressed="false"></button></div>' +
+    '    <div class="simi-ctrl-linha"><span>Som da TV (aviso e voz)</span><button type="button" class="simi-chave" data-ctrl="som" aria-label="Som da TV" aria-pressed="false"></button></div>' +
     '    <div class="simi-ctrl-linha"><span></span><button type="button" class="simi-ctrl-btn claro" data-ctrl="reiniciar"><i class="fas fa-rotate-left"></i> Reiniciar</button></div>' +
     '  </div>' +
     '</div>' +
@@ -538,7 +538,7 @@
       a.status = 'AGUARDANDO';
       a.solicitante = 'tutor';
       sucesso('SOLICITACAO');
-      chamarNaTV(a, 'tutor', 'Responsável a caminho');
+      chamarNaTV(a, 'tutor', 'Responsável a caminho', 'mae');
     } else {
       a.status = 'AUSENTE';
       a.solicitante = null;
@@ -727,7 +727,7 @@
     a.token = t;
     E.aba = 'PORTARIA';
     render();
-    chamarNaTV(a, 'token', t.nome + ' (' + t.parentesco + ') na portaria');
+    chamarNaTV(a, 'token', t.nome + ' (' + t.parentesco + ') na portaria', chaveDoParentesco(t.parentesco));
     push('Retirada por terceiro', t.nome + ' (' + t.parentesco + ') está na portaria para buscar ' + a.nome.split(' ')[0] + '.', 'PORTARIA');
     a.timerToken = depois(6500, function () {
       if (a.token !== t) return;
@@ -980,7 +980,7 @@
       chamados.forEach(function (a) {
         a.status = 'AGUARDANDO';
         a.solicitante = 'tutor';
-        chamarNaTV(a, 'tutor', 'Chamado por aproximação');
+        chamarNaTV(a, 'tutor', 'Chamado por aproximação', 'mae');
         push('Chamada por Aproximação', a.nome.split(' ')[0] + ' foi chamado(a) automaticamente: você chegou à escola.', 'PORTARIA');
       });
       render();
@@ -1037,7 +1037,7 @@
     renderTV();
   }
 
-  function chamarNaTV(a, tipo, sub) {
+  function chamarNaTV(a, tipo, sub, chave) {
     mudarSalaTV(a.sala);
     var antigo = telaTV.querySelector('.simi-tv-destaque');
     if (antigo) antigo.remove();
@@ -1046,7 +1046,7 @@
     d.innerHTML = '<div class="simi-tv-destaque-card ' + tipo + '"><div class="simi-tv-destaque-nome">' + esc(a.curto) + '</div>' +
       '<div class="simi-tv-destaque-sub">' + esc(sub) + '</div></div>';
     telaTV.appendChild(d);
-    tocar(a);
+    tocar(a, chave);
     convidarParaTV();
     depois(3600, function () { d.classList.add('some'); });
     depois(4000, function () { d.remove(); });
@@ -1073,10 +1073,22 @@
     depois(6000, function () { b.remove(); });
   }
 
-  // som: dois toques suaves + o nome em voz (só se o visitante ligar o som)
+  // som: dois toques suaves + a frase falada (áudio gravado com a mesma voz e a mesma frase do sistema real).
+  // Só toca se o visitante ligar o som. Sem o arquivo de áudio, fica só o aviso sonoro: nunca usa a voz do navegador.
   var audio = null;
+  var falando = null;
+  var PASTA_VOZ = 'assets/audio/simulador/';
 
-  function tocar(a) {
+  // Parentesco do token -> trecho da frase gravada ("Seu parente", "Seu irmão ou irmã", "Um amigo de sua família"...)
+  function chaveDoParentesco(p) {
+    p = String(p || '').toLowerCase();
+    if (/irm/.test(p)) return 'irmao';
+    if (/amig/.test(p)) return 'amigo';
+    if (/transporte/.test(p)) return 'transporte';
+    return 'parente';
+  }
+
+  function tocar(a, chave) {
     if (!E.som) return;
     try {
       audio = audio || new (window.AudioContext || window.webkitAudioContext)();
@@ -1094,14 +1106,14 @@
         o.stop(t0 + i * 0.22 + 0.55);
       });
     } catch (e) { /* sem áudio: segue só o visual */ }
-    if (a && window.speechSynthesis) {
+    if (a && a.voz && chave) {
       depois(700, function () {
         try {
-          var u = new SpeechSynthesisUtterance(a.curto + ', ' + a.sala);
-          u.lang = 'pt-BR';
-          u.rate = 0.95;
-          window.speechSynthesis.cancel();
-          window.speechSynthesis.speak(u);
+          if (falando) falando.pause();
+          falando = new Audio(PASTA_VOZ + a.voz + '-' + chave + '.mp3');
+          falando.volume = 0.95;
+          var p = falando.play();
+          if (p && p.catch) p.catch(function () { /* arquivo ausente ou bloqueado: segue sem a fala */ });
         } catch (e) { }
       });
     }
@@ -1118,7 +1130,7 @@
 
   function reiniciar() {
     limparTimers();
-    if (window.speechSynthesis) try { window.speechSynthesis.cancel(); } catch (e) { }
+    if (falando) try { falando.pause(); } catch (e) { }
     var som = E.som;
     E = estadoInicial();
     E.som = som;
