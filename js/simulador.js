@@ -181,10 +181,10 @@
     '  <p class="simi-legenda">Deslize o botão no app e veja o aluno ser chamado na TV da sala, com nome na tela e, se quiser, em voz. Sem alto-falante geral e sem fila na portaria.</p>' +
     '</div>';
 
-  // Modo compacto (hero do site): os controles da simulação saem de baixo do celular e ocupam uma faixa abaixo dos dois.
+  // Modo compacto (hero do site): os controles da simulação saem de baixo do celular e vão para baixo da TV.
   if (raiz.getAttribute('data-compacto') === 'true') {
     raiz.classList.add('simi-compacto');
-    raiz.appendChild(raiz.querySelector('.simi-controles'));
+    raiz.querySelector('.simi-col-tv').appendChild(raiz.querySelector('.simi-controles'));
   }
 
   var tela = document.getElementById('simi-tela');
@@ -372,6 +372,17 @@
       item('ajuda', 'fa-headset', 'Central de Ajuda', 'Telefone e e-mail do suporte') +
       item('tutorial', 'fa-book-open', 'Tutorial do Aplicativo', 'FAQ e tutoriais') +
       item('privacidade', 'fa-shield-halved', 'Política de privacidade', 'LGPD e tratamento de dados') + '</div>';
+    var versao = raiz.getAttribute('data-detalhes-versao');
+    if (versao) {
+      // como no app: cartão "Detalhes da versão" (sem toque) e, abaixo, a exclusão de conta, ambos sem título de seção
+      h += '<div class="simi-lista" style="margin-top:18px"><div class="simi-item" style="cursor:default">' +
+        '<span class="simi-item-icone" style="background:#e8f2fc;color:#1a6fc4"><i class="fas fa-circle-info"></i></span>' +
+        '<span class="simi-item-texto"><span class="simi-item-titulo" style="display:block">Detalhes da versão</span>' +
+        '<span class="simi-item-sub" style="display:block">Versão: ' + esc(versao) + '</span></span></div></div>';
+      h += '<div class="simi-lista" style="margin-top:14px">' +
+        item('excluir', 'fa-user-xmark', 'Excluir minha conta', 'Remover seus dados e desativar o acesso') + '</div>';
+      return h;
+    }
     h += '<div class="simi-secao">Conta</div><div class="simi-lista">' +
       item('excluir', 'fa-user-xmark', 'Excluir minha conta', 'Remover seus dados e desativar o acesso') + '</div>';
     h += '<p class="simi-ajuda" style="text-align:center;margin-top:16px">Detalhes da versão · 3.0.1 (20)</p>';
