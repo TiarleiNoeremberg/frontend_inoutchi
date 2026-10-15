@@ -181,6 +181,12 @@
     '  <p class="simi-legenda">Deslize o botão no app e veja o aluno ser chamado na TV da sala, com nome na tela e, se quiser, em voz. Sem alto-falante geral e sem fila na portaria.</p>' +
     '</div>';
 
+  // Modo compacto (hero do site): os controles da simulação saem de baixo do celular e ocupam uma faixa abaixo dos dois.
+  if (raiz.getAttribute('data-compacto') === 'true') {
+    raiz.classList.add('simi-compacto');
+    raiz.appendChild(raiz.querySelector('.simi-controles'));
+  }
+
   var tela = document.getElementById('simi-tela');
   var conteudo = document.getElementById('simi-conteudo');
   var barra = document.getElementById('simi-barra');
