@@ -28,6 +28,7 @@
 
     <!-- ===== PUSH NOTIFICATIONS ===== -->
     <script src="notification-api.js"></script>
+    <script src="biometric.js"></script>
     <script src="sw.js"></script>
 
     <style>
@@ -2872,6 +2873,126 @@
             font-weight: 700;
         }
 
+        /* ===== HISTÓRICO: mesmo desenho do simulador do site e do app nativo ===== */
+        .hist-chips {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            scrollbar-width: none;
+            margin-bottom: 6px;
+        }
+
+        .hist-chip {
+            flex-shrink: 0;
+            border: 1px solid rgba(15, 79, 143, .18);
+            background: #fff;
+            border-radius: 14px;
+            padding: 8px 12px;
+            font-family: inherit;
+            font-size: 12.5px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            cursor: pointer;
+            text-align: left;
+        }
+
+        .hist-chip small {
+            display: block;
+            font-weight: 500;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .hist-chip.ativo {
+            border-color: #0ea5a0;
+            background: #e6f7f6;
+            color: #0f766e;
+        }
+
+        .hist-dia {
+            font-size: 11.5px;
+            font-weight: 700;
+            letter-spacing: .8px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            margin: 16px 4px 6px;
+        }
+
+        .hist-lista {
+            background: rgba(255, 255, 255, .86);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 0 14px;
+            box-shadow: var(--shadow-xs);
+        }
+
+        .hist-mov {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .hist-mov:last-child {
+            border-bottom: 0;
+        }
+
+        .hist-ic {
+            width: 34px;
+            height: 34px;
+            border-radius: 11px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            font-size: 14px;
+        }
+
+        .hist-ic.entrada {
+            background: #ecfdf5;
+            color: #10b981;
+        }
+
+        .hist-ic.saida {
+            background: #fff1f2;
+            color: #f43f5e;
+        }
+
+        .hist-txt {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .hist-tit {
+            font-size: 13.5px;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .hist-det {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+            font-weight: 500;
+        }
+
+        .hist-hora {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        /* Chave liga/desliga direto no card da Config (biometria e Mensagens Push) */
+        .config-row .auto-switch {
+            flex-shrink: 0;
+        }
+
+        .config-row .auto-switch.salvando {
+            opacity: .55;
+            pointer-events: none;
+        }
+
         /* ===== MODAL DE LOCALIZAÇÃO (ENTRADA) ===== */
         .location-modal {
             position: fixed;
@@ -3059,6 +3180,8 @@
                     <p class="subtitle">Linha do tempo de entradas e saídas.</p>
                 </div>
 
+                <div id="historicoAlunos" class="hist-chips" style="display: none;"></div>
+
                 <div id="historicoContainer">
                     <div class="empty">
                         <div class="ic"><i class="fas fa-clock-rotate-left"></i></div>
@@ -3121,20 +3244,33 @@
                             </div>
                             <i class="fas fa-chevron-right chev"></i>
                         </div>
+                        <!-- Só aparece no app antigo (ponte de biometria do Android); a chave fica no próprio card -->
+                        <div class="config-row" data-action="biometria" id="rowBiometria" style="display: none;">
+                            <div class="row-icon" style="--row-bg:#f3efff;--row-color:#7c3aed"><i
+                                    class="fas fa-fingerprint"></i></div>
+                            <div class="row-text">
+                                <div class="t">Login por biometria</div>
+                                <div class="s" id="biometriaSub">Ativo neste aparelho</div>
+                            </div>
+                            <div class="auto-switch active" id="switchBiometria" role="switch" aria-checked="true"
+                                aria-label="Login por biometria"><div class="auto-switch-slider"></div></div>
+                        </div>
                     </div>
                 </div>
 
                 <div class="config-section">
                     <div class="label">Preferências</div>
                     <div class="config-list">
-                        <div class="config-row" data-action="notificacoes">
+                        <div class="config-row" data-action="toggle-push">
                             <div class="row-icon" style="--row-bg:#ecfdf5;--row-color:#10b981"><i
                                     class="fas fa-bell"></i></div>
                             <div class="row-text">
-                                <div class="t">Notificações</div>
-                                <div class="s">Mensagens Push</div>
+                                <div class="t">Mensagens Push</div>
+                                <div class="s" id="pushSub">Receber avisos de entrada, saída e mensagens da escola neste
+                                    aparelho.</div>
                             </div>
-                            <i class="fas fa-chevron-right chev"></i>
+                            <div class="auto-switch active" id="switchPush" role="switch" aria-checked="true"
+                                aria-label="Mensagens Push"><div class="auto-switch-slider"></div></div>
                         </div>
                         <div class="config-row" data-action="idioma">
                             <div class="row-icon" style="--row-bg:#ecfeff;--row-color:#06b6d4"><i
@@ -3155,6 +3291,14 @@
                             <div class="row-icon"><i class="fas fa-circle-question"></i></div>
                             <div class="row-text">
                                 <div class="t">Central de ajuda</div>
+                                <div class="s">Telefone e e-mail do suporte</div>
+                            </div>
+                            <i class="fas fa-chevron-right chev"></i>
+                        </div>
+                        <div class="config-row" data-action="tutorial-app">
+                            <div class="row-icon"><i class="fas fa-graduation-cap"></i></div>
+                            <div class="row-text">
+                                <div class="t">Tutorial do Aplicativo</div>
                                 <div class="s">FAQ e tutoriais</div>
                             </div>
                             <i class="fas fa-chevron-right chev"></i>
@@ -3582,12 +3726,6 @@
                 </div>
                 <div class="modal-body">
                     <div class="list-group">
-                        <a href="#" class="list-group-item list-group-item-action" id="tutorialLink">
-                            <i class="fas fa-graduation-cap me-2 text-primary"></i> Tutorial do Aplicativo
-                        </a>
-                        <a href="#" class="list-group-item list-group-item-action" id="faqLink">
-                            <i class="fas fa-question-circle me-2 text-primary"></i> FAQ - Perguntas Frequentes
-                        </a>
                         <a href="#" class="list-group-item list-group-item-action" id="emailLink">
                             <i class="fas fa-envelope me-2 text-primary"></i> Fale Conosco: tiarlei@inoutchi.com
                         </a>
@@ -3598,6 +3736,54 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== MODAL TUTORIAL DO APLICATIVO: leva às seções do site ===== -->
+    <div class="modal fade" id="tutorialAppModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header" style="background: var(--gradient-main);">
+                    <h5 class="modal-title text-white"><i class="fas fa-graduation-cap me-2"></i>Tutorial do Aplicativo</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3">Abre o site do Inoutchi na seção escolhida.</p>
+                    <div class="list-group">
+                        <a href="https://www.inoutchi.com/#tutoriais" target="_blank" rel="noopener"
+                            class="list-group-item list-group-item-action">
+                            <i class="fas fa-graduation-cap me-2 text-primary"></i> Tutoriais
+                        </a>
+                        <a href="https://www.inoutchi.com/#faq" target="_blank" rel="noopener"
+                            class="list-group-item list-group-item-action">
+                            <i class="fas fa-question-circle me-2 text-primary"></i> Perguntas frequentes
+                        </a>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== MODAL REMOVER LOGIN POR BIOMETRIA ===== -->
+    <div class="modal fade" id="removerBiometriaModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header" style="background: var(--gradient-main);">
+                    <h5 class="modal-title text-white"><i class="fas fa-fingerprint me-2"></i>Remover login por biometria?</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-0">O botão de biometria deixa de funcionar neste aparelho até você ligar de novo e
+                        entrar com e-mail e senha.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-danger" id="btnConfirmarRemoverBiometria">Remover</button>
                 </div>
             </div>
         </div>
@@ -4573,6 +4759,7 @@
                     if (filhosCount) {
                         filhosCount.textContent = `${studentsData.length} aluno(s) vinculado(s)`;
                     }
+                    renderHistoryChips();
 
                     // 1. Aguarda as configurações automáticas aplicarem os switches (true/false) nos alunos
                     await loadConfiguracoesAutomaticas();
@@ -5389,6 +5576,8 @@
                         const target = btn.dataset.target;
                         navItems.forEach(b => b.classList.toggle('active', b === btn));
                         panes.forEach(p => p.classList.toggle('active', p.dataset.tab === target));
+                        if (target === 'historico') prepararHistorico();
+                        if (target === 'config') prepararConfig();
                         const appMain = document.getElementById('appMain');
                         if (appMain) appMain.scrollTo({ top: 0, behavior: 'smooth' });
                         if (navigator.vibrate) navigator.vibrate(8);
@@ -5410,8 +5599,14 @@
                             case 'trocar-senha':
                                 openTrocarSenhaModal();
                                 break;
-                            case 'notificacoes':
-                                openNotificacoesModal();
+                            case 'toggle-push':
+                                alternarPushNoCard();
+                                break;
+                            case 'biometria':
+                                alternarBiometriaNoCard();
+                                break;
+                            case 'tutorial-app':
+                                openTutorialAppModal();
                                 break;
                             case 'idioma':
                                 showToast('Idioma: Português (Brasil)', 'info');
@@ -7925,6 +8120,131 @@
                 modal.show();
             }
 
+            // "Tutorial do Aplicativo": modal com os links para as seções do site
+            function openTutorialAppModal() {
+                const modal = getModalInstance('tutorialAppModal');
+                if (!modal) return;
+                modal.show();
+            }
+
+            // ---------- Mensagens Push: a chave fica no card e salva na hora ----------
+            let pushAtivo = localStorage.getItem('notif_push') !== 'false';
+            let pushSalvando = false;
+
+            function desenharChavePush() {
+                const chave = document.getElementById('switchPush');
+                if (!chave) return;
+                chave.classList.toggle('active', pushAtivo);
+                chave.classList.toggle('salvando', pushSalvando);
+                chave.setAttribute('aria-checked', pushAtivo ? 'true' : 'false');
+            }
+
+            async function carregarStatusPush() {
+                desenharChavePush();
+                try {
+                    const accessToken = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+                    if (!accessToken) return;
+                    const response = await fetch('https://api.inoutchi.com/api/fcm/status', {
+                        headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' }
+                    });
+                    if (!response.ok) return;
+                    const result = await response.json();
+                    if (result.success && result.active !== undefined && !pushSalvando) {
+                        pushAtivo = !!result.active;
+                        localStorage.setItem('notif_push', pushAtivo);
+                        desenharChavePush();
+                    }
+                } catch (error) {
+                    console.warn('Não foi possível ler o status das notificações:', error);
+                }
+            }
+
+            async function alternarPushNoCard() {
+                if (pushSalvando) return;
+                const novo = !pushAtivo;
+                pushAtivo = novo;
+                pushSalvando = true;
+                desenharChavePush();
+                try {
+                    const accessToken = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+                    if (!accessToken) throw new Error('Usuário não autenticado');
+                    const response = await fetch('https://api.inoutchi.com/api/fcm/toggle', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + accessToken },
+                        body: JSON.stringify({ active: novo })
+                    });
+                    const result = await response.json();
+                    if (!result.success) throw new Error(result.error || 'Erro ao salvar preferências');
+                    localStorage.setItem('notif_push', novo);
+                    showToast(novo ? 'Notificações ativadas com sucesso' : 'Notificações desativadas com sucesso', 'success');
+                } catch (error) {
+                    pushAtivo = !novo; // volta para onde estava
+                    showToast('❌ ' + (error.message || 'Erro ao salvar preferências. Tente novamente.'), 'danger');
+                } finally {
+                    pushSalvando = false;
+                    desenharChavePush();
+                }
+            }
+
+            // ---------- Login por biometria (só no app antigo, que tem a ponte do Android) ----------
+            const CHAVE_BIOMETRIA_DESLIGADA = 'inoutchi_biometria_desligada';
+
+            function biometriaLigada() {
+                try { return localStorage.getItem(CHAVE_BIOMETRIA_DESLIGADA) !== '1'; } catch (e) { return true; }
+            }
+
+            function desenharCardBiometria() {
+                const chave = document.getElementById('switchBiometria');
+                const sub = document.getElementById('biometriaSub');
+                const ligada = biometriaLigada();
+                if (chave) {
+                    chave.classList.toggle('active', ligada);
+                    chave.setAttribute('aria-checked', ligada ? 'true' : 'false');
+                }
+                if (sub) sub.textContent = ligada ? 'Ativo neste aparelho' : 'Desativado';
+            }
+
+            async function prepararCardBiometria() {
+                const linha = document.getElementById('rowBiometria');
+                if (!linha || typeof BiometricManager === 'undefined') return;
+                try {
+                    await BiometricManager.checkAvailability();
+                } catch (e) {
+                    return;
+                }
+                // No navegador não há como apagar a credencial guardada: o card só existe com a ponte do Android.
+                const temPonte = BiometricManager.isAvailable && BiometricManager.platform === 'android';
+                linha.style.display = temPonte ? '' : 'none';
+                if (temPonte) desenharCardBiometria();
+            }
+
+            function alternarBiometriaNoCard() {
+                if (biometriaLigada()) {
+                    const modal = getModalInstance('removerBiometriaModal');
+                    if (modal) modal.show();
+                    return;
+                }
+                try { localStorage.removeItem(CHAVE_BIOMETRIA_DESLIGADA); } catch (e) { }
+                desenharCardBiometria();
+                showToast('Login por biometria ligado. Ele volta a valer no próximo login com e-mail e senha.', 'success');
+            }
+
+            document.getElementById('btnConfirmarRemoverBiometria')?.addEventListener('click', async () => {
+                try { localStorage.setItem(CHAVE_BIOMETRIA_DESLIGADA, '1'); } catch (e) { }
+                try { await BiometricManager.clearCredential(); } catch (e) { }
+                desenharCardBiometria();
+                const modalElement = document.getElementById('removerBiometriaModal');
+                const instancia = (typeof bootstrap !== 'undefined') ? bootstrap.Modal.getInstance(modalElement) : null;
+                if (instancia) instancia.hide();
+                showToast('Login por biometria removido deste aparelho.', 'info');
+            });
+
+            // Ao abrir a aba Config: estado atual das chaves
+            function prepararConfig() {
+                carregarStatusPush();
+                prepararCardBiometria();
+            }
+
             // Abrir política de privacidade (LGPD) - CORRIGIDO
             function openPoliticaPrivacidadeModal() {
                 const modalElement = document.getElementById('lgpdModal');
@@ -8779,11 +9099,64 @@
             let currentHistoryPage = 1;
             const HISTORY_PAGE_SIZE = 10;
 
+            function escaparHistorico(texto) {
+                return String(texto ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+            }
+
+            function nomeDoCartao(nome) {
+                const partes = String(nome || '').trim().split(/\s+/).filter(Boolean);
+                if (partes.length === 0) return 'Aluno';
+                if (partes.length === 1) return partes[0];
+                return `${partes[0]} ${partes[partes.length - 1]}`;
+            }
+
+            // Cartões dos filhos (nome e sala) acima do histórico; só com mais de um filho, como no app nativo
+            function renderHistoryChips() {
+                const caixa = document.getElementById('historicoAlunos');
+                const alunos = window.studentsData || [];
+                if (!caixa) return;
+                if (alunos.length < 2) {
+                    caixa.style.display = 'none';
+                    caixa.innerHTML = '';
+                    return;
+                }
+                caixa.style.display = '';
+                caixa.innerHTML = alunos.map(a => `
+                    <button type="button" class="hist-chip${String(a.id) === String(currentHistoryStudentId) ? ' ativo' : ''}" data-id="${a.id}">
+                        ${escaparHistorico(nomeDoCartao(a.nome))}<small>${escaparHistorico(a.salaNome || 'Sem sala')}</small>
+                    </button>`).join('');
+                caixa.querySelectorAll('.hist-chip').forEach(botao => {
+                    botao.addEventListener('click', () => {
+                        const aluno = alunos.find(a => String(a.id) === botao.dataset.id);
+                        if (aluno) selecionarAlunoHistorico(aluno.id, aluno.nome);
+                    });
+                });
+            }
+
+            function selecionarAlunoHistorico(studentId, studentName) {
+                currentHistoryStudentId = studentId;
+                currentHistoryPage = 1;
+                const historyHeader = document.querySelector('[data-tab="historico"] .tab-header h1');
+                if (historyHeader) historyHeader.textContent = `Histórico · ${String(studentName || '').trim().split(/\s+/)[0]}`;
+                renderHistoryChips();
+                loadHistory(studentId);
+            }
+
+            // Ao abrir a aba: um filho só já abre nele; com mais de um, mostra os cartões para escolher
+            function prepararHistorico() {
+                renderHistoryChips();
+                const alunos = window.studentsData || [];
+                if (!currentHistoryStudentId && alunos.length === 1) {
+                    selecionarAlunoHistorico(alunos[0].id, alunos[0].nome);
+                }
+            }
+
             async function openStudentHistory(studentId, studentName) {
                 console.log('📜 Abrindo histórico para:', studentName, 'ID:', studentId);
 
                 currentHistoryStudentId = studentId;
                 currentHistoryPage = 1;
+                renderHistoryChips();
 
                 // Atualizar título da aba
                 const historyHeader = document.querySelector('#historico-tab .tab-header h1');
@@ -8866,221 +9239,38 @@
                     groupedByDate[date].push(record);
                 });
 
-                let html = '<div class="timeline" style="position: relative; padding: 8px 0;">';
+                // Mesmo desenho do simulador do site e do app nativo: um cartão por dia, uma linha por movimento
+                const hojeStr = new Date().toLocaleDateString('pt-BR');
+                const ontemData = new Date();
+                ontemData.setDate(ontemData.getDate() - 1);
+                const ontemStr = ontemData.toLocaleDateString('pt-BR');
+                const horaDe = (iso) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                const quem = (nome, tipo) => {
+                    const rotulo = tipo ? formatarTipoResponsavel(tipo) : '';
+                    return `${nome || 'Sistema'}${rotulo ? ` (${rotulo})` : ''}`;
+                };
+                const linha = (tipo, hora, por) => `
+                    <div class="hist-mov">
+                        <span class="hist-ic ${tipo}"><i class="fas ${tipo === 'entrada' ? 'fa-right-to-bracket' : 'fa-right-from-bracket'}"></i></span>
+                        <div class="hist-txt">
+                            <div class="hist-tit">${tipo === 'entrada' ? 'Entrada' : 'Saída'}</div>
+                            <div class="hist-det">Registrada por ${escaparHistorico(por)}</div>
+                        </div>
+                        <span class="hist-hora">${hora}</span>
+                    </div>`;
 
-                html += `
-                    <style>
-                        .timeline-corrigida {
-                            position: relative;
-                            padding: 8px 0;
-                        }
-                        .timeline-corrigida::before {
-                            content: "";
-                            position: absolute;
-                            left: 50%;
-                            transform: translateX(-50%);
-                            top: 0;
-                            bottom: 0;
-                            width: 3px;
-                            background: linear-gradient(180deg, #1a6fc4 0%, #0ea5a0 100%);
-                            opacity: 0.25;
-                            border-radius: 2px;
-                        }
-                        .tl-item-corrigido {
-                            position: relative;
-                            display: flex;
-                            justify-content: center;
-                            margin-bottom: 30px;
-                        }
-                        .tl-card-corrigido {
-                            width: 45%;
-                            background: var(--gradient-card);
-                            border: 1px solid var(--border);
-                            border-radius: var(--radius);
-                            padding: 14px;
-                            box-shadow: var(--shadow-xs);
-                            position: relative;
-                        }
-                        .tl-card-corrigido:hover {
-                            transform: translateY(-2px);
-                            box-shadow: var(--shadow-md);
-                        }
-                        .tl-item-corrigido.entry {
-                            justify-content: flex-end;
-                        }
-                        .tl-item-corrigido.entry .tl-card-corrigido {
-                            margin-right: calc(50% + 15px);
-                        }
-                        .tl-item-corrigido.exit {
-                            justify-content: flex-start;
-                        }
-                        .tl-item-corrigido.exit .tl-card-corrigido {
-                            margin-left: calc(50% + 15px);
-                        }
-                        .tl-dot-corrigido {
-                            position: absolute;
-                            left: 50%;
-                            transform: translateX(-50%) translateY(-50%);
-                            width: 32px;
-                            height: 32px;
-                            border-radius: 50%;
-                            background: #fff;
-                            border: 3px solid;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            z-index: 2;
-                            box-shadow: 0 4px 10px rgba(15, 79, 143, .2);
-                            top: 50%;
-                        }
-                        .tl-item-corrigido.entry .tl-dot-corrigido {
-                            border-color: #10b981;
-                            color: #10b981;
-                        }
-                        .tl-item-corrigido.exit .tl-dot-corrigido {
-                            border-color: #ef4444;
-                            color: #ef4444;
-                        }
-                        .day-divider-corrigido {
-                            text-align: center;
-                            font-size: 0.75rem;
-                            font-weight: 700;
-                            letter-spacing: 0.08em;
-                            text-transform: uppercase;
-                            color: var(--text-muted);
-                            margin: 20px 0 16px;
-                            position: relative;
-                            z-index: 2;
-                        }
-                        .day-divider-corrigido span {
-                            background: var(--bg);
-                            padding: 4px 14px;
-                            border-radius: 999px;
-                            border: 1px solid var(--border);
-                            font-size: 0.7rem;
-                        }
-                        .tl-card-corrigido .who {
-                            font-weight: 700;
-                            color: var(--text);
-                            font-size: 0.85rem;
-                        }
-                        .tl-card-corrigido .when {
-                            font-size: 0.7rem;
-                            color: var(--text-muted);
-                            margin-top: 4px;
-                            font-weight: 500;
-                        }
-                        .tl-card-corrigido .what {
-                            font-size: 0.75rem;
-                            color: var(--text-secondary);
-                            margin-top: 6px;
-                            font-weight: 500;
-                        }
-                        .tl-card-corrigido.entry-card {
-                            border-left: 3px solid #10b981;
-                        }
-                        .tl-card-corrigido.exit-card {
-                            border-left: 3px solid #1a6fc4;
-                        }
-                    </style>
-                    <div class="timeline-corrigida">
-                `;
-
-                // Iterar sobre as datas
+                let html = '';
                 Object.keys(groupedByDate).forEach(date => {
-                    // Lógica para HOJE e ONTEM
-                    let dateDisplay = date;
-                    const hoje = new Date().toLocaleDateString('pt-BR');
-                    const ontem = new Date();
-                    ontem.setDate(ontem.getDate() - 1);
-                    const ontemStr = ontem.toLocaleDateString('pt-BR');
-
-                    if (date === hoje) {
-                        dateDisplay = 'HOJE';
-                    } else if (date === ontemStr) {
-                        dateDisplay = 'ONTEM';
-                    }
-
-                    html += `<div class="day-divider-corrigido"><span>${dateDisplay}</span></div>`;
-
-                    // ========== CORREÇÃO: Ordenar por horário (mais recente primeiro) ==========
-                    const registrosDoDia = [...groupedByDate[date]].sort((a, b) => {
-                        const horarioA = new Date(a.entradaAt).getTime();
-                        const horarioB = new Date(b.entradaAt).getTime();
-                        return horarioB - horarioA;
-                    });
-
-                    // Para cada registro, exibir APENAS o que ele representa
+                    const rotulo = date === hojeStr ? 'HOJE' : (date === ontemStr ? 'ONTEM' : date);
+                    html += `<div class="hist-dia">${rotulo}</div><div class="hist-lista">`;
+                    const registrosDoDia = [...groupedByDate[date]].sort((a, b) => new Date(b.entradaAt) - new Date(a.entradaAt));
                     registrosDoDia.forEach(record => {
-                        const entradaDate = new Date(record.entradaAt);
-                        const entradaTime = entradaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-
-                        const iniciadoPorTipo = formatarTipoResponsavel(record.iniciadoPorTipo);
-                        const finalizadoPorTipo = record.finalizadoPorTipo ? formatarTipoResponsavel(record.finalizadoPorTipo) : '';
-
-                        // Formatar nome do aluno
-                        const nomeAluno = record.alunoNome || 'Aluno';
-                        const partesNome = nomeAluno.trim().split(' ');
-                        let nomeFormatado = nomeAluno;
-                        if (partesNome.length >= 2) {
-                            nomeFormatado = `${partesNome[0]} ${partesNome[partesNome.length - 1]}`;
-                        }
-
-                        // VERIFICAR SE TEM SAÍDA REGISTRADA
-                        const temSaida = record.saidaAt !== null && record.saidaAt !== undefined;
-
-                        if (temSaida) {
-                            // Este é um registro COMPLETO (entrada E saída)
-                            // Vamos exibir PRIMEIRO a SAÍDA (mais recente) e DEPOIS a ENTRADA
-                            const saidaDate = new Date(record.saidaAt);
-                            const saidaTime = saidaDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-
-                            // Saída (mais recente - vem primeiro)
-                            html += `
-                                <div class="tl-item-corrigido exit">
-                                    <div class="tl-dot-corrigido">
-                                        <i class="fas fa-sign-out-alt fa-xs"></i>
-                                    </div>
-                                    <div class="tl-card-corrigido exit-card">
-                                        <div class="who">${nomeFormatado}</div>
-                                        <div class="when">${saidaTime}</div>
-                                        <div class="what"><strong>Saída</strong> registrada por ${record.finalizadoPor || 'Sistema'}${finalizadoPorTipo ? ` (${finalizadoPorTipo})` : ''}</div>
-                                    </div>
-                                </div>
-                            `;
-
-                            // Entrada (mais antiga - vem depois)
-                            html += `
-                                <div class="tl-item-corrigido entry">
-                                    <div class="tl-dot-corrigido">
-                                        <i class="fas fa-sign-in-alt fa-xs"></i>
-                                    </div>
-                                    <div class="tl-card-corrigido entry-card">
-                                        <div class="who">${nomeFormatado}</div>
-                                        <div class="when">${entradaTime}</div>
-                                        <div class="what"><strong>Entrada</strong> registrada por ${record.iniciadoPor || 'Sistema'}${iniciadoPorTipo ? ` (${iniciadoPorTipo})` : ''}</div>
-                                    </div>
-                                </div>
-                            `;
-                        } else {
-                            // Apenas ENTRADA (aluno entrou mas ainda não saiu - sessão aberta)
-                            html += `
-                                <div class="tl-item-corrigido entry">
-                                    <div class="tl-dot-corrigido">
-                                        <i class="fas fa-sign-in-alt fa-xs"></i>
-                                    </div>
-                                    <div class="tl-card-corrigido entry-card">
-                                        <div class="who">${nomeFormatado}</div>
-                                        <div class="when">${entradaTime}</div>
-                                        <div class="what"><strong>Entrada</strong> registrada por ${record.iniciadoPor || 'Sistema'}${iniciadoPorTipo ? ` (${iniciadoPorTipo})` : ''}</div>
-                                    </div>
-                                </div>
-                            `;
-                        }
+                        // numa sessão completa, a saída (mais recente) vem antes da entrada
+                        if (record.saidaAt) html += linha('saida', horaDe(record.saidaAt), quem(record.finalizadoPor, record.finalizadoPorTipo));
+                        html += linha('entrada', horaDe(record.entradaAt), quem(record.iniciadoPor, record.iniciadoPorTipo));
                     });
+                    html += '</div>';
                 });
-
-                html += '</div></div>';
 
                 // Paginação
             const totalPagesCalc = Math.ceil(sorted.length / HISTORY_PAGE_SIZE);
