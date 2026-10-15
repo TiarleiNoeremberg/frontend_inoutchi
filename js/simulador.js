@@ -398,7 +398,28 @@
   }
 
   // ------------------------------------------------------------------------------------------------ render
+  // No celular a TV fica fixa no topo só na Portaria; nas outras abas ela sai da frente e a página rola até o app.
+  var ultimaAba = null;
+  var CELULAR = window.matchMedia ? window.matchMedia('(max-width: 640px)') : { matches: false };
+
+  function ajustarTVFixa() {
+    var fora = E.aba !== 'PORTARIA';
+    raiz.classList.toggle('simi-fora-portaria', fora);
+    var mudou = ultimaAba !== null && ultimaAba !== E.aba;
+    var anterior = ultimaAba;
+    ultimaAba = E.aba;
+    if (!mudou || !CELULAR.matches) return;
+    // volta para a Portaria: o topo do simulador é onde a TV fica naturalmente (a TV fixa não serve de referência)
+    var alvo = fora ? raiz.querySelector('.simi-celular') : raiz;
+    if (!alvo) return;
+    // só rola entre Portaria e as outras abas (entre duas abas "de fora" a página fica onde está)
+    if (fora && anterior !== 'PORTARIA') return;
+    var topo = alvo.getBoundingClientRect().top + window.pageYOffset - (fora ? 8 : 0);
+    window.scrollTo({ top: Math.max(0, topo), behavior: REDUZIR ? 'auto' : 'smooth' });
+  }
+
   function render() {
+    ajustarTVFixa();
     renderBarra();
     var html = '';
     if (E.aba === 'PORTARIA') html = telaPortaria();
