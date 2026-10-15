@@ -953,6 +953,26 @@
     }
   });
 
+  /**
+   * Regra da Chamada por Aproximação: com a chave ligada e o tutor na escola, o aluno presente é chamado sozinho.
+   * Com o tutor longe nada acontece; a chamada sai no instante em que ele passa a estar na escola.
+   * Devolve quantos alunos foram chamados.
+   */
+  function processarAproximacao() {
+    if (!E.dentro) return 0;
+    var chamados = E.alunos.filter(function (a) { return a.aprox && a.status === 'PRESENTE'; });
+    if (!chamados.length) return 0;
+    E.aba = 'PORTARIA';
+    chamados.forEach(function (a) {
+      a.status = 'AGUARDANDO';
+      a.solicitante = 'tutor';
+      chamarNaTV(a, 'tutor', 'Chamado por aproximação', 'mae');
+      push('Chamada por Aproximação', a.nome.split(' ')[0] + ' foi chamado(a) automaticamente: você chegou à escola.', 'PORTARIA');
+    });
+    render();
+    return chamados.length;
+  }
+
   function alternarAprox(a) {
     if (!a.aprox) {
       folha({
@@ -962,8 +982,13 @@
         botoes: [{ rotulo: 'Agora não' }, {
           rotulo: 'Continuar', classe: 'principal', acao: function () {
             a.aprox = true;
-            render();
-            aviso('Ligado! Use "Chegar" nos controles para simular a chegada.');
+            if (E.dentro && a.status === 'PRESENTE') {
+              processarAproximacao();
+            } else {
+              render();
+              aviso(E.dentro ? 'Ligado! A chamada acontece quando ' + a.nome.split(' ')[0] + ' estiver presente na escola.'
+                : 'Ligado! Quando você estiver na escola (controle "Na escola"), a chamada é feita sozinha.');
+            }
           }
         }]
       });
@@ -990,7 +1015,7 @@
     var c = b.getAttribute('data-ctrl');
     if (c === 'dentro' || c === 'fora') {
       E.dentro = c === 'dentro';
-      render();
+      if (!E.dentro || !processarAproximacao()) render();
     } else if (c === 'som') {
       E.som = !E.som;
       if (E.som) tocar(null);
@@ -998,21 +1023,13 @@
     } else if (c === 'reiniciar') {
       reiniciar();
     } else if (c === 'chegar') {
+      // "Chegar" é o mesmo que escolher "Na escola": a regra é a mesma
       E.dentro = true;
-      var chamados = E.alunos.filter(function (a) { return a.aprox && a.status === 'PRESENTE'; });
-      E.aba = 'PORTARIA';
-      if (!chamados.length) {
+      if (!processarAproximacao()) {
+        E.aba = 'PORTARIA';
         render();
         aviso('Ligue a "Chamada por Aproximação" de um aluno que esteja na escola.');
-        return;
       }
-      chamados.forEach(function (a) {
-        a.status = 'AGUARDANDO';
-        a.solicitante = 'tutor';
-        chamarNaTV(a, 'tutor', 'Chamado por aproximação', 'mae');
-        push('Chamada por Aproximação', a.nome.split(' ')[0] + ' foi chamado(a) automaticamente: você chegou à escola.', 'PORTARIA');
-      });
-      render();
     } else if (c === 'afastar') {
       E.dentro = false;
       E.alunos.forEach(function (a) {
