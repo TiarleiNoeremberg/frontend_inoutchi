@@ -185,6 +185,14 @@
   if (raiz.getAttribute('data-compacto') === 'true') {
     raiz.classList.add('simi-compacto');
     raiz.querySelector('.simi-col-tv').appendChild(raiz.querySelector('.simi-controles'));
+    // Chamada acima da TV, com o topo alinhado ao topo do celular
+    var chamada = raiz.getAttribute('data-chamada');
+    if (chamada) {
+      var pChamada = document.createElement('p');
+      pChamada.className = 'simi-chamada';
+      pChamada.textContent = chamada;
+      raiz.querySelector('.simi-col-tv').insertBefore(pChamada, raiz.querySelector('.simi-tv-salas'));
+    }
   }
 
   var tela = document.getElementById('simi-tela');
