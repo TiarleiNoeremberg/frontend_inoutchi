@@ -155,13 +155,14 @@
                 '<span>CNPJ ' + escapeHtml(e.cnpj) + '</span>' +
                 '<span>' + (e.emailUsuario ? escapeHtml(e.emailUsuario) : '<em>sem usuário vinculado</em>') + '</span>' +
                 '<span class="escola-data">Criada em ' + escapeHtml(formatarData(e.criadoEm)) + '</span>' +
-                '<span class="escola-recurso">Mural de mensagens <span class="selo ' +
-                (e.muralHabilitado ? 'selo-ativa' : 'selo-desligado') + '">' +
-                (e.muralHabilitado ? 'Ligado' : 'Desligado') + '</span></span>' +
+                '<div class="escola-recurso">' +
+                '<span class="recurso-texto"><span class="recurso-nome">Mural de mensagens</span>' +
+                '<span class="recurso-estado">' + (e.muralHabilitado ? 'Ligado' : 'Desligado') + '</span></span>' +
+                '<button type="button" class="chave-recurso" role="switch" aria-checked="' + (e.muralHabilitado ? 'true' : 'false') +
+                '" aria-label="Mural de mensagens" data-acao="mural" data-id="' + id + '"></button>' +
+                '</div>' +
                 '<div class="escola-acoes">' +
                 '<button type="button" class="btn-mini" data-acao="editar" data-id="' + id + '">Editar</button>' +
-                '<button type="button" class="btn-mini" data-acao="mural" data-id="' + id + '">' +
-                (e.muralHabilitado ? 'Desligar mural' : 'Ligar mural') + '</button>' +
                 '<button type="button" class="btn-mini ' + (e.ativa ? 'btn-perigo' : '') + '" data-acao="status" data-id="' + id + '">' +
                 (e.ativa ? 'Inativar' : 'Reativar') + '</button>' +
                 '</div>' +
@@ -201,7 +202,7 @@
     }
 
     // ------------------------------------------------------- mural de mensagens
-    async function alternarMural(escola) {
+    async function alternarMural(escola, chave) {
         const desligar = escola.muralHabilitado;
         const pergunta = desligar
             ? 'Escola "' + escola.nome + '".\n\nA escola, a direção e os professores deixam de ver e publicar no ' +
@@ -224,6 +225,17 @@
             return;
         }
 
+        // A chave já mostra a nova posição enquanto o servidor responde; se ele recusar, volta para onde estava.
+        if (chave) {
+            chave.setAttribute('aria-checked', String(!desligar));
+            chave.disabled = true;
+        }
+        const voltarChave = function () {
+            if (!chave) return;
+            chave.setAttribute('aria-checked', String(desligar));
+            chave.disabled = false;
+        };
+
         try {
             const response = await fetch(API_ESCOLAS + '/' + encodeURIComponent(escola.id) + '/mural', {
                 method: 'PATCH',
@@ -232,6 +244,7 @@
             });
 
             if (!response.ok) {
+                voltarChave();
                 await mostrarErro('Não foi possível alterar o mural', await mensagemDeErro(response));
                 return;
             }
@@ -241,6 +254,7 @@
                 'O mural da escola "' + escola.nome + '" foi ' + (desligar ? 'desligado.' : 'ligado.'));
         } catch (e) {
             console.error(e);
+            voltarChave();
             await mostrarErro('Erro de conexão', 'Não foi possível alterar o mural da escola. Tente novamente.');
         }
     }
@@ -414,7 +428,7 @@
         if (botao.getAttribute('data-acao') === 'editar') {
             entrarEmEdicao(escola);
         } else if (botao.getAttribute('data-acao') === 'mural') {
-            alternarMural(escola);
+            alternarMural(escola, botao);
         } else {
             alternarStatus(escola);
         }
