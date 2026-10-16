@@ -1417,6 +1417,12 @@
             z-index: 60;
         }
 
+        /* Mural contratado por escola (Decisão 081): sem o mural em nenhuma escola dos filhos, a aba some */
+        body.sem-mural .bottom-nav-item[data-target="mural"],
+        body.sem-mural .tab-pane[data-tab="mural"] {
+            display: none !important;
+        }
+
         .bottom-nav-item {
             flex: 1;
             display: flex;
@@ -4198,6 +4204,7 @@
             }
 
             function handleNovaMensagem(payload) {
+                if (!muralDisponivel) return;
                 console.log('🎯 [HANDLER] Iniciando processamento...');
                 const mensagem = payload.mensagem || payload;
                 console.log('📨 [DEBUG] Dados recebidos:', mensagem);
@@ -5962,8 +5969,35 @@
                 return null;
             }
 
+            // ============== MURAL CONTRATADO (Decisão 081) ==============
+            // O mural é um recurso habilitado por escola. Sem o mural em nenhuma escola dos filhos, a aba some. A regra
+            // de verdade é do servidor (ele não devolve nem avisa mensagens de escola sem mural); aqui só se esconde a
+            // aba. Se a consulta falhar, a aba continua visível, como antes. Os demais avisos não passam por aqui.
+            let muralDisponivel = true;
+
+            async function verificarMuralDisponivel() {
+                try {
+                    const response = await fetchWithAuth('/api/mensagens/mural/disponivel');
+                    if (response && response.ok) {
+                        const dados = await response.json();
+                        muralDisponivel = dados.habilitado !== false;
+                    }
+                } catch (e) {
+                    console.warn('Não foi possível saber se o mural está habilitado; a aba continua visível.', e);
+                }
+                document.body.classList.toggle('sem-mural', !muralDisponivel);
+                if (!muralDisponivel) {
+                    const abaMural = document.querySelector('.tab-pane[data-tab="mural"]');
+                    if (abaMural && abaMural.classList.contains('active')) {
+                        const portaria = document.querySelector('.bottom-nav-item[data-target="portaria"]');
+                        if (portaria) portaria.click();
+                    }
+                }
+            }
+
             // ============== MURAL REAL (via API) ==============
             async function renderMural() {
+                if (!muralDisponivel) return;
                 const grid = document.getElementById('muralGrid');
                 if (!grid) return;
 
@@ -8462,6 +8496,7 @@
                         iniciarMonitoramentoGeofence();
                     }
 
+                    await verificarMuralDisponivel();
                     renderMural();
 
                     initGeofenceMonitor();
@@ -9911,6 +9946,7 @@
                         break;
 
                     case 'NOVA_MENSAGEM':
+                        if (!muralDisponivel) break;
                         // Vai para o mural
                         const muralTab = document.querySelector('.bottom-nav-item[data-target="mural"]');
                         if (muralTab) muralTab.click();

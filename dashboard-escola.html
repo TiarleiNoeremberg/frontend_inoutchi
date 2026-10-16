@@ -4496,6 +4496,7 @@
 
                 iniciarAutoRefreshVisaoGeral();
                 conectarWebSocketEscola();
+                verificarMuralDaEscola();
 
             } catch (error) {
                 console.error("Erro crítico de inicialização:", error);
@@ -9595,7 +9596,34 @@
             }
         }
 
+        // Mural contratado por escola (Decisão 081): sem o mural, o item "Mural" do menu e a seção somem. A regra de
+        // verdade é do servidor (recusa ler e publicar); aqui só se esconde a aba. Se a consulta falhar, nada muda.
+        let muralDaEscolaDesligado = false;
+
+        async function verificarMuralDaEscola() {
+            try {
+                const response = await fetch(`${API_URL}/api/mensagens/mural/disponivel`, {
+                    headers: { 'Authorization': `Bearer ${AUTH_TOKEN}` }
+                });
+                if (!response.ok) return;
+                const dados = await response.json();
+                muralDaEscolaDesligado = dados.habilitado === false;
+            } catch (e) {
+                console.warn('Não foi possível saber se o mural está habilitado; o menu continua como está.', e);
+                return;
+            }
+            const link = document.querySelector('a.nav-link[data-target="mural"]');
+            const itemDoMenu = link ? link.closest('li') : null;
+            const secao = document.getElementById('mural-content');
+            if (itemDoMenu) itemDoMenu.style.display = muralDaEscolaDesligado ? 'none' : '';
+            if (secao && muralDaEscolaDesligado && secao.classList.contains('active')) {
+                const visaoGeral = document.querySelector('a.nav-link[data-target="visao-geral"]');
+                if (visaoGeral) visaoGeral.click();
+            }
+        }
+
         async function carregarMensagens() {
+            if (muralDaEscolaDesligado) return;
             const container = document.getElementById('mensagensList');
             if (!container) return;
 

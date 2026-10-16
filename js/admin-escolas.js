@@ -2,6 +2,7 @@
 // (app-configuration.html). Cria a escola e o usuário de acesso (ROLE_ESCOLA) numa única chamada
 // ao backend (POST /api/admin/escolas). A senha é gerada pelo servidor e exibida uma única vez.
 // Escolas não são excluídas: são inativadas (PATCH /{id}/ativa) e podem ser reativadas.
+// O mural de mensagens é um recurso contratado por escola (PATCH /{id}/mural, Decisão 081): escola nova começa sem.
 (function () {
     const API_ESCOLAS = CONFIG.API_URL + CONFIG.ENDPOINTS.ESCOLAS_ADMIN;
 
@@ -154,8 +155,13 @@
                 '<span>CNPJ ' + escapeHtml(e.cnpj) + '</span>' +
                 '<span>' + (e.emailUsuario ? escapeHtml(e.emailUsuario) : '<em>sem usuário vinculado</em>') + '</span>' +
                 '<span class="escola-data">Criada em ' + escapeHtml(formatarData(e.criadoEm)) + '</span>' +
+                '<span class="escola-recurso">Mural de mensagens <span class="selo ' +
+                (e.muralHabilitado ? 'selo-ativa' : 'selo-desligado') + '">' +
+                (e.muralHabilitado ? 'Ligado' : 'Desligado') + '</span></span>' +
                 '<div class="escola-acoes">' +
                 '<button type="button" class="btn-mini" data-acao="editar" data-id="' + id + '">Editar</button>' +
+                '<button type="button" class="btn-mini" data-acao="mural" data-id="' + id + '">' +
+                (e.muralHabilitado ? 'Desligar mural' : 'Ligar mural') + '</button>' +
                 '<button type="button" class="btn-mini ' + (e.ativa ? 'btn-perigo' : '') + '" data-acao="status" data-id="' + id + '">' +
                 (e.ativa ? 'Inativar' : 'Reativar') + '</button>' +
                 '</div>' +
@@ -192,6 +198,51 @@
         els.email.placeholder = 'escola@dominio.com.br';
         els.btnCriar.textContent = TEXTO_BOTAO_CRIAR;
         els.btnCancelarEdicao.hidden = true;
+    }
+
+    // ------------------------------------------------------- mural de mensagens
+    async function alternarMural(escola) {
+        const desligar = escola.muralHabilitado;
+        const pergunta = desligar
+            ? 'Escola "' + escola.nome + '".\n\nA escola, a direção e os professores deixam de ver e publicar no ' +
+              'mural, e os responsáveis deixam de ver as mensagens desta escola. Nada é apagado: ao religar, as ' +
+              'mensagens voltam a aparecer. Os demais avisos (entrada, saída, chamada, tokens) não mudam.'
+            : 'Escola "' + escola.nome + '".\n\nA escola, a direção e os professores passam a publicar no mural, e ' +
+              'os responsáveis passam a ver as mensagens. Use quando o recurso estiver contratado.';
+        const confirmado = await Dialogos.confirmar({
+            tipo: 'aviso',
+            titulo: desligar ? 'Desligar o mural?' : 'Ligar o mural?',
+            mensagem: pergunta,
+            textoOk: desligar ? 'Desligar' : 'Ligar',
+            perigo: desligar
+        });
+        if (!confirmado) return;
+
+        const headers = cabecalhos();
+        if (!headers) {
+            await mostrarErro('Sessão não encontrada', 'Faça login novamente.');
+            return;
+        }
+
+        try {
+            const response = await fetch(API_ESCOLAS + '/' + encodeURIComponent(escola.id) + '/mural', {
+                method: 'PATCH',
+                headers: headers,
+                body: JSON.stringify({ habilitado: !desligar })
+            });
+
+            if (!response.ok) {
+                await mostrarErro('Não foi possível alterar o mural', await mensagemDeErro(response));
+                return;
+            }
+
+            carregarEscolas();
+            await mostrarSucesso('Mural ' + (desligar ? 'desligado' : 'ligado'),
+                'O mural da escola "' + escola.nome + '" foi ' + (desligar ? 'desligado.' : 'ligado.'));
+        } catch (e) {
+            console.error(e);
+            await mostrarErro('Erro de conexão', 'Não foi possível alterar o mural da escola. Tente novamente.');
+        }
     }
 
     // ------------------------------------------------------- ativar/inativar
@@ -362,6 +413,8 @@
         if (!escola) return;
         if (botao.getAttribute('data-acao') === 'editar') {
             entrarEmEdicao(escola);
+        } else if (botao.getAttribute('data-acao') === 'mural') {
+            alternarMural(escola);
         } else {
             alternarStatus(escola);
         }
