@@ -1020,6 +1020,16 @@
         })();
     </script>
 
+    <script>
+        // Login Google (botão web): o script do Google lê o data-callback assim que carrega e IGNORA a configuração
+        // inteira se "handleCredentialResponse" ainda não for uma função (você escolhe a conta e nada acontece). Como ele
+        // é assíncrono, pode terminar antes do DOMContentLoaded, onde a lógica de login é montada. Por isso esta função
+        // existe antes dele e só repassa para a lógica real (ou guarda a resposta até ela ficar pronta).
+        window.handleCredentialResponse = function (resposta) {
+            if (typeof window.processarLoginGoogle === 'function') return window.processarLoginGoogle(resposta);
+            window.__loginGooglePendente = resposta;
+        };
+    </script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="biometric.js"></script>
 
@@ -1544,7 +1554,7 @@
                 });
             }
 
-            window.handleCredentialResponse = async function (response) {
+            window.processarLoginGoogle = async function (response) {
                 const loading = document.getElementById('loading');
                 loading.style.display = 'flex';
 
@@ -1605,6 +1615,13 @@
                 }
             };
 
+            // O Google pode ter entregue a conta escolhida antes de esta lógica ficar pronta (ver o topo da página).
+            if (window.__loginGooglePendente) {
+                const pendente = window.__loginGooglePendente;
+                window.__loginGooglePendente = null;
+                window.processarLoginGoogle(pendente);
+            }
+
             // Login Google NATIVO (app Android): a ponte AndroidGoogleLogin abre o seletor de
             // contas do Android e responde em window.googleLoginCallback com o ID token, que
             // segue o mesmo caminho do botão web (handleCredentialResponse -> backend).
@@ -1648,7 +1665,7 @@
                     try {
                         const result = await selecionarContaGoogle();
                         if (result && result.success && result.idToken) {
-                            await window.handleCredentialResponse({ credential: result.idToken });
+                            await window.processarLoginGoogle({ credential: result.idToken });
                         } else if (!(result && result.cancelled)) {
                             showAlert((result && result.error) || 'Não foi possível entrar com o Google.', 'error');
                         }
