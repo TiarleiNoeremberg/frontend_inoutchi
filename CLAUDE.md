@@ -8,7 +8,7 @@ Este repositório é **público** (servido pelo GitHub Pages). Não escreva aqui
 
 ## 1. O que é este repositório
 
-O frontend web da Inoutchi (sistema de segurança escolar): páginas HTML/JS/CSS **estáticas**, uma por perfil de usuário, **sem framework e sem etapa de build**. As páginas também rodam dentro do aplicativo Android (WebView).
+O frontend web da Inoutchi (sistema de segurança escolar): páginas HTML/JS/CSS **estáticas**, uma por perfil de usuário, **sem framework**. A única etapa de build é o CSS do Tailwind de `index.html` e `terms.html` (seção 5, item 7). As páginas também rodam dentro do aplicativo Android (WebView).
 
 Regra que nunca muda: **o backend é a autoridade**. O frontend mostra estado e coleta a intenção do usuário; quem decide (está dentro da cerca? a operação é permitida agora? o aluno pode sair?) é sempre o backend. WebSocket só sincroniza a tela; o estado verdadeiro está no banco do backend.
 
@@ -96,6 +96,13 @@ Os arquivos são grandes (até ~400 KB) e o repositório **não tem build nem te
 5. **Como provar código morto antes de apagar** (usado em 2026-09-30 no diretor). Uma busca de texto não basta: ela conta referências em comentários e erra por excesso e por falta. O que funcionou: (a) analisar o script com um parser de JavaScript (`acorn`, instalado junto do `eslint`) e contar só referências de código, strings/templates (inclui `onclick="nome("` montado em HTML gerado) e atributos HTML fora do `<script>`; (b) repetir a conta sem as funções já mortas, para pegar as que só eram chamadas por outras mortas; (c) garantir que não há `eval`, `new Function`, `setTimeout("texto")` nem `window[nome]`; (d) conferir que nenhuma outra página chama a função; (e) medir no navegador com cobertura de JavaScript do V8 nos fluxos reais e confirmar que nenhuma "morta" executa; (f) depois de remover, rodar a bateria de fluxos e um teste diferencial (clicar em todos os `onclick` antes e depois e comparar erros e requisições). Remova por posição no AST, nunca por expressão regular, e confirme que o `git diff` é só remoção (use `--diff-algorithm=patience`: o algoritmo padrão do git mostra "inserções" falsas).
 5. **Console:** não escreva coordenadas, tokens nem dados pessoais em `console.log`.
 6. **Antes do push:** o push é deploy (seção 2). Rode o passo 3 e olhe o diff.
+7. **CSS do Tailwind (`index.html` e `terms.html`).** Essas duas páginas usam `css/tailwind.css`, **pré-gerado** (antes vinha do CDN
+   de desenvolvimento, que monta o CSS no navegador do visitante e prejudica a velocidade e o ranking). Ao **adicionar ou
+   trocar classes do Tailwind** nelas (ou em `js/simulador.js`), regenere: `cd tools/tailwind && npm install && npm run build`
+   (detalhes em `tools/tailwind/README.md`) e publique `css/tailwind.css` junto. O `<link>` fica no FIM do `<head>` de propósito
+   (o CDN também entrava por último; inverter a ordem muda o `line-height`). Os painéis (login, dashboards) não usam Tailwind.
+8. **FAQ do `index.html` em dados estruturados:** o bloco JSON-LD entre os marcadores `FAQ-JSONLD` é gerado; ao mudar o texto do FAQ
+   rode `python tools/gerar_faq_jsonld.py`.
 
 ---
 
