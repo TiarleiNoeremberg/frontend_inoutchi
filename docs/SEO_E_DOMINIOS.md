@@ -65,7 +65,8 @@ curl -sI https://www.inoutchi.com/login.html         # 200 (o app Android antigo
    Cloudflare), enviar `https://www.inoutchi.com/sitemap.xml` e usar "Inspeção de URL" na página inicial para pedir a
    indexação. É a única forma de saber se o Google conhece o site.
 2. **Perfil da Empresa no Google** (Florianópolis, SC): endereço de atendimento, categoria "Empresa de software" e o site.
-3. **Google Analytics:** hoje só mede quem aceita os cookies; acompanhe também o Search Console (não depende de cookies).
+3. **Google Analytics:** propriedade própria do site (fluxo Web, ID `G-WVP12CQ0KC`, criada em 2026-10-17; a propriedade `inoutchi-notifications` é só dos apps Android e não tem fluxo Web). Só mede quem aceita os cookies; o banner existe no `index.html` e em todas as páginas de conteúdo. Eventos de conversão (`generate_lead`, `whatsapp_click`, `phone_click`, `demo_click`) só são enviados com a medição ligada (`inoutchiEvento`). Acompanhe também o Search Console (não depende de cookies).
+   Para trocar o ID: `index.html` (variável `ID`) e `GA_ID` em `gerar_guias_base.py` (ou direto nas 8 páginas de conteúdo).
 4. **PageSpeed Insights** (pagespeed.web.dev) no celular, depois do deploy, para ter as notas oficiais.
 
 ## Quando mexer de novo

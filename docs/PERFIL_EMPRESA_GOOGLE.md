@@ -20,7 +20,7 @@ O cadastro é feito pelo dono, logado na conta Google dele, em https://business.
 
 ## Descrição (cabe em 750 caracteres; esta tem cerca de 520)
 
-> O Inoutchi é um sistema de saída escolar: o responsável chama o aluno pelo app, a sala recebe a chamada na TV com aviso sonoro só naquela turma e cada retirada fica registrada. A retirada por outra pessoa autorizada usa um token (QR code ou código de 6 dígitos) com conferência na portaria. Funciona com os celulares e as TVs que a escola já tem, sem catracas; o leitor facial é opcional. Inclui mural de avisos para as famílias. Empresa de Florianópolis, SC. Agende uma demonstração gratuita.
+> O Inoutchi é um sistema de controle de entrada e saída escolar: o responsável dá entrada ou chama o aluno pelo app, a sala recebe a chamada na TV com aviso sonoro só naquela turma e cada retirada fica registrada. A retirada por outra pessoa autorizada usa um token (QR code ou código de 6 dígitos) com conferência na portaria. Funciona com os equipamentos que a escola já tem, sem catracas; o leitor facial é opcional. Inclui mural de avisos para as famílias (opcional). Empresa de Florianópolis, SC. Agende uma demonstração gratuita.
 
 ## Serviços e produtos (cadastrar cada um com um texto curto)
 
