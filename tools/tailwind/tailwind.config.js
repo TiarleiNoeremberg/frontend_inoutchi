@@ -4,6 +4,9 @@ module.exports = {
   content: [
     '../../index.html',
     '../../terms.html',
+    '../../modelo-autorizacao-buscar-crianca-escola.html',
+    '../../controle-de-entrada-e-saida-de-alunos.html',
+    '../../planilha-controle-entrada-saida-alunos.html',
     '../../js/simulador.js',
   ],
   theme: { extend: {} },
