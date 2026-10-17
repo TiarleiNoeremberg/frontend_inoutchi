@@ -2689,7 +2689,7 @@
                 </li>
                 <li>
                     <a href="#" class="nav-link" data-target="facial-recepcao">
-                        <i class="fas fa-user-check icon"></i> Checkin facial
+                        <i class="fas fa-user-check icon"></i> Leitores faciais
                     </a>
                 </li>
                 <li>
@@ -3468,11 +3468,11 @@
                 </div>
             </section>
 
-            <!-- Seção Checkin facial (leitor facial dos responsáveis, no drive-thru externo da escola) -->
+            <!-- Seção Leitores faciais: todos os leitores da escola (entrada, saída e checkin facial), Decisão 084 -->
             <section id="facial-recepcao-content" class="content-section">
 
                 <div class="section-header">
-                    <h1>Checkin facial</h1>
+                    <h1>Leitores faciais</h1>
                     <button class="btn btn-primary" onclick="openLeitorRecepcaoModal()">
                         <i class="fas fa-plus"></i> Adicionar Leitor
                     </button>
@@ -3481,11 +3481,12 @@
                 <div class="painel-coletivo-nota">
                     <i class="fas fa-info-circle"></i>
                     <span>
-                        O Checkin facial é o leitor de rosto instalado no drive-thru externo, na entrada da escola,
-                        para os <strong>responsáveis</strong>. Quando um responsável cadastrado faz o checkin facial,
-                        o sistema <strong>solicita a saída</strong> dos alunos dele que estão presentes, dentro do horário de
-                        chamada ou do almoço da sala. O leitor nunca registra entrada e nunca confirma a saída. Os
-                        rostos continuam sendo cadastrados direto no software da Hikvision.
+                        Todos os leitores de rosto da escola. <strong>Entrada</strong> e <strong>Saída</strong> reconhecem
+                        os <strong>alunos</strong> e registram a presença na catraca. O <strong>Checkin facial
+                        (drive-thru externo)</strong> reconhece os <strong>responsáveis</strong> e só
+                        <strong>solicita a saída</strong> dos alunos deles que estão presentes, no horário de chamada ou do
+                        almoço da sala. Leitor desativado tem os reconhecimentos ignorados. Os rostos continuam sendo
+                        cadastrados direto no software da Hikvision.
                     </span>
                 </div>
 
@@ -3493,6 +3494,7 @@
                     <thead>
                         <tr>
                             <th>Nome do Leitor</th>
+                            <th>Tipo</th>
                             <th>Situação</th>
                             <th>Atividade</th>
                             <th style="width: 400px;">Ações</th>
@@ -3500,7 +3502,7 @@
                     </thead>
                     <tbody id="leitorRecepcaoTableBody">
                         <tr>
-                            <td colspan="4" class="empty-state">Carregando leitores...</td>
+                            <td colspan="5" class="empty-state">Carregando leitores...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -3516,9 +3518,20 @@
                             <div class="modal-body">
                                 <input type="hidden" id="leitorRecepcaoId">
                                 <div class="form-group">
+                                    <label for="leitorRecepcaoTipo">Tipo do leitor</label>
+                                    <select id="leitorRecepcaoTipo" class="custom-form-input" required
+                                        onchange="atualizarAvisoTipoLeitor()">
+                                        <option value="">Selecione...</option>
+                                        <option value="ENTRADA">Entrada (alunos)</option>
+                                        <option value="SAIDA">Saída (alunos)</option>
+                                        <option value="RESPONSAVEL">Checkin facial (drive-thru externo)</option>
+                                    </select>
+                                    <p id="leitorRecepcaoAvisoTipo" class="janelas-hint" style="margin: 6px 0 0; display: none;"></p>
+                                </div>
+                                <div class="form-group">
                                     <label for="leitorRecepcaoNome">Nome do Leitor</label>
                                     <input type="text" id="leitorRecepcaoNome" required maxlength="100"
-                                        placeholder="Ex: Drive-thru externo principal">
+                                        placeholder="Ex: Catraca de entrada, Drive-thru externo">
                                 </div>
                                 <div class="form-group">
                                     <label for="leitorRecepcaoIp">IP do aparelho na rede da escola (opcional)</label>
@@ -4073,7 +4086,7 @@
             </div>
         </div>
 
-        <!-- Checkin facial: URL e token exibidos uma única vez (criação e novo token) -->
+        <!-- Leitores faciais: URL e token exibidos uma única vez (criação e novo token) -->
         <div id="credenciaisLeitorModal" class="modal">
             <div class="modal-content" style="max-width: 640px;">
                 <div class="modal-header">
@@ -8414,10 +8427,12 @@
         }
 
         // ========================================================================
-        // ==== CHECKIN FACIAL (drive-thru externo) - CRUD do leitor facial dos responsáveis ====
+        // ==== LEITORES FACIAIS - todos os leitores da escola (Decisão 084): ENTRADA, SAIDA e RESPONSAVEL ====
         // Backend: /api/escolas/{escolaId}/leitores-portao (listar, criar, renomear, ativar/desativar,
-        // novo código, excluir). O token do leitor só existe na resposta de criar/novo código, dentro da
-        // URL de configuração; o backend guarda apenas o hash.
+        // novo código, excluir), só perfil ESCOLA. O token do leitor só existe na resposta de criar/novo código,
+        // dentro da URL de configuração; o backend guarda apenas o hash. Leitores antigos (sem token) são
+        // identificados pelo IP: aparecem, podem ser renomeados e ativados/desativados, mas não ganham código.
+        // O tipo é escolhido ao criar e não muda depois.
         // ========================================================================
         let leitoresRecepcaoCache = [];
 
@@ -8436,24 +8451,54 @@
             return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
         }
 
+        // Rótulo e cor de cada tipo de leitor (o RESPONSAVEL é o checkin facial do drive-thru externo, Decisão 079).
+        const TIPOS_LEITOR = {
+            ENTRADA: { rotulo: 'Entrada', cor: '#166534', fundo: '#dcfce7' },
+            SAIDA: { rotulo: 'Saída', cor: '#9a3412', fundo: '#ffedd5' },
+            RESPONSAVEL: { rotulo: 'Checkin facial (drive-thru externo)', cor: '#1e40af', fundo: '#dbeafe' }
+        };
+
+        function seloTipoLeitor(tipo) {
+            const t = TIPOS_LEITOR[tipo] || { rotulo: tipo || 'Sem tipo', cor: '#991b1b', fundo: '#fee2e2' };
+            return `<span class="badge" style="background: ${t.fundo}; color: ${t.cor}; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; white-space: nowrap;">${escapeHtml(t.rotulo)}</span>`;
+        }
+
+        // Aviso abaixo do tipo: entrada e saída mexem na presença dos alunos; o tipo não muda depois de criado.
+        function atualizarAvisoTipoLeitor() {
+            const select = document.getElementById('leitorRecepcaoTipo');
+            const aviso = document.getElementById('leitorRecepcaoAvisoTipo');
+            const editando = !!document.getElementById('leitorRecepcaoId').value;
+            let texto = '';
+            if (editando) {
+                texto = 'O tipo não muda depois de criado. Para trocar, desative (ou exclua) este leitor e crie outro.';
+            } else if (select.value === 'ENTRADA' || select.value === 'SAIDA') {
+                texto = `Atenção: este leitor registra a ${select.value === 'ENTRADA' ? 'entrada' : 'saída'} dos ` +
+                    'alunos na catraca. Confira o tipo antes de salvar: ele não muda depois de criado.';
+            } else if (select.value === 'RESPONSAVEL') {
+                texto = 'Reconhece os responsáveis e só solicita a saída dos alunos deles. Nunca registra entrada nem confirma saída.';
+            }
+            aviso.textContent = texto;
+            aviso.style.display = texto ? 'block' : 'none';
+        }
+
         async function carregarLeitoresRecepcao() {
             const tbody = document.getElementById('leitorRecepcaoTableBody');
-            tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Carregando leitores...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Carregando leitores...</td></tr>';
             try {
                 const response = await fetch(urlLeitoresRecepcao(), { headers: cabecalhosPainelColetivo() });
                 if (!response.ok) throw new Error(await mensagemDeErroPainelColetivo(response));
                 leitoresRecepcaoCache = await response.json();
                 renderLeitoresRecepcao(leitoresRecepcaoCache);
             } catch (error) {
-                console.error('Falha ao carregar os leitores da recepção:', error);
-                tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Erro ao carregar os leitores. Tente novamente.</td></tr>';
+                console.error('Falha ao carregar os leitores faciais:', error);
+                tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Erro ao carregar os leitores. Tente novamente.</td></tr>';
             }
         }
 
         function renderLeitoresRecepcao(leitores) {
             const tbody = document.getElementById('leitorRecepcaoTableBody');
             if (!leitores || leitores.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Nenhum leitor cadastrado. Use "Adicionar Leitor" para criar o primeiro.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum leitor cadastrado. Use "Adicionar Leitor" para criar o primeiro.</td></tr>';
                 return;
             }
             tbody.innerHTML = leitores.map(l => {
@@ -8465,22 +8510,27 @@
                     : 'Nenhum reconhecimento ainda';
                 const detalhe = l.ultimaMensagemEvento
                     ? `<br><small style="color: var(--text-secondary);">${escapeHtml(l.ultimaMensagemEvento)}</small>` : '';
+                // Leitor antigo (sem código): identificado pelo IP do aparelho, então o IP aqui é o que vale.
                 const ip = l.ipAddress
-                    ? `<br><small style="color: var(--text-secondary);">IP anotado: ${escapeHtml(l.ipAddress)}</small>` : '';
+                    ? `<br><small style="color: var(--text-secondary);">${l.comToken ? 'IP anotado' : 'IP do aparelho'}: ${escapeHtml(l.ipAddress)}</small>` : '';
+                const origem = l.comToken ? ''
+                    : '<br><small style="color: var(--text-secondary);">Cadastro antigo: identificado pelo IP</small>';
+                const botaoNovoCodigo = l.comToken ? `
+                            <button class="btn btn-secondary" style="white-space: nowrap;"
+                                onclick="openNovoCodigoLeitorModal(${l.id})"
+                                title="Gera um novo código; o anterior deixa de valer">
+                                <i class="fas fa-key"></i> Novo código
+                            </button>` : '';
                 return `
                     <tr>
-                        <td><strong>${escapeHtml(l.nome)}</strong>${ip}</td>
+                        <td><strong>${escapeHtml(l.nome)}</strong>${ip}${origem}</td>
+                        <td>${seloTipoLeitor(l.tipo)}</td>
                         <td>${situacao}</td>
                         <td>${ultimoEvento}${detalhe}</td>
                         <td class="action-buttons">
                             <button class="btn btn-edit" onclick="openLeitorRecepcaoModal(${l.id})">
                                 <i class="fas fa-pencil-alt"></i> Editar
-                            </button>
-                            <button class="btn btn-secondary" style="white-space: nowrap;"
-                                onclick="openNovoCodigoLeitorModal(${l.id})"
-                                title="Gera um novo código; o anterior deixa de valer">
-                                <i class="fas fa-key"></i> Novo código
-                            </button>
+                            </button>${botaoNovoCodigo}
                             <button class="btn btn-secondary" style="white-space: nowrap;"
                                 onclick="alternarAtivaLeitor(${l.id})">
                                 <i class="fas ${l.ativa ? 'fa-pause' : 'fa-play'}"></i> ${l.ativa ? 'Desativar' : 'Ativar'}
@@ -8496,18 +8546,24 @@
         function openLeitorRecepcaoModal(id = null) {
             document.getElementById('leitorRecepcaoForm').reset();
             document.getElementById('leitorRecepcaoId').value = id || '';
+            const selectTipo = document.getElementById('leitorRecepcaoTipo');
             if (id) {
                 const leitor = leitoresRecepcaoCache.find(l => l.id === id) || {};
                 document.getElementById('leitorRecepcaoModalTitle').textContent = 'Editar Leitor';
                 document.getElementById('leitorRecepcaoNome').value = leitor.nome || '';
                 document.getElementById('leitorRecepcaoIp').value = leitor.ipAddress || '';
-                document.getElementById('leitorRecepcaoModalDica').textContent =
-                    'Só o nome e a anotação do IP mudam. O código exclusivo do leitor continua o mesmo.';
+                selectTipo.value = leitor.tipo || '';
+                selectTipo.disabled = true;
+                document.getElementById('leitorRecepcaoModalDica').textContent = leitor.comToken
+                    ? 'Só o nome e a anotação do IP mudam. O código exclusivo do leitor continua o mesmo.'
+                    : 'Cadastro antigo: este leitor é reconhecido pelo IP do aparelho. Mudar o IP aqui muda qual aparelho ele representa.';
             } else {
                 document.getElementById('leitorRecepcaoModalTitle').textContent = 'Adicionar Leitor';
+                selectTipo.disabled = false;
                 document.getElementById('leitorRecepcaoModalDica').textContent =
                     'O IP é só uma anotação para você. O leitor é identificado por um código exclusivo, gerado ao salvar e mostrado uma única vez.';
             }
+            atualizarAvisoTipoLeitor();
             document.getElementById('leitorRecepcaoModal').style.display = 'flex';
             document.getElementById('leitorRecepcaoNome').focus();
         }
@@ -8531,6 +8587,11 @@
 
             const id = document.getElementById('leitorRecepcaoId').value;
             const editando = !!id;
+            const tipo = document.getElementById('leitorRecepcaoTipo').value;
+            if (!editando && !tipo) {
+                showToast('Escolha o tipo do leitor.', 'error');
+                return;
+            }
 
             const textoOriginal = botao.innerHTML;
             botao.disabled = true;
@@ -8540,7 +8601,8 @@
                 const response = await fetch(urlLeitoresRecepcao(editando ? id : null), {
                     method: editando ? 'PUT' : 'POST',
                     headers: cabecalhosPainelColetivo(true),
-                    body: JSON.stringify({ nome, ipAddress })
+                    // O tipo só vai na criação: depois de criado ele não muda.
+                    body: JSON.stringify(editando ? { nome, ipAddress } : { nome, ipAddress, tipo })
                 });
                 if (!response.ok) throw new Error(await mensagemDeErroPainelColetivo(response));
                 const dados = await response.json();
@@ -8551,11 +8613,11 @@
                 } else {
                     mostrarCredenciaisLeitor(dados,
                         `✅ Leitor "${dados.nome}" criado!`,
-                        'Agora configure o aparelho do drive-thru externo com a URL abaixo.');
+                        'Agora configure o aparelho com a URL abaixo (no software da Hikvision).');
                 }
                 await carregarLeitoresRecepcao();
             } catch (error) {
-                console.error('Erro ao salvar leitor da recepção:', error);
+                console.error('Erro ao salvar leitor facial:', error);
                 showToast(`Erro ao salvar leitor: ${error.message}`, 'error');
             } finally {
                 botao.disabled = false;
@@ -8599,7 +8661,7 @@
                 const dados = await response.json();
                 mostrarCredenciaisLeitor(dados,
                     `🔑 Novo código do leitor "${dados.nome}"`,
-                    'Reconfigure o aparelho do drive-thru externo com a nova URL. O código anterior não vale mais.');
+                    'Reconfigure o aparelho com a nova URL. O código anterior não vale mais.');
             } catch (error) {
                 console.error('Erro ao gerar novo código do leitor:', error);
                 showToast(`Erro ao gerar novo código: ${error.message}`, 'error');
@@ -8643,8 +8705,8 @@
             if (!leitor) return;
             abrirConfirmacaoPainelColetivo(
                 'Confirmar Exclusão',
-                `Você tem certeza que deseja excluir o leitor "${leitor.nome}"? Só é possível excluir um leitor que ` +
-                'nunca recebeu reconhecimentos; se ele já tiver histórico, desative-o em vez de excluir.',
+                `Você tem certeza que deseja excluir o leitor "${leitor.nome}"? Só é possível excluir um leitor sem ` +
+                'histórico (reconhecimentos, alunos ou responsáveis vinculados); se ele já tiver, desative-o em vez de excluir.',
                 'Excluir',
                 () => executeExcluirLeitor(id, leitor.nome));
         }
@@ -8660,7 +8722,7 @@
                 showToast(`Leitor "${nome}" excluído com sucesso!`, 'success');
                 await carregarLeitoresRecepcao();
             } catch (error) {
-                console.error('Erro ao excluir leitor da recepção:', error);
+                console.error('Erro ao excluir leitor facial:', error);
                 showToast(error.message, 'error');
             }
         }
