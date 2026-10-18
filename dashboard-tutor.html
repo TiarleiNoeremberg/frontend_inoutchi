@@ -4143,9 +4143,16 @@
                                                 tipoSplashParaExibir = 'solicitacao';
                                                 break;
                                             case 'SAIDA_CONFIRMADA':
+                                            case 'SAIDA_CONFIRMADA_TUTOR':
                                             case 'SAIDA_AUTOMATICA':
                                                 studentsData[alunoIndex].status = 'AUSENTE';
                                                 tipoSplashParaExibir = 'confirmacao';
+                                                break;
+                                            case 'SAIDA_CANCELADA': // a escola cancelou a solicitação: o aluno segue na escola
+                                                studentsData[alunoIndex].status = 'PRESENTE';
+                                                break;
+                                            case 'SESSAO_ENCERRADA': // a escola encerrou a presença
+                                                studentsData[alunoIndex].status = 'AUSENTE';
                                                 break;
                                         }
                                     }
@@ -4158,6 +4165,12 @@
                                 } else if (typeof refreshStudentsData === 'function') {
                                     refreshStudentsData();
                                 }
+                                // Tipo sem tratamento próprio (rechamada, recusa, não confirmada...): relê o estado do banco.
+                                const TIPOS_TRATADOS = ['ENTRADA_ALUNO', 'SAIDA_PENDENTE', 'SAIDA_CONFIRMADA', 'SAIDA_CONFIRMADA_TUTOR',
+                                    'SAIDA_AUTOMATICA', 'SAIDA_CANCELADA', 'SESSAO_ENCERRADA'];
+                                if (!TIPOS_TRATADOS.includes(evento.tipo) && typeof refreshStudentsData === 'function') {
+                                    refreshStudentsData();
+                                }
 
                                 // 3. Exibir a splashscreen também quando OUTRA pessoa (diretor,
                                 // transportador, portador de token, sistema) mudou o estado do
@@ -4165,12 +4178,10 @@
                                 // (handleEntry/handleExitRequest/handleExitConfirm) já mostra a
                                 // tela - não mostramos de novo aqui para não duplicar.
                                 if (tipoSplashParaExibir && typeof mostrarTelaSucesso === 'function') {
-                                    const nomeSolicitante = (evento.solicitanteNome || '').trim().toLowerCase();
-                                    const nomeTutorAtual = (currentUser?.nome || '').trim().toLowerCase();
-                                    // No checkin facial a ação é feita no leitor, não neste painel: não há tela local, então a
-                                    // tela aparece mesmo que o nome seja o do próprio tutor (Decisão 083).
+                                    // Só este aparelho fez a ação? Então a tela já apareceu pelo fluxo local (Decisão 087).
+                                    // No checkin facial a ação é feita no leitor, não neste painel (Decisão 083).
                                     const foiOProprioTutor = evento.origem !== 'TUTOR_LEITOR_FACIAL'
-                                        && nomeSolicitante && nomeTutorAtual && nomeSolicitante === nomeTutorAtual;
+                                        && foiAcaoDesteAparelho(evento.alunoId);
                                     if (!foiOProprioTutor) {
                                         mostrarTelaSucesso(tipoSplashParaExibir);
                                     }
@@ -5067,7 +5078,20 @@
                 });
             }
 
+            // Ações feitas NESTE aparelho (Decisão 087): a tela de sucesso já aparece pelo fluxo local, então o evento do
+            // servidor não a repete aqui. Outro aparelho do mesmo responsável não tem a marca e mostra a tela normalmente
+            // (antes a comparação era pelo nome, e o segundo aparelho do mesmo responsável ficava sem a tela).
+            window.__acoesLocais = window.__acoesLocais || {};
+            function registrarAcaoLocal(alunoId) {
+                try { window.__acoesLocais[alunoId] = Date.now(); } catch (e) { }
+            }
+            function foiAcaoDesteAparelho(alunoId) {
+                const em = window.__acoesLocais && window.__acoesLocais[alunoId];
+                return !!em && (Date.now() - em) < 20000;
+            }
+
             async function handleEntry(studentId, studentName, btn) {
+                registrarAcaoLocal(studentId);
                 const locationModal = document.getElementById('locationModal');
                 const modalTitle = document.getElementById('locationModalTitle');
                 const modalMessage = document.getElementById('locationModalMessage');
@@ -5240,6 +5264,7 @@
 
             // Handler: SOLICITAR SAÍDA
             async function handleExitRequest(studentId, studentName, btn) {
+                registrarAcaoLocal(studentId);
 
                 // ========== LOCK ANTI-DUPLICIDADE ==========
                 const alunoObj = studentsData.find(a => a.id == studentId);
@@ -5393,6 +5418,7 @@
 
             // Handler: CONFIRMAR SAÍDA
             async function handleExitConfirm(studentId, studentName, btn) {
+                registrarAcaoLocal(studentId);
                 try {
 
                     const response = await fetchWithAuth(`/api/presencas/confirmar-saida?alunoId=${studentId}`, {
