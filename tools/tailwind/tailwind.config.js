@@ -12,6 +12,7 @@ module.exports = {
     '../../reconhecimento-facial-em-escolas-lgpd.html',
     '../../saida-antecipada-escola.html',
     '../../painel-de-chamada-escolar.html',
+    '../../como-funciona.html',
     '../../fila-na-saida-da-escola.html',
     '../../app-para-buscar-o-filho-na-escola.html',
     '../../dados-de-menores-na-escola-lgpd.html',
