@@ -311,10 +311,14 @@
     function go() { (window.requestIdleCallback || function (c) { setTimeout(c, 200); })(fn, { timeout: 2500 }); }
     if (document.readyState === 'complete') go(); else window.addEventListener('load', go);
   }
+  var montou = false;
+  function montar() { if (!montou) { montou = true; iniciar(); } }
   if ('IntersectionObserver' in window) {
     var antes = new IntersectionObserver(function (es) {
-      if (es.some(function (e) { return e.isIntersecting; })) { antes.disconnect(); quandoOcioso(iniciar); }
+      if (es.some(function (e) { return e.isIntersecting; })) { antes.disconnect(); quandoOcioso(montar); }
     }, { rootMargin: '400px' });
     antes.observe(root);
-  } else { quandoOcioso(iniciar); }
+    // Rede de segurança: se o navegador não avisar a visibilidade, monta de qualquer jeito 3 s depois de carregar.
+    window.addEventListener('load', function () { setTimeout(function () { quandoOcioso(montar); }, 3000); });
+  } else { quandoOcioso(montar); }
 })();
