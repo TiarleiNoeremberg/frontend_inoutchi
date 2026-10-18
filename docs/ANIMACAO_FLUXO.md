@@ -23,6 +23,6 @@ raio ou a estrada ajusta o instante em que "dentro da cerca" aparece.
   de documento. Push `SAIDA_CONFIRMADA` vai a **todos** os responsáveis do aluno (`PresencaService`, `notificarTutoresDoAluno`).
 - Leitor facial: o leitor externo de responsáveis só **solicita** a saída; a catraca com leitor interno **confirma**
   (`HikvisionRecognitionProcessor.notificarSaida`: push a todos os responsáveis, sala e saguão).
-- Saída automática (Decisão 058): 3 minutos fora da cerca confirma e o push `SAIDA_AUTOMATICA` vai **só** ao responsável que fez o pedido.
-- **Não existe** no produto o aviso ao cônjuge quando o outro responsável confirma manualmente (`SAIDA_CONFIRMADA_TUTOR` vai só a quem
-  confirmou). Por isso a cena 4 usa a portaria (token) e o leitor facial como causa do aviso.
+- **Atualização 2026-10-18 (Decisão 087):** agora todo evento do aluno chega a todos os responsáveis, inclusive a confirmação manual
+  no app e a saída automática de 3 minutos (quem pediu recebe `SAIDA_AUTOMATICA`, o outro `SAIDA_CONFIRMADA`). A cena 4 pode
+  passar a mostrar também esses casos, se o usuário quiser.
