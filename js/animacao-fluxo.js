@@ -50,7 +50,7 @@
     '<div class="ia-flut ia-tv"><small>TV · Sala 3º B</small><div class="ia-tv-linha"><img decoding="async" src="' + IMG + 'aluna.webp" alt=""><div><b>LAURA SOUZA</b><em data-r="tvtxt">Responsável chegando</em></div></div></div>' +
     '<div class="ia-flut ia-pessoa" style="translate:-50% -100%"><img decoding="async" src="' + IMG + 'aluna.webp" alt="Laura, aluna"><span>Laura · 3º B</span></div>' +
     '<div class="ia-flut ia-portaria"><img decoding="async" src="' + IMG + 'portaria.webp" alt="Equipe da portaria"><div class="ia-scan"><small>Portaria · leitura do token</small><div class="ia-scan-box">' + QR + '<div class="ia-laser"></div></div><div class="ia-ok">✔ Token válido · Carlos M.</div></div></div>' +
-    '<div class="ia-flut ia-facial"><div class="ia-cam"><img decoding="async" data-r="face" src="' + IMG + 'mae.webp" alt=""><div class="ia-mira"></div><div class="ia-laser"></div></div><p data-r="facetxt">Reconhecendo…</p></div>' +
+    '<div class="ia-flut ia-facial"><div class="ia-cam"><img decoding="async" data-r="face" data-quem="mae" src="' + IMG + 'mae.webp" alt=""><div class="ia-mira"></div><div class="ia-laser"></div></div><p data-r="facetxt">Reconhecendo…</p></div>' +
     '</div>' +
     '<div class="ia-lado"><img class="ia-personagem" decoding="async" src="' + IMG + 'mae.webp" alt="">' +
     '<div class="ia-cel"><div class="ia-tela"><div class="ia-push"><i class="ia-ico">i</i><div><b data-r="pusht"></b><span data-r="pushx"></span></div></div>' +
@@ -167,7 +167,7 @@
     [tv, laura, portaria, facial].forEach(function (e) { e.classList.remove('on', 'valido'); });
     push.classList.remove('on');
     laura.style.transition = 'none'; laura.style.left = "66%"; laura.style.top = "47%";
-    R('face').src = IMG + 'mae.webp'; R('facetxt').textContent = 'Reconhecendo…';
+    R('face').src = IMG + 'mae.webp'; R('face').setAttribute('data-quem', 'mae'); R('facetxt').textContent = 'Reconhecendo…';
     R('tvtxt').textContent = 'Responsável chegando';
     dentro = false; cerca.classList.remove('dentro'); R('cerca').textContent = 'fora';
     aoEntrar = aoSair = null; pAtual = 0; posCarro(0); carro.style.opacity = 1;
@@ -260,7 +260,7 @@
         legenda('O leitor reconhece Ana e Laura é chamada na TV da sala.');
         await espera(2800);
         mostra(laura, true); lauraEm(60, 61, true);
-        facial.classList.remove('valido'); R('face').src = IMG + 'aluna.webp'; R('facetxt').textContent = 'Catraca · saída…';
+        facial.classList.remove('valido'); R('face').src = IMG + 'aluna.webp'; R('face').setAttribute('data-quem', 'aluna'); R('facetxt').textContent = 'Catraca · saída…';
         legenda('Laura passa pela catraca e o leitor facial confirma a saída.');
         await espera(2600); lauraEm(60, 61, false); mostra(tv, false);
         facial.classList.add('valido'); R('facetxt').textContent = '✔ Saída de Laura confirmada'; hora('12:03');
