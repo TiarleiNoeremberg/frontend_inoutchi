@@ -262,7 +262,7 @@
       if (a.token) {
         h += '<div class="simi-cartao" style="margin-top:12px;background:#fffbeb;border-color:rgba(245,158,11,.35);box-shadow:none">' +
           '<div style="font-size:13px;font-weight:700;color:#b45309"><i class="fas fa-key"></i> ' + esc(a.token.nome) + ' (' + esc(a.token.parentesco) + ') está na portaria</div>' +
-          '<div style="font-size:12px;color:#92400e;margin-top:4px">A portaria confere o QR code ou o código de 6 dígitos e o documento.</div>' +
+          '<div style="font-size:12px;color:#92400e;margin-top:4px">A portaria lê o QR code ou o código de 6 dígitos para confirmar a saída.</div>' +
           '<div class="simi-acoes"><button type="button" class="simi-btn perigo pequeno" data-acao="recusar" data-id="' + a.id + '"><i class="fas fa-hand"></i>Recusar retirada</button></div></div>';
       } else {
         h += '<div class="simi-slide-envolve" data-slide="' + a.id + '"></div>';
@@ -707,7 +707,7 @@
     folha({
       centro: true,
       titulo: novo ? 'Token Gerado com Sucesso!' : 'Token de ' + t.nome,
-      texto: 'Compartilhe o link abaixo com ' + t.nome + '. Na portaria, ela mostra o QR code ou informa o código de 6 dígitos e apresenta um documento.',
+      texto: 'Compartilhe o link abaixo com ' + t.nome + '. Na portaria, ela mostra o QR code ou informa o código de 6 dígitos.',
       html: '<div class="simi-qr" id="simi-qr"></div><div class="simi-token-codigo" style="text-align:center">' + esc(t.codigo) + '</div>' +
         '<div class="simi-link">inoutchi.com/t/simulacao-' + esc(t.codigo.replace(' ', '')) + ' (link de demonstração)</div>',
       botoes: [
@@ -768,7 +768,7 @@
         t.validade = 'Usado em ' + dataCurta(0) + ', ' + agoraHHMM();
       }
       registrar(a, 'saida', 'Retirada por ' + t.nome + ' (' + t.parentesco + ') · token verificado na portaria');
-      push('Saída confirmada', a.nome.split(' ')[0] + ' saiu com ' + t.nome + ' às ' + agoraHHMM() + '. A portaria conferiu o código e o documento.', 'HISTORICO');
+      push('Saída confirmada', a.nome.split(' ')[0] + ' saiu com ' + t.nome + ' às ' + agoraHHMM() + '. A portaria confirmou pelo QR code.', 'HISTORICO');
       render();
     });
   }
