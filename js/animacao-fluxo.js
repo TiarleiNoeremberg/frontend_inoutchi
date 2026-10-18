@@ -2,6 +2,10 @@
 (function () {
   var root = document.getElementById('anim');
   if (!root) return;
+
+  // A animação só é montada quando chega perto da tela: a medição da rota e a criação do DOM não competem com a primeira
+  // pintura da página (no celular lento isso atrasava o título). Sem IntersectionObserver, monta direto.
+  function iniciar() {
   var IMG = '/assets/images/anim/';
   var CERCA = { x: 1080, y: 330, r: 330 };
   var PORTAO = { x: 1030, y: 520 };
@@ -301,4 +305,16 @@
   root.querySelector('[data-a="reinicia"]').addEventListener('click', function () { usuarioAgiu(); tocar(cenaAtual); });
 
   tocar(0);
+  }
+  // Monta só depois da primeira pintura e do carregamento da página, em um momento ocioso.
+  function quandoOcioso(fn) {
+    function go() { (window.requestIdleCallback || function (c) { setTimeout(c, 200); })(fn, { timeout: 2500 }); }
+    if (document.readyState === 'complete') go(); else window.addEventListener('load', go);
+  }
+  if ('IntersectionObserver' in window) {
+    var antes = new IntersectionObserver(function (es) {
+      if (es.some(function (e) { return e.isIntersecting; })) { antes.disconnect(); quandoOcioso(iniciar); }
+    }, { rootMargin: '400px' });
+    antes.observe(root);
+  } else { quandoOcioso(iniciar); }
 })();
