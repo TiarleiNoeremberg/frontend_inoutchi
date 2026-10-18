@@ -47,10 +47,10 @@
     '</svg>' +
     '<div class="ia-pino" style="left:64.5%;top:41%"><span>🏫 Escola Aurora</span><i></i></div>' +
     '<div class="ia-hud"><div><small>Distância</small><strong data-r="dist">1,8 km</strong></div><div><small>Cerca virtual</small><strong data-r="cerca">fora</strong></div><div><small>Hora</small><strong data-r="hora">11:58</strong></div></div>' +
-    '<div class="ia-flut ia-tv"><small>TV · Sala 3º B</small><div class="ia-tv-linha"><img loading="lazy" decoding="async" src="' + IMG + 'aluna.webp" alt=""><div><b>LAURA SOUZA</b><em data-r="tvtxt">Responsável chegando</em></div></div></div>' +
-    '<div class="ia-flut ia-pessoa" style="translate:-50% -100%"><img loading="lazy" decoding="async" src="' + IMG + 'aluna.webp" alt="Laura, aluna"><span>Laura · 3º B</span></div>' +
-    '<div class="ia-flut ia-portaria"><img loading="lazy" decoding="async" src="' + IMG + 'portaria.webp" alt="Equipe da portaria"><div class="ia-scan"><small>Portaria · leitura do token</small><div class="ia-scan-box">' + QR + '<div class="ia-laser"></div></div><div class="ia-ok">✔ Token válido · Carlos M.</div></div></div>' +
-    '<div class="ia-flut ia-facial"><div class="ia-cam"><img loading="lazy" decoding="async" data-r="face" src="' + IMG + 'mae.webp" alt=""><div class="ia-mira"></div><div class="ia-laser"></div></div><p data-r="facetxt">Reconhecendo…</p></div>' +
+    '<div class="ia-flut ia-tv"><small>TV · Sala 3º B</small><div class="ia-tv-linha"><img decoding="async" src="' + IMG + 'aluna.webp" alt=""><div><b>LAURA SOUZA</b><em data-r="tvtxt">Responsável chegando</em></div></div></div>' +
+    '<div class="ia-flut ia-pessoa" style="translate:-50% -100%"><img decoding="async" src="' + IMG + 'aluna.webp" alt="Laura, aluna"><span>Laura · 3º B</span></div>' +
+    '<div class="ia-flut ia-portaria"><img decoding="async" src="' + IMG + 'portaria.webp" alt="Equipe da portaria"><div class="ia-scan"><small>Portaria · leitura do token</small><div class="ia-scan-box">' + QR + '<div class="ia-laser"></div></div><div class="ia-ok">✔ Token válido · Carlos M.</div></div></div>' +
+    '<div class="ia-flut ia-facial"><div class="ia-cam"><img decoding="async" data-r="face" src="' + IMG + 'mae.webp" alt=""><div class="ia-mira"></div><div class="ia-laser"></div></div><p data-r="facetxt">Reconhecendo…</p></div>' +
     '</div>' +
     '<div class="ia-lado"><img class="ia-personagem" decoding="async" src="' + IMG + 'mae.webp" alt="">' +
     '<div class="ia-cel"><div class="ia-tela"><div class="ia-push"><i class="ia-ico">i</i><div><b data-r="pusht"></b><span data-r="pushx"></span></div></div>' +
@@ -75,6 +75,7 @@
 
   // Parada: pelo botão (pausado), por estar fora da tela (foraDaTela) ou por preferir menos movimento (começa pausada).
   var REDUZIR = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  var arrastando = false;
   var token = 0, pausado = REDUZIR, foraDaTela = 'IntersectionObserver' in window, cenaAtual = 0, decorrido = 0;
   function parado() { return pausado || foraDaTela; }
   function atualizaParado() { root.querySelector('.ia').classList.toggle('ia-parado', parado()); }
@@ -133,9 +134,18 @@
   }
   function hora(h) { R('hora').textContent = h; }
 
-  function legenda(t) { var p = R('leg'); p.style.opacity = 0; atraso(function () { p.textContent = t; p.style.opacity = 1; }, 200); }
+  // Ao arrastar a barra (ou logo depois de um salto), legenda e personagem trocam na hora: cada movimento reinicia a cena e
+  // cancelaria os atrasos de 200/350 ms, e o personagem só apareceria quando o cursor fosse solto.
+  var tSalto = 0, fimSalto = null;
+  function emSalto() { return arrastando || (performance.now() - tSalto < 700); }
+  function legenda(t) {
+    var p = R('leg');
+    if (emSalto()) { p.textContent = t; p.style.opacity = 1; return; }
+    p.style.opacity = 0; atraso(function () { p.textContent = t; p.style.opacity = 1; }, 200);
+  }
   function pessoa(k) {
     var info = PESSOAS[k];
+    if (emSalto()) { personagem.src = IMG + info.img; personagem.alt = info.nome; personagem.classList.remove('troca'); return; }
     personagem.classList.add('troca');
     atraso(function () { personagem.src = IMG + info.img; personagem.alt = info.nome; personagem.classList.remove('troca'); }, 350);
   }
@@ -165,11 +175,11 @@
 
   var cenas = [
     {
-      tit: 'Chamada por aproximação', dur: 28300, run: async function () {
+      tit: 'Chamada por aproximação', dur: 30900, run: async function () {
         pessoa('mae'); app('Olá, Ana', 'Laura · 3º B'); hora('11:58');
         corpo(chave(false) + status('azul', '📍 Fora da cerca') + aluno('Em aula'));
-        legenda('Ana sai do trabalho para buscar a filha. No app, ela liga a chave “Chamada por aproximação”.');
-        await espera(1800); corpo(chave(true) + status('azul', '📍 Fora da cerca') + aluno('Em aula')); await espera(1400);
+        legenda('Ana sai do trabalho para buscar a filha. No app, ela liga a chave “Chamada por aproximação”.\nNota: A chave de aproximação pode ficar permanentemente acionada.');
+        await espera(3400); corpo(chave(true) + status('azul', '📍 Fora da cerca') + aluno('Em aula')); await espera(2600);
         legenda('O app mede a distância até a escola no próprio celular. O mapa é só uma ilustração: nenhuma posição é gravada.');
         aoEntrar = function () {
           corpo(chave(true) + status('verde', '✅ Dentro da cerca · Laura chamada') + aluno('Indo para o portão'));
@@ -185,7 +195,7 @@
         corpo(chave(true) + status('verde', '🤝 Laura está com você') + aluno('Entregue no portão'));
         legenda('Ana recebe Laura no portão.'); await espera(2200);
         mostra(laura, false);
-        legenda('Depois de 3 minutos fora da cerca, a saída é confirmada automaticamente.');
+        legenda('Caso o responsável esqueça de confirmar a saída no app, depois de 3 minutos fora da cerca, a saída é confirmada automaticamente.');
         await dirige(1, 4200);
         await tween(2600, function (t) {
           var s = Math.round(180 * (1 - t));
@@ -280,12 +290,17 @@
   function tocar(i, desdeMs) {
     token++; var meu = token; cenaAtual = i; limpaAtrasos();
     saltar = Math.max(0, Math.min(desdeMs || 0, cenas[i].dur - 400)); decorrido = saltar;
+    if (desdeMs > 0) {
+      // Durante o salto as transições ficam curtas (a cena é refeita a cada movimento e os cartões não devem aparecer "fantasmas").
+      tSalto = performance.now();
+      root.querySelector('.ia').classList.add('ia-salto');
+      clearTimeout(fimSalto); fimSalto = setTimeout(function () { root.querySelector('.ia').classList.remove('ia-salto'); }, 700);
+    }
     abas.forEach(function (a, j) { a.classList.toggle('ativa', j === i); a.setAttribute('aria-selected', j === i); });
     R('num').textContent = i + 1; R('tit').textContent = cenas[i].tit;
     cerca.style.opacity = 1; reset();
     cenas[i].run().then(function () { saltar = 0; if (meu === token) tocar((i + 1) % cenas.length); }, function () { });
   }
-  var arrastando = false;
   function fmt(ms) { var s = Math.round(ms / 1000); return Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2); }
   function mostraPosicao(pct) {
     R('barra').style.width = pct + '%';
