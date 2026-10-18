@@ -56,7 +56,7 @@
     '<div class="ia-cel"><div class="ia-tela"><div class="ia-push"><i class="ia-ico">i</i><div><b data-r="pusht"></b><span data-r="pushx"></span></div></div>' +
     '<div class="ia-app-top"><small data-r="appsub">Laura · 3º B</small><b data-r="apptit">Olá, Ana</b></div><div class="ia-app-corpo" data-r="corpo"></div></div></div></div>' +
     '</div>' +
-    '<div class="ia-legenda"><div class="ia-num" data-r="num">1</div><div style="flex:1"><h4 data-r="tit"></h4><p data-r="leg" aria-live="polite"></p><div class="ia-barra"><i data-r="barra"></i></div></div></div>' +
+    '<div class="ia-legenda"><div class="ia-num" data-r="num">1</div><div style="flex:1"><h4 data-r="tit"></h4><p data-r="leg" aria-live="polite"></p><div class="ia-trilho" role="slider" tabindex="0" aria-label="Posição na cena (arraste para voltar ou avançar)" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="0:00" data-r="trilho"><div class="ia-barra"><i data-r="barra"></i></div><b class="ia-seta" data-r="seta" aria-hidden="true"></b></div><small class="ia-tempo" data-r="tempo">0:00 / 0:00</small></div></div>' +
     '</div>';
 
   function $(s) { return root.querySelector(s); }
@@ -83,10 +83,17 @@
   function atraso(fn, ms) { atrasos.push(setTimeout(fn, ms)); }
   function limpaAtrasos() { atrasos.forEach(clearTimeout); atrasos = []; }
 
+  // Salto (arrastar a barra): a cena é refeita do começo e os trechos anteriores ao ponto escolhido são concluídos na hora.
+  var saltar = 0;
   function tween(ms, fn) {
     var meu = token;
     return new Promise(function (ok, erro) {
       var el = 0, ult = performance.now();
+      if (saltar > 0) {
+        el = Math.min(saltar, ms); saltar -= el;
+        if (el >= ms) { if (fn) fn(1); ok(); return; }
+        if (fn) fn(el / ms);
+      }
       function f(agora) {
         if (meu !== token) return erro('cancelado');
         var dt = agora - ult; ult = agora;
@@ -158,7 +165,7 @@
 
   var cenas = [
     {
-      tit: 'Chamada por aproximação', dur: 30000, run: async function () {
+      tit: 'Chamada por aproximação', dur: 28300, run: async function () {
         pessoa('mae'); app('Olá, Ana', 'Laura · 3º B'); hora('11:58');
         corpo(chave(false) + status('azul', '📍 Fora da cerca') + aluno('Em aula'));
         legenda('Ana sai do trabalho para buscar a filha. No app, ela liga a chave “Chamada por aproximação”.');
@@ -190,7 +197,7 @@
       }
     },
     {
-      tit: 'Retirada por token', dur: 32000, run: async function () {
+      tit: 'Retirada por token', dur: 29120, run: async function () {
         pessoa('mae'); app('Olá, Ana', 'Laura · 3º B'); hora('10:30');
         corpo('<div class="ia-card"><small>Novo token de retirada</small><strong>Para: Carlos M.</strong><small>Válido hoje até 18h</small></div>' + aluno() + '<div class="ia-acao" data-b>Gerar token</div>');
         legenda('Hoje Ana não pode ir. No app, ela gera um token de retirada para o amigo Carlos.');
@@ -227,7 +234,7 @@
       }
     },
     {
-      tit: 'Escola com leitor facial', dur: 30000, run: async function () {
+      tit: 'Escola com leitor facial', dur: 20400, run: async function () {
         pessoa('mae'); app('Olá, Ana', 'Laura · 3º B'); hora('11:57');
         corpo(chave(false) + status('azul', 'Chamada por aproximação desligada') + aluno('Em aula'));
         legenda('Nesta escola há leitor facial. Ana deixou a chave de aproximação desligada.');
@@ -253,7 +260,7 @@
       }
     },
     {
-      tit: 'O outro responsável', dur: 16000, run: async function () {
+      tit: 'O outro responsável', dur: 11000, run: async function () {
         pessoa('pai'); app('Olá, Marcos', 'Pai da Laura'); hora('12:03');
         pAtual = P_PARA; posCarro(P_PARA); mostra(portaria, true); portaria.classList.add('valido');
         corpo(aluno('Em aula') + status('azul', '🏫 Na escola'));
@@ -270,18 +277,29 @@
   ];
 
   var abas = root.querySelectorAll('.ia-aba');
-  function tocar(i) {
-    token++; var meu = token; cenaAtual = i; decorrido = 0; limpaAtrasos();
+  function tocar(i, desdeMs) {
+    token++; var meu = token; cenaAtual = i; limpaAtrasos();
+    saltar = Math.max(0, Math.min(desdeMs || 0, cenas[i].dur - 400)); decorrido = saltar;
     abas.forEach(function (a, j) { a.classList.toggle('ativa', j === i); a.setAttribute('aria-selected', j === i); });
     R('num').textContent = i + 1; R('tit').textContent = cenas[i].tit;
     cerca.style.opacity = 1; reset();
-    cenas[i].run().then(function () { if (meu === token) tocar((i + 1) % cenas.length); }, function () { });
+    cenas[i].run().then(function () { saltar = 0; if (meu === token) tocar((i + 1) % cenas.length); }, function () { });
+  }
+  var arrastando = false;
+  function fmt(ms) { var s = Math.round(ms / 1000); return Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2); }
+  function mostraPosicao(pct) {
+    R('barra').style.width = pct + '%';
+    R('seta').style.left = pct + '%';
+    var ms = pct / 100 * cenas[cenaAtual].dur, tr = R('trilho');
+    R('tempo').textContent = fmt(ms) + ' / ' + fmt(cenas[cenaAtual].dur);
+    tr.setAttribute('aria-valuenow', Math.round(pct)); tr.setAttribute('aria-valuetext', fmt(ms) + ' de ' + fmt(cenas[cenaAtual].dur));
   }
   var ult = performance.now();
   (function barra(agora) {
     var dt = agora - ult; ult = agora;
     if (!parado()) decorrido += dt;
-    R('barra').style.width = Math.min(100, decorrido / cenas[cenaAtual].dur * 100) + '%';
+    var pct = Math.min(100, decorrido / cenas[cenaAtual].dur * 100);
+    if (!arrastando) mostraPosicao(pct);
     requestAnimationFrame(barra);
   })(ult);
 
@@ -303,6 +321,39 @@
     }, { threshold: 0.25 }).observe(root);
   }
   root.querySelector('[data-a="reinicia"]').addEventListener('click', function () { usuarioAgiu(); tocar(cenaAtual); });
+
+  // Arrastar a seta (ou tocar na barra) volta ou avança a cena. Durante o arraste a cena acompanha o dedo.
+  var trilho = R('trilho'), eraPausado = false, pendente = null;
+  function msDoPonteiro(e) {
+    var r = trilho.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * cenas[cenaAtual].dur;
+  }
+  function irPara(ms) {
+    usuarioAgiu();
+    decorrido = ms; mostraPosicao(ms / cenas[cenaAtual].dur * 100);
+    if (pendente === null) pendente = requestAnimationFrame(function () { pendente = null; tocar(cenaAtual, decorrido); });
+  }
+  trilho.addEventListener('pointerdown', function (e) {
+    arrastando = true; eraPausado = pausado; pausado = true; atualizaParado();
+    try { trilho.setPointerCapture(e.pointerId); } catch (x) { }
+    trilho.classList.add('arrastando'); irPara(msDoPonteiro(e));
+  });
+  trilho.addEventListener('pointermove', function (e) { if (arrastando) irPara(msDoPonteiro(e)); });
+  function soltou() {
+    if (!arrastando) return;
+    arrastando = false; trilho.classList.remove('arrastando');
+    pausado = eraPausado; rotuloPausa();
+  }
+  trilho.addEventListener('pointerup', soltou);
+  trilho.addEventListener('pointercancel', soltou);
+  trilho.addEventListener('keydown', function (e) {
+    var passo = { ArrowLeft: -3000, ArrowDown: -3000, ArrowRight: 3000, ArrowUp: 3000 }[e.key];
+    if (e.key === 'Home') irPara(0);
+    else if (e.key === 'End') irPara(cenas[cenaAtual].dur - 500);
+    else if (passo) irPara(Math.max(0, Math.min(cenas[cenaAtual].dur - 500, decorrido + passo)));
+    else return;
+    e.preventDefault();
+  });
 
   tocar(0);
   }

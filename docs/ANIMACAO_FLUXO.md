@@ -46,3 +46,11 @@ imagens em WebP (350 KB no total), a animação só é montada depois da primeir
 3 s caso o navegador não avise a visibilidade), e as páginas de conteúdo carregam Font Awesome e Google Fonts sem bloquear a
 renderização. Isso causava salto de layout (CLS 0,15) quando a Inter chegava; corrigido com a fonte reserva `Inter Reserva`
 (métricas da Inter sobre Arial) no `<style>` do gerador das páginas.
+
+## Barra de progresso arrastável (2026-10-18)
+
+A barra no fim do card é um controle (`role="slider"`) com uma seta/botão arrastável (mouse, toque e teclado: setas ±3 s, Home, End).
+Como as cenas são sequências de `await`, pular para um instante refaz a cena do começo e conclui na hora os trechos anteriores
+(`saltar` no `tween`), continuando em tempo real dali; por isso voltar também funciona. As durações das cenas (`dur`) são a soma real
+das esperas e trajetos de cada cena: **ao mudar um tempo em uma cena, atualize o `dur` dela**, senão a barra e o tempo mostrado
+ficam errados.
