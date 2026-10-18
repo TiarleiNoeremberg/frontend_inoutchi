@@ -385,6 +385,11 @@
     }, { rootMargin: '400px' });
     antes.observe(root);
     // Rede de segurança: se o navegador não avisar a visibilidade, monta de qualquer jeito 3 s depois de carregar.
-    window.addEventListener('load', function () { setTimeout(function () { quandoOcioso(montar); }, 3000); });
+    // Só vale se a animação estiver perto da tela (na página inicial ela fica bem abaixo e não deve baixar imagens à toa).
+    window.addEventListener('load', function () {
+      setTimeout(function () {
+        if (root.getBoundingClientRect().top < window.innerHeight * 1.1) quandoOcioso(montar);
+      }, 3000);
+    });
   } else { quandoOcioso(montar); }
 })();

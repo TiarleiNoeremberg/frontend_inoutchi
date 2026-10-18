@@ -54,3 +54,25 @@ Como as cenas são sequências de `await`, pular para um instante refaz a cena d
 (`saltar` no `tween`), continuando em tempo real dali; por isso voltar também funciona. As durações das cenas (`dur`) são a soma real
 das esperas e trajetos de cada cena: **ao mudar um tempo em uma cena, atualize o `dur` dela**, senão a barra e o tempo mostrado
 ficam errados.
+
+## A animação na página inicial (2026-10-18)
+
+A seção `#functionality` do `index.html` ("Chamando a criança em 4 passos") foi substituída por esta animação ("Como o Inoutchi
+funciona"). O HTML mínimo (`#anim` + nota de privacidade), o CSS (`css/animacao-fluxo.css`, sem bloquear a renderização) e o JS
+(`js/animacao-fluxo.js`, `defer`) estão no `index.html`; a montagem só acontece quando a animação chega perto da tela.
+
+**Divisão do conteúdo entre as seções** (cada informação em um lugar):
+
+| Informação | Fica em | O que mudou nas outras |
+|---|---|---|
+| Passo a passo: aproximação, TV da sala, token, leitor facial, avisos aos responsáveis | **Como funciona** (animação) | Antigos 4 passos removidos; "Veja em ação" perdeu os 3 itens que repetiam o fluxo |
+| Cerca virtual (pedido só dentro da área) | **Diferenciais** > Geolocalização | — |
+| Privacidade da localização ("não é gravada") | **Privacidade e LGPD** (completo); manchete no topo e resposta no FAQ | O card de Geolocalização agora aponta para a seção de Privacidade |
+| Token: mecânica | **Animação** (visual) e **FAQ** (perguntas de segurança) | O card de Diferenciais virou um resumo de benefício |
+| Leitor facial: opcional e Hikvision | **Diferenciais** (card curto) e FAQ (equipamento) | O card deixou de contar o checkin facial, que está na animação |
+| TV da sala, "sem microfones, rádios ou alto-falantes", painel no portão | **Diferenciais** > Painel Audiovisual | O texto antigo do passo 2 foi embora com a seção |
+| Histórico e rastreabilidade | **Diferenciais** > Histórico | O texto antigo do passo 4 foi embora com a seção |
+| Preço e o que está incluído | **Planos** (e FAQ de cobrança, que precisa valer sozinha para o Google) | — |
+
+Arquivos antigos que ficaram sem uso: `assets/images/ciclo/*.webp` e as regras `.scroll-step` do CSS e do JS do `index.html`
+(inofensivos; remover em uma limpeza futura, depois de confirmar que nada mais os usa).
