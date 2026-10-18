@@ -38,3 +38,11 @@ intencional (decisão do usuário) e a frase de privacidade da página explica q
 
 O painel do navegador do Claude pausa `requestAnimationFrame` e não dispara `IntersectionObserver`; para testar, trocar o
 `requestAnimationFrame` por `setTimeout` e clicar em uma aba (o clique tira a animação do estado "fora da tela").
+
+## Velocidade desta página (PageSpeed, celular, 2026-10-18)
+
+Medições: 74, 74, 87 e 80 (oscila ±10 entre execuções, como na inicial). Acessibilidade 99, SEO 100, CLS 0,049. O que foi feito:
+imagens em WebP (350 KB no total), a animação só é montada depois da primeira pintura (`requestIdleCallback`, com rede de segurança de
+3 s caso o navegador não avise a visibilidade), e as páginas de conteúdo carregam Font Awesome e Google Fonts sem bloquear a
+renderização. Isso causava salto de layout (CLS 0,15) quando a Inter chegava; corrigido com a fonte reserva `Inter Reserva`
+(métricas da Inter sobre Arial) no `<style>` do gerador das páginas.
