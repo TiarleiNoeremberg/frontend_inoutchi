@@ -75,3 +75,18 @@ curl -sI https://www.inoutchi.com/login.html         # 200 (o app Android antigo
 - Adicionou classes do Tailwind em `index.html`, `terms.html` ou `js/simulador.js`: `cd tools/tailwind && npm run build`.
 - Criou uma página pública nova: inclua no `sitemap.xml` e dê `<title>`, descrição e `canonical` próprios.
 - Criou uma página privada nova (painel): coloque `<meta name="robots" content="noindex, nofollow">`.
+
+## Velocidade (PageSpeed Insights, celular, 2026-10-17)
+
+| Página | Desempenho | Acessibilidade | Práticas | SEO |
+|---|---|---|---|---|
+| Inicial, antes | 69 (LCP 5,3 s) | 93 | 100 | 100 |
+| Inicial, depois | **89** (FCP 2,7 s, LCP 3,2 s, CLS 0,006) | 98 | 100 | 100 |
+| Guia de entrada e saída | 90 | 96 | 96 | 100 |
+
+O que moveu a nota: Font Awesome e Google Fonts carregam sem bloquear a primeira pintura (`media="print"` + `onload`), e `tailwind.css` e
+`simulador.css` têm `rel="preload"` logo no início do `<head>` (o HTML tem ~200 KB e os `<link>` ficam no fim; o preload só adianta o
+download e não muda a ordem do CSS). Imagens do ciclo têm versão de 800 px (`srcset`). O que ainda pesa: ~100 KB de CSS dentro do próprio
+`index.html` e o `simulador.css` (36 KB). Para passar de 90, o caminho é mover o CSS que só serve abaixo da dobra para um arquivo externo.
+Cuidado: o CSS do `index.html` tem regras para `h4` e outros seletores; trocar a tag de título quebra o estilo (por isso a ordem dos
+títulos da inicial não foi mexida).
