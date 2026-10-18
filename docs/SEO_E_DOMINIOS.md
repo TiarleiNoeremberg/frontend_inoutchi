@@ -78,15 +78,20 @@ curl -sI https://www.inoutchi.com/login.html         # 200 (o app Android antigo
 
 ## Velocidade (PageSpeed Insights, celular, 2026-10-17)
 
-| Página | Desempenho | Acessibilidade | Práticas | SEO |
-|---|---|---|---|---|
-| Inicial, antes | 69 (LCP 5,3 s) | 93 | 100 | 100 |
-| Inicial, depois | **89** (FCP 2,7 s, LCP 3,2 s, CLS 0,006) | 98 | 100 | 100 |
-| Guia de entrada e saída | 90 | 96 | 96 | 100 |
+Medições da página inicial, na ordem: 69, 69 (antes das mudanças), 89, 70 e 74 (depois). **O PageSpeed oscila muito nesta página**
+(±15 pontos entre execuções da mesma versão): o teste simula CPU lenta e o HTML da inicial é grande. Compare sempre várias execuções.
+A acessibilidade subiu de 93 para 98 e ficou estável. As páginas de conteúdo (HTML pequeno) ficam perto de 90.
 
-O que moveu a nota: Font Awesome e Google Fonts carregam sem bloquear a primeira pintura (`media="print"` + `onload`), e `tailwind.css` e
-`simulador.css` têm `rel="preload"` logo no início do `<head>` (o HTML tem ~200 KB e os `<link>` ficam no fim; o preload só adianta o
-download e não muda a ordem do CSS). Imagens do ciclo têm versão de 800 px (`srcset`). O que ainda pesa: ~100 KB de CSS dentro do próprio
-`index.html` e o `simulador.css` (36 KB). Para passar de 90, o caminho é mover o CSS que só serve abaixo da dobra para um arquivo externo.
+O que mudou de forma estrutural (e que o teste confirma): no celular, o caminho crítico de rede é só o HTML (~42 KB) e o `tailwind.css`
+(7 KB, ~150 ms). Font Awesome e Google Fonts não bloqueiam (`media="print"` + `onload`), `tailwind.css` tem `rel="preload"` no início do
+`<head>`, e o `simulador.css` só carrega em telas de 640 px ou mais (`media`), porque o simulador não existe no celular. Imagens do ciclo
+têm versão de 800 px (`srcset`).
+
+O que sobra é custo de processamento (CPU), não de rede: o `index.html` tem 203 KB (o CSS dentro dele é ~38 KB; o resto é o corpo da
+página). **Correção de uma informação anterior:** o CSS dentro do HTML não é ~100 KB. Mover o que está abaixo da dobra para um arquivo
+externo economizaria uns 6 KB comprimidos (~30 ms), com risco de piscar o estilo e de mudar a ordem de cascata; por isso não foi feito.
+Se um dia for necessário passar de 90 de forma estável, o caminho é reduzir o tamanho e o número de elementos do HTML (dividir a página)
+e não mexer no CSS.
+
 Cuidado: o CSS do `index.html` tem regras para `h4` e outros seletores; trocar a tag de título quebra o estilo (por isso a ordem dos
 títulos da inicial não foi mexida).
