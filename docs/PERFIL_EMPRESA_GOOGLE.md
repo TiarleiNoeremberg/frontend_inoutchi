@@ -18,9 +18,12 @@ O cadastro é feito pelo dono, logado na conta Google dele, em https://business.
 | Horário | o horário em que atende telefone e WhatsApp |
 | Mensagens | ativar o WhatsApp como canal, com a resposta rápida para quem pedir demonstração |
 
-## Descrição (cabe em 750 caracteres; esta tem cerca de 520)
+## Descrição (cabe em 750 caracteres; esta tem cerca de 600)
 
-> O Inoutchi é um sistema de controle de entrada e saída escolar: o responsável dá entrada ou chama o aluno pelo app, a sala recebe a chamada na TV com aviso sonoro só naquela turma e cada retirada fica registrada. A retirada por outra pessoa autorizada usa um token (QR code ou código de 6 dígitos) com conferência na portaria. Funciona com os equipamentos que a escola já tem, sem catracas; o leitor facial é opcional. Inclui mural de avisos para as famílias (opcional). Empresa de Florianópolis, SC. Agende uma demonstração gratuita.
+Posicionamento (2026-10-19): **a saída é a tese; a entrada é um recurso** (ver Decisão 088). O termo "controle de entrada e saída" é o que
+as escolas digitam, então ele continua aparecendo, mas depois da promessa de saída.
+
+> O Inoutchi é um sistema de saída escolar: no horário de pico, o responsável chama o aluno pelo app, a sala recebe a chamada na TV com aviso sonoro só naquela turma e cada retirada fica registrada. A retirada por outra pessoa autorizada usa um token (QR code ou código de 6 dígitos) lido pela portaria. Registra também a entrada, no controle de entrada e saída da escola. Funciona com os equipamentos que a escola já tem, sem catracas; o leitor facial é opcional. Inclui mural de avisos para as famílias (opcional). Empresa de Florianópolis, SC. Agende uma demonstração gratuita.
 
 ## Serviços e produtos (cadastrar cada um com um texto curto)
 
@@ -42,3 +45,11 @@ O cadastro é feito pelo dono, logado na conta Google dele, em https://business.
 - Colar o link do Perfil nas redes e, quando existir, no `Organization.sameAs` do JSON-LD do `index.html`.
 - Pedir avaliações apenas de clientes reais e com a permissão deles (a escola piloto aparece como "Escola piloto, em Florianópolis").
 - Conferir, em **Desempenho** do Perfil, as buscas que trouxeram o Inoutchi.
+
+## Anúncio (Google Ads): promessa de saída, palavras de entrada e saída
+
+- **Títulos e descrições:** a promessa é a saída ("Saída escolar sem fila", "Chame o aluno pelo app", "Aluno chamado na TV da sala").
+- **Temas de palavras-chave** (o que a escola digita): "controle de entrada e saída de alunos", "sistema de controle de entrada e saída de
+  alunos", "painel de chamada escolar", "controle de acesso escolar", "sistema de saída escolar". Mantidos todos: o termo com "entrada"
+  traz a demanda, e o anúncio e a página de destino convertem pela saída.
+- Não incluir "entrada" como promessa nos títulos.
