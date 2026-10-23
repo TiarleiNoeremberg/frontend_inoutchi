@@ -29,7 +29,7 @@ as escolas digitam, então ele continua aparecendo, mas depois da promessa de sa
 
 1. **Sistema de saída escolar**: chamada do aluno pelo app e painel na TV da sala.
 2. **Retirada por terceiros com token**: QR code ou código de 6 dígitos com conferência na portaria.
-3. **Mural de avisos da escola**: comunicados e avisos urgentes para as famílias.
+3. **Mural de avisos da escola** (Plano Avançado, + R$ 100 por mês): comunicados e avisos urgentes para as famílias.
 4. **Integração com leitor facial (opcional)**: checkin facial no ponto externo de chegada, com leitores Hikvision compatíveis.
 5. **Demonstração gratuita**: apresentação do sistema para a direção da escola.
 
