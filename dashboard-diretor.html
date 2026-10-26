@@ -2922,6 +2922,7 @@
                 loadAllStudents(
                     currentStudentsPage,
                     document.getElementById("studentSearch")?.value || "",
+                    { silencioso: true },
                 );
                 refreshOverviewData();
                 return;
@@ -2938,6 +2939,7 @@
                 loadAllStudents(
                     currentStudentsPage,
                     document.getElementById("studentSearch")?.value || "",
+                    { silencioso: true },
                 );
                 refreshOverviewData();
                 return;
@@ -3522,6 +3524,8 @@
 
             // Iniciar novo intervalo
             studentsAutoRefreshInterval = setInterval(() => {
+                // Navegador em segundo plano: não consulta o servidor à toa.
+                if (document.hidden) return;
                 if (
                     document.getElementById("students-tab").classList.contains("active")
                 ) {
@@ -3529,11 +3533,27 @@
                     loadAllStudents(
                         currentStudentsPage,
                         document.getElementById("studentSearch").value,
+                        { silencioso: true },
                     );
                 }
             }, STUDENTS_REFRESH_INTERVAL);
 
-            console.log("✅ Atualização automática da aba Alunos iniciada (30s)");
+            // Ao voltar para a aba do navegador, atualiza uma vez (o intervalo pulou os ciclos escondidos).
+            if (!window.__alunosVisibilidadeLigada) {
+                window.__alunosVisibilidadeLigada = true;
+                document.addEventListener("visibilitychange", () => {
+                    const aba = document.getElementById("students-tab");
+                    if (!document.hidden && aba && aba.classList.contains("active")) {
+                        loadAllStudents(
+                            currentStudentsPage,
+                            document.getElementById("studentSearch").value,
+                            { silencioso: true },
+                        );
+                    }
+                });
+            }
+
+            console.log("✅ Atualização automática da aba Alunos iniciada (10s)");
         }
 
         // ========== MODAL E LOCALIZAÇÃO DO DIRETOR - VERSÃO CORRIGIDA ==========
@@ -3602,12 +3622,83 @@
 
         };
 
+        // ===== Carga da lista de alunos: tolera falhas passageiras (Decisão 091) =====
+        // A atualização automática roda a cada 10 s. Uma falha momentânea (servidor lento, 502/503/504, queda de rede)
+        // não pode virar um aviso bloqueante nem apagar a lista que já está na tela.
+        let cargasAlunosEmAndamento = 0;
+        let falhasSeguidasListaAlunos = 0;
+        let avisouSessaoVencidaAlunos = false;
+
+        async function tratarSessaoVencidaAlunos() {
+            if (avisouSessaoVencidaAlunos) return;
+            avisouSessaoVencidaAlunos = true;
+            await Dialogos.aviso({
+                tipo: "aviso",
+                titulo: "Sessão expirada",
+                mensagem: "Faça login novamente para continuar.",
+                textoOk: "Entendi",
+            });
+            window.location.href = "login.html?expired=1";
+        }
+
+        // Faixa discreta (não bloqueia a tela) acima da tabela; texto vazio esconde a faixa.
+        function mostrarAvisoListaAlunos(texto) {
+            let faixa = document.getElementById("avisoListaAlunos");
+            if (!texto) {
+                if (faixa) faixa.style.display = "none";
+                return;
+            }
+            if (!faixa) {
+                const corpo = document.getElementById("studentsTableBody");
+                const tabela = corpo && corpo.closest("table");
+                if (!tabela || !tabela.parentNode) return;
+                faixa = document.createElement("div");
+                faixa.id = "avisoListaAlunos";
+                faixa.setAttribute("role", "status");
+                faixa.style.cssText =
+                    "display:none;margin:0 0 10px;padding:8px 12px;border-radius:8px;background:#fef3c7;color:#92400e;font-size:14px;";
+                tabela.parentNode.insertBefore(faixa, tabela);
+            }
+            faixa.textContent = texto;
+            faixa.style.display = "block";
+        }
+
+        // Repete só o que é falha passageira: erro de rede, 429, 502, 503 e 504 (até 3 tentativas, esperando 1 s e 2 s).
+        // 401 e demais respostas voltam na hora, para quem chamou decidir.
+        async function buscarComTentativas(url, opcoes, tentativas = 3) {
+            let ultimaResposta = null;
+            let ultimoErro = null;
+            for (let i = 0; i < tentativas; i++) {
+                try {
+                    const resposta = await fetch(url, opcoes);
+                    if (![429, 502, 503, 504].includes(resposta.status)) return resposta;
+                    ultimaResposta = resposta;
+                    ultimoErro = null;
+                } catch (erro) {
+                    ultimoErro = erro;
+                }
+                if (i < tentativas - 1) {
+                    await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
+                }
+            }
+            if (ultimaResposta) return ultimaResposta;
+            throw ultimoErro || new Error("Falha de rede");
+        }
+
         /**
          * CONTROLE NO CLIENTE
          * Busca TODOS os alunos da escola de uma vez para alimentar o cache global.
          * Gerencia a paginação no frontend para não corromper as estatísticas da Visão Geral.
+         *
+         * opcoes.silencioso: usado pela atualização automática e pelos eventos ao vivo. Nesse modo uma carga não começa
+         * se outra ainda estiver em andamento (não empilha chamadas) e uma falha mantém a lista anterior, mostrando só
+         * uma faixa discreta. Sem esse modo (primeira carga, busca, troca de página), a falha mostra o aviso.
          */
-        async function loadAllStudents(page = 0, searchTerm = "") {
+        async function loadAllStudents(page = 0, searchTerm = "", opcoes = {}) {
+            const silencioso = !!(opcoes && opcoes.silencioso);
+            if (silencioso && cargasAlunosEmAndamento > 0) return;
+
+            cargasAlunosEmAndamento++;
             currentStudentsPage = page;
             try {
                 console.log(`Buscando TODOS os alunos... Termo: "${searchTerm}"`);
@@ -3622,10 +3713,15 @@
                 let ultimaPagina = false;
 
                 while (!ultimaPagina) {
-                    const response = await fetch(
+                    const response = await buscarComTentativas(
                         `${BACKEND_URL}/api/diretores/${currentSchoolId}/alunos?page=${paginaAtual}&size=100`,
                         { headers: { Authorization: `Bearer ${accessToken}` } },
                     );
+
+                    if (response.status === 401) {
+                        await tratarSessaoVencidaAlunos();
+                        return;
+                    }
 
                     if (!response.ok) {
                         throw new Error(`Erro ${response.status}: ${response.statusText}`);
@@ -3654,8 +3750,7 @@
                 detailedStudentsData = allStudents;
                 console.log(`✅ Cache global atualizado com ${detailedStudentsData.length} alunos`);
 
-                // Verifica o status de saída pendente (AGUARDANDO_CONFIRMACAO)
-                // É necessário manter para não perder o status visual na tabela
+                // O status (inclusive AGUARDANDO_CONFIRMACAO) já vem calculado pelo backend na própria lista.
                 const studentsWithStatus = await checkAllStudentsStatus(detailedStudentsData);
 
                 // Ordena a lista (mantendo a lógica original)
@@ -3671,7 +3766,7 @@
                         if (priorityA !== priorityB) return priorityA - priorityB;
                         return (a.nome || "").localeCompare(b.nome || "");
                     });
-                    // Atualiza o cache com os dados já ordenados e com status verificado
+                    // Atualiza o cache com os dados já ordenados
                     detailedStudentsData = studentsWithStatus;
                 }
 
@@ -3693,11 +3788,25 @@
                 renderStudentsTable(paginatedData);
                 setupStudentsPagination(paginatedData);
 
+                falhasSeguidasListaAlunos = 0;
+                mostrarAvisoListaAlunos("");
+
                 // Atualiza as estatísticas da Visão Geral com os dados corretos!
                 refreshOverviewData();
             } catch (error) {
-                console.error("Erro ao carregar a lista de alunos:", error);
-                showAlert("Erro grave ao carregar lista de alunos.", "error");
+                falhasSeguidasListaAlunos++;
+                console.error(`Erro ao carregar a lista de alunos (falha seguida nº ${falhasSeguidasListaAlunos}):`, error);
+                const temListaNaTela = Array.isArray(detailedStudentsData) && detailedStudentsData.length > 0;
+                if (silencioso && temListaNaTela) {
+                    // Mantém a lista anterior e avisa sem bloquear; a próxima atualização tenta de novo.
+                    mostrarAvisoListaAlunos(
+                        "Não foi possível atualizar a lista agora. Mostrando os últimos dados; vamos tentar de novo em instantes.",
+                    );
+                } else {
+                    showAlert("Não foi possível carregar a lista de alunos agora. Tente novamente em instantes.", "error");
+                }
+            } finally {
+                cargasAlunosEmAndamento--;
             }
         }
 
@@ -5213,99 +5322,20 @@
         }
 
         /**
-         * Verifica o status de todos os alunos, agora em duas etapas:
-         * 1. Define o status base (PRESENTE/AUSENTE) de forma otimizada.
-         * 2. Para os alunos presentes, verifica em paralelo se há saídas ativas com status 'AGUARDANDO_CONFIRMACAO'.
-         * Esta abordagem é escalável e busca o estado real diretamente do backend.
+         * Status dos alunos para a tabela.
+         *
+         * Antes esta função disparava uma chamada /saida-ativa para CADA aluno presente (cerca de 100 por atualização,
+         * a cada 10 s) só para marcar AGUARDANDO_CONFIRMACAO. Isso é redundante: o backend já devolve esse estado na própria
+         * lista (AlunoService.paginarAlunosPorEscola consulta a chamada pendente de cada aluno). Também não há mais o
+         * "fallback" que marcava TODOS como AUSENTE quando alguma chamada falhava: dado de segurança errado é pior que o
+         * último estado conhecido (Decisão 091).
+         *
          * @param {Array} alunos - A lista de alunos vinda da API principal.
-         * @returns {Promise<Array>} A lista de alunos com o status final e correto.
+         * @returns {Promise<Array>} A mesma lista, com o status que o servidor informou.
          */
         async function checkAllStudentsStatus(alunos) {
-            try {
-                const accessToken = localStorage.getItem("access_token");
-
-                // ========== ALTERAÇÃO CIRÚRGICA AQUI ==========
-                // ETAPA 1: Mantém o status original que veio da API
-                // NÃO substitui pelo resultado do endpoint /presentes
-                // ===============================================
-
-                let alunosComStatusBase = alunos; // Mantém o status original
-
-                // Opcional: Log para debug
-                console.log(`📊 Status original recebido da API: ${alunos.filter(a => a.status === 'PRESENTE').length} presentes, ${alunos.filter(a => a.status === 'AGUARDANDO_CONFIRMACAO').length} aguardando, ${alunos.filter(a => a.status === 'AUSENTE').length} ausentes`);
-
-                // ETAPA 2: Verifica o status 'AGUARDANDO_CONFIRMACAO' para os alunos marcados como PRESENTES
-                console.log("Verificando saídas pendentes para alunos presentes...");
-
-                const alunosPresentes = alunosComStatusBase.filter(
-                    (aluno) => aluno.status === "PRESENTE",
-                );
-
-                if (alunosPresentes.length === 0) {
-                    console.log("Verificação de status de alunos concluída.");
-                    return alunosComStatusBase;
-                }
-
-                const statusPromises = alunosPresentes.map((aluno) =>
-                    fetch(
-                        `${BACKEND_URL}/api/presencas/aluno/${aluno.id}/saida-ativa`,
-                        {
-                            headers: { Authorization: `Bearer ${accessToken}` },
-                        },
-                    ).then(async (res) => {
-                        if (res.ok) {
-                            try {
-                                const responseData = await res.json();
-                                const saidaAtiva = responseData.dados;
-                                if (
-                                    saidaAtiva &&
-                                    saidaAtiva.status === "AGUARDANDO_CONFIRMACAO"
-                                ) {
-                                    return {
-                                        alunoId: aluno.id,
-                                        novoStatus: "AGUARDANDO_CONFIRMACAO",
-                                    };
-                                }
-                            } catch (e) {
-                                // Ignora erros de parsing
-                            }
-                        }
-                        return null;
-                    }),
-                );
-
-                const resultadosStatus = await Promise.all(statusPromises);
-
-                const alunosComStatusPendente = new Map();
-                resultadosStatus
-                    .filter((r) => r)
-                    .forEach((resultado) => {
-                        alunosComStatusPendente.set(
-                            resultado.alunoId,
-                            resultado.novoStatus,
-                        );
-                    });
-
-                if (alunosComStatusPendente.size > 0) {
-                    alunosComStatusBase = alunosComStatusBase.map((aluno) => {
-                        if (alunosComStatusPendente.has(aluno.id)) {
-                            return {
-                                ...aluno,
-                                status: alunosComStatusPendente.get(aluno.id),
-                            };
-                        }
-                        return aluno;
-                    });
-                }
-
-                console.log("Verificação de status de alunos concluída.");
-                detailedStudentsData = alunosComStatusBase;
-
-                return alunosComStatusBase;
-            } catch (error) {
-                console.error("Erro crítico ao verificar status dos alunos:", error);
-                return alunos.map((a) => ({ ...a, status: "AUSENTE" })); // Fallback seguro
-            }
+            console.log(`📊 Status recebido do servidor: ${alunos.filter(a => a.status === 'PRESENTE').length} presentes, ${alunos.filter(a => a.status === 'AGUARDANDO_CONFIRMACAO').length} aguardando, ${alunos.filter(a => a.status === 'AUSENTE').length} ausentes`);
+            return alunos;
         }
 
         // Visualizar alunos de um tutor
